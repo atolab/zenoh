@@ -1,0 +1,13 @@
+opam-version: "1.2"
+version:"0.1"
+maintainer: "angelo.corsaro@adlinktech.com"
+homepage: "http://zenoh.io"
+license: "Apache 2"
+
+build: [
+  ["jbuilder" "build" "--only" "zenoh-proto" "--root" "." "-j" jobs]
+]
+
+depends: [
+  "core"
+]

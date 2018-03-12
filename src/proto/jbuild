@@ -1,0 +1,6 @@
+(jbuild_version 1)
+
+(library
+ ((name            zenoh_proto)
+  (public_name     zenoh-proto)
+  (libraries       (core))))
