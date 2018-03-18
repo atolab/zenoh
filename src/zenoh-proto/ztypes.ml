@@ -12,8 +12,8 @@ module Properties = struct
   let empty = []
   let singleton p = [p]
   let add ps p = p::ps
-  let find f ps  = List.find_opt f
-  let get name ps = List.find_opt (fun (n, v) -> if n = name then true else false)
+  let find f ps = List.find_opt f ps
+  let get name ps = List.find_opt (fun (n, _) -> if n = name then true else false) ps
   let length ps = List.length ps
 end
 
@@ -27,7 +27,7 @@ module UDPLocator = struct
   let to_string l =  "udp/" ^ l.addr ^ (string_of_int l.port)
 
   let is_multicast l = match (String.split_on_char '.' l.addr) with
-    | h::tl ->
+    | h::_ ->
       let a = int_of_string h  in
       if a >= 224 && a <= 239 then true else false
     | _ -> false

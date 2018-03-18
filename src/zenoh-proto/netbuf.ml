@@ -1,4 +1,4 @@
-open Ztypes
+(* open Ztypes *)
 
 module IOBuf = struct
   type t = {
@@ -12,9 +12,9 @@ module IOBuf = struct
     Bytes.set buf.buffer buf.limit c ;
     { buffer = buf.buffer; limit = buf.limit + 1 }
 
-  let put_vle buf v = buf
+  let put_vle buf _ = buf
 
-  let put_bytes buf bs = buf
+  let put_bytes buf _ = buf
 
-  let put_buf dest src = dest 
+  let put_buf dest _ = dest
 end
