@@ -3,4 +3,6 @@
 (library
  ((name            zenoh_proto)
   (public_name     zenoh-proto)
-  (libraries       (core))))
+  (libraries       (lwt lwt.unix lwt.preemptive))
+  (preprocess
+    (pps (lwt.ppx)))))
