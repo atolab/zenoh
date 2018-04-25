@@ -10,10 +10,11 @@ module IOBuf = struct
 
   let put_char buf c =
     Lwt_bytes.set buf.buffer buf.limit c ;
-    {buf with limit = buf.limit+1}    
+    {buf with limit = buf.limit+1}
+
 
   let put_vle buf _ = buf
-
+    
   let put_bytes buf _ = buf
 
   let put_buf dest _ = dest

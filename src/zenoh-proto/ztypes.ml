@@ -1,5 +1,21 @@
 module Vle = struct
   include Int64
+  let max_byte = Int64.of_int 0x7f
+  let shift_len = 7
+  let max_bits = 64
+
+  let to_list v =
+    let rec to_list_rec v xs =
+      if v <= max_byte then (v::xs)
+      else
+        begin
+          let c = Int64.logand v max_byte in
+          let u = Int64.shift_left v shift_len in
+          to_list_rec u (c::xs)
+        end
+    in to_list_rec v []
+
+  
 end
 
 module Property = struct
