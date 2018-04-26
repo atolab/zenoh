@@ -7,7 +7,7 @@ module Vle = struct
   let byte_mask =  0x7fL
   let shift_len = 7
   let max_bits = 64
-  let max_bytes = 12
+  let max_bytes = 10
 
   let to_list_negative v =
     let rec to_list_negative_rec v xs n =
@@ -17,8 +17,8 @@ module Vle = struct
           let sv = Int64.shift_right v shift_len in
           to_list_negative_rec sv (mv::xs) (n+1)
         end
-      else List.rev (byte_mask :: xs)
-    in to_list_negative_rec v [] 0
+      else List.rev (1L :: xs)
+    in to_list_negative_rec v [] 1
 
   let to_list_positive v =
     let rec to_list_positive_rec v xs =
@@ -40,7 +40,7 @@ module Vle = struct
     else
       begin
         let rec from_list_rec v xs n =
-          if n < max_bytes then
+          if n <= max_bytes then
             match xs with
             | y::ys ->
               let nv = Int64.logor (Int64.shift_left y (n* shift_len)) v in
