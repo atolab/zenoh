@@ -10,12 +10,12 @@ module Vle = struct
       else
         begin
           let c = Int64.logand v max_byte in
-          let u = Int64.shift_left v shift_len in
+          let u = Int64.shift_right v shift_len in
           to_list_rec u (c::xs)
         end
     in to_list_rec v []
 
-  
+
 end
 
 module Property = struct
