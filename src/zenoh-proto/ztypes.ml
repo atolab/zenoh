@@ -1,21 +1,54 @@
+type zerror =
+  | ValueOutOfRange
+  | InvalidMessage
+
 module Vle = struct
   include Int64
-  let max_byte = Int64.of_int 0x7f
+  let byte_mask =  0x7fL
   let shift_len = 7
   let max_bits = 64
+  let max_bytes = 12
 
-  let to_list v =
-    let rec to_list_rec v xs =
-      if v <= max_byte then (v::xs)
+  let to_list_negative v =
+    let rec to_list_negative_rec v xs n =
+      if n < max_bytes then
+        begin
+          let mv = Int64.logand v byte_mask in
+          let sv = Int64.shift_right v shift_len in
+          to_list_negative_rec sv (mv::xs) (n+1)
+        end
+      else List.rev (byte_mask :: xs)
+    in to_list_negative_rec v [] 0
+
+  let to_list_positive v =
+    let rec to_list_positive_rec v xs =
+      if v <= byte_mask then List.rev (v::xs)
       else
         begin
-          let c = Int64.logand v max_byte in
-          let u = Int64.shift_right v shift_len in
-          to_list_rec u (c::xs)
+          let mv = Int64.logand v byte_mask in
+          let sv = Int64.shift_right v shift_len in
+          to_list_positive_rec sv (mv::xs)
         end
-    in to_list_rec v []
+    in to_list_positive_rec v []
 
+  let to_list v =
+    if v >= Int64.zero then to_list_positive v
+    else to_list_negative v
 
+  let from_list xs =
+    if List.length xs > max_bytes then Error ValueOutOfRange
+    else
+      begin
+        let rec from_list_rec v xs n =
+          if n < max_bytes then
+            match xs with
+            | y::ys ->
+              let nv = Int64.logor (Int64.shift_left y (n* shift_len)) v in
+              from_list_rec nv ys (n+1)
+            | [] -> Ok v
+          else Error ValueOutOfRange
+        in from_list_rec Int64.zero xs 0
+      end
 end
 
 module Property = struct
