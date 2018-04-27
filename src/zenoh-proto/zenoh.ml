@@ -1,4 +1,6 @@
 open Ztypes
+open Pervasives
+open Printf
 
 module MessageId = struct
   let scoutId = char_of_int 0x01
@@ -122,7 +124,8 @@ module Hello = struct
   type t = {
     header : Header.t;
     mask : Vle.t;
-    locators : Locators.t
+    locators : Locators.t;
+    properties : Properties.t
   }
 end
 
@@ -179,7 +182,7 @@ module Accept = struct
     header : Header.t;
     opid : bytes;
     apid : bytes;
-    least : Vle.t;
+    lease : Vle.t;
     properties : Properties.t;
   }
 end
@@ -214,4 +217,5 @@ module Message = struct
 
   (* let put msg bs = match msg with
       Scout s -> Bytes. *)
+
 end

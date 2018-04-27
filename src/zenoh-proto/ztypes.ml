@@ -1,9 +1,12 @@
+open String
+open List
+
 module Vle = struct
   include Int64
 end
 
 module Property = struct
-  type t = string * bytes
+  type t = Int64.t * bytes
   let create n v = (n, v)
 end
 
@@ -24,7 +27,11 @@ module UDPLocator = struct
     port : int;
   }
 
-  let to_string l =  "udp/" ^ l.addr ^ (string_of_int l.port)
+  let to_string l =  "udp/" ^ l.addr ^ ":" ^ (string_of_int l.port)
+
+  let from_string s =
+    let inet_addr = split_on_char ':' (hd (rev (split_on_char '/' s))) in
+    {addr=nth inet_addr 0; port=int_of_string (nth inet_addr 1)}
 
   let is_multicast l = match (String.split_on_char '.' l.addr) with
     | h::_ ->
@@ -39,13 +46,28 @@ module TCPLocator = struct
     port : int;
   }
 
-  let to_string l =  "tcp/" ^ l.addr ^ (string_of_int l.port)
+  let to_string l =  "tcp/" ^ l.addr ^ ":" ^ (string_of_int l.port)
+
+  let from_string s =
+    let inet_addr = split_on_char ':' (hd (rev (split_on_char '/' s))) in
+    {addr=nth inet_addr 0; port=int_of_string (nth inet_addr 1)}
 end
 
 module Locator = struct
   type t =
     | UDPLocator of UDPLocator.t
     | TCPLocator of TCPLocator.t
+
+  let to_string l =
+    match l with
+    | UDPLocator l -> UDPLocator.to_string l
+    | TCPLocator l -> TCPLocator.to_string l
+
+  let from_string s =
+    match (hd (split_on_char '/' s)) with
+    | trans when trans = "udp" -> UDPLocator(UDPLocator.from_string s)
+    | trans when trans = "tcp" -> TCPLocator(TCPLocator.from_string s)
+    | _ -> raise (Failure ("Unable to read locator from string \"" ^ s ^ "\"" ))
 end
 
 module Locators = struct
