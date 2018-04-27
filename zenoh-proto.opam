@@ -1,13 +1,24 @@
 opam-version: "1.2"
+maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Olivier Hecart"]
+homepage:     "https://zenoh.io"
+bug-reports:  "https://github.com/atolab/zenoh/issues/"
+dev-repo:     "https://github.com/atolab/zenoh.git"
+tags:         ["zenoh"]
+
 version:"0.1"
-maintainer: "angelo.corsaro@adlinktech.com"
-homepage: "http://zenoh.io"
-license: "Apache 2"
+license: "EPL2"
 
 build: [
-  ["jbuilder" "build" "--only" "zenoh-proto" "--root" "." "-j" jobs]
+ ["jbuilder" "subst"] {pinned}
+ ["jbuilder" "build" "-p" name "-j" jobs]
 ]
 
 depends: [
-  "core"
+  "jbuilder"
+  "lwt" {<= "4.0.1"}
+  "lwt.unix"
+  "lwt.preemptive"
 ]
+
+available: [ocaml-version >= "4.03.0"]
