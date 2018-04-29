@@ -33,7 +33,7 @@ let write_read_vle w =
   ; rbuf <-- (IOBuf.flip wbuf)
   ; (r, buf) <-- (IOBuf.get_vle rbuf)
   ; () ; Printf.printf "written: %Ld read: %Ld\n" w r
-  ; () ; Alcotest.(check int64) "IOBuf write / read same character"  w r
+  ; () ; Alcotest.(check int64) "IOBuf write / read same vle"  w r
   ; return buf
 
 let write_read_vle_test () =
@@ -41,7 +41,17 @@ let write_read_vle_test () =
   let rec loop n =
     if n < test_cases then
       begin
-        let _ = write_read_vle @@ Random.int64 Int64.max_int in
+        let u = Random.int64 Int64.max_int in
+        let v = Random.int64 Int64.max_int in
+        let d = Int64.sub u v in
+        let nu = Int64.neg u in
+        let nv = Int64.neg v in
+        let _ = write_read_vle @@ Int64.of_int n in
+        let _ = write_read_vle u in
+        let _ = write_read_vle v in
+        let _ = write_read_vle d in
+        let _ = write_read_vle nu in
+        let _ = write_read_vle nv in
         loop @@ n +1
       end
     else ()
