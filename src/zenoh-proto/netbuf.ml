@@ -66,6 +66,20 @@ module IOBuf = struct
     if v < 0L then put_negative_vle_rec buf v 1
     else put_positive_vle_rec buf v
 
+  let get_vle buf =
+    let from_char c = Vle.of_int (int_of_char c) in
+    let masked_from_char c = Vle.logand Vle.byte_mask  (Vle.of_int (int_of_char c)) in
+    let merge v c n = Vle.logor v (Vle.shift_left c (n * Vle.shift_len)) in
+    let rec get_vle_rec buf v n =
+      if n < Vle.max_bytes then
+        begin
+          Result.do_
+          ; (c, rbuf) <-- get_char buf
+          ; if (from_char c) <= Vle.byte_mask then return ((merge v (masked_from_char c) n), buf)
+            else get_vle_rec rbuf (merge v (masked_from_char c) n) (n+1)
+        end
+      else Result.error OutOfRangeVle
+    in get_vle_rec buf 0L 0
 
   let put_bytes buf _ = Result.ok buf
 

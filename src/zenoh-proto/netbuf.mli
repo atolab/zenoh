@@ -18,6 +18,8 @@ module IOBuf : sig
   val get_char : t -> (char * t, error) result
 
   val put_vle : t -> Vle.t -> (t, error) result
+  val get_vle : t -> (Vle.t * t, error) result
+
   val put_bytes : t -> bytes -> (t, error) result
 
   val put_buf : t -> t -> (t, error) result
