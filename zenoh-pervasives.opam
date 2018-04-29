@@ -16,10 +16,6 @@ build: [
 
 depends: [
   "jbuilder"
-  "zenoh-pervasives" {>= "0.1.0"}
-  "lwt" {<= "4.0.1"}
-  "lwt.unix"
-  "lwt.preemptive"
 ]
 
 available: [ocaml-version >= "4.03.0"]
