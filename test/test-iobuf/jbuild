@@ -1,0 +1,14 @@
+(jbuild_version 1)
+
+(executable
+ ((name      test_iobuf)
+  (modules   (test_iobuf))
+  (libraries (zenoh_proto alcotest))
+  (preprocess
+    (pps (ppx_monadic)))))
+
+(alias
+ ((name runtest)
+  (package zenoh-proto)
+  (deps (test_iobuf.exe))
+  (action (run ${exe:test_iobuf.exe} -q --color=always))))
