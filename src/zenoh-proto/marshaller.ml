@@ -129,7 +129,7 @@ let read_accept bs pos header =
   let (lease, pos) = read_vle bs pos in
   match ((int_of_char header) land (int_of_char Flags.pFlag)) with
   | 0x00 -> ({header=header; opid=opid; apid=apid; lease=lease; properties=[]}, pos)
-  | _ -> let (props, props_size) = read_prop_seq bs pos in
+  | _ -> let (props, _) = read_prop_seq bs pos in
     ({header=header; opid=opid; apid=apid; lease=lease; properties=props}, pos)
 
 let read_close bs pos header =

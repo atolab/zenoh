@@ -1,6 +1,5 @@
 open Ztypes
 open Pervasives
-open Printf
 
 module MessageId = struct
   let scoutId = char_of_int 0x01
