@@ -19,3 +19,12 @@ module Result = struct
     let ( >>| ) = ( >>| )
   end
 end
+
+(* val apply_n : 'a -> ('a -> 'b) -> int -> 'a list *)
+
+
+let apply_n (t : 'a) (f : 'a -> 'b)  (n: int) =
+  let rec loop_n n xs =
+    if n = 1 then xs
+    else loop_n (n-1) ((f t) :: xs)
+  in loop_n n []

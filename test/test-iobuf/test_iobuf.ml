@@ -1,8 +1,8 @@
 open Zenoh_pervasives
 open Netbuf
 
-let test_cases = 100000
-
+let test_cases = 1000
+let batch = 64
 let write_read_char x =
   Result.do_
   ; buf <-- (IOBuf.create 16)
@@ -25,6 +25,42 @@ let write_read_char_test () =
   print_endline "startint test"
   ; run_test_loop 0
 
+let write_read_string () =
+  let words = open_in "/usr/share/dict/words" in
+  let rec rws buf n =
+    if n < test_cases then
+      begin
+        let m = batch in
+        let xs = apply_n words input_line m  in
+        let rec write_list buf xs =
+          match xs with
+          | h::tl ->
+            Result.do_
+            ; buf <-- IOBuf.put_string buf h
+            ; write_list buf tl
+          | [] -> Result.ok buf
+        in
+        let rec read_list buf n xs  =
+          if n = 1 then Result.ok (xs, buf)
+          else
+            begin
+              Result.do_
+              ; (s, buf) <-- IOBuf.get_string buf
+              ; read_list buf (n-1) (s::xs)
+            end
+        in
+        Result.do_
+        ; buf <-- IOBuf.clear buf
+        ; buf <-- write_list buf xs
+        ; buf <-- IOBuf.flip buf
+        ; (ys, buf) <-- read_list buf m []
+        ; () ; let cs = (List.combine xs (List.rev ys)) in  cs |> List.iter (fun (w, r) ->  Printf.printf "w: %s, r: %s\n" w r) ; cs |> List.iter (fun (w,r) -> Alcotest.(check string) "IOBuf write / read same  string" w r)
+        ; rws buf (n+1)
+      end
+    else Result.ok buf
+  in
+  let open Result in
+  let _ = IOBuf.create (1024*1024) >>= fun buf -> rws buf 0 in ()
 
 let write_read_vle w =
   Result.do_
@@ -33,7 +69,7 @@ let write_read_vle w =
   ; rbuf <-- (IOBuf.flip wbuf)
   ; (r, buf) <-- (IOBuf.get_vle rbuf)
   ; () ; Printf.printf "written: %Ld read: %Ld\n" w r
-  ; () ; Alcotest.(check int64) "IOBuf write / read same vle"  w r
+  ; () ; Alcotest.(check int64) "IOBuf write / read same  vle"  w r
   ; return buf
 
 let write_read_vle_test () =
@@ -61,6 +97,7 @@ let write_read_vle_test () =
 let test_iobuf = [
   "WR-Char" , `Quick, write_read_char_test;
   "WR-Vle.t" , `Quick, write_read_vle_test;
+  "WR-String", `Quick, write_read_string;
 ]
 
 (* Run it *)
