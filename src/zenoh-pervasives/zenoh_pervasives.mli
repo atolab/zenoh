@@ -27,3 +27,8 @@ module Result : sig
 end
 
 val apply_n : 'a -> ('a -> 'b) -> int -> 'b list
+
+module ZList : sig
+  val take : int -> 'a list -> 'a list
+  val drop : int -> 'a list -> 'a list
+end

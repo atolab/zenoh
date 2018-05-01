@@ -1,8 +1,29 @@
 open Zenoh_pervasives
+open Monad
+
 open Netbuf
 
 let test_cases = 1000
 let batch = 64
+
+module Error = struct
+  type e = ErrorOne of int | ErrorTwo of int
+end
+
+module TResultM = ResultM(Error)
+
+let produce_tresult_m n =
+  if n > 10 then TResultM.return 10 else TResultM.fail @@ Error.ErrorOne 10
+
+let test_tresult_m () =
+  let _ =
+    TResultM.do_
+    ; r <-- produce_tresult_m 20
+    ; () ; Alcotest.(check int) "Result = 10"  r 10
+    ; () ; Printf.printf "Result: %d" r
+    ; return 0
+  in ()
+
 let write_read_char x =
   Result.do_
   ; buf <-- (IOBuf.create 16)
@@ -36,7 +57,7 @@ let write_read_string () =
           match xs with
           | h::tl ->
             Result.do_
-            ; buf <-- IOBuf.put_string buf h
+            ; buf <-- (IOBuf.put_string buf h)
             ; write_list buf tl
           | [] -> Result.ok buf
         in
@@ -98,6 +119,7 @@ let test_iobuf = [
   "WR-Char" , `Quick, write_read_char_test;
   "WR-Vle.t" , `Quick, write_read_vle_test;
   "WR-String", `Quick, write_read_string;
+  "TResultM", `Quick, test_tresult_m;
 ]
 
 (* Run it *)
