@@ -1,4 +1,4 @@
-type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
+(* type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
 module Result : sig
 
@@ -24,7 +24,7 @@ module Result : sig
     val ( >>= ) : ('a, 'b) result -> ('a -> ('c, 'b) result) -> ('c, 'b) result
     val ( >>| ) : ('a, 'b) result -> ('a -> 'c) -> ('c, 'b) result
   end
-end
+end *)
 
 val apply_n : 'a -> ('a -> 'b) -> int -> 'b list
 

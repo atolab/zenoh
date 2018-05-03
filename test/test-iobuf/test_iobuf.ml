@@ -6,22 +6,47 @@ open Netbuf
 let test_cases = 1000
 let batch = 64
 
-module Error = struct
-  type e = ErrorOne of int | ErrorTwo of int
+module ErrorA = struct
+  type e = ErrorAOne of int | ErrorATwo of int
 end
 
-module TResultM = ResultM(Error)
+module ErrorB = struct
+  type e = ErrorBOne of int | ErrorBTwo of int
+end
 
-let produce_tresult_m n =
-  if n > 10 then TResultM.return 10 else TResultM.fail @@ Error.ErrorOne 10
+module ResultA = ResultM(ErrorA)
+module ResultB = ResultM(ErrorB)
+
+module type ResultTransformerSig = sig
+  val transform : ('a, 'b) result ->  ('b -> ('a, 'c) result) -> ('a, 'c) result
+end
+
+module ResultTransformer (RA : ResultS) (RB : ResultS) = struct
+  let transform r f = match r with
+    | RA.(Ok v) -> RB.ok v
+    | RA.(Error e) -> RB.fail (f e)
+end
+
+module RTAB =  ResultTransformer(ResultA)(ResultB)
+
+let transform r f g = match r with
+  | Ok v -> f v
+  | Error e -> g e
+
+let produce_result_a n =
+  if n > 10 then ResultA.return 10 else ResultA.fail @@ ErrorA.ErrorAOne 10
+
+let test_tresult_m () =
+  let _ = RTAB.transform (produce_result_a 20) (fun _ -> ErrorB.ErrorBOne 10)
+  in ()
 
 let test_tresult_m () =
   let _ =
-    TResultM.do_
-    ; r <-- produce_tresult_m 20
-    ; () ; Alcotest.(check int) "Result = 10"  r 10
-    ; () ; Printf.printf "Result: %d" r
-    ; return 0
+    match (ResultA.do_
+          ; produce_result_a 20) with
+    | Error (ErrorA.ErrorAOne v) -> ResultB.fail (ErrorB.ErrorBOne v)
+    | Error (ErrorA.ErrorATwo v) -> ResultB.fail (ErrorB.ErrorBTwo v)
+    | _ -> ResultB.fail (ErrorBOne 0)
   in ()
 
 let write_read_char x =
@@ -119,7 +144,7 @@ let test_iobuf = [
   "WR-Char" , `Quick, write_read_char_test;
   "WR-Vle.t" , `Quick, write_read_vle_test;
   "WR-String", `Quick, write_read_string;
-  "TResultM", `Quick, test_tresult_m;
+  (* "TResultM", `Quick, test_tresult_m; *)
 ]
 
 (* Run it *)

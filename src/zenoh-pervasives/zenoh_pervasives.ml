@@ -1,4 +1,4 @@
-type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
+(* type ('a, 'b) result = ('a, 'b) Pervasives.result = Ok of 'a | Error of 'b
 
 module Result = struct
   type ('a, 'b) t = ('a, 'b) result
@@ -9,6 +9,7 @@ module Result = struct
   let fail = error
 
   let bind v f = match v with Ok v -> f v | Error _ as e -> e
+
   let map f v = match v with Ok v -> Ok (f v) | Error _ as e -> e
   let join r = match r with Ok v -> v | Error _ as e -> e
   let ( >>= ) = bind
@@ -18,7 +19,7 @@ module Result = struct
     let ( >>= ) = ( >>= )
     let ( >>| ) = ( >>| )
   end
-end
+end *)
 
 (* val apply_n : 'a -> ('a -> 'b) -> int -> 'a list *)
 

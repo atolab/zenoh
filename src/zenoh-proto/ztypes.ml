@@ -1,13 +1,16 @@
 
 open String
 open List
-open Zenoh_pervasives
 
 
 module Vle = struct
   include Int64
 
-  type error = ValueOutOfRange
+  module Error = struct
+    type e =  ValueOutOfRange
+  end
+
+  module Result = Monad.ResultM(Error)
 
   let byte_mask =  0x7fL
   let more_bytes_flag = 0x80L
@@ -43,7 +46,7 @@ module Vle = struct
 
 
   let from_list xs =
-    if List.length xs > max_bytes then Result.error ValueOutOfRange
+    if List.length xs > max_bytes then Result.fail ValueOutOfRange
     else
       begin
         let rec from_list_rec v xs n =
@@ -53,7 +56,7 @@ module Vle = struct
               let nv = Int64.logor (Int64.shift_left y (n* shift_len)) v in
               from_list_rec nv ys (n+1)
             | [] -> Result.ok v
-          else Result.error ValueOutOfRange
+          else Result.fail ValueOutOfRange
         in from_list_rec Int64.zero xs 0
       end
 end

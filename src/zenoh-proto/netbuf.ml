@@ -1,7 +1,21 @@
 open Zenoh_pervasives
 open Ztypes
 
+
 module IOBuf = struct
+
+  module Error = struct
+    type e =
+      | InvalidFormat
+      | InvalidPosition
+      | InvalidLimit
+      | OutOfRangeVle of int64 * int
+      | OutOfRangeGet of int * int
+      | OutOfRangePut of int * int
+  end
+
+  module Result = Monad.ResultM (Error)
+
   type t = {
     buffer : Lwt_bytes.t;
     pos: int;
@@ -9,14 +23,6 @@ module IOBuf = struct
     capacity: int;
     mark : int
   }
-
-  type error =
-    | InvalidFormat
-    | InvalidPosition
-    | InvalidLimit
-    | OutOfRangeVle of int64 * int
-    | OutOfRangeGet of int * int
-    | OutOfRangePut of int * int
 
   let create len = Result.ok { buffer = Lwt_bytes.create len;  pos = 0; limit = len; capacity = len; mark = 0 }
 
@@ -44,14 +50,14 @@ module IOBuf = struct
   let set_position buf pos =
     if pos >=0 && pos <= buf.limit
     then Result.ok { buf with pos = buf.pos }
-    else Result.error InvalidPosition
+    else Result.fail InvalidPosition
 
   let get_limit buf = buf.limit
 
   let set_limit buf lim =
     if lim >= buf.pos && lim <= buf.capacity
     then Result.ok { buf with limit = lim}
-    else Result.error InvalidLimit
+    else Result.fail InvalidLimit
 
 
   let put_char buf c =
@@ -61,7 +67,7 @@ module IOBuf = struct
         ; Result.ok { buf with pos = buf.pos + 1}
       end
     else
-      Result.error @@ OutOfRangePut (buf.pos, buf.limit)
+      Result.fail @@ OutOfRangePut (buf.pos, buf.limit)
 
   let get_char buf =
     if buf.pos < buf.limit then
@@ -69,7 +75,7 @@ module IOBuf = struct
         let c = Lwt_bytes.get buf.buffer buf.pos in
         Result.ok (c, {buf with pos = buf.pos+1})
       end
-    else Result.error @@ OutOfRangeGet (buf.pos, buf.limit)
+    else Result.fail @@ OutOfRangeGet (buf.pos, buf.limit)
 
   let put_vle buf v =
     let to_char l = char_of_int @@ Int64.to_int l in
@@ -116,7 +122,7 @@ module IOBuf = struct
           let rec skip buf k  =
             Result.do_
             ; (c, buf) <-- get_char buf
-            ; if from_char c <= Vle.byte_mask then Result.error @@ OutOfRangeVle (v, k) else skip buf (k+1)
+            ; if from_char c <= Vle.byte_mask then Result.fail @@ OutOfRangeVle (v, k) else skip buf (k+1)
           in skip buf n
         end
     in get_vle_rec buf 0L 0
@@ -147,7 +153,7 @@ module IOBuf = struct
         ; Result.ok { buf with pos = buf.pos + len }
         end
     else
-      Result.error @@ OutOfRangePut (buf.pos + len, buf.limit)
+      Result.fail @@ OutOfRangePut (buf.pos + len, buf.limit)
 
 
   let blit src dst =
@@ -158,6 +164,6 @@ module IOBuf = struct
         ; Result.ok { dst with pos = dst.pos + len }
       end
     else
-      Result.error @@ OutOfRangePut (dst.pos + len, dst.limit)
+      Result.fail @@ OutOfRangePut (dst.pos + len, dst.limit)
 
 end

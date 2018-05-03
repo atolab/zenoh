@@ -5,6 +5,9 @@ open Zenoh
 open Ztypes
 open Zenoh.Message
 
+
+module Result = Monad.ResultM(IOBuf.Error)
+
 let read_seq buf read =
   let rec read_remaining buf seq length =
     match length with
@@ -40,7 +43,7 @@ let read_byte_seq buf =
       Result.do_
       ; buf <-- IOBuf.set_position buf ((IOBuf.get_position buf) + int_length)
       ; Result.ok (result, buf)
-    end else Result.error (IOBuf.OutOfRangeGet (IOBuf.get_position buf, IOBuf.get_limit buf))
+    end else Result.fail (IOBuf.Error.OutOfRangeGet (IOBuf.get_position buf, IOBuf.get_limit buf))
 
 let write_byte_seq buf seq =
   let seq_length = Lwt_bytes.length seq in
@@ -195,7 +198,7 @@ let read_msg buf =
     | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
     | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
     | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
-    | _ -> Result.error (IOBuf.InvalidFormat) (* TODO : define msg level error *)
+    | _ -> Result.fail (IOBuf.Error.InvalidFormat) (* TODO : define msg level error *)
 
 let write_msg buf msg =
   match msg with

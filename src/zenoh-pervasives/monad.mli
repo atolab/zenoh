@@ -72,11 +72,28 @@ module ListM : MonadPlus with type 'a m = 'a list
 
 module Option : MonadPlus with type 'a m = 'a option
 
-module ResultM (E : sig type e end ) : sig
+module type ResultS = sig
+  type e
+  include  Monad with type 'a m = ('a, e) result
+  val ok : 'a -> 'a m
+  val fail : e -> 'a m
+end
+(* 
+module type ResultXchg = sig
+  type e
+
+  val xchg : ('a, 'b) result ->  ('b -> ('a, e) result) -> ('a, 'c) result
+end
+
+module ResultX (RA : ResultS) (RB : ResultS) : ResultXchg with type e := RA.e *)
+
+
+module ResultM (E : sig type e end ) : ResultS with type e = E.e
+(* sig
   include  Monad with type 'a m = ('a, E.e) result
   val ok : 'a -> 'a m
   val fail : E.e -> 'a m
-end
+end *)
 
 module Retry(E : sig
     type e

@@ -131,6 +131,23 @@ module Option =
 
 (* module ResultM (E : sig type e end ) : MonadPlus with type 'a m = ('a, E.e) result *)
 
+module type ResultS = sig
+  type e
+  include  Monad with type 'a m = ('a, e) result
+  val ok : 'a -> 'a m
+  val fail : e -> 'a m
+end
+
+(* module type ResultXchg = sig
+  val xchg : ('a, 'b) result ->  ('b -> ('a, 'c) result) -> ('a, 'c) result
+end
+
+module ResultX (RA : ResultS) (RB : ResultS) = struct
+  let xchg r f = match r with
+    | RA.(Ok v) -> RB.ok v
+    | RA.(Error e) -> RB.fail (f e)
+end *)
+
 module ResultM (E: sig type e end) = struct
   type e = E.e
 
