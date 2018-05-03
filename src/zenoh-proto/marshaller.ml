@@ -90,6 +90,17 @@ let read_scout buf header =
            ; (props, buf) <-- read_prop_seq buf
            ; Result.ok ({header=header; mask=mask; properties=props}, buf)
 
+let write_scout buf scout =
+  let open Scout in
+  Result.do_
+  ; buf <-- IOBuf.put_char buf scout.header
+  ; buf <-- IOBuf.put_vle buf scout.mask
+  ; match ((int_of_char scout.header) land (int_of_char Flags.pFlag)) with
+  | 0x00 -> Result.ok buf
+  | _ -> Result.do_
+         ; buf <-- write_prop_seq buf scout.properties
+         ; Result.ok buf
+
 let read_hello buf header =
   let open Hello in
   Result.do_
@@ -100,6 +111,18 @@ let read_hello buf header =
     | _ -> Result.do_
            ; (props, buf) <-- read_prop_seq buf
            ; Result.ok ({header=header; mask=mask; locators=locators; properties=props}, buf)
+
+let write_hello buf hello =
+  let open Hello in
+  Result.do_
+  ; buf <-- IOBuf.put_char buf hello.header
+  ; buf <-- IOBuf.put_vle buf hello.mask
+  ; buf <-- write_locator_seq buf hello.locators
+  ; match ((int_of_char hello.header) land (int_of_char Flags.pFlag)) with
+  | 0x00 -> Result.ok buf
+  | _ -> Result.do_
+         ; buf <-- write_prop_seq buf hello.properties
+         ; Result.ok buf
 
 let read_open buf header =
   let open Open in
@@ -114,6 +137,20 @@ let read_open buf header =
            ; (props, buf) <-- read_prop_seq buf
            ; Result.ok ({header=header; version=version; pid=pid; lease=lease; locators=locators; properties=props}, buf)
 
+let write_open buf open_ =
+  let open Open in
+  Result.do_
+  ; buf <-- IOBuf.put_char buf open_.header
+  ; buf <-- IOBuf.put_char buf open_.version
+  ; buf <-- write_byte_seq buf open_.pid
+  ; buf <-- IOBuf.put_vle buf open_.lease
+  ; buf <-- write_locator_seq buf open_.locators
+  ; match ((int_of_char open_.header) land (int_of_char Flags.pFlag)) with
+    | 0x00 -> Result.ok buf
+    | _ -> Result.do_
+           ; buf <-- write_prop_seq buf open_.properties
+           ; Result.ok buf
+
 let read_accept buf header =
   let open Accept in
   Result.do_
@@ -126,12 +163,33 @@ let read_accept buf header =
           ; (props, buf) <-- read_prop_seq buf
           ; Result.ok ({header=header; opid=opid; apid=apid; lease=lease; properties=props}, buf)
 
+let write_accept buf accept =
+  let open Accept in
+  Result.do_
+  ; buf <-- IOBuf.put_char buf accept.header
+  ; buf <-- write_byte_seq buf accept.opid
+  ; buf <-- write_byte_seq buf accept.apid
+  ; buf <-- IOBuf.put_vle buf accept.lease
+  ; match ((int_of_char accept.header) land (int_of_char Flags.pFlag)) with
+    | 0x00 -> Result.ok buf
+    | _ -> Result.do_
+           ; buf <-- write_prop_seq buf accept.properties
+           ; Result.ok buf
+
 let read_close buf header =
   let open Close in
   Result.do_
   ; (pid, buf) <-- read_byte_seq buf
   ; (reason, buf) <-- IOBuf.get_char buf
   ; Result.ok ({header=header; pid=pid; reason=reason}, buf)
+
+let write_close buf close =
+  let open Close in
+  Result.do_
+  ; buf <-- IOBuf.put_char buf close.header
+  ; buf <-- write_byte_seq buf close.pid
+  ; buf <-- IOBuf.put_char buf close.reason
+  ; Result.ok buf
 
 let read_msg buf =
   Result.do_
@@ -142,4 +200,12 @@ let read_msg buf =
     | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
     | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
     | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
-    | _ -> Result.error (IOBuf.InvalidFormat)
+    | _ -> Result.error (IOBuf.InvalidFormat) (* TODO : define msg level error *)
+
+let write_msg buf msg =
+  match msg with
+  | Scout m -> Result.do_; buf <-- write_scout buf m; Result.ok buf
+  | Hello m -> Result.do_; buf <-- write_hello buf m; Result.ok buf
+  | Open m -> Result.do_; buf <-- write_open buf m; Result.ok buf
+  | Accept m -> Result.do_; buf <-- write_accept buf m; Result.ok buf
+  | Close m -> Result.do_; buf <-- write_close buf m; Result.ok buf
