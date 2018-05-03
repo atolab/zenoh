@@ -78,22 +78,12 @@ module type ResultS = sig
   val ok : 'a -> 'a m
   val fail : e -> 'a m
 end
-(* 
-module type ResultXchg = sig
-  type e
-
-  val xchg : ('a, 'b) result ->  ('b -> ('a, e) result) -> ('a, 'c) result
-end
-
-module ResultX (RA : ResultS) (RB : ResultS) : ResultXchg with type e := RA.e *)
-
 
 module ResultM (E : sig type e end ) : ResultS with type e = E.e
-(* sig
-  include  Monad with type 'a m = ('a, E.e) result
-  val ok : 'a -> 'a m
-  val fail : E.e -> 'a m
-end *)
+
+module ResultX (RA : ResultS) (RB : ResultS) : sig
+  val lift_e : 'a RA.m ->  (RA.e -> RB.e) -> 'a RB.m
+end
 
 module Retry(E : sig
     type e

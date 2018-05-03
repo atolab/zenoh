@@ -139,14 +139,15 @@ module type ResultS = sig
 end
 
 (* module type ResultXchg = sig
-  val xchg : ('a, 'b) result ->  ('b -> ('a, 'c) result) -> ('a, 'c) result
-end
+  type e
+  val xchg : ('a, 'b) result ->  ('b -> ('a, e) result) -> ('a, e) result
+end *)
 
 module ResultX (RA : ResultS) (RB : ResultS) = struct
-  let xchg r f = match r with
+  let lift_e r f = match r with
     | RA.(Ok v) -> RB.ok v
     | RA.(Error e) -> RB.fail (f e)
-end *)
+end
 
 module ResultM (E: sig type e end) = struct
   type e = E.e
