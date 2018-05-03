@@ -1,7 +1,5 @@
-open Zenoh_pervasives
-open Monad
-
 open Netbuf
+open Zenoh_pervasives
 
 let test_cases = 1000
 let batch = 64
@@ -14,30 +12,16 @@ module ErrorB = struct
   type e = ErrorBOne of int | ErrorBTwo of int
 end
 
-module ResultA = ResultM(ErrorA)
-module ResultB = ResultM(ErrorB)
-
-module type ResultTransformerSig = sig
-  val transform : ('a, 'b) result ->  ('b -> ('a, 'c) result) -> ('a, 'c) result
-end
-
-module ResultTransformer (RA : ResultS) (RB : ResultS) = struct
-  let transform r f = match r with
-    | RA.(Ok v) -> RB.ok v
-    | RA.(Error e) -> RB.fail (f e)
-end
-
-module RTAB =  ResultTransformer(ResultA)(ResultB)
-
-let transform r f g = match r with
-  | Ok v -> f v
-  | Error e -> g e
+module ResultA = Monad.ResultM(ErrorA)
+module ResultB = Monad.ResultM(ErrorB)
+module RA2B = Monad.ResultX(ResultA)(ResultB)
+module Result = IOBuf.Result
 
 let produce_result_a n =
   if n > 10 then ResultA.return 10 else ResultA.fail @@ ErrorA.ErrorAOne 10
 
 let test_tresult_m () =
-  let _ = RTAB.transform (produce_result_a 20) (fun _ -> ErrorB.ErrorBOne 10)
+  let _ = RA2B.lift_e (produce_result_a 20) (fun _ -> ErrorB.ErrorBOne 10)
   in ()
 
 let test_tresult_m () =
@@ -144,7 +128,7 @@ let test_iobuf = [
   "WR-Char" , `Quick, write_read_char_test;
   "WR-Vle.t" , `Quick, write_read_vle_test;
   "WR-String", `Quick, write_read_string;
-  (* "TResultM", `Quick, test_tresult_m; *)
+  "ResultX", `Quick, test_tresult_m;
 ]
 
 (* Run it *)

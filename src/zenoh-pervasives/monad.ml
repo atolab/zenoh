@@ -138,11 +138,6 @@ module type ResultS = sig
   val fail : e -> 'a m
 end
 
-(* module type ResultXchg = sig
-  type e
-  val xchg : ('a, 'b) result ->  ('b -> ('a, e) result) -> ('a, e) result
-end *)
-
 module ResultX (RA : ResultS) (RB : ResultS) = struct
   let lift_e r f = match r with
     | RA.(Ok v) -> RB.ok v

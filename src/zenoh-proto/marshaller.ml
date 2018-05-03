@@ -6,7 +6,7 @@ open Ztypes
 open Zenoh.Message
 
 
-module Result = Monad.ResultM(IOBuf.Error)
+module Result = IOBuf.Result
 
 let read_seq buf read =
   let rec read_remaining buf seq length =
@@ -31,6 +31,7 @@ let write_seq buf seq write =
   Result.do_
   ; buf <-- IOBuf.put_vle buf (Vle.of_int (List.length seq))
   ; write_remaining buf seq
+
 
 let read_byte_seq buf =
   Result.do_
