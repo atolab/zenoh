@@ -154,7 +154,7 @@ module Open = struct
   type t = {
     header : Header.t;
     version : char;
-    pid : bytes;
+    pid : Lwt_bytes.t;
     lease : Vle.t;
     locators : Locators.t;
     properties : Properties.t;
@@ -179,8 +179,8 @@ end
 module Accept = struct
   type t = {
     header : Header.t;
-    opid : bytes;
-    apid : bytes;
+    opid : Lwt_bytes.t;
+    apid : Lwt_bytes.t;
     lease : Vle.t;
     properties : Properties.t;
   }
@@ -201,7 +201,7 @@ end
 module Close = struct
   type t = {
     header : Header.t;
-    pid : bytes;
+    pid : Lwt_bytes.t;
     reason : char;
   }
 end

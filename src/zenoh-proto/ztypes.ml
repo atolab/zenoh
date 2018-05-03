@@ -7,7 +7,7 @@ open Zenoh_pervasives
 module Vle = struct
   include Int64
 
-  type error = ValueOutOfRange 
+  type error = ValueOutOfRange
 
   let byte_mask =  0x7fL
   let more_bytes_flag = 0x80L
@@ -59,7 +59,7 @@ module Vle = struct
 end
 
 module Property = struct
-  type t = Int64.t * bytes
+  type t = Vle.t * Lwt_bytes.t
   let create n v = (n, v)
 end
 
