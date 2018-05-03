@@ -71,6 +71,12 @@ module Header = struct
   let flags h = (int_of_char h) land (int_of_char Flags.hFlagMask)
 end
 
+module type Msg =
+sig
+  type t
+  val header : t -> char
+end
+
 (**
    The SCOUT message can be sent at any point in time to solicit HELLO messages from
    matching parties
@@ -89,13 +95,22 @@ end
    b2:     Peer
    b3:     Client
    b4-b13: Reserved
-**)
+ **)
 module Scout = struct
   type t = {
     header : Header.t;
     mask : Vle.t;
     properties : Properties.t;
   }
+
+  let create mask properties =
+    match properties with
+    | [] -> {header=MessageId.scoutId; mask=mask; properties=properties}
+    | _ -> {header=char_of_int ((int_of_char MessageId.scoutId) lor (int_of_char Flags.pFlag));
+            mask=mask; properties=properties}
+  let header scout = scout.header
+  let mask scout = scout.mask
+  let properties scout = scout.properties
 end
 
 (**
@@ -126,6 +141,16 @@ module Hello = struct
     locators : Locators.t;
     properties : Properties.t
   }
+
+  let create mask locators properties =
+    match properties with
+    | [] -> {header=MessageId.helloId; mask=mask; locators=locators; properties=properties}
+    | _ -> {header=char_of_int ((int_of_char MessageId.helloId) lor (int_of_char Flags.pFlag));
+            mask=mask; locators=locators; properties=properties}
+  let header hello = hello.header
+  let mask hello = hello.mask
+  let locators hello = hello.locators
+  let properties hello = hello.properties
 end
 
 (**
@@ -158,8 +183,19 @@ module Open = struct
     lease : Vle.t;
     locators : Locators.t;
     properties : Properties.t;
-
   }
+
+  let create version pid lease locators properties =
+    match properties with
+    | [] -> {header=MessageId.openId; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
+    | _ -> {header=char_of_int ((int_of_char MessageId.openId) lor (int_of_char Flags.pFlag));
+            version=version; pid=pid; lease=lease; locators=locators; properties=properties}
+  let header open_ = open_.header
+  let version open_ = open_.version
+  let pid open_ = open_.pid
+  let lease open_ = open_.lease
+  let locators open_ = open_.locators
+  let properties open_ = open_.properties
 end
 
 (**
@@ -184,6 +220,17 @@ module Accept = struct
     lease : Vle.t;
     properties : Properties.t;
   }
+
+  let create opid apid lease properties =
+    match properties with
+    | [] -> {header=MessageId.acceptId; opid=opid; apid=apid; lease=lease; properties=properties}
+    | _ -> {header=char_of_int ((int_of_char MessageId.acceptId) lor (int_of_char Flags.pFlag));
+            opid=opid; apid=apid; lease=lease; properties=properties}
+  let header accept = accept.header
+  let apid accept = accept.apid
+  let opid accept = accept.opid
+  let lease accept = accept.lease
+  let properties accept = accept.properties
 end
 
 (**
@@ -204,6 +251,11 @@ module Close = struct
     pid : Lwt_bytes.t;
     reason : char;
   }
+
+  let create pid reason = {header=MessageId.closeId; pid=pid; reason=reason}
+  let header close = close.header
+  let pid close = close.pid
+  let reason close = close.reason
 end
 
 module Message = struct
