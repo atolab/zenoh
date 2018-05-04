@@ -53,6 +53,8 @@ module Flags = struct
   let lFlag = char_of_int 0x20
   let hFlag = char_of_int 0x40
 
+  let gFlag = char_of_int 0x80
+
   let midMask = char_of_int 0x1f
   let hFlagMask = char_of_int 0xe0
 
@@ -65,16 +67,233 @@ module ScoutFlags = struct
   let scoutClient = char_of_int 0x08
 end
 
+module DeclarationId = struct
+  let resourceDeclId = char_of_int 0x01
+  let publisherDeclId = char_of_int 0x02
+  let subscriberDeclId = char_of_int 0x03
+  let selectionDeclId = char_of_int 0x04
+  let bindingDeclId = char_of_int 0x05
+  let commitDeclId = char_of_int 0x06
+  let resultDeclId = char_of_int 0x07
+  let forgetResourceDeclId = char_of_int 0x08
+  let forgetPublisherDeclId = char_of_int 0x09
+  let forgetSubscriberDeclId = char_of_int 0x0a
+  let forgetSelectionDeclId = char_of_int 0x0b
+end
+
+module SubscriptionModeId = struct
+  let pushModeId = Vle.of_int 0x01
+  let pullModeId = Vle.of_int 0x02
+  let periodicPushModeId = Vle.of_int 0x03
+  let periodicPullModeId = Vle.of_int 0x04
+end
+
+module SubscriptionMode = struct
+  type timing = {
+    temporalOrigin : Ztypes.Vle.t;
+    period : Ztypes.Vle.t;
+    duration : Ztypes.Vle.t;
+  }
+  type t =
+    | PushMode
+    | PullMode
+    | PeriodicPushMode of timing
+    | PeriodicPullMode of timing
+end
+
 module Header = struct
   type t = char
   let mid h =  (int_of_char h) land (int_of_char Flags.midMask)
   let flags h = (int_of_char h) land (int_of_char Flags.hFlagMask)
 end
 
-module type Msg =
+module type Headed =
 sig
   type t
   val header : t -> char
+end
+
+module ResourceDecl = struct
+  type t = {
+    header : Header.t;
+    rid : Vle.t;
+    resource : string;
+    properties : Properties.t;
+  }
+
+  let create rid resource properties =
+    let header = match properties with
+      | [] -> DeclarationId.resourceDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.resourceDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; rid=rid; resource=resource; properties=properties}
+  let header resourceDecl = resourceDecl.header
+  let rid resourceDecl = resourceDecl.rid
+  let resource resourceDecl = resourceDecl.resource
+  let properties resourceDecl = resourceDecl.properties
+end
+
+module PublisherDecl = struct
+  type t = {
+    header : Header.t;
+    rid : Vle.t;
+    properties : Properties.t;
+  }
+
+  let create rid properties =
+    let header = match properties with
+      | [] -> DeclarationId.publisherDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.publisherDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; rid=rid; properties=properties}
+  let header resourceDecl = resourceDecl.header
+  let rid resourceDecl = resourceDecl.rid
+  let properties resourceDecl = resourceDecl.properties
+end
+
+module SubscriberDecl = struct
+  type t = {
+    header : Header.t;
+    rid : Vle.t;
+    mode : SubscriptionMode.t;
+    properties : Properties.t;
+  }
+
+  let create rid mode properties =
+    let header = match properties with
+      | [] -> DeclarationId.subscriberDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.subscriberDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; rid=rid; mode=mode; properties=properties}
+  let header subscriberDecl = subscriberDecl.header
+  let rid subscriberDecl = subscriberDecl.rid
+  let mode subscriberDecl = subscriberDecl.mode
+  let properties subscriberDecl = subscriberDecl.properties
+end
+
+module SelectionDecl = struct
+  type t = {
+    header : Header.t;
+    sid : Vle.t;
+    query : string;
+    properties : Properties.t;
+  }
+
+  let create sid query properties global =
+    let header = match properties with
+      | [] -> (match global with
+        | true -> char_of_int ((int_of_char DeclarationId.selectionDeclId) lor (int_of_char Flags.gFlag))
+        | false -> DeclarationId.selectionDeclId)
+      | _ -> (match global with
+        | true -> char_of_int ((int_of_char DeclarationId.selectionDeclId) lor (int_of_char Flags.pFlag) lor (int_of_char Flags.gFlag))
+        | false -> char_of_int ((int_of_char DeclarationId.selectionDeclId) lor (int_of_char Flags.pFlag)))
+    in
+    {header=header; sid=sid; query=query; properties=properties}
+  let header selectionDecl = selectionDecl.header
+  let sid selectionDecl = selectionDecl.sid
+  let query selectionDecl = selectionDecl.query
+  let properties selectionDecl = selectionDecl.properties
+  let global selectionDecl = ((int_of_char selectionDecl.header) land (int_of_char Flags.gFlag)) <> 0
+end
+
+module BindingDecl = struct
+  type t = {
+    header : Header.t;
+    oldId : Vle.t;
+    newId : Vle.t;
+  }
+
+  let create oldId newId global =
+    let header = match global with
+      | false -> DeclarationId.bindingDeclId
+      | true -> char_of_int ((int_of_char DeclarationId.bindingDeclId) lor (int_of_char Flags.gFlag))
+    in {header=header; oldId=oldId; newId=newId}
+  let header bindingDecl = bindingDecl.header
+  let oldId bindingDecl = bindingDecl.oldId
+  let newId bindingDecl = bindingDecl.newId
+  let global selectionDecl = ((int_of_char selectionDecl.header) land (int_of_char Flags.gFlag)) <> 0
+end
+
+module CommitDecl = struct
+  type t = {
+    header : Header.t;
+    commitId : char;
+  }
+
+  let create commitId = {header=DeclarationId.commitDeclId; commitId=commitId}
+  let header commitDecl = commitDecl.header
+  let commitId commitDecl = commitDecl.commitId
+end
+
+module ResultDecl = struct
+  type t = {
+    header : Header.t;
+    commitId : char;
+    status : char;
+    id : Vle.t;
+  }
+
+  let create commitId status id = {header=DeclarationId.resultDeclId; commitId=commitId; status=status; id=id}
+  let header resultDecl = resultDecl.header
+  let commitId resultDecl = resultDecl.commitId
+  let status resultDecl = resultDecl.commitId
+  let id resultDecl = resultDecl.id
+end
+
+module ForgetResourceDecl = struct
+  type t = {
+    header : Header.t;
+    rid : Vle.t;
+  }
+
+  let create rid = {header=DeclarationId.forgetResourceDeclId; rid=rid}
+  let header decl = decl.header
+  let rid decl = decl.rid
+end
+
+module ForgetPublisherDecl = struct
+  type t = {
+    header : Header.t;
+    id : Vle.t;
+  }
+
+  let create id = {header=DeclarationId.forgetPublisherDeclId; id=id}
+  let header decl = decl.header
+  let id decl = decl.id
+end
+
+module ForgetSubscriberDecl = struct
+  type t = {
+    header : Header.t;
+    id : Vle.t;
+  }
+
+  let create id = {header=DeclarationId.forgetSubscriberDeclId; id=id}
+  let header decl = decl.header
+  let id decl = decl.id
+end
+
+module ForgetSelectionDecl = struct
+  type t = {
+    header : Header.t;
+    sid : Vle.t;
+  }
+
+  let create sid = {header=DeclarationId.forgetSelectionDeclId; sid=sid}
+  let header decl = decl.header
+  let sid decl = decl.sid
+end
+
+module Declaration = struct
+  type t =
+    | ResourceDecl of ResourceDecl.t
+    | PublisherDecl of PublisherDecl.t
+    | SubscriberDecl of SubscriberDecl.t
+    | SelectionDecl of SelectionDecl.t
+    | BindingDecl of BindingDecl.t
+    | CommitDecl of CommitDecl.t
+    | ResultDecl of ResultDecl.t
+    | ForgetResourceDecl of ForgetResourceDecl.t
+    | ForgetPublisherDecl of ForgetPublisherDecl.t
+    | ForgetSubscriberDecl of ForgetSubscriberDecl.t
+    | ForgetSelectionDecl of ForgetSelectionDecl.t
 end
 
 (**
@@ -104,10 +323,10 @@ module Scout = struct
   }
 
   let create mask properties =
-    match properties with
-    | [] -> {header=MessageId.scoutId; mask=mask; properties=properties}
-    | _ -> {header=char_of_int ((int_of_char MessageId.scoutId) lor (int_of_char Flags.pFlag));
-            mask=mask; properties=properties}
+    let header = match properties with
+      | [] -> MessageId.scoutId
+      | _ -> char_of_int ((int_of_char MessageId.scoutId) lor (int_of_char Flags.pFlag))
+    in {header=header; mask=mask; properties=properties}
   let header scout = scout.header
   let mask scout = scout.mask
   let properties scout = scout.properties
@@ -143,10 +362,10 @@ module Hello = struct
   }
 
   let create mask locators properties =
-    match properties with
-    | [] -> {header=MessageId.helloId; mask=mask; locators=locators; properties=properties}
-    | _ -> {header=char_of_int ((int_of_char MessageId.helloId) lor (int_of_char Flags.pFlag));
-            mask=mask; locators=locators; properties=properties}
+    let header = match properties with
+      | [] -> MessageId.helloId
+      | _ -> char_of_int ((int_of_char MessageId.helloId) lor (int_of_char Flags.pFlag))
+    in {header=header; mask=mask; locators=locators; properties=properties}
   let header hello = hello.header
   let mask hello = hello.mask
   let locators hello = hello.locators
@@ -186,10 +405,10 @@ module Open = struct
   }
 
   let create version pid lease locators properties =
-    match properties with
-    | [] -> {header=MessageId.openId; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
-    | _ -> {header=char_of_int ((int_of_char MessageId.openId) lor (int_of_char Flags.pFlag));
-            version=version; pid=pid; lease=lease; locators=locators; properties=properties}
+    let header = match properties with
+      | [] -> MessageId.openId
+      | _ -> char_of_int ((int_of_char MessageId.openId) lor (int_of_char Flags.pFlag))
+    in {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
   let header open_ = open_.header
   let version open_ = open_.version
   let pid open_ = open_.pid
@@ -222,10 +441,10 @@ module Accept = struct
   }
 
   let create opid apid lease properties =
-    match properties with
-    | [] -> {header=MessageId.acceptId; opid=opid; apid=apid; lease=lease; properties=properties}
-    | _ -> {header=char_of_int ((int_of_char MessageId.acceptId) lor (int_of_char Flags.pFlag));
-            opid=opid; apid=apid; lease=lease; properties=properties}
+    let header = match properties with
+      | [] -> MessageId.acceptId
+      | _ -> char_of_int ((int_of_char MessageId.acceptId) lor (int_of_char Flags.pFlag))
+    in {header=header; opid=opid; apid=apid; lease=lease; properties=properties}
   let header accept = accept.header
   let apid accept = accept.apid
   let opid accept = accept.opid
@@ -258,6 +477,58 @@ module Close = struct
   let reason close = close.reason
 end
 
+(**
+        7 6 5 4 3 2 1 0
+       +-+-+-+-+-+-+-+-+
+       |X|X|X|   K_A   |
+       +---------------+
+       ~      PID      ~ -- The PID of peer that wants to renew the lease.
+       +---------------+
+ **)
+module KeepAlive = struct
+  type t = {
+    header : Header.t;
+    pid : Lwt_bytes.t;
+  }
+
+  let create pid = {header=MessageId.keepAliveId; pid=pid}
+  let header keep_alive = keep_alive.header
+  let pid keep_alive = keep_alive.pid
+end
+
+(**
+        7 6 5 4 3 2 1 0
+       +-+-+-+-+-+-+-+-+
+       |X|C|S| DECLARE |
+       +---------------+
+       ~      sn       ~
+       +---------------+
+       ~ declarations  ~
+       +---------------+
+ **)
+module Declare = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    declarations : Declaration.t list;
+  }
+
+  let create sn declarations sync committed =
+    let header = match sync with
+      | false -> (match committed with
+          | false -> MessageId.declareId
+          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.sFlag)))
+      | true -> (match committed with
+          | false -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag))
+          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag) lor (int_of_char Flags.sFlag)))
+    in {header=header; sn=sn; declarations=declarations}
+  let header declare = declare.header
+  let sn declare = declare.sn
+  let declarations declare = declare.declarations
+  let sync declare = ((int_of_char declare.header) land (int_of_char Flags.sFlag)) <> 0
+  let committed declare = ((int_of_char declare.header) land (int_of_char Flags.cFlag)) <> 0
+end
+
 module Message = struct
   type t =
     | Scout of Scout.t
@@ -265,8 +536,4 @@ module Message = struct
     | Open of Open.t
     | Accept of Accept.t
     | Close of Close.t
-
-  (* let put msg bs = match msg with
-      Scout s -> Bytes. *)
-
 end
