@@ -7,13 +7,11 @@ sig
   val plus : t -> t -> t
 end
 
-module type MonadBase = sig
+module type MonadBase =
+sig
   type 'a m
-
   val return : 'a -> 'a m
-
   val bind : 'a m -> ('a -> 'b m) -> 'b m
-
 end
 
 module type BasePlus =
@@ -133,9 +131,13 @@ module Option =
 
 module type ResultS = sig
   type e
+  exception NoResult
+
   include  Monad with type 'a m = ('a, e) result
   val ok : 'a -> 'a m
   val fail : e -> 'a m
+  val get : ('a, e) result -> 'a
+
 end
 
 module ResultX (RA : ResultS) (RB : ResultS) = struct
@@ -146,6 +148,7 @@ end
 
 module ResultM (E: sig type e end) = struct
   type e = E.e
+  exception NoResult
 
   include Make(struct
       type 'a m = ('a, E.e) result
@@ -161,6 +164,10 @@ module ResultM (E: sig type e end) = struct
   let ok = return
 
   let fail e = Error e
+
+  let  get = function
+    | Ok r -> r
+    | _ -> raise NoResult
 
 end
 

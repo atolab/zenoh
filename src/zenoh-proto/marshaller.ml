@@ -208,3 +208,4 @@ let write_msg buf msg =
   | Open m -> Result.do_; buf <-- write_open buf m; Result.ok buf
   | Accept m -> Result.do_; buf <-- write_accept buf m; Result.ok buf
   | Close m -> Result.do_; buf <-- write_close buf m; Result.ok buf
+  | Declaration m -> Result.fail (IOBuf.Error.InvalidFormat)

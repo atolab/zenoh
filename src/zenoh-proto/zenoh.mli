@@ -277,4 +277,8 @@ module Message :
       | Open of Open.t
       | Accept of Accept.t
       | Close of Close.t
+      | Declaration of Declaration.t
+
+    val to_string : t -> string
+
   end

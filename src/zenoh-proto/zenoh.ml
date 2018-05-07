@@ -536,4 +536,13 @@ module Message = struct
     | Open of Open.t
     | Accept of Accept.t
     | Close of Close.t
+    | Declaration of Declaration.t
+
+  let to_string = function (** This should actually call the to_string on individual messages *)
+    | Scout s -> "Scout"
+    | Hello h -> "Hello"
+    | Open o -> "Open"
+    | Accept a -> "Accept"
+    | Close c -> "Close"
+    | Declaration d -> "Declaration"
 end

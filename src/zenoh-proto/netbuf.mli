@@ -23,7 +23,7 @@ module IOBuf : sig
       | OutOfRangePut of int * int
   end
 
-  module Result  : sig  include  Monad.ResultS with type e := Error.e end
+  module Result  : sig  include  Monad.ResultS with type e = Error.e end
 
   val create : int -> t Result.m
   (** [create] allocates a new IOBuf  of the given capacity. *)

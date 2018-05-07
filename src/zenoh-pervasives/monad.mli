@@ -74,9 +74,11 @@ module Option : MonadPlus with type 'a m = 'a option
 
 module type ResultS = sig
   type e
+  exception NoResult
   include  Monad with type 'a m = ('a, e) result
   val ok : 'a -> 'a m
   val fail : e -> 'a m
+  val get : ('a, e) result -> 'a
 end
 
 module ResultM (E : sig type e end ) : ResultS with type e = E.e
