@@ -188,6 +188,22 @@ let write_close buf close =
   ; buf <-- IOBuf.put_char buf (reason close)
   ; Result.ok buf
 
+let write_declarations buf ds = Result.fail Error.NotImplemented
+  (* let open Declarations in
+  let len = Vle.of_int (Declarations.length ds) in
+  (Result.do_
+  ; buf <-- IOBuf.put_vle buf len) *)
+
+let write_declare buf decl =
+  let open Declare in
+  (Result.do_
+  ; buf <-- IOBuf.put_char buf (header decl)
+  ; buf <-- IOBuf.put_vle buf (sn decl)
+  ; buf <-- write_declarations buf (declarations decl)
+  ; Result.ok buf)
+
+
+
 let read_msg buf =
   Result.(do_
          ; (header, buf) <-- IOBuf.get_char buf
@@ -202,9 +218,9 @@ let read_msg buf =
 
 let write_msg buf msg =
   match msg with
-  | Scout m -> Result.do_; buf <-- write_scout buf m; Result.ok buf
-  | Hello m -> Result.do_; buf <-- write_hello buf m; Result.ok buf
-  | Open m -> Result.do_; buf <-- write_open buf m; Result.ok buf
-  | Accept m -> Result.do_; buf <-- write_accept buf m; Result.ok buf
-  | Close m -> Result.do_; buf <-- write_close buf m; Result.ok buf
-  | Declare m -> Result.fail Error.(InvalidFormat NoMsg)
+  | Scout m -> write_scout buf m
+  | Hello m -> write_hello buf m
+  | Open m -> write_open buf m
+  | Accept m -> write_accept buf m
+  | Close m -> write_close buf m
+  | Declare m ->write_declare buf m

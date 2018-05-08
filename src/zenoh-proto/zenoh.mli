@@ -209,6 +209,7 @@ end
 module Declarations : sig
   type t = Declaration.t list
 
+  val length : t -> int
   val  empty : t
   val singleton : Declaration.t -> t
   val add : t -> Declaration.t -> t

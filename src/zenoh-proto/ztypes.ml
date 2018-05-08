@@ -11,7 +11,9 @@ module Error = struct
     | InvalidFormat of kind
     | ProtocolError of kind
     | InvalidSession of kind
+    | NotImplemented
     | ErrorStack of e list
+
 
 end
 

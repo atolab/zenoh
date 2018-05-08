@@ -300,6 +300,7 @@ end
 module Declarations = struct
   type t = Declaration.t list
 
+  let length = List.length
   let empty = []
   let singleton d = [d]
   let add ds d = d::ds
