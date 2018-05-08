@@ -206,6 +206,14 @@ sig
       | ForgetSelectionDecl of ForgetSelectionDecl.t
 end
 
+module Declarations : sig
+  type t = Declaration.t list
+
+  val  empty : t
+  val singleton : Declaration.t -> t
+  val add : t -> Declaration.t -> t
+end
+
 module Scout :
 sig
   include Headed
@@ -277,7 +285,7 @@ module Message :
       | Open of Open.t
       | Accept of Accept.t
       | Close of Close.t
-      | Declaration of Declaration.t
+      | Declare of Declare.t
 
     val to_string : t -> string
 

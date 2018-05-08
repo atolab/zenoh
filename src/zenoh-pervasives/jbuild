@@ -1,7 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name            zenoh_pervasives)
-  (public_name     zenoh-pervasives)
-  (wrapped     false)
-  ))

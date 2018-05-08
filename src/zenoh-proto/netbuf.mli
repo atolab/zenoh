@@ -1,5 +1,6 @@
+open Apero
 open Ztypes
-open Zenoh_pervasives
+
 
 (** The buffer used by zenoh used for I/O. This buffer has a position, a limit
     a capacity and potentially a mark. At any point in time the following
@@ -12,18 +13,6 @@ open Zenoh_pervasives
 
 module IOBuf : sig
   type t
-
-  module Error : sig
-    type e =
-      | InvalidFormat
-      | InvalidPosition
-      | InvalidLimit
-      | OutOfRangeVle of int64 * int (** Provide the prefix than can be represented and the total number of bytes *)
-      | OutOfRangeGet of int * int
-      | OutOfRangePut of int * int
-  end
-
-  module Result  : sig  include  Monad.ResultS with type e = Error.e end
 
   val create : int -> t Result.m
   (** [create] allocates a new IOBuf  of the given capacity. *)

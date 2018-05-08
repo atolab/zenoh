@@ -1,5 +1,6 @@
 open Ztypes
 open Pervasives
+open Apero
 
 module MessageId = struct
   let scoutId = char_of_int 0x01
@@ -296,6 +297,13 @@ module Declaration = struct
     | ForgetSelectionDecl of ForgetSelectionDecl.t
 end
 
+module Declarations = struct
+  type t = Declaration.t list
+
+  let empty = []
+  let singleton d = [d]
+  let add ds d = d::ds
+end
 (**
    The SCOUT message can be sent at any point in time to solicit HELLO messages from
    matching parties
@@ -370,6 +378,9 @@ module Hello = struct
   let mask hello = hello.mask
   let locators hello = hello.locators
   let properties hello = hello.properties
+  let to_string h =
+    Printf.sprintf "Hello:[header: %d, mask: %Ld, locators: %s]" (int_of_char @@ h.header) (h.mask) (List.to_string h.locators (fun l -> Locator.to_string l))
+
 end
 
 (**
@@ -510,7 +521,7 @@ module Declare = struct
   type t = {
     header : Header.t;
     sn : Vle.t;
-    declarations : Declaration.t list;
+    declarations : Declarations.t;
   }
 
   let create sn declarations sync committed =
@@ -536,13 +547,13 @@ module Message = struct
     | Open of Open.t
     | Accept of Accept.t
     | Close of Close.t
-    | Declaration of Declaration.t
+    | Declare of Declare.t
 
   let to_string = function (** This should actually call the to_string on individual messages *)
     | Scout s -> "Scout"
-    | Hello h -> "Hello"
+    | Hello h -> Hello.to_string h
     | Open o -> "Open"
     | Accept a -> "Accept"
     | Close c -> "Close"
-    | Declaration d -> "Declaration"
+    | Declare d -> "Declare"
 end

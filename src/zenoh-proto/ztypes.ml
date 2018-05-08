@@ -1,16 +1,26 @@
+open Apero
 
-open String
-open List
+module Error = struct
+  type kind = NoMsg | Msg of string | Code of int | Pos of (string * int * int * int) | Loc of string
 
+  type e = ..
+  type e +=
+    | OutOfBounds of kind
+    | OutOfRange of kind
+    | IOError of kind
+    | InvalidFormat of kind
+    | ProtocolError of kind
+    | InvalidSession of kind
+    | ErrorStack of e list
+
+end
+
+module Result = Result.Make(Error)
 
 module Vle = struct
   include Int64
 
-  module Error = struct
-    type e =  ValueOutOfRange
-  end
-
-  module Result = Monad.ResultM(Error)
+  let of_char = Int64.of_int <.> int_of_char
 
   let byte_mask =  0x7fL
   let more_bytes_flag = 0x80L
@@ -46,7 +56,7 @@ module Vle = struct
 
 
   let from_list xs =
-    if List.length xs > max_bytes then Result.fail ValueOutOfRange
+    if List.length xs > max_bytes then Result.fail Error.(OutOfRange NoMsg)
     else
       begin
         let rec from_list_rec v xs n =
@@ -56,7 +66,7 @@ module Vle = struct
               let nv = Int64.logor (Int64.shift_left y (n* shift_len)) v in
               from_list_rec nv ys (n+1)
             | [] -> Result.ok v
-          else Result.fail ValueOutOfRange
+          else Result.fail Error.(OutOfRange NoMsg)
         in from_list_rec Int64.zero xs 0
       end
 end
@@ -85,9 +95,9 @@ module UDPLocator = struct
 
   let to_string l =  "udp/" ^ l.addr ^ ":" ^ (string_of_int l.port)
 
-  let from_string s =
-    let inet_addr = split_on_char ':' (hd (rev (split_on_char '/' s))) in
-    {addr=nth inet_addr 0; port=int_of_string (nth inet_addr 1)}
+  let of_string s =
+    let inet_addr = String.split_on_char ':' List.(hd (rev (String.split_on_char '/' s))) in
+    {addr= List.nth inet_addr 0; port=int_of_string (List.nth inet_addr 1)}
 
   let is_multicast l = match (String.split_on_char '.' l.addr) with
     | h::_ ->
@@ -104,9 +114,9 @@ module TCPLocator = struct
 
   let to_string l =  "tcp/" ^ l.addr ^ ":" ^ (string_of_int l.port)
 
-  let from_string s =
-    let inet_addr = split_on_char ':' (hd (rev (split_on_char '/' s))) in
-    {addr=nth inet_addr 0; port=int_of_string (nth inet_addr 1)}
+  let of_string s =
+    let inet_addr = String.split_on_char ':' List.(hd (rev (String.split_on_char '/' s))) in
+    {addr=List.nth inet_addr 0; port=int_of_string (List.nth inet_addr 1)}
 end
 
 module Locator = struct
@@ -119,10 +129,10 @@ module Locator = struct
     | UDPLocator l -> UDPLocator.to_string l
     | TCPLocator l -> TCPLocator.to_string l
 
-  let from_string s =
-    match (hd (split_on_char '/' s)) with
-    | trans when trans = "udp" -> UDPLocator(UDPLocator.from_string s)
-    | trans when trans = "tcp" -> TCPLocator(TCPLocator.from_string s)
+  let of_string s =
+    match (List.hd (String.split_on_char '/' s)) with
+    | trans when trans = "udp" -> UDPLocator(UDPLocator.of_string s)
+    | trans when trans = "tcp" -> TCPLocator(TCPLocator.of_string s)
     | _ -> raise (Failure ("Unable to read locator from string \"" ^ s ^ "\"" ))
 end
 

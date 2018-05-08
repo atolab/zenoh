@@ -1,12 +1,9 @@
+open Apero
 open Printf
-open Zenoh_pervasives
 open Netbuf
 open Zenoh
 open Ztypes
 open Zenoh.Message
-
-
-module Result = IOBuf.Result
 
 let read_seq buf read =
   let rec read_remaining buf seq length =
@@ -44,7 +41,7 @@ let read_byte_seq buf =
       Result.do_
       ; buf <-- IOBuf.set_position buf ((IOBuf.get_position buf) + int_length)
       ; Result.ok (result, buf)
-    end else Result.fail (IOBuf.Error.OutOfRangeGet (IOBuf.get_position buf, IOBuf.get_limit buf))
+    end else Result.fail Error.(OutOfBounds  (Pos  __POS__) )
 
 let write_byte_seq buf seq =
   let seq_length = Lwt_bytes.length seq in
@@ -73,7 +70,7 @@ let write_prop_seq buf props =
 let read_locator buf =
   Result.do_
   ; (str, buf) <-- IOBuf.get_string buf
-  ; Result.ok (Locator.from_string str, buf)
+  ; Result.ok (Locator.of_string str, buf)
 
 let write_locator buf locator =
   IOBuf.put_string buf (Locator.to_string locator)
@@ -117,6 +114,7 @@ let read_hello buf header =
 let write_hello buf hello =
   let open Hello in
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_io.printf "Write Message header: %d\n" (int_of_char (header hello))
   ; buf <-- IOBuf.put_char buf (header hello)
   ; buf <-- IOBuf.put_vle buf (mask hello)
   ; buf <-- write_locator_seq buf (locators hello)
@@ -191,15 +189,16 @@ let write_close buf close =
   ; Result.ok buf
 
 let read_msg buf =
-  Result.do_
-  ; (header, buf) <-- IOBuf.get_char buf
-  ; match char_of_int (Header.mid (header)) with
-    | id when id = MessageId.scoutId -> Result.do_; (msg, buf) <-- read_scout buf header; Result.ok (Scout(msg), buf)
-    | id when id = MessageId.helloId -> Result.do_; (msg, buf) <-- read_hello buf header; Result.ok (Hello(msg), buf)
-    | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
-    | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
-    | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
-    | _ -> Result.fail (IOBuf.Error.InvalidFormat) (* TODO : define msg level error *)
+  Result.(do_
+         ; (header, buf) <-- IOBuf.get_char buf
+         ; () ; Lwt.ignore_result @@ Lwt_io.printf "Read Message header: %d\n" (int_of_char header)
+         ; match char_of_int (Header.mid (header)) with
+         | id when id = MessageId.scoutId -> Result.do_; (msg, buf) <-- read_scout buf header; Result.ok (Scout(msg), buf)
+         | id when id = MessageId.helloId -> Result.do_; (msg, buf) <-- read_hello buf header; Result.ok (Hello(msg), buf)
+         | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
+         | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
+         | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
+         | _ -> Result.fail Error.(InvalidFormat NoMsg))
 
 let write_msg buf msg =
   match msg with
@@ -208,4 +207,4 @@ let write_msg buf msg =
   | Open m -> Result.do_; buf <-- write_open buf m; Result.ok buf
   | Accept m -> Result.do_; buf <-- write_accept buf m; Result.ok buf
   | Close m -> Result.do_; buf <-- write_close buf m; Result.ok buf
-  | Declaration m -> Result.fail (IOBuf.Error.InvalidFormat)
+  | Declare m -> Result.fail Error.(InvalidFormat NoMsg)
