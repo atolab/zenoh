@@ -83,23 +83,45 @@ module DeclarationId = struct
 end
 
 module SubscriptionModeId = struct
-  let pushModeId = Vle.of_int 0x01
-  let pullModeId = Vle.of_int 0x02
-  let periodicPushModeId = Vle.of_int 0x03
-  let periodicPullModeId = Vle.of_int 0x04
+  let pushModeId = char_of_int 0x01
+  let pullModeId = char_of_int 0x02
+  let periodicPushModeId = char_of_int 0x03
+  let periodicPullModeId = char_of_int 0x04
+end
+
+module TemporalProperties = struct
+  type t = {
+    origin : Vle.t;
+    period : Vle.t;
+    duration : Vle.t;
+  }
+
+  let create origin period duration = {origin; period; duration}
+  let origin p = p.origin
+  let period p = p.period
+  let duration p = p.duration
+
 end
 
 module SubscriptionMode = struct
-  type timing = {
-    temporalOrigin : Ztypes.Vle.t;
-    period : Ztypes.Vle.t;
-    duration : Ztypes.Vle.t;
-  }
   type t =
     | PushMode
     | PullMode
-    | PeriodicPushMode of timing
-    | PeriodicPullMode of timing
+    | PeriodicPushMode of TemporalProperties.t
+    | PeriodicPullMode of TemporalProperties.t
+
+  let push_mode = PushMode
+  let pull_mode = PullMode
+  let periodic_push tp = PeriodicPushMode tp
+  let periodic_pull tp = PeriodicPullMode tp
+
+  let id = function
+    | PushMode -> SubscriptionModeId.pushModeId
+    | PullMode -> SubscriptionModeId.pullModeId
+    | PeriodicPushMode _ -> SubscriptionModeId.periodicPushModeId
+    | PeriodicPullMode _ -> SubscriptionModeId.periodicPullModeId
+
+  let has_temporal_properties id = id = SubscriptionModeId.periodicPullModeId || id = SubscriptionModeId.periodicPushModeId
 end
 
 module Header = struct

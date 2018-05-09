@@ -5,6 +5,7 @@ open Zenoh
 open Ztypes
 open Zenoh.Message
 
+
 let read_seq buf read =
   let rec read_remaining buf seq length =
     match length with
@@ -66,6 +67,16 @@ let read_prop_seq buf =
 
 let write_prop_seq buf props =
   write_seq buf props write_prop
+
+let write_properties buf h ps =
+  match ((int_of_char h) land (int_of_char Flags.pFlag)) with
+  | 0 -> Result.ok buf
+  | _ -> write_prop_seq buf ps
+
+let read_properties buf h =
+  match ((int_of_char h) land (int_of_char Flags.pFlag)) with
+  | 0 -> Result.ok ([], buf)
+  | _ -> read_prop_seq buf
 
 let read_locator buf =
   Result.do_
@@ -188,11 +199,81 @@ let write_close buf close =
   ; buf <-- IOBuf.put_char buf (reason close)
   ; Result.ok buf
 
-let write_declarations buf ds = Result.fail Error.NotImplemented
-  (* let open Declarations in
-  let len = Vle.of_int (Declarations.length ds) in
+let read_pub_decl buf h =
+  let open PublisherDecl in
   (Result.do_
-  ; buf <-- IOBuf.put_vle buf len) *)
+  ; (rid, buf) <-- IOBuf.get_vle buf
+  ; (ps, buf) <-- read_properties buf h
+  ; return (PublisherDecl.create rid ps, buf))
+
+let write_pub_decl buf d =
+  let open PublisherDecl in
+  (Result.do_
+  ; buf <-- IOBuf.put_char buf (header d)
+  ; buf <-- IOBuf.put_vle buf (rid d)
+  ; write_properties buf (header d) (properties d))
+
+let read_temporal_properties buf =
+  let open Result in
+  (do_
+  ; (origin, buf) <-- IOBuf.get_vle buf
+  ; (period, buf) <-- IOBuf.get_vle buf
+  ; (duration, buf) <-- IOBuf.get_vle buf
+  ; return (TemporalProperties.create origin period duration, buf))
+
+let write_temporal_properties buf tp =
+  let open TemporalProperties in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_vle buf (origin tp)
+  ; buf <-- put_vle buf (period tp)
+  ; put_vle buf (duration tp))
+
+let read_sub_mode buf =
+  let open Result in
+  do_
+  ; (id, buf) <-- IOBuf.get_char buf
+  ; match id with
+    | a when a = SubscriptionModeId.pushModeId -> return (SubscriptionMode.PushMode, buf)
+    | b when b = SubscriptionModeId.pullModeId -> return (SubscriptionMode.PullMode, buf)
+    | c when c = SubscriptionModeId.periodicPushModeId ->
+      (read_temporal_properties buf)
+      >>= (fun (tp, buf) -> return (SubscriptionMode.PeriodicPushMode tp, buf))
+    | d when d = SubscriptionModeId.periodicPullModeId ->
+      (read_temporal_properties buf)
+      >>= (fun (tp, buf) -> return (SubscriptionMode.PeriodicPullMode tp, buf))
+    | _ -> fail Error.(OutOfBounds NoMsg)
+
+
+let read_sub_decl buf h =
+  let open SubscriberDecl in
+  let open Result in
+  do_
+  ; (rid, buf) <-- IOBuf.get_vle buf
+  ; (ps, buf) <-- read_properties buf h
+  ; return (PublisherDecl.create rid ps, buf)
+
+let write_sub_decl buf d =
+  let open SubscriberDecl in
+  let open Result in
+  do_
+  ; buf <-- IOBuf.put_char buf (header d)
+  ; buf <-- IOBuf.put_vle buf (rid d)
+  ; write_properties buf (header d) (properties d)
+
+
+(* let read_declaration buf h =  *)
+
+let write_declaration buf (d: Declaration.t) =
+  match d with
+  | PublisherDecl pd -> write_pub_decl buf pd
+  | SubscriberDecl sd -> write_sub_decl buf sd
+  | _ -> Result.fail Error.NotImplemented
+
+
+
+let write_declarations buf ds = Result.fold_m (fun b d -> write_declaration b d) buf ds
 
 let write_declare buf decl =
   let open Declare in
@@ -203,18 +284,17 @@ let write_declare buf decl =
   ; Result.ok buf)
 
 
-
 let read_msg buf =
-  Result.(do_
-         ; (header, buf) <-- IOBuf.get_char buf
-         ; () ; Lwt.ignore_result @@ Lwt_io.printf "Read Message header: %d\n" (int_of_char header)
-         ; match char_of_int (Header.mid (header)) with
-         | id when id = MessageId.scoutId -> Result.do_; (msg, buf) <-- read_scout buf header; Result.ok (Scout(msg), buf)
-         | id when id = MessageId.helloId -> Result.do_; (msg, buf) <-- read_hello buf header; Result.ok (Hello(msg), buf)
-         | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
-         | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
-         | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
-         | _ -> Result.fail Error.(InvalidFormat NoMsg))
+  (Result.do_
+  ; (header, buf) <-- IOBuf.get_char buf
+  ; () ; Lwt.ignore_result @@ Lwt_io.printf "Read Message header: %d\n" (int_of_char header)
+  ; match char_of_int (Header.mid (header)) with
+    | id when id = MessageId.scoutId -> Result.do_; (msg, buf) <-- read_scout buf header; Result.ok (Scout(msg), buf)
+    | id when id = MessageId.helloId -> Result.do_; (msg, buf) <-- read_hello buf header; Result.ok (Hello(msg), buf)
+    | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
+    | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
+    | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
+    | _ -> Result.fail Error.(InvalidFormat NoMsg))
 
 let write_msg buf msg =
   match msg with

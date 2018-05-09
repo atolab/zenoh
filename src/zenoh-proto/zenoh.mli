@@ -1,3 +1,5 @@
+open Ztypes
+
 module MessageId :
 sig
   val scoutId : char
@@ -68,24 +70,42 @@ end
 
 module SubscriptionModeId :
 sig
-  val pushModeId : Ztypes.Vle.t
-  val pullModeId : Ztypes.Vle.t
-  val periodicPushModeId : Ztypes.Vle.t
-  val periodicPullModeId : Ztypes.Vle.t
+  val pushModeId : char
+  val pullModeId : char
+  val periodicPushModeId : char
+  val periodicPullModeId : char
+end
+
+module TemporalProperties : sig
+  type t = {
+    origin : Vle.t;
+    period : Vle.t;
+    duration : Vle.t;
+  }
+
+  val create : Vle.t -> Vle.t -> Vle.t -> t
+  val origin : t -> Vle.t
+  val period : t -> Vle.t
+  val duration : t -> Vle.t
 end
 
 module SubscriptionMode :
 sig
-  type timing = {
-    temporalOrigin : Ztypes.Vle.t;
-    period : Ztypes.Vle.t;
-    duration : Ztypes.Vle.t;
-  }
+
   type t =
       | PushMode
       | PullMode
-      | PeriodicPushMode of timing
-      | PeriodicPullMode of timing
+      | PeriodicPushMode of TemporalProperties.t
+      | PeriodicPullMode of TemporalProperties.t
+
+  val push_mode : t
+  val pull_mode : t
+  val periodic_push : TemporalProperties.t -> t
+  val periodic_pull : TemporalProperties.t -> t
+
+  val id : t -> char
+
+  val has_temporal_properties : char -> bool
 end
 
 module Header :
