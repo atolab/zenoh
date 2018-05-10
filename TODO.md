@@ -12,4 +12,10 @@
 - Replace the use of (read/write)byte_seq with (read|write)io_buf in marshaller.ml
 
 - Be consistent on return types, notice the for messages we are not returning
-  the Message.t but for Declarations we are... 
+  the Message.t but for Declarations we are...
+
+## Debugging
+
+- Properly use Lwt_log to create the right sections and levels
+
+- Use Fmt or similar library to provide a nice to_string for all messages

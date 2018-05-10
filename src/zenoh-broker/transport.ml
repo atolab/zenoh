@@ -13,7 +13,7 @@ let ble_id = 0x02
 
 module Tcp = struct
 
-  type callback = Session.t -> Zenoh.Message.t -> Zenoh.Message.t option
+  type callback = Session.t -> Zenoh.Message.t -> Zenoh.Message.t list
 
   type t = { tx_id: int;
              socket: Lwt_unix.file_descr;
@@ -107,7 +107,7 @@ module Tcp = struct
                      ; () ; let _ =  Lwt_bytes.recv s.socket (IOBuf.to_bytes buf) 0 len [] in () ;
                      ; buf <-- IOBuf.set_limit buf len
                      ; (msg, buf) <-- read_msg buf
-                     ; () ; (let reply = (tx.listener s msg) in ignore_result (maybe_send s reply)) ; Result.ok ())
+                     ; () ;  (tx.listener s msg) |> List.iter (fun m -> ignore_result @@ send s m) ; Result.ok ())
                       (fun e ->
                          let _ = Lwt_log.warning "Received garbled messages, closing session" in
                          let _ = close_session tx s in Result.fail e))

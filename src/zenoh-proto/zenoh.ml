@@ -668,6 +668,7 @@ module Message = struct
     | StreamData of StreamData.t
     | Synch of Synch.t
     | AckNack of AckNack.t
+          
 
 
   let to_string = function (** This should actually call the to_string on individual messages *)

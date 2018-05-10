@@ -3,6 +3,7 @@ open Apero
 module Error = struct
   type kind = NoMsg | Msg of string | Code of int | Pos of (string * int * int * int) | Loc of string
 
+
   type e = ..
   type e +=
     | OutOfBounds of kind
@@ -21,6 +22,7 @@ module Result = Result.Make(Error)
 
 module Vle = struct
   include Int64
+  [@@deriving sexp]
 
   let of_char = Int64.of_int <.> int_of_char
 

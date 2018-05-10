@@ -452,11 +452,45 @@ let write_stream_data buf m =
   ; buf <-- (match prid m with | None -> return buf | Some v -> put_vle buf v )
   ; write_io_buf buf @@ payload m)
 
-let read_synch buf h = Result.fail Error.(NotImplemented)
-let write_synch buf m = Result.fail Error.(NotImplemented)
+let read_synch buf h =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (sn, buf) <-- get_vle buf
+  ; (s, r) <-- return Flags.(hasFlag h sFlag, hasFlag h rFlag)
+  ; if Flags.hasFlag h Flags.uFlag then
+      return (Synch.create (s,r) sn None, buf)
+    else
+      get_vle buf
+      <>>= (fun c -> Synch.create (s,r) sn (Some c)))
 
-let read_ack_nack buf h = Result.fail Error.(NotImplemented)
-let write_ack_nack buf m = Result.fail Error.(NotImplemented)
+let write_synch buf m =
+  let open Synch in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_char buf @@ header m
+  ; buf <-- put_vle buf @@ sn m
+  ; match count m  with | None -> return buf | Some c -> put_vle buf c)
+
+let read_ack_nack buf h =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (sn, buf) <-- get_vle buf
+  ; if Flags.(hasFlag h mFlag) then
+      get_vle buf <>>= (fun m -> AckNack.create sn @@ Some m)
+    else
+      return (AckNack.create sn None, buf))
+
+let write_ack_nack buf m =
+  let open AckNack in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_char buf @@ header m
+  ; buf <-- put_vle buf @@ sn m
+  ; match mask m with | None -> return buf | Some v -> put_vle buf v)
 
 let read_msg buf =
   let open Result in
@@ -472,7 +506,7 @@ let read_msg buf =
      | id when id = MessageId.declareId -> (read_declare buf header) <>>= make_declare
      | id when id = MessageId.sdataId ->  (read_stream_data buf header) <>>= make_stream_data
      | id when id = MessageId.synchId -> (read_synch buf header) <>>= make_synch
-     | id when id = MessageId.ackNackId -> (read_synch buf header) <>>= make_ack_nack
+     | id when id = MessageId.ackNackId -> (read_ack_nack buf header) <>>= make_ack_nack
      | uid ->
        Lwt.ignore_result (Lwt_log.warning @@ Printf.sprintf "Received unknown message id: %d" (int_of_char uid))
        ; Result.fail Error.(InvalidFormat NoMsg)))
