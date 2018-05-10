@@ -1,6 +1,7 @@
 open Ztypes
 open Pervasives
 open Apero
+open Netbuf
 
 module MessageId = struct
   let scoutId = char_of_int 0x01
@@ -58,6 +59,10 @@ module Flags = struct
 
   let midMask = char_of_int 0x1f
   let hFlagMask = char_of_int 0xe0
+
+  let hasFlag h f =  (int_of_char h) land (int_of_char f) <> 0
+  let mid h =  char_of_int @@ (int_of_char h) land  (int_of_char midMask)
+  let flags h = char_of_int @@ (int_of_char h) land  (int_of_char hFlagMask)
 
 end
 
@@ -122,6 +127,13 @@ module SubscriptionMode = struct
     | PeriodicPullMode _ -> SubscriptionModeId.periodicPullModeId
 
   let has_temporal_properties id = id = SubscriptionModeId.periodicPullModeId || id = SubscriptionModeId.periodicPushModeId
+
+  let temporal_properties = function
+    | PushMode -> None
+    | PullMode -> None
+    | PeriodicPullMode tp -> Some tp
+    | PeriodicPushMode tp -> Some tp
+
 end
 
 module Header = struct
@@ -134,6 +146,15 @@ module type Headed =
 sig
   type t
   val header : t -> char
+end
+
+module type Reliable =
+sig
+  type t
+  val header : t -> char
+  val reliable : t -> bool
+  val synch : t -> bool
+  val sn : t -> Vle.t
 end
 
 module ResourceDecl = struct
@@ -219,45 +240,50 @@ end
 module BindingDecl = struct
   type t = {
     header : Header.t;
-    oldId : Vle.t;
-    newId : Vle.t;
+    old_id : Vle.t;
+    new_id : Vle.t;
   }
 
-  let create oldId newId global =
+  let create old_id new_id global =
     let header = match global with
       | false -> DeclarationId.bindingDeclId
       | true -> char_of_int ((int_of_char DeclarationId.bindingDeclId) lor (int_of_char Flags.gFlag))
-    in {header=header; oldId=oldId; newId=newId}
-  let header bindingDecl = bindingDecl.header
-  let oldId bindingDecl = bindingDecl.oldId
-  let newId bindingDecl = bindingDecl.newId
+    in {header; old_id; new_id}
+  let header bd = bd.header
+  let old_id bd = bd.old_id
+  let new_id bd = bd.new_id
   let global selectionDecl = ((int_of_char selectionDecl.header) land (int_of_char Flags.gFlag)) <> 0
 end
 
 module CommitDecl = struct
   type t = {
     header : Header.t;
-    commitId : char;
+    commit_id : char;
   }
 
-  let create commitId = {header=DeclarationId.commitDeclId; commitId=commitId}
-  let header commitDecl = commitDecl.header
-  let commitId commitDecl = commitDecl.commitId
+  let create id = { header = DeclarationId.commitDeclId; commit_id = id }
+  let header cd = cd.header
+  let commit_id cd = cd.commit_id
 end
 
 module ResultDecl = struct
   type t = {
     header : Header.t;
-    commitId : char;
+    commit_id : char;
     status : char;
-    id : Vle.t;
+    id : Vle.t option;
   }
 
-  let create commitId status id = {header=DeclarationId.resultDeclId; commitId=commitId; status=status; id=id}
-  let header resultDecl = resultDecl.header
-  let commitId resultDecl = resultDecl.commitId
-  let status resultDecl = resultDecl.commitId
-  let id resultDecl = resultDecl.id
+  let create commit_id status id = {
+    header=DeclarationId.resultDeclId;
+    commit_id;
+    status;
+    id = if status = char_of_int 0 then None else id}
+
+  let header d = d.header
+  let commit_id d = d.commit_id
+  let status d = d.status
+  let id d = d.id
 end
 
 module ForgetResourceDecl = struct
@@ -563,6 +589,74 @@ module Declare = struct
   let committed declare = ((int_of_char declare.header) land (int_of_char Flags.cFlag)) <> 0
 end
 
+module StreamData = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    id : Vle.t;
+    prid : Vle.t option;
+    payload: IOBuf.t;
+  }
+
+  let header d = d.header
+
+  let create (s, r) sn id prid payload =
+    let header  =
+      let sflag =  if s then int_of_char Flags.sFlag  else 0 in
+      let rflag =  if s then int_of_char Flags.rFlag  else 0 in
+      let aflag = match prid with | None -> 0 | _ -> int_of_char Flags.aFlag in
+      let mid = int_of_char MessageId.sdataId in
+      char_of_int @@ sflag lor rflag lor aflag lor mid in
+    { header; sn; id; prid; payload}
+
+  let sn d = d.sn
+  let id d = d.id
+  let reliable d = Flags.hasFlag d.header Flags.rFlag
+  let synch d = Flags.hasFlag d.header Flags.sFlag
+  let prid d = d.prid
+  let payload d = d.payload
+
+end
+
+module Synch = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    count : Vle.t option
+  }
+  let  create (r, s) sn count =
+    let header =
+      let uflag = match count with | None -> 0 | _ -> int_of_char Flags.uFlag in
+      let rflag = if r then int_of_char Flags.rFlag else 0 in
+      let sflag = if s then int_of_char Flags.sFlag else 0 in
+      let mid = int_of_char MessageId.synchId in
+      char_of_int @@ uflag lor rflag lor sflag lor mid
+    in { header; sn; count }
+
+  let header s = s.header
+  let sn s = s .sn
+  let count s = s.count
+end
+
+module AckNack = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    mask :Vle.t option
+  }
+
+  let create sn mask =
+    let header =
+      let mflag = match mask with | None -> 0 | _ -> int_of_char Flags.mFlag in
+      let mid = int_of_char MessageId.ackNackId in
+      char_of_int @@ mflag lor mid
+    in  { header; sn; mask }
+
+  let header a = a.header
+  let sn a = a.sn
+  let mask a = a.mask
+end
+
 module Message = struct
   type t =
     | Scout of Scout.t
@@ -571,6 +665,10 @@ module Message = struct
     | Accept of Accept.t
     | Close of Close.t
     | Declare of Declare.t
+    | StreamData of StreamData.t
+    | Synch of Synch.t
+    | AckNack of AckNack.t
+
 
   let to_string = function (** This should actually call the to_string on individual messages *)
     | Scout s -> "Scout"
@@ -579,4 +677,17 @@ module Message = struct
     | Accept a -> "Accept"
     | Close c -> "Close"
     | Declare d -> "Declare"
+    | StreamData d -> "StreamData"
+    | Synch s -> "Synch"
+    | AckNack a -> "AckNack"
+
+    let make_scout s = Scout s
+    let make_hello h = Hello h
+    let make_open o = Open o
+    let make_accept a =  Accept a
+    let make_close c =  Close c
+    let make_declare d = Declare d
+    let make_stream_data sd =  StreamData sd
+    let make_synch s = Synch s
+    let make_ack_nack a = AckNack a
 end

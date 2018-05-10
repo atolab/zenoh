@@ -5,7 +5,8 @@ open Marshaller
 open Zenoh
 open Ztypes
 
-let () = Lwt_log.add_rule "*" Lwt_log.Info
+let () = (Lwt_log.append_rule "*" Lwt_log.Debug)
+
 
 let pid =
   let bs = Lwt_bytes.create 4 in
@@ -50,24 +51,27 @@ end
 
 let lbuf = Result.get @@ IOBuf.create 16
 let wbuf = Result.get @@ IOBuf.create 8192
-let lwbuf = IOBuf.to_bytes wbuf
 let rbuf = Result.get @@ IOBuf.create 8192
-let lrbuf = IOBuf.to_bytes rbuf
 
 let get_args () =
   if Array.length Sys.argv < 3 then ("192.168.1.11", 7447)
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock msg =
-  let _ = Result.do_
-  ; wbuf <-- IOBuf.clear wbuf
-  ; lbuf <-- IOBuf.clear lbuf
-  ; wbuf <-- write_msg wbuf msg
-  ; wbuf <-- IOBuf.flip wbuf
-  ; lbuf <-- IOBuf.put_vle lbuf (Vle.of_int (IOBuf.get_limit wbuf))
-  ; lbuf <-- IOBuf.flip lbuf
-  ; () ; (let _ = Lwt_bytes.send sock (IOBuf.to_bytes lbuf) 0 (IOBuf.get_limit lbuf) [] in ())
-  ; () ; (let _ = Lwt_bytes.send sock lwbuf 0 (IOBuf.get_limit wbuf) [] in return ())
+  let open Result in
+
+  let _ =
+    (do_
+    ; wbuf <-- IOBuf.clear wbuf
+    ; lbuf <-- IOBuf.clear lbuf
+    ; wbuf <-- write_msg wbuf msg
+    ; wbuf <-- IOBuf.flip wbuf
+    ; len <-- return (IOBuf.get_limit wbuf)
+    ; lbuf <-- IOBuf.put_vle lbuf (Vle.of_int len)
+    ; lbuf <-- IOBuf.flip lbuf
+    ; () ; ignore_result @@ Lwt_io.printf "[send_message: sent %d bytes]\n" len
+    ; () ; (let _ = Lwt_bytes.send sock (IOBuf.to_bytes lbuf) 0 (IOBuf.get_limit lbuf) [] in ())
+    ; () ; (let _ = Lwt_bytes.send sock (IOBuf.to_bytes wbuf) 0 len [] in return ()))
 
   in return_unit
 
@@ -90,8 +94,11 @@ let send_declare_pub sock id =
   in send_message sock msg
 
 let send_declare_sub sock id =
-  (* ignore_result (Lwt_io.print "send_declare_sub\n") ;  *)
-  return_unit
+  let sub_id = Vle.of_int id in
+  let decls = Declarations.singleton @@ SubscriberDecl (SubscriberDecl.create sub_id SubscriptionMode.push_mode [])  in
+  let msg = Message.Declare (Declare.create (Conduit.next_rsn default_conduit) decls false true)
+  in send_message sock msg
+
 
 let produce_message sock cmd =
   match cmd with
@@ -100,13 +107,13 @@ let produce_message sock cmd =
     | "scout" -> send_scout sock
     | "close" -> send_close sock
     | "open" -> send_open sock
-    | _ -> Lwt_io.printf "Error: The message <%s> is unkown\n" msg >>= return)
+    | _ -> Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg >>= return)
 
   | Command.CmdIArgs (msg, xs) -> (
       match msg with
-      | "dpub" -> send_declare_sub sock (List.hd xs)
+      | "dpub" -> send_declare_pub sock (List.hd xs)
       | "dsub" -> send_declare_sub sock (List.hd xs)
-      | _ -> Lwt_io.printf "Error: The message <%s> is unkown\n" msg >>= return)
+      | _ -> Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg >>= return)
 
   | Command.NoCmd -> return_unit
 
@@ -128,21 +135,25 @@ let rec run_write_loop sock =
            end
       ) in extract_length buf 0 0
 
-let rec run_read_loop sock =
-  (get_message_length sock lrbuf)
-  >>= (fun len ->
-      ignore_result @@ Lwt_io.printf "Received message of %d bytes\n" len ;
-      Lwt_bytes.recv sock lrbuf 0 len []
-      >>= (fun _ ->
-          ignore(
-            Result.(do_
-                   ; rbuf <-- IOBuf.set_position rbuf 0
-                   ; rbuf <-- IOBuf.set_limit rbuf len
-                   ; (msg, rbuf) <-- read_msg rbuf
-                   ; return  (Lwt_io.printf "\n[received: %s]\n>>" (Message.to_string msg))
-          )) ; return_unit
-        ))
-  >>= (fun _ -> run_read_loop sock)
+let rec run_read_loop sock continue =
+  if continue then
+    (get_message_length sock (IOBuf.to_bytes rbuf))
+    >>= (fun len ->
+        ignore_result @@ Lwt_io.printf "[Received message of %d bytes]\n" len ;
+        if len = 0 then Lwt_unix.close sock >>= (fun _ -> return_false)
+        else
+          Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len []
+          >>= (fun _ ->
+              ignore(
+                Result.(do_
+                       ; rbuf <-- IOBuf.set_position rbuf 0
+                       ; rbuf <-- IOBuf.set_limit rbuf len
+                       ; (msg, rbuf) <-- read_msg rbuf
+                       ; return  (Lwt_io.printf "\n[received: %s]\n>>" (Message.to_string msg))
+              )) ; return_true
+            ))
+    >>= (run_read_loop sock)
+  else return_unit
 
 
 let () =
@@ -152,4 +163,4 @@ let () =
   let saddr = ADDR_INET (Unix.inet_addr_of_string addr, port) in
   let _ = connect sock  saddr in
 
-  Lwt_main.run @@ Lwt.join [run_write_loop sock; run_read_loop sock]
+  Lwt_main.run @@ Lwt.join [run_write_loop sock; run_read_loop sock true]

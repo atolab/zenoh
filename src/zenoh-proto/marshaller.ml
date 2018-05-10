@@ -5,6 +5,16 @@ open Zenoh
 open Ztypes
 open Zenoh.Message
 
+(** This operator should be generalised for the result type associated with the IOBuf *)
+
+
+let (<>>=) r f = match r with
+  | Ok (a, b) -> Result.ok (f a, b)
+  | Error _ as e -> e
+
+let (><>=) r f = match r with
+  | Ok _ -> r
+  | Error e  -> Result.fail @@ f e
 
 let read_seq buf read =
   let rec read_remaining buf seq length =
@@ -30,6 +40,23 @@ let write_seq buf seq write =
   ; buf <-- IOBuf.put_vle buf (Vle.of_int (List.length seq))
   ; write_remaining buf seq
 
+
+let read_io_buf buf =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (len, buf) <-- get_vle buf
+  ; payload <-- create @@ Vle.to_int len
+  ; buf <-- blit buf payload
+  ; return (payload, buf))
+
+let write_io_buf buf iobuf =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_vle buf @@ Vle.of_int @@ get_limit iobuf
+  ; buf <-- blit iobuf buf
+  ; return buf)
 
 let read_byte_seq buf =
   Result.do_
@@ -74,9 +101,12 @@ let write_properties buf h ps =
   | _ -> write_prop_seq buf ps
 
 let read_properties buf h =
-  match ((int_of_char h) land (int_of_char Flags.pFlag)) with
-  | 0 -> Result.ok ([], buf)
-  | _ -> read_prop_seq buf
+  let hasProps = Flags.hasFlag h Flags.pFlag in
+  let _ = Lwt_log.debug @@ Printf.sprintf "Parsing Properties (%b)" hasProps in
+  match hasProps with
+  | true -> read_prop_seq buf
+  | _  -> Result.ok ([], buf)
+
 
 let read_locator buf =
   Result.do_
@@ -94,6 +124,7 @@ let write_locator_seq buf locators =
 
 let read_scout buf header =
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Rading Scout"
   ; (mask, buf) <-- IOBuf.get_vle buf
   ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
     | 0x00 -> Result.ok (Scout.create mask [], buf)
@@ -104,6 +135,7 @@ let read_scout buf header =
 let write_scout buf scout =
   let open Scout in
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writring Scout"
   ; buf <-- IOBuf.put_char buf (header scout)
   ; buf <-- IOBuf.put_vle buf (mask scout)
   ; match ((int_of_char (header scout)) land (int_of_char Flags.pFlag)) with
@@ -114,6 +146,7 @@ let write_scout buf scout =
 
 let read_hello buf header =
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Readings Hello"
   ; (mask, buf) <-- IOBuf.get_vle buf
   ; (locators, buf) <-- read_locator_seq buf
   ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
@@ -125,7 +158,7 @@ let read_hello buf header =
 let write_hello buf hello =
   let open Hello in
   Result.do_
-  ; () ; Lwt.ignore_result @@ Lwt_io.printf "Write Message header: %d\n" (int_of_char (header hello))
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Hello"
   ; buf <-- IOBuf.put_char buf (header hello)
   ; buf <-- IOBuf.put_vle buf (mask hello)
   ; buf <-- write_locator_seq buf (locators hello)
@@ -137,6 +170,7 @@ let write_hello buf hello =
 
 let read_open buf header =
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Open"
   ; (version, buf) <-- IOBuf.get_char buf
   ; (pid, buf) <-- read_byte_seq buf
   ; (lease, buf) <-- IOBuf.get_vle buf
@@ -150,6 +184,7 @@ let read_open buf header =
 let write_open buf open_msg =
   let open Open in
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Open"
   ; buf <-- IOBuf.put_char buf (header open_msg)
   ; buf <-- IOBuf.put_char buf (version open_msg)
   ; buf <-- write_byte_seq buf (pid open_msg)
@@ -163,6 +198,7 @@ let write_open buf open_msg =
 
 let read_accept buf (header:char) =
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Accept"
   ; (opid, buf) <-- read_byte_seq buf
   ; (apid, buf) <-- read_byte_seq buf
   ; (lease, buf) <-- IOBuf.get_vle buf
@@ -175,6 +211,7 @@ let read_accept buf (header:char) =
 let write_accept buf accept =
   let open Accept in
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Accept"
   ; buf <-- IOBuf.put_char buf (header accept)
   ; buf <-- write_byte_seq buf (opid accept)
   ; buf <-- write_byte_seq buf (apid accept)
@@ -187,6 +224,7 @@ let write_accept buf accept =
 
 let read_close buf header =
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Close"
   ; (pid, buf) <-- read_byte_seq buf
   ; (reason, buf) <-- IOBuf.get_char buf
   ; Result.ok (Close.create pid reason, buf)
@@ -194,6 +232,7 @@ let read_close buf header =
 let write_close buf close =
   let open Close in
   Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Close"
   ; buf <-- IOBuf.put_char buf (header close)
   ; buf <-- write_byte_seq buf (pid close)
   ; buf <-- IOBuf.put_char buf (reason close)
@@ -202,13 +241,16 @@ let write_close buf close =
 let read_pub_decl buf h =
   let open PublisherDecl in
   (Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading PubDeclaration"
   ; (rid, buf) <-- IOBuf.get_vle buf
   ; (ps, buf) <-- read_properties buf h
-  ; return (PublisherDecl.create rid ps, buf))
+  ; return (Declaration.PublisherDecl (PublisherDecl.create rid ps), buf))
 
 let write_pub_decl buf d =
   let open PublisherDecl in
-  (Result.do_
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing PubDeclaration"
   ; buf <-- IOBuf.put_char buf (header d)
   ; buf <-- IOBuf.put_vle buf (rid d)
   ; write_properties buf (header d) (properties d))
@@ -216,25 +258,31 @@ let write_pub_decl buf d =
 let read_temporal_properties buf =
   let open Result in
   (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading TemporalProperties"
   ; (origin, buf) <-- IOBuf.get_vle buf
   ; (period, buf) <-- IOBuf.get_vle buf
   ; (duration, buf) <-- IOBuf.get_vle buf
   ; return (TemporalProperties.create origin period duration, buf))
 
-let write_temporal_properties buf tp =
+let write_temporal_properties buf stp =
   let open TemporalProperties in
   let open IOBuf in
   let open Result in
-  (do_
-  ; buf <-- put_vle buf (origin tp)
-  ; buf <-- put_vle buf (period tp)
-  ; put_vle buf (duration tp))
+  match stp with
+  | None -> return buf
+  | Some tp -> (do_
+               ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Temporal"
+               ; buf <-- put_vle buf (origin tp)
+               ; buf <-- put_vle buf (period tp)
+               ; put_vle buf (duration tp))
 
 let read_sub_mode buf =
   let open Result in
   do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading SubMode"
   ; (id, buf) <-- IOBuf.get_char buf
-  ; match id with
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "SubMode.id = %d" (Header.mid id)
+  ; match Flags.mid id with
     | a when a = SubscriptionModeId.pushModeId -> return (SubscriptionMode.PushMode, buf)
     | b when b = SubscriptionModeId.pullModeId -> return (SubscriptionMode.PullMode, buf)
     | c when c = SubscriptionModeId.periodicPushModeId ->
@@ -246,55 +294,189 @@ let read_sub_mode buf =
     | _ -> fail Error.(OutOfBounds NoMsg)
 
 
+let write_sub_mode buf m =
+  let open SubscriptionMode in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing SubMode"
+  ; sid <-- return @@ (id m)
+  ; buf <-- IOBuf.put_char buf sid
+  ; write_temporal_properties buf (temporal_properties m))
+
 let read_sub_decl buf h =
   let open SubscriberDecl in
   let open Result in
-  do_
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading SubDeclaration"
   ; (rid, buf) <-- IOBuf.get_vle buf
+  ; (mode, buf) <-- read_sub_mode buf
   ; (ps, buf) <-- read_properties buf h
-  ; return (PublisherDecl.create rid ps, buf)
+  ; return (Declaration.SubscriberDecl (SubscriberDecl.create rid mode ps), buf))
 
 let write_sub_decl buf d =
   let open SubscriberDecl in
   let open Result in
   do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing SubDeclaration"
   ; buf <-- IOBuf.put_char buf (header d)
   ; buf <-- IOBuf.put_vle buf (rid d)
+  ; buf <-- write_sub_mode buf (mode d)
   ; write_properties buf (header d) (properties d)
 
+let read_commit_decl buf _ =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (commit_id, buf) <-- get_char buf
+  ; return ((Declaration.CommitDecl (CommitDecl.create commit_id)), buf))
 
-(* let read_declaration buf h =  *)
+let write_commit_decl buf cd =
+  let open CommitDecl in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing CommitDecl"
+  ; buf <-- put_char buf (header cd)
+  ; put_char buf (commit_id cd))
+
+let read_result_decl buf _ =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (commit_id, buf) <-- get_char buf
+  ; (status, buf) <-- get_char buf
+  ; if status = char_of_int 0 then
+      return (Declaration.ResultDecl  (ResultDecl.create commit_id status None), buf)
+    else
+      get_vle buf <>>= (fun v -> Declaration.ResultDecl (ResultDecl.create commit_id status (Some v))))
+
+let write_result_decl buf rd =
+  let open ResultDecl in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_char buf (header rd)
+  ; buf <-- put_char buf (commit_id rd)
+  ; buf <-- put_char buf (status rd)
+  ; match (id rd) with | None -> return buf | Some v -> put_vle buf v)
+
+let read_declaration buf =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Declaration"
+  ; (header, buf) <-- get_char buf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Declaration Id = %d" (Header.mid header)
+  ; match Flags.mid header with
+  | p when p = DeclarationId.publisherDeclId -> read_pub_decl buf header
+  | s when s = DeclarationId.subscriberDeclId -> read_sub_decl buf header
+  | c when c = DeclarationId.commitDeclId -> read_commit_decl buf header
+  | r when r = DeclarationId.resultDeclId -> read_result_decl buf header
+  | _ -> fail Error.(NotImplemented))
+
 
 let write_declaration buf (d: Declaration.t) =
   match d with
   | PublisherDecl pd -> write_pub_decl buf pd
   | SubscriberDecl sd -> write_sub_decl buf sd
+  | CommitDecl cd -> write_commit_decl buf cd
+  | ResultDecl rd -> write_result_decl buf rd
   | _ -> Result.fail Error.NotImplemented
 
 
+let read_declarations buf =
+  let open IOBuf in
+  let open Result in
 
-let write_declarations buf ds = Result.fold_m (fun b d -> write_declaration b d) buf ds
+  let rec loop buf n ds =
+    if n = 0 then return (ds, buf)
+    else
+        (do_
+        ; (d, buf) <-- read_declaration buf
+        ; (loop buf (n-1) (d::ds)))
+  in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Declarations"
+  ; (len, buf) <-- get_vle buf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Parsing %Ld declarations" len
+  ; loop buf (Vle.to_int len) [])
+
+let write_declarations buf ds =
+  let open Declare in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Declarations"
+  ; buf <-- put_vle buf  @@ Vle.of_int @@ List.length @@ ds
+  ; fold_m (fun b d -> write_declaration b d) buf ds)
+
+let read_declare buf h =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Declare message"
+  ; (sn, buf) <-- get_vle buf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Declare sn = %Ld" sn
+  ; (ds, buf) <-- read_declarations buf
+  ; return ((Declare.create sn ds (Flags.hasFlag h Flags.sFlag) (Flags.hasFlag h Flags.cFlag)), buf))
 
 let write_declare buf decl =
   let open Declare in
-  (Result.do_
-  ; buf <-- IOBuf.put_char buf (header decl)
-  ; buf <-- IOBuf.put_vle buf (sn decl)
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Declare message"
+  ; buf <-- put_char buf (header decl)
+  ; buf <-- put_vle buf (sn decl)
   ; buf <-- write_declarations buf (declarations decl)
-  ; Result.ok buf)
+  ; return buf)
 
+let read_stream_data buf h =
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; (sn, buf) <-- get_vle buf
+  ; (id, buf) <-- get_vle buf
+  ; (prid, buf) <-- if Flags.hasFlag h Flags.aFlag then get_vle buf <>>= (fun v -> Some v) else return (None, buf)
+  ; (payload, buf) <-- read_io_buf buf
+  ; (r, s) <-- return ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag))
+  ; return  ((StreamData.create (r, s) sn id prid payload),buf))
+
+let write_stream_data buf m =
+  let open StreamData in
+  let open IOBuf in
+  let open Result in
+  (do_
+  ; buf <-- put_vle buf @@ sn m
+  ; buf <-- put_vle buf @@ id m
+  ; buf <-- (match prid m with | None -> return buf | Some v -> put_vle buf v )
+  ; write_io_buf buf @@ payload m)
+
+let read_synch buf h = Result.fail Error.(NotImplemented)
+let write_synch buf m = Result.fail Error.(NotImplemented)
+
+let read_ack_nack buf h = Result.fail Error.(NotImplemented)
+let write_ack_nack buf m = Result.fail Error.(NotImplemented)
 
 let read_msg buf =
-  (Result.do_
+  let open Result in
+  (do_
   ; (header, buf) <-- IOBuf.get_char buf
-  ; () ; Lwt.ignore_result @@ Lwt_io.printf "Read Message header: %d\n" (int_of_char header)
-  ; match char_of_int (Header.mid (header)) with
-    | id when id = MessageId.scoutId -> Result.do_; (msg, buf) <-- read_scout buf header; Result.ok (Scout(msg), buf)
-    | id when id = MessageId.helloId -> Result.do_; (msg, buf) <-- read_hello buf header; Result.ok (Hello(msg), buf)
-    | id when id = MessageId.openId -> Result.do_; (msg, buf) <-- read_open buf header; Result.ok (Open(msg), buf)
-    | id when id = MessageId.acceptId -> Result.do_; (msg, buf) <-- read_accept buf header; Result.ok (Accept(msg), buf)
-    | id when id = MessageId.closeId -> Result.do_; (msg, buf) <-- read_close buf header; Result.ok (Close(msg), buf)
-    | _ -> Result.fail Error.(InvalidFormat NoMsg))
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug (Printf.sprintf "Received message with id: %d\n" (Header.mid header))
+  ; (match char_of_int (Header.mid (header)) with
+     | id when id = MessageId.scoutId ->  (read_scout buf header) <>>= make_scout
+     | id when id = MessageId.helloId ->  (read_hello buf header) <>>= make_hello
+     | id when id = MessageId.openId ->  (read_open buf header) <>>= make_open
+     | id when id = MessageId.acceptId -> (read_accept buf header) <>>= make_accept
+     | id when id = MessageId.closeId ->  (read_close buf header) <>>= make_close
+     | id when id = MessageId.declareId -> (read_declare buf header) <>>= make_declare
+     | id when id = MessageId.sdataId ->  (read_stream_data buf header) <>>= make_stream_data
+     | id when id = MessageId.synchId -> (read_synch buf header) <>>= make_synch
+     | id when id = MessageId.ackNackId -> (read_synch buf header) <>>= make_ack_nack
+     | uid ->
+       Lwt.ignore_result (Lwt_log.warning @@ Printf.sprintf "Received unknown message id: %d" (int_of_char uid))
+       ; Result.fail Error.(InvalidFormat NoMsg)))
+
 
 let write_msg buf msg =
   match msg with
@@ -303,4 +485,7 @@ let write_msg buf msg =
   | Open m -> write_open buf m
   | Accept m -> write_accept buf m
   | Close m -> write_close buf m
-  | Declare m ->write_declare buf m
+  | Declare m -> write_declare buf m
+  | StreamData m -> write_stream_data buf m
+  | Synch m -> write_synch buf m
+  | AckNack m -> write_ack_nack buf m

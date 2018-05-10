@@ -33,11 +33,11 @@ module ProtocolEngine = struct
     else None
 
   let process_open pe msg =
-    ignore_result @@ Lwt_log.info (Printf.sprintf "Accepting Open from remote peer: %s\n" (Lwt_bytes.to_string @@ Open.pid msg)) ;
+    ignore_result @@ Lwt_log.debug (Printf.sprintf "Accepting Open from remote peer: %s\n" (Lwt_bytes.to_string @@ Open.pid msg)) ;
     Some (make_accept pe (Open.pid msg))
 
   let process pe s msg =
-    ignore_result @@ Lwt_log.info (Printf.sprintf "Received message: %s" (Message.to_string msg));
+    ignore_result @@ Lwt_log.debug (Printf.sprintf "Received message: %s" (Message.to_string msg));
     match msg with
     | Message.Scout s -> process_scout pe s
     | Message.Hello _ -> None

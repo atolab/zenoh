@@ -53,7 +53,7 @@ module Tcp = struct
     ; wlbuf <-- IOBuf.clear s.wlenbuf
     ; wlbuf <-- IOBuf.put_vle wlbuf  @@ Vle.of_int @@ IOBuf.get_limit  buf
     ; wlbuf <-- IOBuf.flip wlbuf
-    ; () ; ignore_result (Lwt_io.printf "Sending message of %d bytes\n" @@ IOBuf.get_limit wlbuf)
+    ; () ; ignore_result (Lwt_io.printf "[Sending message of %d bytes]\n" @@ IOBuf.get_limit wlbuf)
     ; () ; ignore_result (Lwt_bytes.send s.socket (IOBuf.to_bytes wlbuf) 0 (IOBuf.get_limit wlbuf) [])
            ; () ; let _ = Lwt_bytes.send s.socket (IOBuf.to_bytes buf) 0 (IOBuf.get_limit buf) [] in return () ) ;
     return_unit
@@ -94,6 +94,7 @@ module Tcp = struct
       if continue then begin
       (get_message_length s.socket s.rlenbuf)
       >>= (fun len ->
+          ignore_result @@ Lwt_log.debug (Printf.sprintf "Received message of %d bytes" len) ;
           if len <= 0 then
             Lwt_log.warning (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid)
             >>= (fun _ -> close_session tx s) >>= (fun _ -> return_false)
@@ -119,13 +120,13 @@ module Tcp = struct
 
   let accept_connection tx conn =
     let fd, addr = conn in
-    let _ = Lwt_log.info ("Incoming connection from: " ^ (string_of_sockaddr addr)) in
+    let _ = Lwt_log.debug ("Incoming connection from: " ^ (string_of_sockaddr addr)) in
     let session = Session.make tcp_id fd addr tx.buf_len in
     session.close <- (fun () -> close_session tx session) ;
     session.send <- (fun msg -> send session msg) ;
     tx.sessions <- session :: tx.sessions ;
     let _ = Lwt.on_failure (handle_session tx session)  (fun e -> Lwt_log.ign_error (Printexc.to_string e)) in
-    Lwt_log.info ("New Transport Session with Id = " ^ (SessionId.to_string session.sid))  >>= return
+    Lwt_log.debug ("New Transport Session with Id = " ^ (SessionId.to_string session.sid))  >>= return
 
 
   let run_loop tx =

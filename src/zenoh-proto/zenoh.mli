@@ -1,4 +1,5 @@
 open Ztypes
+open Netbuf
 
 module MessageId :
 sig
@@ -43,6 +44,11 @@ sig
   val gFlag : char
   val midMask : char
   val hFlagMask : char
+
+  val hasFlag : char -> char -> bool
+  val mid : char -> char
+  val flags : char -> char
+
 end
 
 module ScoutFlags :
@@ -106,6 +112,8 @@ sig
   val id : t -> char
 
   val has_temporal_properties : char -> bool
+
+  val temporal_properties : t -> TemporalProperties.t option
 end
 
 module Header :
@@ -121,48 +129,57 @@ sig
   val header : t -> char
 end
 
+module type Reliable =
+sig
+  type t
+  val header : t -> char
+  val reliable : t -> bool
+  val synch : t -> bool
+  val sn : t -> Vle.t
+end
+
 module ResourceDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> string -> Ztypes.Properties.t -> t
-  val rid : t -> Ztypes.Vle.t
+  val create : Vle.t -> string -> Properties.t -> t
+  val rid : t -> Vle.t
   val resource : t -> string
-  val properties : t -> Ztypes.Properties.t
+  val properties : t -> Properties.t
 end
 
 module PublisherDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> Ztypes.Properties.t -> t
-  val rid : t -> Ztypes.Vle.t
-  val properties : t -> Ztypes.Properties.t
+  val create : Vle.t -> Properties.t -> t
+  val rid : t -> Vle.t
+  val properties : t -> Properties.t
 end
 
 module  SubscriberDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> SubscriptionMode.t -> Ztypes.Properties.t -> t
-  val rid : t -> Ztypes.Vle.t
+  val create : Vle.t -> SubscriptionMode.t -> Properties.t -> t
+  val rid : t -> Vle.t
   val mode : t -> SubscriptionMode.t
-  val properties : t -> Ztypes.Properties.t
+  val properties : t -> Properties.t
 end
 
 module SelectionDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> string -> Ztypes.Properties.t -> bool -> t
-  val sid : t -> Ztypes.Vle.t
+  val create : Vle.t -> string -> Properties.t -> bool -> t
+  val sid : t -> Vle.t
   val query : t -> string
-  val properties : t -> Ztypes.Properties.t
+  val properties : t -> Properties.t
   val global : t -> bool
 end
 
 module BindingDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> Ztypes.Vle.t -> bool -> t
-  val oldId : t -> Ztypes.Vle.t
-  val newId : t -> Ztypes.Vle.t
+  val create : Vle.t -> Vle.t -> bool -> t
+  val old_id : t -> Vle.t
+  val new_id : t -> Vle.t
   val global : t -> bool
 end
 
@@ -170,44 +187,44 @@ module CommitDecl :
 sig
   include Headed
   val create : char -> t
-  val commitId : t -> char
+  val commit_id : t -> char
 end
 
 module ResultDecl :
 sig
   include Headed
-  val create : char -> char -> Ztypes.Vle.t -> t
-  val commitId : t -> char
+  val create : char -> char -> Vle.t option-> t
+  val commit_id : t -> char
   val status : t -> char
-  val id : t -> Ztypes.Vle.t
+  val id : t -> Vle.t option
 end
 
 module ForgetResourceDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> t
-  val rid : t -> Ztypes.Vle.t
+  val create : Vle.t -> t
+  val rid : t -> Vle.t
 end
 
 module ForgetPublisherDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> t
-  val id : t -> Ztypes.Vle.t
+  val create : Vle.t -> t
+  val id : t -> Vle.t
 end
 
 module ForgetSubscriberDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> t
-  val id : t -> Ztypes.Vle.t
+  val create : Vle.t -> t
+  val id : t -> Vle.t
 end
 
 module ForgetSelectionDecl :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> t
-  val sid : t -> Ztypes.Vle.t
+  val create : Vle.t -> t
+  val sid : t -> Vle.t
 end
 
 module Declaration :
@@ -238,39 +255,39 @@ end
 module Scout :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> Ztypes.Properties.t -> t
-  val mask : t -> Ztypes.Vle.t
-  val properties : t -> Ztypes.Properties.t
+  val create : Vle.t -> Properties.t -> t
+  val mask : t -> Vle.t
+  val properties : t -> Properties.t
 end
 
 module Hello :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> Ztypes.Locators.t -> Ztypes.Properties.t -> t
-  val mask : t -> Ztypes.Vle.t
-  val locators : t -> Ztypes.Locators.t
-  val properties : t -> Ztypes.Properties.t
+  val create : Vle.t -> Locators.t -> Properties.t -> t
+  val mask : t -> Vle.t
+  val locators : t -> Locators.t
+  val properties : t -> Properties.t
 end
 
 module Open :
 sig
   include Headed
-  val create : char -> Lwt_bytes.t -> Ztypes.Vle.t -> Ztypes.Locators.t -> Ztypes.Properties.t -> t
+  val create : char -> Lwt_bytes.t -> Vle.t -> Locators.t -> Properties.t -> t
   val version : t -> char
   val pid : t -> Lwt_bytes.t
-  val lease : t -> Ztypes.Vle.t
-  val locators : t -> Ztypes.Locators.t
-  val properties : t -> Ztypes.Properties.t
+  val lease : t -> Vle.t
+  val locators : t -> Locators.t
+  val properties : t -> Properties.t
 end
 
 module Accept :
 sig
   include Headed
-  val create : Lwt_bytes.t -> Lwt_bytes.t -> Ztypes.Vle.t -> Ztypes.Properties.t -> t
+  val create : Lwt_bytes.t -> Lwt_bytes.t -> Vle.t -> Properties.t -> t
   val opid : t -> Lwt_bytes.t
   val apid : t -> Lwt_bytes.t
-  val lease : t -> Ztypes.Vle.t
-  val properties : t -> Ztypes.Properties.t
+  val lease : t -> Vle.t
+  val properties : t -> Properties.t
 end
 
 module Close :
@@ -291,12 +308,38 @@ end
 module Declare :
 sig
   include Headed
-  val create : Ztypes.Vle.t -> Declaration.t list -> bool -> bool -> t
-  val sn : t -> Ztypes.Vle.t
+  val create : Vle.t -> Declaration.t list -> bool -> bool -> t
+  val sn : t -> Vle.t
   val declarations : t -> Declaration.t list
   val sync : t -> bool
   val committed : t -> bool
 end
+
+module StreamData :
+sig
+  include  Reliable
+  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> IOBuf.t -> t
+  val id : t -> Vle.t
+  val prid : t -> Vle.t option
+  val payload : t -> IOBuf.t
+end
+
+module Synch :
+sig
+  include Headed
+  val create : bool * bool -> Vle.t -> Vle.t option -> t
+  val sn : t -> Vle.t
+  val count : t -> Vle.t option
+end
+
+module AckNack :
+sig
+  include Headed
+  val create : Vle.t -> Vle.t option -> t
+  val sn : t -> Vle.t
+  val mask : t -> Vle.t option
+end
+
 
 module Message :
   sig
@@ -307,7 +350,21 @@ module Message :
       | Accept of Accept.t
       | Close of Close.t
       | Declare of Declare.t
+      | StreamData of StreamData.t
+      | Synch of Synch.t
+      | AckNack of AckNack.t
+
 
     val to_string : t -> string
+
+    val make_scout : Scout.t -> t
+    val make_hello : Hello.t -> t
+    val make_open : Open.t -> t
+    val make_accept : Accept.t -> t
+    val make_close : Close.t -> t
+    val make_declare : Declare.t -> t
+    val make_stream_data : StreamData.t -> t
+    val make_synch : Synch.t -> t
+    val make_ack_nack : AckNack.t -> t
 
   end
