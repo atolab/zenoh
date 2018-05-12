@@ -1,4 +1,3 @@
-# Consistency
 
 ## Message types
 
@@ -6,6 +5,21 @@
   expose Lwt_bytes
 
 - variable names should avoid using camel case.
+
+## Small composable functions
+
+- do not repeat code, use fuctions and function composition, as an example
+replace the use of:
+; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
+  | 0x00 -> Result.ok (Scout.create mask [], buf)
+  | _ -> Result.do_
+         ; (props, buf) <-- read_prop_seq buf
+         ; Result.ok (Scout.create mask props, buf)
+
+with the new function write_properties
+
+## Properties
+Complete properties Id declaration (See zenoh.mli/ml)
 
 ## Marshaller
 

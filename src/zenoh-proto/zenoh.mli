@@ -1,6 +1,14 @@
 open Ztypes
 open Netbuf
 
+module PropertyId :
+sig
+  val maxConduits : Vle.t
+  val snLen : Vle.t
+  val reliability : Vle.t
+  val authData : Vle.t
+end
+
 module MessageId :
 sig
   val scoutId : char
@@ -114,6 +122,27 @@ sig
   val has_temporal_properties : char -> bool
 
   val temporal_properties : t -> TemporalProperties.t option
+end
+
+
+module Property : sig
+  type t = Vle.t * IOBuf.t
+  val create : Vle.t -> IOBuf.t -> t
+  val id : t -> Vle.t
+  val data: t -> IOBuf.t
+
+end
+
+module Properties : sig
+  type t = Property.t list
+  val empty : t
+  val singleton : Property.t -> t
+  val add : Property.t -> t -> t
+  val find : (Property.t -> bool) -> t -> Property.t option
+  val get : Vle.t -> t -> Property.t option
+  val length : t -> int
+  val of_list : Property.t list -> t
+  val to_list : t -> Property.t list
 end
 
 module Header :
@@ -272,9 +301,9 @@ end
 module Open :
 sig
   include Headed
-  val create : char -> Lwt_bytes.t -> Vle.t -> Locators.t -> Properties.t -> t
+  val create : char -> IOBuf.t -> Vle.t -> Locators.t -> Properties.t -> t
   val version : t -> char
-  val pid : t -> Lwt_bytes.t
+  val pid : t -> IOBuf.t
   val lease : t -> Vle.t
   val locators : t -> Locators.t
   val properties : t -> Properties.t
@@ -283,9 +312,9 @@ end
 module Accept :
 sig
   include Headed
-  val create : Lwt_bytes.t -> Lwt_bytes.t -> Vle.t -> Properties.t -> t
-  val opid : t -> Lwt_bytes.t
-  val apid : t -> Lwt_bytes.t
+  val create : IOBuf.t -> IOBuf.t -> Vle.t -> Properties.t -> t
+  val opid : t -> IOBuf.t
+  val apid : t -> IOBuf.t
   val lease : t -> Vle.t
   val properties : t -> Properties.t
 end
@@ -293,16 +322,16 @@ end
 module Close :
 sig
   include Headed
-  val create : Lwt_bytes.t -> char -> t
-  val pid : t -> Lwt_bytes.t
+  val create : IOBuf.t -> char -> t
+  val pid : t -> IOBuf.t
   val reason : t -> char
 end
 
 module KeepAlive :
 sig
   include Headed
-  val create : Lwt_bytes.t -> t
-  val pid : t -> Lwt_bytes.t
+  val create : IOBuf.t -> t
+  val pid : t -> IOBuf.t
 end
 
 module Declare :
@@ -322,6 +351,7 @@ sig
   val id : t -> Vle.t
   val prid : t -> Vle.t option
   val payload : t -> IOBuf.t
+  val with_sn : t -> Vle.t -> t
 end
 
 module Synch :
@@ -353,7 +383,7 @@ module Message :
       | StreamData of StreamData.t
       | Synch of Synch.t
       | AckNack of AckNack.t
-    
+
 
 
     val to_string : t -> string

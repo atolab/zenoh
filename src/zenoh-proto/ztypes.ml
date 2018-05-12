@@ -22,7 +22,6 @@ module Result = Result.Make(Error)
 
 module Vle = struct
   include Int64
-  [@@deriving sexp]
 
   let of_char = Int64.of_int <.> int_of_char
 
@@ -73,21 +72,6 @@ module Vle = struct
           else Result.fail Error.(OutOfRange NoMsg)
         in from_list_rec Int64.zero xs 0
       end
-end
-
-module Property = struct
-  type t = Vle.t * Lwt_bytes.t
-  let create n v = (n, v)
-end
-
-module Properties = struct
-  type t = Property.t list
-  let empty = []
-  let singleton p = [p]
-  let add ps p = p::ps
-  let find f ps = List.find_opt f ps
-  let get name ps = List.find_opt (fun (n, _) -> if n = name then true else false) ps
-  let length ps = List.length ps
 end
 
 

@@ -47,16 +47,20 @@ module Tcp = struct
     let open Netbuf in
 
     ignore ( Result.do_
-    ; buf <-- IOBuf.clear Session.(s.wbuf)
-    ; buf <-- write_msg buf msg
-    ; buf <-- IOBuf.flip buf
-    ; wlbuf <-- IOBuf.clear s.wlenbuf
-    ; wlbuf <-- IOBuf.put_vle wlbuf  @@ Vle.of_int @@ IOBuf.get_limit  buf
-    ; wlbuf <-- IOBuf.flip wlbuf
-    ; () ; ignore_result (Lwt_io.printf "[Sending message of %d bytes]\n" @@ IOBuf.get_limit wlbuf)
-    ; () ; ignore_result (Lwt_bytes.send s.socket (IOBuf.to_bytes wlbuf) 0 (IOBuf.get_limit wlbuf) [])
-           ; () ; let _ = Lwt_bytes.send s.socket (IOBuf.to_bytes buf) 0 (IOBuf.get_limit buf) [] in return () ) ;
-    return_unit
+           ; buf <-- IOBuf.clear Session.(s.wbuf)
+           ; buf <-- write_msg buf msg
+           ; buf <-- IOBuf.flip buf
+           ; wlbuf <-- IOBuf.clear s.wlenbuf
+           ; wlbuf <-- IOBuf.put_vle wlbuf  @@ Vle.of_int @@ IOBuf.get_limit  buf
+           ; wlbuf <-- IOBuf.flip wlbuf
+           ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string buf) ^ "\n"
+           ; () ; ignore_result (Lwt_io.printf "[Sending message of %d bytes]\n" @@ IOBuf.get_limit wlbuf)
+           ; iovs <-- return [IOBuf.to_io_vec wlbuf; IOBuf.to_io_vec buf]
+           ; () ; Lwt.ignore_result @@ Lwt_bytes.send_msg s.socket iovs []
+           ; return ())
+           (* ; () ; ignore_result (Lwt_bytes.send s.socket (IOBuf.to_bytes wlbuf) 0 (IOBuf.get_limit wlbuf) [])
+           ; () ; let _ = Lwt_bytes.send s.socket (IOBuf.to_bytes buf) 0 (IOBuf.get_limit buf) [] in return () ) *)
+  ; return_unit
 
 
 
@@ -106,6 +110,7 @@ module Tcp = struct
                      ; buf <-- IOBuf.clear s.rbuf
                      ; () ; let _ =  Lwt_bytes.recv s.socket (IOBuf.to_bytes buf) 0 len [] in () ;
                      ; buf <-- IOBuf.set_limit buf len
+                     ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n"
                      ; (msg, buf) <-- read_msg buf
                      ; () ;  (tx.listener s msg) |> List.iter (fun m -> ignore_result @@ send s m) ; Result.ok ())
                       (fun e ->

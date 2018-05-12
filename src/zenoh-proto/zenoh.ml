@@ -3,6 +3,13 @@ open Pervasives
 open Apero
 open Netbuf
 
+module PropertyId = struct
+  let maxConduits = 2L
+  let snLen = 4L
+  let reliability = 6L
+  let authData = 12L
+end
+
 module MessageId = struct
   let scoutId = char_of_int 0x01
   let helloId = char_of_int 0x02
@@ -134,6 +141,27 @@ module SubscriptionMode = struct
     | PeriodicPullMode tp -> Some tp
     | PeriodicPushMode tp -> Some tp
 
+end
+
+module Property = struct
+  type id_t = Vle.t
+  type t = Vle.t * IOBuf.t
+  let create id data = (id, data)
+  let id p = fst p
+  let data p = snd p
+
+end
+
+module Properties = struct
+  type t = Property.t list
+  let empty = []
+  let singleton p = [p]
+  let add p ps = p::ps
+  let find f ps = List.find_opt f ps
+  let get name ps = List.find_opt (fun (n, _) -> if n = name then true else false) ps
+  let length ps = List.length ps
+  let of_list xs = xs
+  let to_list ps = ps
 end
 
 module Header = struct
@@ -458,7 +486,7 @@ module Open = struct
   type t = {
     header : Header.t;
     version : char;
-    pid : Lwt_bytes.t;
+    pid : IOBuf.t;
     lease : Vle.t;
     locators : Locators.t;
     properties : Properties.t;
@@ -494,8 +522,8 @@ end
 module Accept = struct
   type t = {
     header : Header.t;
-    opid : Lwt_bytes.t;
-    apid : Lwt_bytes.t;
+    opid : IOBuf.t;
+    apid : IOBuf.t;
     lease : Vle.t;
     properties : Properties.t;
   }
@@ -527,7 +555,7 @@ end
 module Close = struct
   type t = {
     header : Header.t;
-    pid : Lwt_bytes.t;
+    pid : IOBuf.t;
     reason : char;
   }
 
@@ -548,7 +576,7 @@ end
 module KeepAlive = struct
   type t = {
     header : Header.t;
-    pid : Lwt_bytes.t;
+    pid : IOBuf.t;
   }
 
   let create pid = {header=MessageId.keepAliveId; pid=pid}
@@ -615,6 +643,7 @@ module StreamData = struct
   let synch d = Flags.hasFlag d.header Flags.sFlag
   let prid d = d.prid
   let payload d = d.payload
+  let with_sn d nsn = {d with sn = nsn}
 
 end
 
@@ -668,7 +697,7 @@ module Message = struct
     | StreamData of StreamData.t
     | Synch of Synch.t
     | AckNack of AckNack.t
-          
+
 
 
   let to_string = function (** This should actually call the to_string on individual messages *)

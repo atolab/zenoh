@@ -11,6 +11,11 @@ module IOBuf = struct
     mark : int
   }
 
+  let to_string buf =
+    let rec hexa_print idx =
+      if idx < buf.limit then (Printf.sprintf "%x:" @@ int_of_char @@ Lwt_bytes.get buf.buffer idx ) ^ (hexa_print (idx+1)) else ""
+    in "(pos: " ^ (string_of_int buf.pos) ^ ", limit: "^ (string_of_int buf.limit) ^ " content: " ^ (hexa_print 0)
+
   let create len = Result.ok { buffer = Lwt_bytes.create len;  pos = 0; limit = len; capacity = len; mark = 0 }
 
   let to_bytes buf = buf.buffer
@@ -36,7 +41,7 @@ module IOBuf = struct
 
   let set_position buf pos =
     if pos >=0 && pos <= buf.limit
-    then Result.ok { buf with pos = buf.pos }
+    then Result.ok { buf with pos = pos }
     else Result.fail Error.(OutOfBounds NoMsg)
 
   let get_limit buf = buf.limit
@@ -130,6 +135,7 @@ module IOBuf = struct
     ; (vlen, buf) <-- get_vle buf
     ; len <-- return @@ Vle.to_int vlen
     ; s <-- return @@ Bytes.create len
+    ; () ; Lwt.ignore_result @@ Lwt_log.debug (Printf.sprintf "get_string len: %dL" len)
     ; () ; Lwt_bytes.blit_to_bytes buf.buffer buf.pos s 0 len
     ; Result.ok (Bytes.to_string s, {buf with pos = buf.pos + len })
 
@@ -144,13 +150,50 @@ module IOBuf = struct
 
 
   let blit src dst =
+    (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<in> blit: dst = " ^ (to_string  dst) ; *)
+    (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<in> blit: src = " ^ (to_string  src) ; *)
     let len = src.limit - src.pos in
     if dst.pos + len < dst.limit then
       begin
-        Lwt_bytes.blit src.buffer src.pos dst.buffer dst.pos len
-        ; Result.ok { dst with pos = dst.pos + len }
+        Lwt_bytes.blit src.buffer src.pos dst.buffer dst.pos len ;
+        let r = { dst with pos = dst.pos + len } in
+        (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<out> blit: dst = " ^ (to_string  r) ; *)
+        (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<out> blit: src = " ^ (to_string  src) ; *)
+        Result.ok r
       end
     else
       Result.fail Error.(OutOfBounds NoMsg)
+
+  let put_io_buf dst src  =
+    (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<in> put_io_buf: dst = " ^ (to_string  dst) ;
+    Lwt.ignore_result @@ Lwt_log.debug  @@ "<in> put_io_buf: src = " ^ (to_string  src) ; *)
+    if src.limit - src.pos  < dst.limit - dst.pos then
+      begin
+        (* Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Putting IOBuf of %d bytes"  (src.limit - src.pos) ; *)
+        let open Result in
+        (do_
+        ; dst <-- put_vle dst @@ (Vle.of_int @@ (src.limit - src.pos))
+        ; blit src dst )
+      end
+    else  Result.fail Error.(OutOfBounds NoMsg)
+
+  let get_io_buf buf =
+    (* Lwt.ignore_result @@ Lwt_log.debug  @@ "<in>get_io_buf: " ^ (to_string  buf) ; *)
+    let open Result in
+    (do_
+    ; (len, buf) <-- get_vle buf
+    (* ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Getting IOBuf of %d bytes"  (Vle.to_int len) *)
+    ; dst <-- create (Vle.to_int len)
+    ; () ; Lwt_bytes.blit buf.buffer (buf.pos) dst.buffer 0 (Vle.to_int len)
+    ; buf <-- set_position buf (buf.pos + (Vle.to_int len))
+    (* ; () ; Lwt.ignore_result @@ Lwt_log.debug  @@ "<out>get_io_buf: buf" ^ (to_string  buf)
+    ; () ; Lwt.ignore_result @@ Lwt_log.debug  @@ "<out>get_io_buf: set_position " ^ (string_of_int (buf.pos + (Vle.to_int len))) *)
+    ; dst <-- set_limit dst (Vle.to_int len)
+    (* ; () ; Lwt.ignore_result @@ Lwt_log.debug  @@ "<out>get_io_buf: buf" ^ (to_string  buf)
+    ; () ; Lwt.ignore_result @@ Lwt_log.debug  @@ "<out>get_io_buf dst: " ^ (to_string  dst) *)
+    ; return (dst, buf))
+
+  let to_io_vec buf =
+    Lwt_bytes.{ iov_buffer = buf.buffer; iov_offset = buf.pos; iov_length = buf.limit; }
 
 end

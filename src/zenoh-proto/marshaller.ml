@@ -17,16 +17,19 @@ let (><>=) r f = match r with
   | Error e  -> Result.fail @@ f e
 
 let read_seq buf read =
+  let open Result in
   let rec read_remaining buf seq length =
     match length with
     | 0 -> Result.ok (seq, buf)
     | _ ->
-      Result.do_
+      (do_
       ; (value, buf) <-- read buf
-      ; read_remaining buf (value :: seq) (length - 1) in
-  Result.do_
+      ; read_remaining buf (value :: seq) (length - 1))
+  in
+  (do_
   ; (length, buf) <-- IOBuf.get_vle buf
-  ; read_remaining buf [] (Vle.to_int length)
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@  (Printf.sprintf "Reading seq of %d elements" (Vle.to_int length))
+  ; read_remaining buf [] (Vle.to_int length))
 
 let write_seq buf seq write =
   let rec write_remaining buf seq =
@@ -41,26 +44,29 @@ let write_seq buf seq write =
   ; write_remaining buf seq
 
 
-let read_io_buf buf =
+(* let get_io_buf buf =
   let open IOBuf in
   let open Result in
   (do_
   ; (len, buf) <-- get_vle buf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Reading IOBuf of %d bytes"  (Vle.to_int len)
   ; payload <-- create @@ Vle.to_int len
   ; buf <-- blit buf payload
-  ; return (payload, buf))
+  ; return (payload, buf)) *)
 
-let write_io_buf buf iobuf =
+(* let put_io_buf buf iobuf =
   let open IOBuf in
   let open Result in
   (do_
   ; buf <-- put_vle buf @@ Vle.of_int @@ get_limit iobuf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Writing IOBuf of %d bytes"  (get_limit iobuf)
   ; buf <-- blit iobuf buf
-  ; return buf)
+  ; return buf) *)
 
 let read_byte_seq buf =
   Result.do_
   ; (length, buf2) <-- (IOBuf.get_vle buf)
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Reading IOBuf of %d bytes"  (Vle.to_int length)
   ; if (IOBuf.get_position buf2) + (Vle.to_int length) <= (IOBuf.get_limit buf2) then
     begin
       let int_length = Vle.to_int length in
@@ -78,16 +84,17 @@ let write_byte_seq buf seq =
   ; IOBuf.blit_from_bytes seq 0 buf seq_length
 
 let read_prop buf =
-  Result.do_
+  let open Result in
+  (do_
   ; (id, buf) <-- IOBuf.get_vle buf
-  ; (value, buf) <-- read_byte_seq buf
-  ; Result.ok (Property.create id value, buf)
+  ; (data, buf) <-- IOBuf.get_io_buf buf
+  ; return (Property.create id data, buf))
 
 let write_prop buf prop =
   let (id, value) = prop in
   Result.do_
   ; buf <-- IOBuf.put_vle buf id
-  ; write_byte_seq buf value
+  ; IOBuf.put_io_buf buf value
 
 let read_prop_seq buf =
   read_seq buf read_prop
@@ -127,7 +134,7 @@ let read_scout buf header =
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Rading Scout"
   ; (mask, buf) <-- IOBuf.get_vle buf
   ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
-    | 0x00 -> Result.ok (Scout.create mask [], buf)
+    | 0x00 -> Result.ok (Scout.create mask Properties.empty, buf)
     | _ -> Result.do_
            ; (props, buf) <-- read_prop_seq buf
            ; Result.ok (Scout.create mask props, buf)
@@ -141,8 +148,8 @@ let write_scout buf scout =
   ; match ((int_of_char (header scout)) land (int_of_char Flags.pFlag)) with
   | 0x00 -> Result.ok buf
   | _ -> Result.do_
-         ; buf <-- write_prop_seq buf (properties scout)
-         ; Result.ok buf
+       ; buf <-- write_prop_seq buf (properties scout)
+        ; Result.ok buf
 
 let read_hello buf header =
   Result.do_
@@ -172,36 +179,31 @@ let read_open buf header =
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Open"
   ; (version, buf) <-- IOBuf.get_char buf
-  ; (pid, buf) <-- read_byte_seq buf
+  ; (pid, buf) <-- IOBuf.get_io_buf buf
   ; (lease, buf) <-- IOBuf.get_vle buf
-  ; (locators, buf) <-- read_locator_seq buf
-  ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
-    | 0x00 -> Result.ok (Open.create version pid lease locators [], buf)
-    | _ -> Result.do_
-           ; (props, buf) <-- read_prop_seq buf
-           ; Result.ok (Open.create version pid lease locators props, buf)
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Lease = %d" (Vle.to_int lease)
+  ; (locs, buf) <-- read_locator_seq buf
+  ; (ps, buf) <-- read_properties buf header
+  ; return (Open.create version pid lease [] [], buf)
 
-let write_open buf open_msg =
+let write_open buf msg =
   let open Open in
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Open"
-  ; buf <-- IOBuf.put_char buf (header open_msg)
-  ; buf <-- IOBuf.put_char buf (version open_msg)
-  ; buf <-- write_byte_seq buf (pid open_msg)
-  ; buf <-- IOBuf.put_vle buf (lease open_msg)
-  ; buf <-- write_locator_seq buf (locators open_msg)
-  ; match ((int_of_char (header open_msg)) land (int_of_char Flags.pFlag)) with
-    | 0x00 -> Result.ok buf
-    | _ -> Result.do_
-           ; buf <-- write_prop_seq buf (properties open_msg)
-           ; Result.ok buf
+  ; buf <-- IOBuf.put_char buf (header msg)
+  ; buf <-- IOBuf.put_char buf (version msg)
+  ; buf <-- IOBuf.put_io_buf buf (pid msg)
+  ; buf <-- IOBuf.put_vle buf (lease msg)
+  ; buf <-- write_locator_seq buf (locators msg)
+  ; write_properties buf (header msg) (properties msg)
 
 let read_accept buf (header:char) =
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Accept"
-  ; (opid, buf) <-- read_byte_seq buf
-  ; (apid, buf) <-- read_byte_seq buf
+  ; (opid, buf) <-- IOBuf.get_io_buf buf
+  ; (apid, buf) <-- IOBuf.get_io_buf buf
   ; (lease, buf) <-- IOBuf.get_vle buf
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Lease = %d" (Vle.to_int lease)
   ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
     | 0x00 -> Result.ok (Accept.create opid apid lease [], buf)
     | _ -> Result.do_
@@ -213,8 +215,8 @@ let write_accept buf accept =
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Accept"
   ; buf <-- IOBuf.put_char buf (header accept)
-  ; buf <-- write_byte_seq buf (opid accept)
-  ; buf <-- write_byte_seq buf (apid accept)
+  ; buf <-- IOBuf.put_io_buf buf (opid accept)
+  ; buf <-- IOBuf.put_io_buf buf (apid accept)
   ; buf <-- IOBuf.put_vle buf (lease accept)
   ; match ((int_of_char (header accept)) land (int_of_char Flags.pFlag)) with
     | 0x00 -> Result.ok buf
@@ -225,7 +227,7 @@ let write_accept buf accept =
 let read_close buf header =
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading Close"
-  ; (pid, buf) <-- read_byte_seq buf
+  ; (pid, buf) <-- IOBuf.get_io_buf buf
   ; (reason, buf) <-- IOBuf.get_char buf
   ; Result.ok (Close.create pid reason, buf)
 
@@ -234,7 +236,7 @@ let write_close buf close =
   Result.do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing Close"
   ; buf <-- IOBuf.put_char buf (header close)
-  ; buf <-- write_byte_seq buf (pid close)
+  ; buf <-- IOBuf.put_io_buf buf (pid close)
   ; buf <-- IOBuf.put_char buf (reason close)
   ; Result.ok buf
 
@@ -438,7 +440,7 @@ let read_stream_data buf h =
   ; (sn, buf) <-- get_vle buf
   ; (id, buf) <-- get_vle buf
   ; (prid, buf) <-- if Flags.hasFlag h Flags.aFlag then get_vle buf <>>= (fun v -> Some v) else return (None, buf)
-  ; (payload, buf) <-- read_io_buf buf
+  ; (payload, buf) <-- get_io_buf buf
   ; (r, s) <-- return ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag))
   ; return  ((StreamData.create (r, s) sn id prid payload),buf))
 
@@ -447,10 +449,11 @@ let write_stream_data buf m =
   let open IOBuf in
   let open Result in
   (do_
+  ; buf <-- put_char buf @@ header m
   ; buf <-- put_vle buf @@ sn m
   ; buf <-- put_vle buf @@ id m
   ; buf <-- (match prid m with | None -> return buf | Some v -> put_vle buf v )
-  ; write_io_buf buf @@ payload m)
+  ; put_io_buf buf @@ payload m)
 
 let read_synch buf h =
   let open IOBuf in

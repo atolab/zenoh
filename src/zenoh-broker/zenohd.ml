@@ -8,17 +8,17 @@ open Transport
 open Zengine
 open Ztypes
 
-let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug)
+(* let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
-let pid =
-  let bs = Lwt_bytes.create 4 in
-  for i = 0 to 3 do
-    Lwt_bytes.set bs i (Char.chr (3-i))
-  done
-  ; bs
+let pid = let open Result in
+  get (do_
+      ; buf <-- IOBuf.create 16
+      ; buf <-- IOBuf.put_string buf "zenohd"
+      ; IOBuf.flip buf)
 
-let lease = 10000L
+
+let lease = 600L
 let version = Char.chr 0x01
 
 

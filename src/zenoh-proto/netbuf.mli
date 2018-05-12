@@ -60,8 +60,16 @@ module IOBuf : sig
 
   val get_string : t -> (string * t) Result.m
 
+  val put_io_buf : t -> t -> t Result.m
+
+  val get_io_buf : t -> (t * t) Result.m
+
   val blit_from_bytes : Lwt_bytes.t -> int -> t -> int -> t Result.m
 
   val blit : t -> t -> t Result.m
+
+  val to_io_vec : t -> Lwt_bytes.io_vector
+
+  val to_string : t -> string
 
 end

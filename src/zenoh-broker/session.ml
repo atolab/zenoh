@@ -81,6 +81,9 @@ module Session : sig
   val make : int -> Lwt_unix.file_descr -> Lwt_unix.sockaddr -> int -> t
   val in_channel : t -> InChannel.t
   val out_channel : t -> OutChannel.t
+  val sid : t -> SessionId.t
+  val close : t -> unit -> unit Lwt.t
+  val send : t -> Message.t -> unit Lwt.t
 
 end = struct
 
@@ -119,5 +122,8 @@ end = struct
 
   let in_channel s = s.ic
   let out_channel s = s.oc
+  let sid s = s.sid
+  let close s = s.close
+  let send s = s.send
 
 end
