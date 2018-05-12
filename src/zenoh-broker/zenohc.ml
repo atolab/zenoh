@@ -57,7 +57,13 @@ let wbuf = Result.get @@ IOBuf.create 8192
 let rbuf = Result.get @@ IOBuf.create 8192
 
 let get_args () =
-  if Array.length Sys.argv < 3 then ("192.168.1.11", 7447)
+  if Array.length Sys.argv < 3 then
+    begin
+      let ipaddr = "127.0.0.1" in
+      let port = 7447 in
+      print_endline (Printf.sprintf "[Connecting to broker at %s:%d -- to use other address run as: zenohc <ipaddr> <port>]" ipaddr port)
+    ; (ipaddr, port)
+    end
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock msg =
@@ -187,7 +193,6 @@ let rec run_read_loop sock continue =
             ))
     >>= (run_read_loop sock)
   else return_unit
-
 
 let () =
   let addr, port  = get_args () in
