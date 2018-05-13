@@ -108,7 +108,7 @@ module ProtocolEngine = struct
         | [] ->
           ignore_result @@ (Lwt_log.debug @@ "Acking Declare with sn: " ^ (Vle.to_string sn) ^ "\n" );
           [Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
-        | _ as ds -> [Message.Declare (Declare.create (OutChannel.next_rsn oc) ds false false);
+        | _ as ds -> [Message.Declare (Declare.create (OutChannel.next_rsn oc) ds false true);
                       Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
 
       end

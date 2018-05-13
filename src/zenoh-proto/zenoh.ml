@@ -605,9 +605,9 @@ module Declare = struct
     let header = match sync with
       | false -> (match committed with
           | false -> MessageId.declareId
-          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.sFlag)))
+          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag)))
       | true -> (match committed with
-          | false -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag))
+          | false -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.sFlag))
           | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag) lor (int_of_char Flags.sFlag)))
     in {header=header; sn=sn; declarations=declarations}
   let header declare = declare.header
