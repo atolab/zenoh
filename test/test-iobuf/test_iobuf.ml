@@ -1,47 +1,22 @@
+open Apero
+open Ztypes
 open Netbuf
-open Zenoh_pervasives
 
 let test_cases = 1000
 let batch = 64
 
-module ErrorA = struct
-  type e = ErrorAOne of int | ErrorATwo of int
-end
-
-module ErrorB = struct
-  type e = ErrorBOne of int | ErrorBTwo of int
-end
-
-module ResultA = Monad.ResultM(ErrorA)
-module ResultB = Monad.ResultM(ErrorB)
-module RA2B = Monad.ResultX(ResultA)(ResultB)
-module Result = IOBuf.Result
-
-let produce_result_a n =
-  if n > 10 then ResultA.return 10 else ResultA.fail @@ ErrorA.ErrorAOne 10
-
-let test_tresult_m () =
-  let _ = RA2B.lift_e (produce_result_a 20) (fun _ -> ErrorB.ErrorBOne 10)
-  in ()
-
-let test_tresult_m () =
-  let _ =
-    match (ResultA.do_
-          ; produce_result_a 20) with
-    | Error (ErrorA.ErrorAOne v) -> ResultB.fail (ErrorB.ErrorBOne v)
-    | Error (ErrorA.ErrorATwo v) -> ResultB.fail (ErrorB.ErrorBTwo v)
-    | _ -> ResultB.fail (ErrorBOne 0)
-  in ()
-
 let write_read_char x =
-  Result.do_
-  ; buf <-- (IOBuf.create 16)
-  ; wbuf <-- (IOBuf.put_char buf x)
-  ; rbuf <-- (IOBuf.flip wbuf)
-  ; (c, buf) <-- (IOBuf.get_char rbuf)
+  let open Result in
+  let open IOBuf in
+  (do_
+  ; buf <-- create 16
+  ; wbuf <-- put_char buf x
+  ; rbuf <-- flip wbuf
+  ; (c, buf) <-- get_char rbuf
   ; () ; Printf.printf "written: %d read: %d\n" (int_of_char x) (int_of_char c)
   ; () ; Alcotest.(check char) "IOBuf write / read same character"  c x
-  ; return buf
+  ; return buf)
+
 
 let write_read_char_test () =
   let rec run_test_loop n =
@@ -111,7 +86,7 @@ let write_read_vle_test () =
         let v = Random.int64 Int64.max_int in
         let d = Int64.sub u v in
         let nu = Int64.neg u in
-        let nv = Int64.neg v in
+        let nv = Int64.neg v in        
         let _ = write_read_vle @@ Int64.of_int n in
         let _ = write_read_vle u in
         let _ = write_read_vle v in
@@ -127,8 +102,7 @@ let write_read_vle_test () =
 let test_iobuf = [
   "WR-Char" , `Quick, write_read_char_test;
   "WR-Vle.t" , `Quick, write_read_vle_test;
-  "WR-String", `Quick, write_read_string;
-  "ResultX", `Quick, test_tresult_m;
+  "WR-String", `Quick, write_read_string
 ]
 
 (* Run it *)

@@ -1,8 +1,9 @@
-open Ztypes
-open Zenoh
 open Lwt
 open Lwt.Infix
-open Session
+open Ztypes
+open Zlocator
+open Zmessage
+open Zsession
 open Netbuf
 open Printf
 
@@ -63,15 +64,38 @@ module ProtocolEngine = struct
     let open Declaration in
     [Declaration.ResultDecl (ResultDecl.create (CommitDecl.commit_id cd) (char_of_int 0) None)]
 
+  let notify_pub_matching_sub pe s sd =
+    ignore_result @@ Lwt_log.debug @@ "Notifing Pub Matching Subs" ;
+    let id = SubscriberDecl.rid sd in
+    let open Apero in
+    match PubSubMap.find_opt id pe.pubmap with
+    | None -> ()
+    | Some xs -> List.iter (fun sid ->
+        ignore_result
+        @@  match SessionMap.find_opt sid pe.smap with
+        | None -> return_unit
+        | Some s ->
+          let sid = Session.sid s in
+          let oc = Session.out_channel s in
+          let ds = [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode Properties.empty)] in
+          let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+          ignore_result @@ Lwt_log.debug @@ (sprintf "Notifing Pub Matching Subs -- sending SubscriberDecl for sid = %Ld" sid) ;
+          Session.send s decl
+      ) xs
+
+
   let match_sub pe s sd =
+    ignore_result @@ Lwt_log.debug @@ "Matching SubDeclaration" ;
     let open Declaration in
     let id = SubscriberDecl.rid sd in
     add_subscription pe s sd ;
+    notify_pub_matching_sub pe s sd;
     match PubSubMap.find_opt (SubscriberDecl.rid sd) pe.pubmap  with
     | None -> []
     | Some pubs -> [Declaration.PublisherDecl (PublisherDecl.create id Properties.empty)]
 
   let match_pub pe s pd =
+    ignore_result @@ Lwt_log.debug @@ "Matching PubDeclaration" ;
     let id = PublisherDecl.rid pd in
     add_publication pe s pd ;
     match PubSubMap.find_opt (PublisherDecl.rid pd) pe.submap  with
@@ -108,7 +132,7 @@ module ProtocolEngine = struct
         | [] ->
           ignore_result @@ (Lwt_log.debug @@ "Acking Declare with sn: " ^ (Vle.to_string sn) ^ "\n" );
           [Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
-        | _ as ds -> [Message.Declare (Declare.create (OutChannel.next_rsn oc) ds false true);
+        | _ as ds -> [Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds);
                       Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
 
       end
@@ -118,17 +142,14 @@ module ProtocolEngine = struct
         []
       end
 
-
-
   let process_synch pe s msg =
-    let ssn = Synch.sn msg in
-    let asn = ssn in
+    let asn = Synch.sn msg in
     [Message.AckNack (AckNack.create asn None)]
 
   let process_ack_nack pe sid msg = []
 
 
-    let forward_data pe sid msg =
+  let forward_data pe sid msg =
       match SessionMap.find_opt sid pe.smap with
       | None ->
         return_unit
@@ -139,14 +160,15 @@ module ProtocolEngine = struct
         let fwd_msg = StreamData.with_sn msg fsn in
         (Session.send s) @@ Message.StreamData fwd_msg
 
-
   let process_stream_data pe s msg =
     let id = StreamData.id msg in
     let subs = PubSubMap.find_opt id pe.submap in
     ignore_result @@ Lwt_log.debug @@ (sprintf "Handling Stream Data Message for resource: %Ld " id)
     ; match subs with
-    | None -> []
-    | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; []
+      | None ->
+        ignore_result @@ Lwt_log.debug @@ (sprintf "Empty Subscription List for session: %Ld " id) ;
+        []
+      | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; []
 
   let process pe s msg =
     ignore_result @@ Lwt_log.debug (sprintf "Received message: %s" (Message.to_string msg));

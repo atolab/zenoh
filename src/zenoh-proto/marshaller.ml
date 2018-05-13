@@ -1,20 +1,23 @@
 open Apero
 open Printf
-open Netbuf
-open Zenoh
 open Ztypes
-open Zenoh.Message
+open Zlocator
+open Netbuf
+open Zmessage
+open Zmessage.Message
+
 
 (** This operator should be generalised for the result type associated with the IOBuf *)
 
+module Infix = struct
+  let (<>>=) r f = match r with
+    | Ok (a, b) -> Result.ok (f a, b)
+    | Error _ as e -> e
 
-let (<>>=) r f = match r with
-  | Ok (a, b) -> Result.ok (f a, b)
-  | Error _ as e -> e
-
-let (><>=) r f = match r with
-  | Ok _ -> r
-  | Error e  -> Result.fail @@ f e
+  let (><>=) r f = match r with
+    | Ok _ -> r
+    | Error e  -> Result.fail @@ f e
+end
 
 let read_seq buf read =
   let open Result in
@@ -344,6 +347,7 @@ let write_commit_decl buf cd =
 let read_result_decl buf _ =
   let open IOBuf in
   let open Result in
+  let open Infix in
   (do_
   ; (commit_id, buf) <-- get_char buf
   ; (status, buf) <-- get_char buf
@@ -420,7 +424,7 @@ let read_declare buf h =
   ; (sn, buf) <-- get_vle buf
   ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "Declare sn = %Ld" sn
   ; (ds, buf) <-- read_declarations buf
-  ; return ((Declare.create sn ds (Flags.hasFlag h Flags.sFlag) (Flags.hasFlag h Flags.cFlag)), buf))
+  ; return ((Declare.create ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.cFlag)) sn ds), buf))
 
 let write_declare buf decl =
   let open Declare in
@@ -436,6 +440,7 @@ let write_declare buf decl =
 let read_stream_data buf h =
   let open IOBuf in
   let open Result in
+  let open Infix in
   (do_
   ; (sn, buf) <-- get_vle buf
   ; (id, buf) <-- get_vle buf
@@ -458,6 +463,7 @@ let write_stream_data buf m =
 let read_synch buf h =
   let open IOBuf in
   let open Result in
+  let open Infix in
   (do_
   ; (sn, buf) <-- get_vle buf
   ; (s, r) <-- return Flags.(hasFlag h sFlag, hasFlag h rFlag)
@@ -479,6 +485,7 @@ let write_synch buf m =
 let read_ack_nack buf h =
   let open IOBuf in
   let open Result in
+  let open Infix in
   (do_
   ; (sn, buf) <-- get_vle buf
   ; if Flags.(hasFlag h mFlag) then
@@ -496,21 +503,24 @@ let write_ack_nack buf m =
   ; match mask m with | None -> return buf | Some v -> put_vle buf v)
 
 let read_keep_alive buf header =
-  Result.do_
+  let open Result in
+  (do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading KeepAlive"
   ; (pid, buf) <-- IOBuf.get_io_buf buf
-  ; Result.ok (KeepAlive.create pid, buf)
+  ; return (KeepAlive.create pid, buf))
 
 let write_keep_alive buf keep_alive =
   let open KeepAlive in
-  Result.do_
+  let open IOBuf in
+  let open Result in
+  (do_
   ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing KeepAlive"
-  ; buf <-- IOBuf.put_char buf (header keep_alive)
-  ; buf <-- IOBuf.put_io_buf buf (pid keep_alive)
-  ; Result.ok buf
+  ; buf <-- put_char buf (header keep_alive)
+  ; put_io_buf buf (pid keep_alive))
 
 let read_msg buf =
   let open Result in
+  let open Infix in
   (do_
   ; (header, buf) <-- IOBuf.get_char buf
   ; () ; Lwt.ignore_result @@ Lwt_log.debug (Printf.sprintf "Received message with id: %d\n" (Header.mid header))

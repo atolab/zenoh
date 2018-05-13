@@ -2,14 +2,14 @@
 
 (executable
  ((name            zenohd)
- (modules (zenohd zconfig_t transport session zengine))
-  (libraries (lwt lwt.unix apero zenoh_proto atdgen))
+ (modules (zenohd zconfig_t))
+  (libraries (lwt lwt.unix zenoh_proto atdgen))
   (preprocess
     (pps (lwt.ppx ppx_monadic)))))
 
 (executable
   ((name           zenohc)
   (modules (zenohc))
-  (libraries (lwt lwt.unix apero zenoh_proto atdgen))
+  (libraries (lwt lwt.unix zenoh_proto atdgen))
   (preprocess
     (pps (lwt.ppx ppx_monadic)))))

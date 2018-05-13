@@ -1,15 +1,10 @@
 
 open Lwt
 open Lwt.Infix
-open Netbuf
-open Marshaller
 open Zenoh
-open Transport
-open Zengine
-open Ztypes
 
-(* let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
+let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug)
 
 let pid = let open Result in
   get (do_

@@ -72,4 +72,37 @@ module IOBuf : sig
 
   val to_string : t -> string
 
+(** I/O related functions *)
+
+
+  val read : Lwt_unix.file_descr -> t -> int Lwt.t
+(** [read] at most (limit -pos) bytes out of the file descriptior in to
+    the IOBuf. Returns the  actual number of bytes read. *)
+
+
+  val write : Lwt_unix.file_descr -> t -> int Lwt.t
+(** [write]  the bytes between {e pos} and {e limit}. Returns the number
+    of bytes actually written. *)
+
+  val recv : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> int Lwt.t
+(** [recv] receives at most (limit -pos) bytes out of the file descriptior
+    in to the IOBuf. Returns the  actual number of bytes received.  *)
+
+  val send : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> int Lwt.t
+  (** [send] send the bytes between {e pos} and {e limit}. Returns the number
+      of bytes actually sent. *)
+
+  val recvfrom : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> (int * Unix.sockaddr) Lwt.t
+
+  val sendto : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> Unix.sockaddr -> int Lwt.t
+
+  type io_vector
+
+  val io_vector : t -> io_vector
+
+  val recv_vec : Lwt_unix.file_descr -> io_vector list -> (int * Unix.file_descr list) Lwt.t
+
+  val send_vec : Lwt_unix.file_descr -> io_vector list -> int Lwt.t
+
+
 end

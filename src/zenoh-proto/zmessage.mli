@@ -1,4 +1,5 @@
 open Ztypes
+open Zlocator
 open Netbuf
 
 module PropertyId :
@@ -337,7 +338,7 @@ end
 module Declare :
 sig
   include Headed
-  val create : Vle.t -> Declaration.t list -> bool -> bool -> t
+  val create : (bool * bool) -> Vle.t -> Declaration.t list -> t
   val sn : t -> Vle.t
   val declarations : t -> Declaration.t list
   val sync : t -> bool

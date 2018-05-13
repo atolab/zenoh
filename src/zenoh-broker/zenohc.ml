@@ -1,11 +1,6 @@
 open Lwt
 open Lwt.Infix
-open Netbuf
-open Marshaller
 open Zenoh
-open Ztypes
-
-(* let () = (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 let dbuf = Result.get @@ IOBuf.create 1024
 
@@ -18,22 +13,6 @@ let pid = let open Result in
 let lease = 600L
 let version = Char.chr 0x01
 
-module Conduit = struct
-  type t = {
-    id : int;
-    mutable rsn : Vle.t;
-    mutable usn : Vle.t;
-
-  }
-  let make id = { id ; rsn = 0L; usn = 0L}
-  let next_rsn c =
-    let n = c.rsn in c.rsn <- Vle.add c.rsn 1L ; n
-
-  let next_usn c =
-    let n = c.usn in c.usn <- Vle.add c.usn 1L ; n
-
-  let id c = c.id
-end
 
 let default_conduit = Conduit.make 0
 
@@ -100,13 +79,13 @@ let send_close sock =
 let send_declare_pub sock id =
   let pub_id = Vle.of_int id in
   let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id [])  in
-  let msg = Message.Declare (Declare.create (Conduit.next_rsn default_conduit) decls false true)
+  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 let send_declare_sub sock id =
   let sub_id = Vle.of_int id in
   let decls = Declarations.singleton @@ SubscriberDecl (SubscriberDecl.create sub_id SubscriptionMode.push_mode [])  in
-  let msg = Message.Declare (Declare.create (Conduit.next_rsn default_conduit) decls false true)
+  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 

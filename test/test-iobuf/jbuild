@@ -3,7 +3,7 @@
 (executable
  ((name      test_iobuf)
   (modules   (test_iobuf))
-  (libraries (zenoh_proto alcotest))
+  (libraries (apero zenoh_proto alcotest))
   (preprocess
     (pps (ppx_monadic)))))
 

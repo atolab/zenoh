@@ -18,6 +18,12 @@ replace the use of:
 
 with the new function write_properties
 
+## Pub/Sub Matching
+The current implementation sends matches each time one happens. This is
+not optimal as it is sufficient to send a match to a publisher just once.
+Thus we should keep track for matched publications as opposed to just
+publications.
+
 ## Properties
 Complete properties Id declaration (See zenoh.mli/ml)
 

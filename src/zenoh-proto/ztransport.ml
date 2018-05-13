@@ -1,10 +1,11 @@
 open Lwt
 open Lwt.Infix
-open Zenoh
 open Ztypes
 open Marshaller
 open Netbuf
-open Session
+open Zmessage
+open Zsession
+
 
 let udp_id = 0x00
 let tcp_id = 0x01
@@ -13,7 +14,7 @@ let ble_id = 0x02
 
 module Tcp = struct
 
-  type callback = Session.t -> Zenoh.Message.t -> Zenoh.Message.t list
+  type callback = Session.t -> Message.t -> Message.t list
 
   type t = { tx_id: int;
              socket: Lwt_unix.file_descr;
