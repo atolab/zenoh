@@ -383,7 +383,7 @@ module Message :
       | StreamData of StreamData.t
       | Synch of Synch.t
       | AckNack of AckNack.t
-
+      | KeepAlive of KeepAlive.t
 
 
     val to_string : t -> string
@@ -397,5 +397,6 @@ module Message :
     val make_stream_data : StreamData.t -> t
     val make_synch : Synch.t -> t
     val make_ack_nack : AckNack.t -> t
+    val make_keep_alive : KeepAlive.t -> t
 
   end

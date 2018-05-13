@@ -495,6 +495,20 @@ let write_ack_nack buf m =
   ; buf <-- put_vle buf @@ sn m
   ; match mask m with | None -> return buf | Some v -> put_vle buf v)
 
+let read_keep_alive buf header =
+  Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Reading KeepAlive"
+  ; (pid, buf) <-- IOBuf.get_io_buf buf
+  ; Result.ok (KeepAlive.create pid, buf)
+
+let write_keep_alive buf keep_alive =
+  let open KeepAlive in
+  Result.do_
+  ; () ; Lwt.ignore_result @@ Lwt_log.debug "Writing KeepAlive"
+  ; buf <-- IOBuf.put_char buf (header keep_alive)
+  ; buf <-- IOBuf.put_io_buf buf (pid keep_alive)
+  ; Result.ok buf
+
 let read_msg buf =
   let open Result in
   (do_
@@ -510,6 +524,7 @@ let read_msg buf =
      | id when id = MessageId.sdataId ->  (read_stream_data buf header) <>>= make_stream_data
      | id when id = MessageId.synchId -> (read_synch buf header) <>>= make_synch
      | id when id = MessageId.ackNackId -> (read_ack_nack buf header) <>>= make_ack_nack
+     | id when id = MessageId.keepAliveId -> (read_keep_alive buf header) <>>= make_keep_alive
      | uid ->
        Lwt.ignore_result (Lwt_log.warning @@ Printf.sprintf "Received unknown message id: %d" (int_of_char uid))
        ; Result.fail Error.(InvalidFormat NoMsg)))
@@ -526,3 +541,4 @@ let write_msg buf msg =
   | StreamData m -> write_stream_data buf m
   | Synch m -> write_synch buf m
   | AckNack m -> write_ack_nack buf m
+  | KeepAlive m -> write_keep_alive buf m

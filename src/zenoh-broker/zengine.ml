@@ -159,6 +159,7 @@ module ProtocolEngine = struct
     | Message.Synch msg -> process_synch pe s msg
     | Message.AckNack msg -> process_ack_nack pe s msg
     | Message.StreamData msg -> process_stream_data pe s msg
+    | Message.KeepAlive msg -> []
     | _ -> []
 
 

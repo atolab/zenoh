@@ -697,7 +697,7 @@ module Message = struct
     | StreamData of StreamData.t
     | Synch of Synch.t
     | AckNack of AckNack.t
-
+    | KeepAlive of KeepAlive.t
 
 
   let to_string = function (** This should actually call the to_string on individual messages *)
@@ -710,6 +710,7 @@ module Message = struct
     | StreamData d -> "StreamData"
     | Synch s -> "Synch"
     | AckNack a -> "AckNack"
+    | KeepAlive a -> "KeepAlive"
 
     let make_scout s = Scout s
     let make_hello h = Hello h
@@ -720,4 +721,5 @@ module Message = struct
     let make_stream_data sd =  StreamData sd
     let make_synch s = Synch s
     let make_ack_nack a = AckNack a
+    let make_keep_alive a = KeepAlive a
 end
