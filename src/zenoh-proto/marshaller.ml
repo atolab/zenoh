@@ -462,10 +462,10 @@ let read_synch buf h =
   ; (sn, buf) <-- get_vle buf
   ; (s, r) <-- return Flags.(hasFlag h sFlag, hasFlag h rFlag)
   ; if Flags.hasFlag h Flags.uFlag then
-      return (Synch.create (s,r) sn None, buf)
-    else
       get_vle buf
-      <>>= (fun c -> Synch.create (s,r) sn (Some c)))
+      <>>= (fun c -> Synch.create (s,r) sn (Some c))
+    else
+      return (Synch.create (s,r) sn None, buf))
 
 let write_synch buf m =
   let open Synch in
