@@ -122,7 +122,7 @@ module ProtocolEngine = struct
 
   let process_synch pe s msg =
     let ssn = Synch.sn msg in
-    let asn = Vle.add ssn 1L in
+    let asn = ssn in
     [Message.AckNack (AckNack.create asn None)]
 
   let process_ack_nack pe sid msg = []
