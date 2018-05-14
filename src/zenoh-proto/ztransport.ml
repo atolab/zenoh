@@ -14,21 +14,27 @@ let ble_id = 0x02
 
 module Tcp = struct
 
+  (** Should change this to use an algebraic data type that
+      would allow us to notify connection being closed.
+      Curretnly we could propagate a fictuous close...
+      But that would cause more work then necessary due
+      to the close being sent back.
+  *)
   type callback = Session.t -> Message.t -> Message.t list
+  type close_handler = Session.t -> unit
 
   type t = { tx_id: int;
              socket: Lwt_unix.file_descr;
              locator: Lwt_unix.sockaddr;
              mutable sessions : Session.t list;
-             mutable listener : callback;
+             listener : callback;
+             handle_close : close_handler;
              buf_len : int
            }
 
-
-
   let backlog = 32
 
-  let create tx_id locator listener buf_len =
+  let create tx_id locator listener handle_close buf_len =
     let open Lwt_unix in
     let sock = socket PF_INET SOCK_STREAM 0 in
     let _ = setsockopt sock SO_REUSEADDR true in
@@ -40,11 +46,12 @@ module Tcp = struct
       locator;
       sessions = [];
       listener;
+      handle_close;
       buf_len}
 
 
   let send s msg  =
-    ignore_result (Lwt_io.printf ">> sending message: %s\n" @@ Message.to_string msg ) ;
+    ignore_result @@ Lwt_log.debug (Printf.sprintf ">> sending message: %s\n" @@ Message.to_string msg ) ;
     let open Netbuf in
 
     ignore ( Result.do_
@@ -54,8 +61,6 @@ module Tcp = struct
            ; wlbuf <-- IOBuf.clear s.wlenbuf
            ; wlbuf <-- IOBuf.put_vle wlbuf  @@ Vle.of_int @@ IOBuf.get_limit  buf
            ; wlbuf <-- IOBuf.flip wlbuf
-           ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string buf) ^ "\n"
-           ; () ; ignore_result (Lwt_io.printf "[Sending message of %d bytes]\n" @@ IOBuf.get_limit wlbuf)
            ; iovs <-- return [IOBuf.to_io_vec wlbuf; IOBuf.to_io_vec buf]
            ; () ; Lwt.ignore_result @@ Lwt_bytes.send_msg s.socket iovs []
            ; return ())
@@ -92,6 +97,8 @@ module Tcp = struct
     let (cs, xs) = List.partition Session.(fun i -> i.sid = s.sid) tx.sessions in
     tx.sessions <- xs ;
     List.iter Session.(fun c -> ignore (Lwt_unix.close c.socket) ) cs ;
+    tx.handle_close s ;
+
     return_unit
 
   let handle_session tx (s: Session.t) =

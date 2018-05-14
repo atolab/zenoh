@@ -25,6 +25,20 @@ module ProtocolEngine = struct
     ignore_result @@ Lwt_log.debug (sprintf "Registering Session %Ld: \n" sid) ;
     let m = SessionMap.add sid s pe.smap in pe.smap <- m
 
+  let remove_session pe s =
+    let sid = Session.sid s in
+    ignore_result @@ Lwt_log.debug (sprintf "Un-registering Session %Ld: \n" sid) ;
+    let m = SessionMap.remove sid pe.smap in pe.smap <- m ;
+    PubSubMap.iter (fun k xs ->
+        let ys = List.filter (fun s -> s != sid) xs in
+        let m = PubSubMap.add k ys pe.pubmap in pe.pubmap <- m
+      ) pe.pubmap ;
+
+    PubSubMap.iter (fun k xs ->
+        let ys = List.filter (fun s -> s != sid) xs in
+        let m = PubSubMap.add k ys pe.pubmap in pe.pubmap <- m
+      ) pe.submap
+
   let add_publication pe s pd =
     let rid = PublisherDecl.rid pd in
     let sid = Session.sid s in

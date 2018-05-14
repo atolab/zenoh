@@ -3,8 +3,8 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 
-let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug)
+(* let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 let pid = let open Result in
   get (do_
@@ -31,7 +31,11 @@ let () =
   let locator = Unix.ADDR_INET(listen_address, port) in
   let tcp_locator = Locator.of_string "tcp/192.168.1.11:7447" in
   let engine = ProtocolEngine.create pid lease @@ Locators.singleton tcp_locator in
-  let tx = Tcp.create tcp_tx_id locator (fun s msg -> ProtocolEngine.process engine s msg) max_buf_len in
+  let tx =
+    Tcp.create tcp_tx_id locator
+      (fun s msg -> ProtocolEngine.process engine s msg)
+      (fun s -> ProtocolEngine.remove_session engine s)
+      max_buf_len in
   let _ = Lwt_log.debug "Starting zenoh broker..." in
   let run_loop = Tcp.run_loop tx in
   Lwt_main.run @@ run_loop ()
