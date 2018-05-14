@@ -13,7 +13,7 @@ let pid = let open Result in
       ; IOBuf.flip buf)
 
 
-let lease = 600L
+let lease = 0L
 let version = Char.chr 0x01
 
 
