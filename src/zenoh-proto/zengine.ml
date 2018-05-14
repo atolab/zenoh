@@ -182,15 +182,8 @@ module ProtocolEngine = struct
     let maybe_ack = if StreamData.synch msg then [Message.AckNack (AckNack.create sn1 None)] else [] in
     ignore_result @@ Lwt_log.debug @@ (sprintf "Handling Stream Data Message for resource: %Ld " id)
     ; match subs with
-<<<<<<< HEAD:src/zenoh-proto/zengine.ml
-      | None ->
-        ignore_result @@ Lwt_log.debug @@ (sprintf "Empty Subscription List for session: %Ld " id) ;
-        []
-      | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; []
-=======
     | None -> maybe_ack
     | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; maybe_ack
->>>>>>> b4eded15e7a8539be548e6e522b8ee621ab6a255:src/zenoh-broker/zengine.ml
 
   let process pe s msg =
     ignore_result @@ Lwt_log.debug (sprintf "Received message: %s" (Message.to_string msg));
