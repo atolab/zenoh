@@ -46,7 +46,14 @@ let get_args () =
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock msg =
+
+  let send_len_msg  lbuf dbuf  =
+    let lenp = Lwt_bytes.send sock (IOBuf.to_bytes lbuf) 0 (IOBuf.get_limit lbuf) [] in
+    let _ = lenp >>= (fun len ->  Lwt_bytes.send sock (IOBuf.to_bytes dbuf) 0 len []) in Result.ok ()
+  in
+
   let open Result in
+
 
   let _ =
     (do_
@@ -59,9 +66,7 @@ let send_message sock msg =
     ; lbuf <-- IOBuf.flip lbuf
     ; () ; ignore_result @@ Lwt_io.printf "[send_message: sent %d bytes]\n" len
     ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string wbuf) ^ "\n"
-    ; () ; (let _ = Lwt_bytes.send sock (IOBuf.to_bytes lbuf) 0 (IOBuf.get_limit lbuf) [] in ())
-    ; () ; (let _ = Lwt_bytes.send sock (IOBuf.to_bytes wbuf) 0 len [] in return ()))
-
+    ; send_len_msg lbuf wbuf)
   in return_unit
 
 let send_scout sock =
