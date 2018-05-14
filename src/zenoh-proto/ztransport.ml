@@ -104,30 +104,32 @@ module Tcp = struct
   let handle_session tx (s: Session.t) =
     let rec serve_session continue =
       if continue then begin
-      (get_message_length s.socket s.rlenbuf)
-      >>= (fun len ->
+        (get_message_length s.socket s.rlenbuf)
+        >>= (fun len ->
           ignore_result @@ Lwt_log.debug (Printf.sprintf "Received message of %d bytes" len) ;
           if len <= 0 then
             Lwt_log.warning (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid)
             >>= (fun _ -> close_session tx s) >>= (fun _ -> return_false)
           else
-            let r =
-              Result.(
-                or_else
-                (do_
-                     ; buf <-- IOBuf.clear s.rbuf
-                     ; () ; let _ =  Lwt_bytes.recv s.socket (IOBuf.to_bytes buf) 0 len [] in () ;
-                     ; buf <-- IOBuf.set_limit buf len
-                     ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n"
-                     ; (msg, buf) <-- read_msg buf
-                     ; () ;  (tx.listener s msg) |> List.iter (fun m -> ignore_result @@ send s m) ; Result.ok ())
-                      (fun e ->
-                         let _ = Lwt_log.warning "Received garbled messages, closing session" in
-                         let _ = close_session tx s in Result.fail e))
-            in if Result.is_ok r then return_true else return_false
-        )
-      >>= serve_session
-    end else return_unit
+            match (IOBuf.clear s.rbuf) with
+              | Error _ -> return_false
+              | Ok buf -> (Lwt_bytes.recv s.socket (IOBuf.to_bytes buf) 0 len [])
+                >>= (fun len ->
+                    let r =
+                      Result.(
+                        or_else
+                        (do_
+                          ; buf <-- IOBuf.set_limit buf len
+                          ; () ; Lwt.ignore_result @@ Lwt_log.warning @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n"
+                          ; (msg, buf) <-- read_msg buf
+                          ; () ;  (tx.listener s msg) |> List.iter (fun m -> ignore_result @@ send s m) ; Result.ok ())
+                        (fun e ->
+                          let _ = Lwt_log.warning "Received garbled messages, closing session" in
+                          let _ = close_session tx s in Result.fail e))
+                    in if Result.is_ok r then return_true else return_false)
+          )
+        >>= serve_session
+      end else return_unit
     in serve_session true
 
 
