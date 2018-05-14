@@ -143,10 +143,13 @@ module ProtocolEngine = struct
   let process_stream_data pe s msg =
     let id = StreamData.id msg in
     let subs = PubSubMap.find_opt id pe.submap in
+    let sn = StreamData.sn msg in
+    let sn1 = Vle.add sn 1L in
+    let maybe_ack = if StreamData.synch msg then [Message.AckNack (AckNack.create sn1 None)] else [] in
     ignore_result @@ Lwt_log.debug @@ (sprintf "Handling Stream Data Message for resource: %Ld " id)
     ; match subs with
-    | None -> []
-    | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; []
+    | None -> maybe_ack
+    | Some xs -> List.iter (fun sid -> ignore_result @@ (forward_data pe sid msg)) xs ; maybe_ack
 
   let process pe s msg =
     ignore_result @@ Lwt_log.debug (sprintf "Received message: %s" (Message.to_string msg));
