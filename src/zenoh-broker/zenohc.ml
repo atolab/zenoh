@@ -26,9 +26,7 @@ module Command = struct
     | h::tl when h = "pub" -> CmdSArgs (h, tl)
     | a::tl  -> CmdIArgs (a, tl |> (List.map (int_of_string)))
 
-
 end
-
 
 
 let lbuf = Result.get @@ IOBuf.create 16
@@ -46,17 +44,13 @@ let get_args () =
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock msg =
-
-  let send_len_msg  lbuf dbuf  =
+  let send_len_msg  lbuf dbuf dlen =
     let lenp = Lwt_bytes.send sock (IOBuf.to_bytes lbuf) 0 (IOBuf.get_limit lbuf) [] in
-    let _ = lenp >>= (fun len ->  Lwt_bytes.send sock (IOBuf.to_bytes dbuf) 0 len []) in Result.ok ()
+    let _ = lenp >>= (fun len ->  Lwt_bytes.send sock (IOBuf.to_bytes dbuf) 0 dlen []) in Result.ok ()
   in
 
-  let open Result in
-
-
   let _ =
-    (do_
+    (Result.do_
     ; wbuf <-- IOBuf.clear wbuf
     ; lbuf <-- IOBuf.clear lbuf
     ; wbuf <-- write_msg wbuf msg
@@ -66,7 +60,7 @@ let send_message sock msg =
     ; lbuf <-- IOBuf.flip lbuf
     ; () ; ignore_result @@ Lwt_io.printf "[send_message: sent %d bytes]\n" len
     ; () ; Lwt.ignore_result @@ Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string wbuf) ^ "\n"
-    ; send_len_msg lbuf wbuf)
+    ; send_len_msg lbuf wbuf len)
   in return_unit
 
 let send_scout sock =
@@ -134,20 +128,22 @@ let produce_message sock cmd =
 
 let rec run_write_loop sock =
   let _ = Lwt_io.printf ">> "  in
-  (Lwt_io.read_line Lwt_io.stdin) >>= (fun msg -> produce_message sock (Command.of_string msg)) >>= (fun _ -> run_write_loop sock)
+  (Lwt_io.read_line Lwt_io.stdin)
+  >>= (fun msg -> produce_message sock (Command.of_string msg))
+  >>= (fun _ -> run_write_loop sock)
 
-  let get_message_length sock buf =
-    let rec extract_length buf v bc =
-      (Lwt_bytes.recv sock buf 0 1 []) >>=
-      (fun n ->
-         if n != 1 then (Lwt.return 0)
-         else
-           begin
-             let c = int_of_char @@ (Lwt_bytes.get buf 0) in
-             if c <= 0x7f then Lwt.return (v lor (c lsl (bc * 7)))
-             else extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
-           end
-      ) in extract_length buf 0 0
+let get_message_length sock buf =
+  let rec extract_length buf v bc =
+    (Lwt_bytes.recv sock buf 0 1 []) >>=
+    (fun n ->
+       if n != 1 then (Lwt.return 0)
+       else
+         begin
+           let c = int_of_char @@ (Lwt_bytes.get buf 0) in
+            if c <= 0x7f then Lwt.return (v lor (c lsl (bc * 7)))
+            else extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
+          end
+    ) in extract_length buf 0 0
 
 let process_incoming_message = function
   | Message.StreamData dmsg ->
