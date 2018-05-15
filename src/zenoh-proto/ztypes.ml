@@ -2,22 +2,23 @@
 module Error = struct
   type kind = NoMsg | Msg of string | Code of int | Pos of (string * int * int * int) | Loc of string
 
-
   type e = ..
   type e +=
     | OutOfBounds of kind
     | OutOfRange of kind
     | IOError of kind
+    | ClosedSession of kind
     | InvalidFormat of kind
     | ProtocolError of kind
     | InvalidSession of kind
     | NotImplemented
     | ErrorStack of e list
-
-
 end
 
+exception ZError of Error.e
+
 module Result = Apero.Result.Make(Error)
+
 
 module Vle = struct
   include Int64

@@ -1,6 +1,7 @@
 include Ztypes
 include Zlocator
 include Netbuf
+include Ziobuf
 include Zmessage
 include Marshaller
 include Zconduit

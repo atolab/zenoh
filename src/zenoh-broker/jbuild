@@ -10,6 +10,6 @@
 (executable
   ((name           zenohc)
   (modules (zenohc))
-  (libraries (lwt lwt.unix zenoh_proto atdgen))
+  (libraries (lwt lwt.unix zenoh_proto apero atdgen))
   (preprocess
     (pps (lwt.ppx ppx_monadic)))))
