@@ -1,6 +1,6 @@
 open Ztypes
 open Zlocator
-open Netbuf
+open Ziobuf
 
 module PropertyId :
 sig
@@ -388,16 +388,4 @@ module Message :
 
 
     val to_string : t -> string
-
-    val make_scout : Scout.t -> t
-    val make_hello : Hello.t -> t
-    val make_open : Open.t -> t
-    val make_accept : Accept.t -> t
-    val make_close : Close.t -> t
-    val make_declare : Declare.t -> t
-    val make_stream_data : StreamData.t -> t
-    val make_synch : Synch.t -> t
-    val make_ack_nack : AckNack.t -> t
-    val make_keep_alive : KeepAlive.t -> t
-
   end

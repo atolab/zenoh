@@ -1,7 +1,7 @@
 open Ztypes
 open Zlocator
 open Apero
-open Netbuf
+open Ziobuf
 
 module PropertyId = struct
   let maxConduits = 2L

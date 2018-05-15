@@ -14,7 +14,7 @@ open Ztypes
 module IOBuf : sig
   type t
 
-  val create : int -> t Result.m
+  val create : int -> t Lwt.t
   (** [create] allocates a new IOBuf  of the given capacity. *)
 
   val to_bytes : t -> Lwt_bytes.t
@@ -23,50 +23,51 @@ module IOBuf : sig
       considered as read-only.
   *)
 
-  val from_bytes : Lwt_bytes.t -> t Result.m
+  val from_bytes : Lwt_bytes.t -> t Lwt.t
   (** [from_bytes] creates an IOBuf by wrapping the provided [Lwt_bytes.t].
       The capacity for the IOBuf will be set to the buffer length.
   *)
 
-  val flip : t -> t Result.m
+  val flip : t -> t Lwt.t
   (** [flip] sets the limit to the current position and the position to zero. *)
 
-  val clear : t -> t Result.m
+  val clear : t -> t Lwt.t
   (** [clear] sets the position to zero and the limit to the capacity. *)
 
-  val rewind : t -> t Result.m
+  val rewind : t -> t Lwt.t
   (** [rewind] makes the buffer ready to be read again by setting the position
       to zero and keeping the limit as it is.
   *)
 
   val get_position : t -> int
-  val set_position : t -> int -> t Result.m
+  val set_position : t -> int -> t Lwt.t
 
   val get_limit : t -> int
-  val set_limit : t -> int -> t Result.m
+  val set_limit : t -> int -> t Lwt.t
 
   val capacity : t -> int
 
-  val mark : t -> t Result.m
-  val reset : t -> t Result.m
+  val mark : t -> t Lwt.t
+  val reset : t -> t Lwt.t
+  val reset_with : t -> int -> int -> t Lwt.t
 
-  val put_char : t -> char -> t Result.m
-  val get_char : t -> (char * t) Result.m
+  val put_char : t -> char -> t Lwt.t
+  val get_char : t -> (char * t) Lwt.t
 
-  val put_vle : t -> Vle.t -> t Result.m
-  val get_vle : t -> (Vle.t * t) Result.m
+  val put_vle : t -> Vle.t -> t Lwt.t
+  val get_vle : t -> (Vle.t * t) Lwt.t
 
-  val put_string : t -> string -> t Result.m
+  val put_string : t -> string -> t Lwt.t
 
-  val get_string : t -> (string * t) Result.m
+  val get_string : t -> (string * t) Lwt.t
 
-  val put_io_buf : t -> t -> t Result.m
+  val put_io_buf : t -> t -> t Lwt.t
 
-  val get_io_buf : t -> (t * t) Result.m
+  val get_io_buf : t -> (t * t) Lwt.t
 
-  val blit_from_bytes : Lwt_bytes.t -> int -> t -> int -> t Result.m
+  val blit_from_bytes : Lwt_bytes.t -> int -> t -> int -> t Lwt.t
 
-  val blit : t -> t -> t Result.m
+  val blit : t -> t -> t Lwt.t
 
   val to_io_vec : t -> Lwt_bytes.io_vector
 
@@ -100,9 +101,9 @@ module IOBuf : sig
 
   val io_vector : t -> io_vector
 
-  val recv_vec : Lwt_unix.file_descr -> io_vector list -> (int * Unix.file_descr list) Lwt.t
+  val recv_vec : Lwt_unix.file_descr -> t list -> (int * Unix.file_descr list) Lwt.t
 
-  val send_vec : Lwt_unix.file_descr -> io_vector list -> int Lwt.t
+  val send_vec : Lwt_unix.file_descr -> t list -> int Lwt.t
 
 
 end

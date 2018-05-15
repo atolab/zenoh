@@ -2,18 +2,17 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 
+
 let () =
   (Lwt_log.append_rule "*" Lwt_log.Debug)
 
 
-let (<.>) = Apero.(<.>)
-
-let%lwt dbuf = ZIOBuf.create 1024
+let%lwt dbuf = IOBuf.create 1024
 
 let%lwt pid =
-  let%lwt buf = ZIOBuf.create 16 in
-  let%lwt buf = ZIOBuf.put_string buf "zenohc" in
-  ZIOBuf.flip buf
+  let%lwt buf = IOBuf.create 16 in
+  let%lwt buf = IOBuf.put_string buf "zenohc" in
+  IOBuf.flip buf
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -33,25 +32,21 @@ module Command = struct
 
 end
 
-let from_ziobuf zbuf =
-  let tx = (IOBuf.from_bytes <.> ZIOBuf.to_bytes) in
-  Result.( get (do_
-                ; buf <-- tx zbuf
-                ; buf <-- IOBuf.set_limit buf (ZIOBuf.get_limit zbuf)
-                ; IOBuf.set_position buf (ZIOBuf.get_position zbuf)))
+let%lwt lbuf = IOBuf.create 16
+let%lwt wbuf = IOBuf.create 8192
+let%lwt rbuf = IOBuf.create 8192
 
-(* let from_ziobuf =  Result.(get) <.> (IOBuf.from_bytes <.> ZIOBuf.to_bytes) *)
-let to_ziobuf buf =
-  let tx = ZIOBuf.from_bytes <.>  IOBuf.to_bytes in
-  (do_
-  ; zbuf <-- tx buf
-  ; zbuf <-- ZIOBuf.set_limit zbuf (IOBuf.get_limit buf)
-  ; ZIOBuf.set_position zbuf (IOBuf.get_position buf))
-
-
-let%lwt lbuf = ZIOBuf.create 16
-let%lwt wbuf = ZIOBuf.create 8192
-let%lwt rbuf = ZIOBuf.create 8192
+let get_message_length sock buf =
+  let rec extract_length buf v bc =
+    let%lwt buf = IOBuf.reset_with buf 0 1 in
+    match%lwt IOBuf.recv sock buf with
+    | 0 -> fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
+    | _ ->
+      let%lwt (b, buf) = (IOBuf.get_char buf) in
+      match int_of_char b with
+      | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
+      | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
+  in extract_length buf 0 0
 
 let get_args () =
   if Array.length Sys.argv < 3 then
@@ -66,19 +61,19 @@ let get_args () =
 let send_message sock msg =
   ignore_result @@ Lwt_io.printf "[Send Message]\n"  ;
 
-  let%lwt wbuf = ZIOBuf.clear wbuf
-  and lbuf = ZIOBuf.clear lbuf in
+  let%lwt wbuf = IOBuf.clear wbuf
+  and lbuf = IOBuf.clear lbuf in
 
-  let%lwt wbuf = to_ziobuf @@ (Result.get @@ write_msg (from_ziobuf wbuf) msg) in
-  let%lwt wbuf = ZIOBuf.flip wbuf in
-  let len = ZIOBuf.get_limit wbuf in
-  let%lwt lbuf = ZIOBuf.put_vle lbuf (Vle.of_int len) in
-  let%lwt lbuf = ZIOBuf.flip lbuf in
-  ignore_result @@ Lwt_log.debug (Printf.sprintf "tx-buffer: %s" (ZIOBuf.to_string wbuf)) ;
-  let%lwt n = ZIOBuf.send sock lbuf in
-  let%lwt n = ZIOBuf.send sock wbuf in
+  let%lwt wbuf = Marshaller.write_msg wbuf msg in
+  let%lwt wbuf = IOBuf.flip wbuf in
+  let len = IOBuf.get_limit wbuf in
+  let%lwt lbuf = IOBuf.put_vle lbuf (Vle.of_int len) in
+  let%lwt lbuf = IOBuf.flip lbuf in
+  ignore_result @@ Lwt_log.debug (Printf.sprintf "tx-buffer: %s" (IOBuf.to_string wbuf)) ;
+  let%lwt n = IOBuf.send sock lbuf in
+  let%lwt n = IOBuf.send sock wbuf in
   ignore_result @@ Lwt_io.printf "[send_message: sent %d/%d bytes]\n" n len
-  ; Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (ZIOBuf.to_string wbuf) ^ "\n"
+  ; Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string wbuf) ^ "\n"
 
 
 let send_scout sock =
@@ -87,16 +82,16 @@ let send_scout sock =
 
 let send_open  sock =
   ignore_result (Lwt_io.print "send_open\n") ;
-  let msg = Message.Open (Open.create version (from_ziobuf pid) lease Locators.empty Properties.empty)
+  let msg = Message.Open (Open.create version pid lease Locators.empty Properties.empty)
   in send_message sock msg
 
 let send_close sock =
   ignore_result (Lwt_io.print "send_close\n") ;
-  let msg = Message.Close (Close.create (from_ziobuf pid) (Char.chr 1)) in send_message sock msg
+  let msg = Message.Close (Close.create pid (Char.chr 1)) in send_message sock msg
 
 let send_declare_pub sock id =
   let pub_id = Vle.of_int id in
-  let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id [])  in
+  let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id Properties.empty)  in
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
@@ -109,11 +104,11 @@ let send_declare_sub sock id =
 
 let send_stream_data sock rid data =
   (do_
-  ; buf <-- ZIOBuf.clear dbuf
-  ; buf <-- ZIOBuf.put_string buf data
-  ; buf <-- ZIOBuf.flip buf
+  ; buf <-- IOBuf.clear dbuf
+  ; buf <-- IOBuf.put_string buf data
+  ; buf <-- IOBuf.flip buf
   ;  sn <-- return (Conduit.next_usn default_conduit)
-  ;  msg  <-- return @@ Message.StreamData (StreamData.create (false,false) sn rid None (from_ziobuf buf))
+  ;  msg  <-- return @@ Message.StreamData (StreamData.create (false,false) sn rid None buf)
   ; send_message sock msg)
 
 
@@ -153,27 +148,16 @@ let rec run_write_loop sock =
   run_write_loop sock
 
 
-let get_message_length sock buf =
-  let rec extract_length buf v bc =
-    let%lwt buf = ZIOBuf.reset_with buf 0 1 in
-    match%lwt ZIOBuf.recv sock buf with
-    | 0 -> fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
-    | _ ->
-      let%lwt (b, buf) = (ZIOBuf.get_char buf) in
-      match int_of_char b with
-      | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
-      | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
-    in extract_length buf 0 0
-
 let process_incoming_message = function
   | Message.StreamData dmsg ->
     let rid = StreamData.id dmsg in
-    (do_
-    ; buf <-- to_ziobuf (StreamData.payload dmsg)
-    ; (data, a) <-- ZIOBuf.get_string  buf
-    ; () ; ignore_result (Lwt_io.printf "\n[received data rid: %Ld payload: %s]\n>>\n" rid data)
-    ; return_true)
-  | msg -> (Lwt_io.printf "\n[received: %s]\n>>\n" (Message.to_string msg)) >>= (fun _ -> return_true)
+    let buf = StreamData.payload dmsg in
+    let%lwt (data, buf) =  IOBuf.get_string  buf in
+    let%lwt _ = Lwt_io.printf "\n[received data rid: %Ld payload: %s]\n>>\n" rid data in
+    return_true
+  | msg ->
+    let%lwt _ = Lwt_io.printf "\n[received: %s]\n>>\n" (Message.to_string msg) in
+    return_true
 
 
 let rec run_read_loop sock continue =
@@ -183,11 +167,11 @@ let rec run_read_loop sock continue =
     ignore_result @@ Lwt_io.printf "[Received message of %d bytes]\n" len ;
     if len = 0 then Lwt_unix.close sock
     else
-      let%lwt n = Lwt_bytes.recv sock (ZIOBuf.to_bytes rbuf) 0 len [] in
-      let%lwt rbuf = ZIOBuf.set_position rbuf 0 in
-      let%lwt rbuf = ZIOBuf.set_limit rbuf len in
-      ignore_result @@ (Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (ZIOBuf.to_string rbuf) ^ "\n") ;
-      let (msg, rbuf) =  Result.get @@ read_msg (from_ziobuf rbuf) in
+      let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
+      let%lwt rbuf = IOBuf.set_position rbuf 0 in
+      let%lwt rbuf = IOBuf.set_limit rbuf len in
+      ignore_result @@ (Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string rbuf) ^ "\n") ;
+      let%lwt (msg, rbuf) =  Marshaller.read_msg rbuf in
       let%lwt c = process_incoming_message msg in
       run_read_loop sock c
 

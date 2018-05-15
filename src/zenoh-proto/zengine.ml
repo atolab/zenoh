@@ -4,7 +4,7 @@ open Ztypes
 open Zlocator
 open Zmessage
 open Zsession
-open Netbuf
+open Ziobuf
 open Printf
 
 module SessionMap = Map.Make (SessionId)
@@ -76,6 +76,7 @@ module ProtocolEngine = struct
 
   let make_result pe s cd =
     let open Declaration in
+    ignore_result @@ Lwt_log.debug @@ "Crafting Declaration Result" ;
     [Declaration.ResultDecl (ResultDecl.create (CommitDecl.commit_id cd) (char_of_int 0) None)]
 
   let notify_pub_matching_sub pe s sd =
@@ -126,7 +127,9 @@ module ProtocolEngine = struct
       ignore_result @@ Lwt_log.debug @@ "SDecl for resource: " ^ (Vle.to_string @@ SubscriberDecl.rid sd) ;
       match_sub pe s sd
     | CommitDecl cd -> make_result pe s cd
-    | _ -> []
+    | _ ->
+      ignore_result @@ Lwt_log.debug @@ "Commit Declaration: " ;
+      []
 
   let process_declarations pe s ds =
     ds
@@ -146,8 +149,10 @@ module ProtocolEngine = struct
         | [] ->
           ignore_result @@ (Lwt_log.debug @@ "Acking Declare with sn: " ^ (Vle.to_string sn) ^ "\n" );
           [Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
-        | _ as ds -> [Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds);
-                      Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
+        | _ as ds ->
+          ignore_result @@ (Lwt_log.debug "Sending Matching decalrations and ACKNACK \n" );
+          [Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds);
+           Message.AckNack (AckNack.create (Vle.add sn 1L) None)]
 
       end
     else

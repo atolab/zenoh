@@ -3,14 +3,13 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 
-(* let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
+let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug)
 
-let pid = let open Result in
-  get (do_
-      ; buf <-- IOBuf.create 16
-      ; buf <-- IOBuf.put_string buf "zenohd"
-      ; IOBuf.flip buf)
+let%lwt pid = (do_
+              ; buf <-- IOBuf.create 16
+              ; buf <-- IOBuf.put_string buf "zenohd"
+              ; IOBuf.flip buf)
 
 
 let lease = 0L

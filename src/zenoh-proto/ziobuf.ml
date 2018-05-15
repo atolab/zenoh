@@ -2,7 +2,7 @@ open Apero
 open Ztypes
 open Lwt
 
-module ZIOBuf = struct
+module IOBuf = struct
 
   type t = {
     buffer : Lwt_bytes.t;
@@ -196,11 +196,14 @@ module ZIOBuf = struct
   let io_vector buf =
     Lwt_bytes.{ iov_buffer = buf.buffer; iov_offset = buf.pos; iov_length = buf.limit; }
 
-  let recv_vec sock iovec =
+  let recv_vec sock bs =
+    let iovec = List.map (fun buf -> io_vector buf) bs in
     match%lwt Lwt_bytes.recv_msg sock iovec with
     | (0, _) -> fail @@ ZError Error.(ClosedSession NoMsg)
     | _ as r -> return r
 
-  let send_vec sock iovec = Lwt_bytes.send_msg sock iovec []
+  let send_vec sock bs =
+    let iovec = List.map (fun buf -> io_vector buf) bs in
+    Lwt_bytes.send_msg sock iovec []
 
 end

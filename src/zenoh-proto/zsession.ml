@@ -1,5 +1,5 @@
 open Lwt
-open Netbuf
+open Ziobuf
 open Apero
 open Ztypes
 open Zmessage
@@ -71,14 +71,14 @@ module Session : sig
     remote_addr : Lwt_unix.sockaddr;
     rbuf: IOBuf.t;
     wbuf: IOBuf.t;
-    rlenbuf: Lwt_bytes.t;
+    rlenbuf: IOBuf.t;
     wlenbuf: IOBuf.t;
     mutable close : unit -> unit Lwt.t;
     mutable send : Message.t -> unit Lwt.t;
     ic : InChannel.t;
     oc : OutChannel.t
   }
-  val make : int -> Lwt_unix.file_descr -> Lwt_unix.sockaddr -> int -> t
+  val make : int -> Lwt_unix.file_descr -> Lwt_unix.sockaddr -> int -> t Lwt.t
   val in_channel : t -> InChannel.t
   val out_channel : t -> OutChannel.t
   val sid : t -> SessionId.t
@@ -94,7 +94,7 @@ end = struct
     remote_addr : Lwt_unix.sockaddr;
     rbuf: IOBuf.t;
     wbuf: IOBuf.t;
-    rlenbuf: Lwt_bytes.t;
+    rlenbuf: IOBuf.t;
     wlenbuf: IOBuf.t;
     mutable close : unit -> unit Lwt.t;
     mutable send : Message.t -> unit Lwt.t;
@@ -105,15 +105,19 @@ end = struct
   let make tx_id socket remote_addr buf_len  =
     let ic = InChannel.create Int64.(shift_left 1L 16) in
     let oc = OutChannel.create Int64.(shift_left 1L 16) in
-    {
+    let%lwt wbuf = IOBuf.create buf_len in
+    let%lwt rbuf = IOBuf.create buf_len in
+    let%lwt wlenbuf = IOBuf.create framing_buf_len in
+    let%lwt rlenbuf = IOBuf.create framing_buf_len in
+    return {
       tx_id;
       sid = SessionId.next_id ();
       socket;
       remote_addr;
-      rbuf = Result.get @@ IOBuf.create buf_len;
-      wbuf = Result.get @@ IOBuf.create buf_len;
-      rlenbuf = Lwt_bytes.create framing_buf_len;
-      wlenbuf = Result.get @@ IOBuf.create framing_buf_len;
+      rbuf;
+      wbuf;
+      rlenbuf;
+      wlenbuf;
       close = (fun () -> return_unit);
       send = (fun _ -> return_unit);
       ic;
