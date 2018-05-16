@@ -90,7 +90,13 @@ module Tcp = struct
   let close_session (tx : t) (s : Session.t) =
     let (cs, xs) = List.partition Session.(fun i -> i.sid = s.sid) tx.sessions in
     tx.sessions <- xs ;
-    List.iter Session.(fun c -> ignore (Lwt_unix.close c.socket) ) cs ;
+    List.iter Session.(fun c ->
+        let _ = try%lwt
+          Lwt_unix.close c.socket
+        with
+        | _ -> return_unit
+        in ()
+      ) cs ;
     tx.handle_close s ;
 
     return_unit
@@ -98,30 +104,33 @@ module Tcp = struct
   let handle_session tx (s: Session.t) =
     let rec serve_session () =
       let%lwt _ = Lwt_log.debug (Printf.sprintf "======== Transport handling session %Ld" s.sid) in
-      let%lwt r = match%lwt get_message_length s.socket s.rlenbuf with
-      | 0 ->
-        let%lwt _ = Lwt_log.debug (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid) in
-        let%lwt _ = close_session tx s in
-        Lwt.fail @@ ZError Error.(ClosedSession NoMsg)
-
-      | len ->
+      let%lwt r = try%lwt
+          let%lwt len = get_message_length s.socket s.rlenbuf in
           let%lwt _ = Lwt_log.debug (Printf.sprintf "Received message of %d bytes" len) in
           let%lwt buf = IOBuf.reset_with s.rbuf 0 len in
           let%lwt _ = IOBuf.recv s.socket buf in
           let%lwt _ = Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n" in
           let%lwt (msg, buf) = Marshaller.read_msg buf in
           let replies = tx.listener s msg in
+          (** need to sequence the message being sent on a given socket otherwise
+              we will have concurrent use of the buffers associated with the session*)
           let rec send_loop = function
             | [] -> return_unit
             | h::tl ->
               let%lwt _ = send s h in
               send_loop tl
           in
-          let%lwt _ = send_loop replies
-          in
-          let%lwt _ = Lwt_log.debug "Message Handled successfully!\n" in
-          return_unit
-      in serve_session ()
+            let%lwt _ = send_loop replies in
+            let%lwt _ = Lwt_log.debug "Message Handled successfully!\n" in return_unit
+      with
+      |_ ->
+        let%lwt _ = Lwt_log.debug (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid) in
+        let%lwt _ = close_session tx s in
+        Lwt.fail @@ ZError Error.(ClosedSession NoMsg)
+      in
+        let%lwt _ = Lwt_log.debug (Printf.sprintf "Looping to serve session %Ld" s.sid) in
+        serve_session ()
+
     in serve_session ()
 
   let accept_connection tx conn =
@@ -132,6 +141,7 @@ module Tcp = struct
     session.send <- (fun msg -> send session msg) ;
     tx.sessions <- session :: tx.sessions ;
     let _ = Lwt.on_failure (handle_session tx session)  (fun e -> Lwt_log.ign_error (Printexc.to_string e)) in
+
     Lwt_log.debug ("New Transport Session with Id = " ^ (SessionId.to_string session.sid))  >>= return
 
 

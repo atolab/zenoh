@@ -3,8 +3,8 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 
-let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug)
+(* let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 let%lwt pid = (do_
               ; buf <-- IOBuf.create 16

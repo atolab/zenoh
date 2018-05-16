@@ -3,8 +3,8 @@ open Lwt.Infix
 open Zenoh
 
 
-let () =
-  (Lwt_log.append_rule "*" Lwt_log.Debug)
+(* let () =
+  (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 
 let%lwt dbuf = IOBuf.create 1024
@@ -59,7 +59,6 @@ let get_args () =
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock msg =
-  ignore_result @@ Lwt_io.printf "[Send Message]\n"  ;
 
   let%lwt wbuf = IOBuf.clear wbuf
   and lbuf = IOBuf.clear lbuf in
@@ -69,24 +68,24 @@ let send_message sock msg =
   let len = IOBuf.get_limit wbuf in
   let%lwt lbuf = IOBuf.put_vle lbuf (Vle.of_int len) in
   let%lwt lbuf = IOBuf.flip lbuf in
-  ignore_result @@ Lwt_log.debug (Printf.sprintf "tx-buffer: %s" (IOBuf.to_string wbuf)) ;
+  (* ignore_result @@ Lwt_log.debug (Printf.sprintf "tx-buffer: %s" (IOBuf.to_string wbuf)) ; *)
   let%lwt n = IOBuf.send sock lbuf in
-  let%lwt n = IOBuf.send sock wbuf in
-  ignore_result @@ Lwt_io.printf "[send_message: sent %d/%d bytes]\n" n len
-  ; Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string wbuf) ^ "\n"
+  IOBuf.send sock wbuf
+  (* ignore_result @@ Lwt_io.printf "[send_message: sent %d/%d bytes]\n" n len *)
+  (* ; Lwt_log.debug @@ Printf.sprintf "tx-send: " ^ (IOBuf.to_string wbuf) ^ "\n" *)
 
 
 let send_scout sock =
-  ignore_result (Lwt_io.print "send_scout\n") ;
+  let%lwt _ = Lwt_log.debug "send_scout\n" in
   let msg = Message.Scout (Scout.create (Vle.of_int 1) []) in send_message sock msg
 
 let send_open  sock =
-  ignore_result (Lwt_io.print "send_open\n") ;
+  let%lwt _ = Lwt_log.debug "send_open\n" in
   let msg = Message.Open (Open.create version pid lease Locators.empty Properties.empty)
   in send_message sock msg
 
 let send_close sock =
-  ignore_result (Lwt_io.print "send_close\n") ;
+  let%lwt _ = Lwt_log.debug "send_close\n" in
   let msg = Message.Close (Close.create pid (Char.chr 1)) in send_message sock msg
 
 let send_declare_pub sock id =
@@ -113,20 +112,23 @@ let send_stream_data sock rid data =
 
 
 let produce_message sock cmd =
-  ignore_result @@ Lwt_io.printf "[Producing Message]\n"  ;
   match cmd with
   | Command.Cmd msg -> (
     match msg with
     | "scout" -> send_scout sock
     | "close" -> send_close sock
     | "open" -> send_open sock
-    | _ -> Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg >>= return)
+    | _ ->
+      let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
+      return 0)
 
   | Command.CmdIArgs (msg, xs) -> (
       match msg with
       | "dpub" -> send_declare_pub sock (List.hd xs)
       | "dsub" -> send_declare_sub sock (List.hd xs)
-      | _ -> Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg >>= return)
+      | _ ->
+        let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
+        return 0)
 
   | Command.CmdSArgs (msg, xs) -> (
       match msg with
@@ -134,17 +136,18 @@ let produce_message sock cmd =
         let rid = Vle.of_string (List.hd xs) in
         let data = List.hd @@ List.tl @@ xs in
         send_stream_data sock rid data
-      | _ -> Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg >>= return)
+        | _ ->
+          let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
+          return 0)
 
-  | Command.NoCmd -> return_unit
+  | Command.NoCmd -> return 0
 
 
 let rec run_write_loop sock =
-  ignore_result @@ Lwt_io.printf "[Starting run_write_loop]\n"  ;
+  let%lwt _ = Lwt_log.debug "[Starting run_write_loop]\n"  in
   let _ = Lwt_io.printf ">> "  in
   let%lwt msg = Lwt_io.read_line Lwt_io.stdin in
-  ignore_result @@ Lwt_io.printf "[Read Data from input]\n"  ;
-  let _ = produce_message sock (Command.of_string msg) in
+  let%lwt _ = produce_message sock (Command.of_string msg) in
   run_write_loop sock
 
 
@@ -153,37 +156,42 @@ let process_incoming_message = function
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
     let%lwt (data, buf) =  IOBuf.get_string  buf in
-    let%lwt _ = Lwt_io.printf "\n[received data rid: %Ld payload: %s]\n>>\n" rid data in
+    let%lwt _ = Lwt_io.printf "\n[received data rid: %Ld payload: %s]\n>> " rid data in
     return_true
   | msg ->
-    let%lwt _ = Lwt_io.printf "\n[received: %s]\n>>\n" (Message.to_string msg) in
+    let%lwt _ = Lwt_io.printf "\n[received: %s]\n>> " (Message.to_string msg) in
     return_true
 
 
-let rec run_read_loop sock continue =
-  ignore_result @@ Lwt_io.printf "[Starting run_read_loop]\n"  ;
-  if continue then
+let rec run_read_loop sock =
+  let%lwt _ = Lwt_log.debug "[Starting run_read_loop]\n"  in
+  let r = try%lwt
     let%lwt len = get_message_length sock rbuf in
-    ignore_result @@ Lwt_io.printf "[Received message of %d bytes]\n" len ;
-    if len = 0 then Lwt_unix.close sock
-    else
-      let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
-      let%lwt rbuf = IOBuf.set_position rbuf 0 in
-      let%lwt rbuf = IOBuf.set_limit rbuf len in
-      ignore_result @@ (Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string rbuf) ^ "\n") ;
-      let%lwt (msg, rbuf) =  Marshaller.read_msg rbuf in
-      let%lwt c = process_incoming_message msg in
-      run_read_loop sock c
-
-  else
-    return_unit
-
+    let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
+    let%lwt rbuf = IOBuf.set_position rbuf 0 in
+    let%lwt rbuf = IOBuf.set_limit rbuf len in
+    let%lwt _ = Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string rbuf) ^ "\n" in
+    let%lwt (msg, rbuf) =  Marshaller.read_msg rbuf in
+    let%lwt c = process_incoming_message msg in
+    return sock
+  with
+  | _ ->
+    let%lwt _ = Lwt_log.debug "Connection close by peer" in
+    try%lwt
+      let%lwt _ = Lwt_unix.close sock in
+      fail @@ ZError Error.(ClosedSession NoMsg)
+    with
+    | _ ->
+      fail @@ ZError Error.(ClosedSession NoMsg)
+  in r >>= run_read_loop
 
 let () =
   let addr, port  = get_args () in
   let open Lwt_unix in
   let sock = socket PF_INET SOCK_STREAM 0 in
+  let _ = setsockopt sock SO_REUSEADDR true in
+  let _ = setsockopt sock TCP_NODELAY true in
   let saddr = ADDR_INET (Unix.inet_addr_of_string addr, port) in
   let _ = connect sock  saddr in
 
-  Lwt_main.run @@ Lwt.join [run_write_loop sock; run_read_loop sock true]
+  Lwt_main.run @@ Lwt.join [run_write_loop sock; run_read_loop sock >>= fun _ -> return_unit]
