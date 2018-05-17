@@ -27,8 +27,7 @@ module MessageId = struct
   let queryId = char_of_int 0x0a
   let pullId = char_of_int 0x0b
 
-  let pingId = char_of_int 0x0c
-  let pongId = char_of_int 0x0d
+  let pingPongId = char_of_int 0x0c
 
   let synchId = char_of_int 0x0e
   let ackNackId = char_of_int 0x0f
@@ -63,6 +62,9 @@ module Flags = struct
   let hFlag = char_of_int 0x40
 
   let gFlag = char_of_int 0x80
+  let iFlag = char_of_int 0x20
+  let fFlag = char_of_int 0x80
+  let oFlag = char_of_int 0x20
 
   let midMask = char_of_int 0x1f
   let hFlagMask = char_of_int 0xe0
@@ -447,10 +449,11 @@ module Hello = struct
   }
 
   let create mask locators properties =
-    let header = match properties with
-      | [] -> MessageId.helloId
-      | _ -> char_of_int ((int_of_char MessageId.helloId) lor (int_of_char Flags.pFlag))
-    in {header=header; mask=mask; locators=locators; properties=properties}
+    let header =
+      let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
+      let mid = int_of_char MessageId.helloId in
+      char_of_int @@ pflag lor mid in
+    {header=header; mask=mask; locators=locators; properties=properties}
   let header hello = hello.header
   let mask hello = hello.mask
   let locators hello = hello.locators
@@ -493,10 +496,11 @@ module Open = struct
   }
 
   let create version pid lease locators properties =
-    let header = match properties with
-      | [] -> MessageId.openId
-      | _ -> char_of_int ((int_of_char MessageId.openId) lor (int_of_char Flags.pFlag))
-    in {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
+    let header =
+      let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
+      let mid = int_of_char MessageId.openId in
+      char_of_int @@ pflag lor mid in
+    {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
   let header open_ = open_.header
   let version open_ = open_.version
   let pid open_ = open_.pid
@@ -529,10 +533,11 @@ module Accept = struct
   }
 
   let create opid apid lease properties =
-    let header = match properties with
-      | [] -> MessageId.acceptId
-      | _ -> char_of_int ((int_of_char MessageId.acceptId) lor (int_of_char Flags.pFlag))
-    in {header=header; opid=opid; apid=apid; lease=lease; properties=properties}
+    let header =
+      let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
+      let mid = int_of_char MessageId.acceptId in
+      char_of_int @@ pflag lor mid in
+    {header=header; opid=opid; apid=apid; lease=lease; properties=properties}
   let header accept = accept.header
   let apid accept = accept.apid
   let opid accept = accept.opid
@@ -602,19 +607,43 @@ module Declare = struct
   }
 
   let create (sync, committed) sn declarations =
-    let header = match sync with
-      | false -> (match committed with
-          | false -> MessageId.declareId
-          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag)))
-      | true -> (match committed with
-          | false -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.sFlag))
-          | true -> char_of_int ((int_of_char MessageId.declareId) lor (int_of_char Flags.cFlag) lor (int_of_char Flags.sFlag)))
-    in {header=header; sn=sn; declarations=declarations}
+    let header =
+      let sflag = if sync then int_of_char Flags.sFlag  else 0 in
+      let cflag = if committed then int_of_char Flags.cFlag  else 0 in
+      let mid = int_of_char MessageId.declareId in
+      char_of_int @@ sflag lor cflag lor mid in
+    {header=header; sn=sn; declarations=declarations}
   let header declare = declare.header
   let sn declare = declare.sn
   let declarations declare = declare.declarations
   let sync declare = ((int_of_char declare.header) land (int_of_char Flags.sFlag)) <> 0
   let committed declare = ((int_of_char declare.header) land (int_of_char Flags.cFlag)) <> 0
+end
+
+module WriteData = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    resource : string;
+    payload: IOBuf.t;
+  }
+
+  let header d = d.header
+
+  let create (s, r) sn resource payload =
+    let header  =
+      let sflag =  if s then int_of_char Flags.sFlag  else 0 in
+      let rflag =  if r then int_of_char Flags.rFlag  else 0 in
+      let mid = int_of_char MessageId.wdataId in
+      char_of_int @@ sflag lor rflag lor mid in
+    { header; sn; resource; payload}
+
+  let sn d = d.sn
+  let resource d = d.resource
+  let reliable d = Flags.hasFlag d.header Flags.rFlag
+  let synch d = Flags.hasFlag d.header Flags.sFlag
+  let payload d = d.payload
+  let with_sn d nsn = {d with sn = nsn}
 end
 
 module StreamData = struct
@@ -631,7 +660,7 @@ module StreamData = struct
   let create (s, r) sn id prid payload =
     let header  =
       let sflag =  if s then int_of_char Flags.sFlag  else 0 in
-      let rflag =  if s then int_of_char Flags.rFlag  else 0 in
+      let rflag =  if r then int_of_char Flags.rFlag  else 0 in
       let aflag = match prid with | None -> 0 | _ -> int_of_char Flags.aFlag in
       let mid = int_of_char MessageId.sdataId in
       char_of_int @@ sflag lor rflag lor aflag lor mid in
@@ -644,7 +673,6 @@ module StreamData = struct
   let prid d = d.prid
   let payload d = d.payload
   let with_sn d nsn = {d with sn = nsn}
-
 end
 
 module Synch = struct
@@ -653,7 +681,7 @@ module Synch = struct
     sn : Vle.t;
     count : Vle.t option
   }
-  let  create (r, s) sn count =
+  let create (s, r) sn count =
     let header =
       let uflag = match count with | None -> 0 | _ -> int_of_char Flags.uFlag in
       let rflag = if r then int_of_char Flags.rFlag else 0 in
@@ -686,6 +714,76 @@ module AckNack = struct
   let mask a = a.mask
 end
 
+module Migrate = struct
+  type t = {
+    header : Header.t;
+    ocid : Vle.t;
+    id : Vle.t option;
+    rch_last_sn : Vle.t;
+    bech_last_sn : Vle.t;
+  }
+
+  let header m = m.header
+
+  let create ocid id rch_last_sn bech_last_sn =
+    let header  =
+      let iflag = match id with | None -> 0 | _ -> int_of_char Flags.iFlag in
+      let mid = int_of_char MessageId.migrateId in
+      char_of_int @@ iflag lor mid in
+    { header; ocid; id; rch_last_sn; bech_last_sn}
+
+  let ocid m = m.ocid
+  let id m = m.id
+  let rch_last_sn m = m.rch_last_sn
+  let bech_last_sn m = m.bech_last_sn
+end
+
+module Pull = struct
+  type t = {
+    header : Header.t;
+    sn : Vle.t;
+    id : Vle.t;
+    max_samples : Vle.t option;
+  }
+
+  let header p = p.header
+
+  let create (s, f) sn id max_samples =
+    let header  =
+      let sflag =  if s then int_of_char Flags.sFlag  else 0 in
+      let fflag =  if f then int_of_char Flags.fFlag  else 0 in
+      let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
+      let mid = int_of_char MessageId.pullId in
+      char_of_int @@ sflag lor nflag lor fflag lor mid in
+    { header; sn; id; max_samples}
+
+  let sn p = p.sn
+  let id p = p.id
+  let max_samples p = p.max_samples
+  let final p = Flags.hasFlag p.header Flags.fFlag
+  let sync p = Flags.hasFlag p.header Flags.sFlag
+end
+
+module PingPong = struct
+  type t = {
+    header : Header.t;
+    hash : Vle.t;
+  }
+
+  let header p = p.header
+
+  let create ?pong:(pong=false) hash =
+    let header  =
+      let oflag =  if pong then int_of_char Flags.oFlag  else 0 in
+      let mid = int_of_char MessageId.pingPongId in
+      char_of_int @@ oflag lor mid in
+    { header; hash}
+
+  let is_pong p = Flags.hasFlag p.header Flags.oFlag
+  let hash p = p.hash
+  let to_pong p = {p with header = char_of_int @@ int_of_char p.header lor int_of_char Flags.oFlag}
+end
+
 module Message = struct
   type t =
     | Scout of Scout.t
@@ -694,10 +792,14 @@ module Message = struct
     | Accept of Accept.t
     | Close of Close.t
     | Declare of Declare.t
+    | WriteData of WriteData.t
     | StreamData of StreamData.t
     | Synch of Synch.t
     | AckNack of AckNack.t
     | KeepAlive of KeepAlive.t
+    | Migrate of Migrate.t
+    | Pull of Pull.t
+    | PingPong of PingPong.t
 
 
   let to_string = function (** This should actually call the to_string on individual messages *)
@@ -707,10 +809,14 @@ module Message = struct
     | Accept a -> "Accept"
     | Close c -> "Close"
     | Declare d -> "Declare"
+    | WriteData d -> "WriteData"
     | StreamData d -> "StreamData"
     | Synch s -> "Synch"
     | AckNack a -> "AckNack"
     | KeepAlive a -> "KeepAlive"
+    | Migrate m -> "Migrate"
+    | Pull p -> "Pull"
+    | PingPong p -> "PingPong"
 
     let make_scout s = Scout s
     let make_hello h = Hello h

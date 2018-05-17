@@ -23,8 +23,7 @@ sig
   val wdataId : char
   val queryId : char
   val pullId : char
-  val pingId : char
-  val pongId : char
+  val pingPongId : char
   val synchId : char
   val ackNackId : char
   val keepAliveId : char
@@ -51,6 +50,9 @@ sig
   val lFlag : char
   val hFlag : char
   val gFlag : char
+  val iFlag : char
+  val fFlag : char
+  val oFlag : char
   val midMask : char
   val hFlagMask : char
 
@@ -345,6 +347,15 @@ sig
   val committed : t -> bool
 end
 
+module WriteData :
+sig
+  include  Reliable
+  val create : bool * bool -> Vle.t -> string -> IOBuf.t -> t
+  val resource : t -> string
+  val payload : t -> IOBuf.t
+  val with_sn : t -> Vle.t -> t
+end
+
 module StreamData :
 sig
   include  Reliable
@@ -371,6 +382,35 @@ sig
   val mask : t -> Vle.t option
 end
 
+module Migrate :
+sig
+  include Headed
+  val create : Vle.t -> Vle.t option -> Vle.t -> Vle.t -> t
+  val ocid : t -> Vle.t
+  val id : t -> Vle.t option
+  val rch_last_sn : t -> Vle.t
+  val bech_last_sn : t -> Vle.t
+end
+
+module Pull :
+sig
+  include Headed
+  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> t
+  val sn : t -> Vle.t
+  val id : t -> Vle.t
+  val max_samples : t -> Vle.t option
+  val final : t -> bool
+  val sync : t -> bool
+end
+
+module PingPong :
+sig
+  include Headed
+  val create : ?pong:bool -> Vle.t -> t
+  val is_pong : t -> bool
+  val hash : t -> Vle.t
+  val to_pong : t -> t
+end
 
 module Message :
   sig
@@ -381,10 +421,14 @@ module Message :
       | Accept of Accept.t
       | Close of Close.t
       | Declare of Declare.t
+      | WriteData of WriteData.t
       | StreamData of StreamData.t
       | Synch of Synch.t
       | AckNack of AckNack.t
       | KeepAlive of KeepAlive.t
+      | Migrate of Migrate.t
+      | Pull of Pull.t
+      | PingPong of PingPong.t
 
 
     val to_string : t -> string

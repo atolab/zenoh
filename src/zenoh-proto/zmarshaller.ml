@@ -323,6 +323,24 @@ let write_declare buf decl =
   let%lwt buf = write_declarations buf (declarations decl) in
   return buf
 
+let read_write_data buf h =
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading WriteData" in
+  let%lwt (sn, buf) = get_vle buf in
+  let%lwt (resource, buf) = IOBuf.get_string buf in
+  let%lwt (payload, buf) = get_io_buf buf in
+  let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
+  return (WriteData (WriteData.create (s, r) sn resource payload),buf)
+
+let write_write_data buf m =
+  let open WriteData in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing WriteData" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = put_vle buf @@ sn m in
+  let%lwt buf = IOBuf.put_string buf @@ resource m in
+  put_io_buf buf @@ payload m
+
 let read_stream_data buf h =
   let open IOBuf in
   let%lwt _ = Lwt_log.debug "Reading StreamData" in
@@ -334,8 +352,8 @@ let read_stream_data buf h =
     else return (None, buf)
   in
   let%lwt (payload, buf) = get_io_buf buf in
-  let (r, s) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
-  return  (StreamData (StreamData.create (r, s) sn id prid payload),buf)
+  let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
+  return (StreamData (StreamData.create (s, r) sn id prid payload),buf)
 
 let write_stream_data buf m =
   let open StreamData in
@@ -370,7 +388,6 @@ let write_synch buf m =
   | None -> return buf
   | Some c -> put_vle buf c
 
-
 let read_ack_nack buf h =
   let open IOBuf in
   let%lwt _ = Lwt_log.debug "Reading AckNack" in
@@ -403,6 +420,72 @@ let write_keep_alive buf keep_alive =
   let%lwt buf =  put_char buf (header keep_alive) in
   put_io_buf buf (pid keep_alive)
 
+let read_migrate buf header =
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading Migrate" in
+  let%lwt (ocid, buf) = get_vle buf in
+  let%lwt (id, buf) =
+      if Flags.(hasFlag header iFlag) then
+        let%lwt (id, buf) = get_vle buf in return (Some id, buf)
+      else return (None, buf)
+  in
+  let%lwt (rch_last_sn, buf) = get_vle buf in
+  let%lwt (bech_last_sn, buf) = get_vle buf in
+  return (Migrate (Migrate.create ocid id rch_last_sn bech_last_sn), buf)
+
+let write_migrate buf m =
+  let open Migrate in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing Migrate" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = put_vle buf @@ ocid m in
+  let%lwt buf = match id m with
+    | None -> return buf
+    | Some id -> put_vle buf id
+  in
+  let%lwt buf = put_vle buf @@ rch_last_sn m in
+  let%lwt buf = put_vle buf @@ bech_last_sn m in
+  return buf
+
+let read_pull buf header =
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading Pull" in
+  let%lwt (sn, buf) = get_vle buf in
+  let%lwt (id, buf) = get_vle buf in
+  let%lwt (max_samples, buf) =
+    if Flags.(hasFlag header nFlag) then
+      let%lwt (max_samples, buf) = get_vle buf in return (Some max_samples, buf)
+    else return (None, buf)
+  in
+  let (s, f) = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.fFlag)) in
+  return (Pull (Pull.create (s, f) sn id max_samples), buf)
+
+let write_pull buf m =
+  let open Pull in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing Pull" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = put_vle buf @@ sn m in
+  let%lwt buf = put_vle buf @@ id m in
+  match max_samples m with
+  | None -> return buf
+  | Some max -> put_vle buf max
+
+let read_ping_pong buf header =
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading PingPong" in
+  let%lwt (hash, buf) = get_vle buf in
+  let o = Flags.hasFlag header Flags.oFlag in
+  return (PingPong (PingPong.create ~pong:o hash), buf)
+
+let write_ping_pong buf m =
+  let open PingPong in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing PingPong" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = put_vle buf @@ hash m in
+  return buf
+
 let read_msg buf =
   let%lwt (header, buf) = IOBuf.get_char buf in
   let%lwt _ = Lwt_log.debug (Printf.sprintf "Received message with id: %d\n" (Header.mid header)) in
@@ -413,10 +496,14 @@ let read_msg buf =
   | id when id = MessageId.acceptId -> (read_accept buf header)
   | id when id = MessageId.closeId ->  (read_close buf header)
   | id when id = MessageId.declareId -> (read_declare buf header)
+  | id when id = MessageId.wdataId ->  (read_write_data buf header)
   | id when id = MessageId.sdataId ->  (read_stream_data buf header)
   | id when id = MessageId.synchId -> (read_synch buf header)
   | id when id = MessageId.ackNackId -> (read_ack_nack buf header)
   | id when id = MessageId.keepAliveId -> (read_keep_alive buf header)
+  | id when id = MessageId.migrateId -> (read_migrate buf header)
+  | id when id = MessageId.pullId -> (read_pull buf header)
+  | id when id = MessageId.pingPongId -> (read_ping_pong buf header)
   | uid ->
     let%lwt _ = Lwt_log.debug @@ Printf.sprintf "Received unknown message id: %d" (int_of_char uid) in
     fail @@ ZError Error.(InvalidFormat NoMsg)
@@ -430,10 +517,14 @@ let write_msg buf msg =
   | Accept m -> write_accept buf m
   | Close m -> write_close buf m
   | Declare m -> write_declare buf m
+  | WriteData m -> write_write_data buf m
   | StreamData m -> write_stream_data buf m
   | Synch m -> write_synch buf m
   | AckNack m -> write_ack_nack buf m
   | KeepAlive m -> write_keep_alive buf m
+  | Migrate m -> write_migrate buf m
+  | Pull m -> write_pull buf m
+  | PingPong m -> write_ping_pong buf m
 
   let read_frame_length buf = IOBuf.get_vle buf
 
