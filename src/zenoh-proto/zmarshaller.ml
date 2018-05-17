@@ -148,13 +148,39 @@ let write_close buf close =
   let%lwt buf = IOBuf.put_char buf (reason close) in
   return buf
 
+let read_res_decl buf h =
+  let open ResourceDecl in
+  let%lwt _ = Lwt_log.debug "Reading ResourceDeclaration" in
+  let%lwt (rid, buf) = IOBuf.get_vle buf in
+  let%lwt (resource, buf) = IOBuf.get_string buf in
+  let%lwt (props, buf) =
+    if Flags.(hasFlag h pFlag) then
+      let%lwt (props, buf) = read_properties buf h in return (props, buf)
+    else return ([], buf)
+  in
+  return (Declaration.ResourceDecl (ResourceDecl.create rid resource props), buf)
+
+let write_res_decl buf d =
+  let open ResourceDecl in
+  let%lwt _ = Lwt_log.debug "Writing ResourceDeclaration" in
+  let%lwt buf = IOBuf.put_char buf (header d) in
+  let%lwt buf = IOBuf.put_vle buf (rid d) in
+  let%lwt buf = IOBuf.put_string buf (resource d) in
+  if Flags.(hasFlag (header d) pFlag) then
+    write_properties buf (properties d)
+  else return buf
+
 let read_pub_decl buf h =
   let open PublisherDecl in
   let%lwt _ = Lwt_log.debug "Reading PubDeclaration" in
   let%lwt (rid, buf) = IOBuf.get_vle buf in
   let%lwt _ = Lwt_log.debug (Printf.sprintf "Reading PubDeclaration for rid = %Ld" rid) in
-  let%lwt (ps, buf) = read_properties buf h in
-  return (Declaration.PublisherDecl (PublisherDecl.create rid ps), buf)
+  let%lwt (props, buf) =
+    if Flags.(hasFlag h pFlag) then
+      let%lwt (props, buf) = read_properties buf h in return (props, buf)
+    else return ([], buf)
+  in
+  return (Declaration.PublisherDecl (PublisherDecl.create rid props), buf)
 
 let write_pub_decl buf d =
   let open PublisherDecl in
@@ -163,7 +189,9 @@ let write_pub_decl buf d =
   let id = (rid d) in
   let%lwt _ = Lwt_log.debug (Printf.sprintf "Writing PubDeclaration for rid = %Ld" id) in
   let%lwt buf = IOBuf.put_vle buf id in
-  write_properties buf (properties d)
+  if Flags.(hasFlag (header d) pFlag) then
+    write_properties buf (properties d)
+  else return buf
 
 let read_temporal_properties buf =
   let%lwt _ =  Lwt_log.debug "Reading TemporalProperties" in
@@ -215,8 +243,12 @@ let read_sub_decl buf h =
   let%lwt _ = Lwt_log.debug "Reading SubDeclaration" in
   let%lwt (rid, buf) = IOBuf.get_vle buf in
   let%lwt (mode, buf) = read_sub_mode buf in
-  let%lwt (ps, buf) = read_properties buf h in
-  return (Declaration.SubscriberDecl (SubscriberDecl.create rid mode ps), buf)
+  let%lwt (props, buf) =
+    if Flags.(hasFlag h pFlag) then
+      let%lwt (props, buf) = read_properties buf h in return (props, buf)
+    else return ([], buf)
+  in
+  return (Declaration.SubscriberDecl (SubscriberDecl.create rid mode props), buf)
 
 let write_sub_decl buf d =
   let open SubscriberDecl in
@@ -226,7 +258,46 @@ let write_sub_decl buf d =
   let%lwt _ = Lwt_log.debug (Printf.sprintf "Writing SubDeclaration for rid = %Ld" id) in
   let%lwt buf = IOBuf.put_vle buf id in
   let%lwt buf = write_sub_mode buf (mode d) in
-  write_properties buf (properties d)
+  if Flags.(hasFlag (header d) pFlag) then
+    write_properties buf (properties d)
+  else return buf
+
+let read_selection_decl buf h =
+  let open SelectionDecl in
+  let%lwt _ = Lwt_log.debug "Reading SelectionDeclaration" in
+  let%lwt (sid, buf) = IOBuf.get_vle buf in
+  let%lwt (query, buf) = IOBuf.get_string buf in
+  let%lwt (props, buf) =
+    if Flags.(hasFlag h pFlag) then
+      let%lwt (props, buf) = read_properties buf h in return (props, buf)
+    else return ([], buf)
+  in
+  return (Declaration.SelectionDecl (SelectionDecl.create sid query props (Flags.(hasFlag h gFlag))), buf)
+
+let write_selection_decl buf d =
+  let open SelectionDecl in
+  let%lwt _ =  Lwt_log.debug "Writing SelectionDeclaration" in
+  let%lwt buf = IOBuf.put_char buf (header d) in
+  let%lwt buf = IOBuf.put_vle buf (sid d) in
+  let%lwt buf = IOBuf.put_string buf (query d) in
+  if Flags.(hasFlag (header d) pFlag) then
+    write_properties buf (properties d)
+  else return buf
+
+let read_binding_decl buf h =
+  let open BindingDecl in
+  let%lwt _ = Lwt_log.debug "Reading BindingDeclaration" in
+  let%lwt (oldid, buf) = IOBuf.get_vle buf in
+  let%lwt (newid, buf) = IOBuf.get_vle buf in
+  return (Declaration.BindingDecl (BindingDecl.create oldid newid (Flags.(hasFlag h gFlag))), buf)
+
+let write_bindind_decl buf d =
+  let open BindingDecl in
+  let%lwt _ =  Lwt_log.debug "Writing BindingDeclaration" in
+  let%lwt buf = IOBuf.put_char buf (header d) in
+  let%lwt buf = IOBuf.put_vle buf (old_id d) in
+  let%lwt buf = IOBuf.put_vle buf (new_id d) in
+  return buf
 
 let read_commit_decl buf _ =
   let open IOBuf in
@@ -268,18 +339,23 @@ let read_declaration buf =
   let%lwt (header, buf) = get_char buf in
   let%lwt _ =  Lwt_log.debug @@ Printf.sprintf "Declaration Id = %d" (Header.mid header) in
   match Flags.mid header with
+  | r when r = DeclarationId.resourceDeclId -> read_res_decl buf header
   | p when p = DeclarationId.publisherDeclId -> read_pub_decl buf header
   | s when s = DeclarationId.subscriberDeclId -> read_sub_decl buf header
-  | c when c = DeclarationId.commitDeclId ->
-    read_commit_decl buf header
+  | s when s = DeclarationId.selectionDeclId -> read_selection_decl buf header
+  | b when b = DeclarationId.bindingDeclId -> read_binding_decl buf header
+  | c when c = DeclarationId.commitDeclId -> read_commit_decl buf header
   | r when r = DeclarationId.resultDeclId -> read_result_decl buf header
   | _ -> fail @@ ZError Error.NotImplemented
 
 
 let write_declaration buf (d: Declaration.t) =
   match d with
+  | ResourceDecl rd -> write_res_decl buf rd
   | PublisherDecl pd -> write_pub_decl buf pd
   | SubscriberDecl sd -> write_sub_decl buf sd
+  | SelectionDecl sd -> write_selection_decl buf sd
+  | BindingDecl bd -> write_bindind_decl buf bd
   | CommitDecl cd -> write_commit_decl buf cd
   | ResultDecl rd -> write_result_decl buf rd
   | _ -> fail @@ ZError Error.NotImplemented
