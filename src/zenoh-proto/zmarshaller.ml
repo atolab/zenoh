@@ -301,20 +301,21 @@ let write_bindind_decl buf d =
 
 let read_commit_decl buf _ =
   let open IOBuf in
-  let%lwt _ =  Lwt_log.debug "Reading Commit Decl" in
+  let%lwt _ =  Lwt_log.debug "Reading Commit Declaration" in
   let%lwt (commit_id, buf) = get_char buf in
   return ((Declaration.CommitDecl (CommitDecl.create commit_id)), buf)
 
 let write_commit_decl buf cd =
   let open CommitDecl in
   let open IOBuf in
-  let%lwt _ = Lwt_log.debug "Writing CommitDecl" in
+  let%lwt _ = Lwt_log.debug "Writing Commit Declaration" in
   let%lwt buf = put_char buf (header cd) in
   put_char buf (commit_id cd)
 
 let read_result_decl buf _ =
   let open IOBuf in
   let open Infix in
+  let%lwt _ =  Lwt_log.debug "Reading Result Declaration" in
   let%lwt (commit_id, buf) = get_char buf in
   match%lwt get_char buf with
   | (status, buf) when status = char_of_int 0 ->
@@ -332,6 +333,53 @@ let write_result_decl buf rd =
   let%lwt buf = put_char buf (status rd) in
   match (id rd) with | None -> return buf | Some v -> put_vle buf v
 
+let read_forget_res_decl buf _ =
+  let%lwt _ =  Lwt_log.debug "Reading ForgetResource Declaration" in
+  let%lwt (rid, buf) = IOBuf.get_vle buf in
+  return (Declaration.ForgetResourceDecl (ForgetResourceDecl.create rid), buf)
+
+let write_forget_res_decl buf frd =
+  let open ForgetResourceDecl in
+  let%lwt _ = Lwt_log.debug "Writing ForgetResource Declaration" in
+  let%lwt buf = IOBuf.put_char buf (header frd) in
+  let%lwt buf = IOBuf.put_vle buf (rid frd) in
+  return buf
+
+let read_forget_pub_decl buf _ =
+  let%lwt _ =  Lwt_log.debug "Reading ForgetPublisher Declaration" in
+  let%lwt (id, buf) = IOBuf.get_vle buf in
+  return (Declaration.ForgetPublisherDecl (ForgetPublisherDecl.create id), buf)
+
+let write_forget_pub_decl buf fpd =
+  let open ForgetPublisherDecl in
+  let%lwt _ = Lwt_log.debug "Writing ForgetPublisher Declaration" in
+  let%lwt buf = IOBuf.put_char buf (header fpd) in
+  let%lwt buf = IOBuf.put_vle buf (id fpd) in
+  return buf
+
+let read_forget_sub_decl buf _ =
+  let%lwt _ =  Lwt_log.debug "Reading ForgetSubscriber Declaration" in
+  let%lwt (id, buf) = IOBuf.get_vle buf in
+  return (Declaration.ForgetSubscriberDecl (ForgetSubscriberDecl.create id), buf)
+
+let write_forget_sub_decl buf fsd =
+  let open ForgetSubscriberDecl in
+  let%lwt _ = Lwt_log.debug "Writing ForgetSubscriber Declaration" in
+  let%lwt buf = IOBuf.put_char buf (header fsd) in
+  let%lwt buf = IOBuf.put_vle buf (id fsd) in
+  return buf
+
+let read_forget_sel_decl buf _ =
+  let%lwt _ =  Lwt_log.debug "Reading ForgetSelection Declaration" in
+  let%lwt (sid, buf) = IOBuf.get_vle buf in
+  return (Declaration.ForgetSelectionDecl (ForgetSelectionDecl.create sid), buf)
+
+let write_forget_sel_decl buf fsd =
+  let open ForgetSelectionDecl in
+  let%lwt _ = Lwt_log.debug "Writing ForgetSelection Declaration" in
+  let%lwt buf = IOBuf.put_char buf (header fsd) in
+  let%lwt buf = IOBuf.put_vle buf (sid fsd) in
+  return buf
 
 let read_declaration buf =
   let open IOBuf in
@@ -346,6 +394,10 @@ let read_declaration buf =
   | b when b = DeclarationId.bindingDeclId -> read_binding_decl buf header
   | c when c = DeclarationId.commitDeclId -> read_commit_decl buf header
   | r when r = DeclarationId.resultDeclId -> read_result_decl buf header
+  | r when r = DeclarationId.forgetResourceDeclId -> read_forget_res_decl buf header
+  | r when r = DeclarationId.forgetPublisherDeclId -> read_forget_pub_decl buf header
+  | r when r = DeclarationId.forgetSubscriberDeclId -> read_forget_sub_decl buf header
+  | r when r = DeclarationId.forgetSelectionDeclId -> read_forget_sel_decl buf header
   | _ -> fail @@ ZError Error.NotImplemented
 
 
@@ -358,7 +410,10 @@ let write_declaration buf (d: Declaration.t) =
   | BindingDecl bd -> write_bindind_decl buf bd
   | CommitDecl cd -> write_commit_decl buf cd
   | ResultDecl rd -> write_result_decl buf rd
-  | _ -> fail @@ ZError Error.NotImplemented
+  | ForgetResourceDecl frd -> write_forget_res_decl buf frd
+  | ForgetPublisherDecl fpd -> write_forget_pub_decl buf fpd
+  | ForgetSubscriberDecl fsd -> write_forget_sub_decl buf fsd
+  | ForgetSelectionDecl fsd -> write_forget_sel_decl buf fsd
 
 
 let read_declarations buf =
