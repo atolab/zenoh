@@ -4,6 +4,6 @@
  ((name            zenoh_proto)
   (public_name     zenoh-proto)
   (wrapped     false)
-  (libraries       (lwt lwt.unix lwt.preemptive apero))
+  (libraries       (lwt lwt.unix lwt_log apero))
   (preprocess
-    (pps (lwt.ppx ppx_monadic)))))
+    (pps (lwt_ppx ppx_monadic)))))
