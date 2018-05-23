@@ -6,6 +6,7 @@ open Zmessage.Message
 open Lwt
 open Zlwt
 open Zframe
+open Apero
 
 module Marshaller = struct
 let read_seq read buf  =
@@ -83,8 +84,9 @@ let write_scout buf scout =
 let read_hello buf header =
   let%lwt _ = Lwt_log.debug "Readings Hello" in
   let%lwt (mask, buf) = IOBuf.get_vle buf in
-  let%lwt (locators, buf) = read_locator_seq buf in
+  let%lwt (olocators, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
+  let locators = OptionM.get @@ OptionM.flatten olocators in
   return (Hello (Hello.create mask locators ps), buf)
 
 let write_hello buf hello =
@@ -100,8 +102,9 @@ let read_open buf header =
   let%lwt (version, buf) = IOBuf.get_char buf in
   let%lwt (pid, buf) = IOBuf.get_io_buf buf in
   let%lwt (lease, buf) = IOBuf.get_vle buf in
-  let%lwt(locs, buf) = read_locator_seq buf in
+  let%lwt(olocs, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
+  let locs = OptionM.get @@ OptionM.flatten olocs in
   return (Open (Open.create version pid lease locs ps), buf)
 
 let write_open buf msg =

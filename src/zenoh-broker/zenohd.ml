@@ -2,9 +2,10 @@
 open Lwt
 open Lwt.Infix
 open Zenoh
+open Apero 
 
-(* let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug) *)
+let () =
+    (Lwt_log.append_rule "*" Lwt_log.Debug)
 
 let%lwt pid = (do_
               ; buf <-- IOBuf.create 16
@@ -28,7 +29,7 @@ let handle_message s msg =
 
 let () =
   let locator = Unix.ADDR_INET(listen_address, port) in
-  let tcp_locator = Locator.of_string "tcp/192.168.1.11:7447" in
+  let tcp_locator = OptionM.get @@ Locator.of_string "tcp/192.168.1.11:7447" in
   let engine = ProtocolEngine.create pid lease @@ Locators.singleton tcp_locator in
   let tx =
     Tcp.create tcp_tx_id locator
