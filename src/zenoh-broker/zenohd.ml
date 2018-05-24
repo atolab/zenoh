@@ -28,8 +28,8 @@ let handle_message s msg =
   let _ = Lwt_log.debug @@ "Received message: " ^ (Message.to_string msg) in None
 
 let () =
-  let locator = Unix.ADDR_INET(listen_address, port) in
-  let tcp_locator = OptionM.get @@ Locator.of_string "tcp/192.168.1.11:7447" in
+  let locator = Unix.ADDR_INET(listen_address, port) in  
+  let tcp_locator = OptionM.get @@ Locator.of_string "tcp/192.168.1.11:7447" in  
   let engine = ProtocolEngine.create pid lease @@ Locators.singleton tcp_locator in
   let tx =
     Tcp.create tcp_tx_id locator

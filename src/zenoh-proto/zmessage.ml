@@ -459,7 +459,7 @@ module Hello = struct
   let locators hello = hello.locators
   let properties hello = hello.properties
   let to_string h =
-    Printf.sprintf "Hello:[header: %d, mask: %Ld, locators: %s]" (int_of_char @@ h.header) (h.mask) (List.to_string h.locators (fun l -> Locator.to_string l))
+    Printf.sprintf "Hello:[header: %d, mask: %Ld, locators: %s]" (int_of_char @@ h.header) (h.mask) (Locators.to_string h.locators)
 
 end
 

@@ -8,25 +8,37 @@ module Int64Id :  sig
   val next_id : unit -> t
 end
 
-module Session : sig 
-  module Id : sig 
-    type t
-    val create : int64 -> int64 -> t
-    val id : t -> int64
-    val tid : t -> int64
-    val compare : t -> t -> int
-  end
-  module Info : sig  
-    type t
-    val create : Id.t -> Locator.t -> Locator.t -> TransportProtoInfo.t -> t
-    val id : t -> Id.t
-    val source : t -> Locator.t
-    val dest : t -> Locator.t
-    val transport_info : t -> TransportProtoInfo.t
-  end
-end
-
 module Transport : sig 
+
+  module  Info : sig 
+      type kind = Packet| Stream  
+      type t      
+      val make : string -> int -> bool -> kind -> int option -> t
+      val name : t -> string
+      val id : t -> int
+      val reliable : t -> bool
+      val kind : t -> kind
+      val mtu : t -> int option
+      val compare : t -> t -> int
+  end
+
+  module Session : sig 
+    module Id : sig 
+      type t
+      val create : int64 -> int64 -> t
+      val id : t -> int64
+      val tid : t -> int64
+      val compare : t -> t -> int
+    end
+    module Info : sig  
+      type t
+      val create : Id.t -> Locator.t -> Locator.t -> Info.t -> t
+      val id : t -> Id.t
+      val source : t -> Locator.t
+      val dest : t -> Locator.t
+      val transport_info : t -> Info.t
+    end
+  end
 
   type event =
     | SessionClose of Session.Id.t
@@ -35,11 +47,13 @@ module Transport : sig
     | Events of event list
 
   type transport_react = event -> unit
+  
 
-  module type S = sig     
+  module type S = sig       
+    val info : Info.t
     val start : unit -> unit Lwt.t
     val stop : unit -> unit Lwt.t
-    val tranport_info : TransportProtoInfo.t  
+    val info : Info.t  
     val engine :  transport_react -> unit
     val listen : Locator.t -> Session.Id.t Lwt.t
     val connect : Locator.t -> Session.Id.t Lwt.t

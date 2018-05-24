@@ -86,7 +86,7 @@ let read_hello buf header =
   let%lwt (mask, buf) = IOBuf.get_vle buf in
   let%lwt (olocators, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
-  let locators = OptionM.get @@ OptionM.flatten olocators in
+  let locators = Locators.of_list @@ OptionM.get @@ OptionM.flatten olocators in
   return (Hello (Hello.create mask locators ps), buf)
 
 let write_hello buf hello =
@@ -94,7 +94,7 @@ let write_hello buf hello =
   let%lwt _ = Lwt_log.debug "Writing Hello" in
   let%lwt buf = IOBuf.put_char buf (header hello) in
   let%lwt buf = IOBuf.put_vle buf (mask hello) in
-  let%lwt buf = write_locator_seq buf (locators hello) in
+  let%lwt buf = write_locator_seq buf (Locators.to_list @@ locators hello) in
   write_properties buf (properties hello)
 
 let read_open buf header =
@@ -104,7 +104,7 @@ let read_open buf header =
   let%lwt (lease, buf) = IOBuf.get_vle buf in
   let%lwt(olocs, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
-  let locs = OptionM.get @@ OptionM.flatten olocs in
+  let locs = Locators.of_list @@ OptionM.get @@ OptionM.flatten olocs in
   return (Open (Open.create version pid lease locs ps), buf)
 
 let write_open buf msg =
@@ -114,7 +114,7 @@ let write_open buf msg =
   let%lwt buf = IOBuf.put_char buf (version msg) in
   let%lwt buf = IOBuf.put_io_buf buf (pid msg) in
   let%lwt buf = IOBuf.put_vle buf (lease msg) in
-  let%lwt buf = write_locator_seq buf (locators msg) in
+  let%lwt buf = write_locator_seq buf (Locators.to_list @@ locators msg) in
   write_properties buf (properties msg)
 
 let read_accept buf header =

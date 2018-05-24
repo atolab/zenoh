@@ -13,26 +13,38 @@ module Int64Id = struct
 end
 
 
-module Session = struct 
-  module Id = struct 
-    type t = int64 * int64
-    let create sid tid = sid,tid 
-    let id (a, _) = a
-    let tid (_, b) = b
-    let compare a b = compare a b 
-  end 
-  module Info = struct 
-    type t = { id : Id.t; src : Locator.t; dest : Locator.t; transport_info : TransportProtoInfo.t }
-
-    let create id src dest transport_info = {id; src; dest; transport_info}
-    let id si = si.id
-    let source si = si.src
-    let dest si = si.dest 
-    let transport_info si = si.transport_info
-  end
-end
-
 module Transport = struct
+
+  module  Info = struct
+    type kind = Packet| Stream  
+    type t = {name : string; id : int; reliable : bool; kind : kind; mtu : int option }
+    let make name id reliable kind mtu = {name; id; reliable; kind; mtu}
+    let name i = i.name 
+    let id i = i.id 
+    let reliable i = i.reliable
+    let kind i = i.kind
+    let mtu i = i.mtu 
+    let compare a b = compare a b
+  end
+
+  module Session = struct 
+    module Id = struct 
+      type t = int64 * int64
+      let create sid tid = sid,tid 
+      let id (a, _) = a
+      let tid (_, b) = b
+      let compare a b = compare a b 
+    end 
+    module Info = struct 
+      type t = { id : Id.t; src : Locator.t; dest : Locator.t; transport_info : Info.t }
+
+      let create id src dest transport_info = {id; src; dest; transport_info}
+      let id si = si.id
+      let source si = si.src
+      let dest si = si.dest 
+      let transport_info si = si.transport_info
+    end
+  end
 
   type event =
     | SessionClose of Session.Id.t
@@ -45,7 +57,7 @@ module Transport = struct
   module type S = sig     
     val start : unit -> unit Lwt.t
     val stop : unit -> unit Lwt.t
-    val tranport_info : TransportProtoInfo.t  
+    val info : Info.t  
     val engine :  transport_react -> unit
     val listen : Locator.t -> Session.Id.t Lwt.t
     val connect : Locator.t -> Session.Id.t Lwt.t
