@@ -82,7 +82,6 @@ end = struct
              IpEndpoint.of_string ep 
              >>= (fun endpoint -> Some (make proto endpoint))))
     
-
   let to_string ep = Printf.sprintf "%s/%s" (IpTransportProto.to_string ep.transport) (IpEndpoint.to_string ep.endpoint)
 end 
 

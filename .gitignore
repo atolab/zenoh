@@ -9,8 +9,12 @@
 *.cmxa
 .merlin
 *.install
+
 # ocamlbuild working directory
 _build/
+
+# vscode ignore
+.vscode
 
 # ocamlbuild targets
 *.byte
