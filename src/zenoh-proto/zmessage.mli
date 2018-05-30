@@ -30,6 +30,7 @@ sig
   val conduitCloseId : char
   val fragmetsId : char
   val conduitId : char
+  val rSpaceId : char
   val migrateId : char
   val sdeltaDataId : char
   val bdeltaDataId : char
@@ -164,7 +165,6 @@ end
 module type Reliable =
 sig
   type t
-  val header : t -> char
   val reliable : t -> bool
   val synch : t -> bool
   val sn : t -> Vle.t
@@ -279,14 +279,54 @@ module Declarations : sig
   type t = Declaration.t list
 
   val length : t -> int
-  val  empty : t
+  val empty : t
   val singleton : Declaration.t -> t
   val add : t -> Declaration.t -> t
+end
+
+module ConduitMarker :
+sig
+  include Headed
+  val create : Vle.t -> t
+  val id : t -> Vle.t
+end
+
+module Frag :
+sig
+  include Headed
+  val create : Vle.t -> Vle.t option -> t
+  val sn_base : t -> Vle.t
+  val n : t -> Vle.t option
+end
+
+module RSpace :
+sig
+  include Headed
+  val create : Vle.t -> t
+  val id : t -> Vle.t
+end 
+
+module Marker :
+sig
+  type t =
+    | ConduitMarker of ConduitMarker.t
+    | Frag of Frag.t
+    | RSpace of RSpace.t
+end
+
+module type Marked =
+sig
+  type t
+  val markers : t -> Marker.t list
+  val with_marker : t -> Marker.t -> t
+  val with_markers : t -> Marker.t list -> t
+  val remove_markers : t -> t
 end
 
 module Scout :
 sig
   include Headed
+  include Marked with type t := t
   val create : Vle.t -> Properties.t -> t
   val mask : t -> Vle.t
   val properties : t -> Properties.t
@@ -295,6 +335,7 @@ end
 module Hello :
 sig
   include Headed
+  include Marked with type t := t
   val create : Vle.t -> Locators.t -> Properties.t -> t
   val mask : t -> Vle.t
   val locators : t -> Locators.t
@@ -304,6 +345,7 @@ end
 module Open :
 sig
   include Headed
+  include Marked with type t := t
   val create : char -> IOBuf.t -> Vle.t -> Locators.t -> Properties.t -> t
   val version : t -> char
   val pid : t -> IOBuf.t
@@ -315,6 +357,7 @@ end
 module Accept :
 sig
   include Headed
+  include Marked with type t := t
   val create : IOBuf.t -> IOBuf.t -> Vle.t -> Properties.t -> t
   val opid : t -> IOBuf.t
   val apid : t -> IOBuf.t
@@ -325,6 +368,7 @@ end
 module Close :
 sig
   include Headed
+  include Marked with type t := t
   val create : IOBuf.t -> char -> t
   val pid : t -> IOBuf.t
   val reason : t -> char
@@ -333,6 +377,7 @@ end
 module KeepAlive :
 sig
   include Headed
+  include Marked with type t := t
   val create : IOBuf.t -> t
   val pid : t -> IOBuf.t
 end
@@ -340,6 +385,7 @@ end
 module Declare :
 sig
   include Headed
+  include Marked with type t := t
   val create : (bool * bool) -> Vle.t -> Declaration.t list -> t
   val sn : t -> Vle.t
   val declarations : t -> Declaration.t list
@@ -349,7 +395,9 @@ end
 
 module WriteData :
 sig
-  include  Reliable
+  include Headed
+  include Marked with type t := t
+  include Reliable with type t := t
   val create : bool * bool -> Vle.t -> string -> IOBuf.t -> t
   val resource : t -> string
   val payload : t -> IOBuf.t
@@ -358,7 +406,9 @@ end
 
 module StreamData :
 sig
-  include  Reliable
+  include Headed
+  include Marked with type t := t
+  include Reliable with type t := t
   val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> IOBuf.t -> t
   val id : t -> Vle.t
   val prid : t -> Vle.t option
@@ -369,6 +419,7 @@ end
 module Synch :
 sig
   include Headed
+  include Marked with type t := t
   val create : bool * bool -> Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val count : t -> Vle.t option
@@ -377,6 +428,7 @@ end
 module AckNack :
 sig
   include Headed
+  include Marked with type t := t
   val create : Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val mask : t -> Vle.t option
@@ -385,6 +437,7 @@ end
 module Migrate :
 sig
   include Headed
+  include Marked with type t := t
   val create : Vle.t -> Vle.t option -> Vle.t -> Vle.t -> t
   val ocid : t -> Vle.t
   val id : t -> Vle.t option
@@ -395,6 +448,7 @@ end
 module Pull :
 sig
   include Headed
+  include Marked with type t := t
   val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val id : t -> Vle.t
@@ -406,6 +460,7 @@ end
 module PingPong :
 sig
   include Headed
+  include Marked with type t := t
   val create : ?pong:bool -> Vle.t -> t
   val is_pong : t -> bool
   val hash : t -> Vle.t
@@ -430,6 +485,8 @@ module Message :
       | Pull of Pull.t
       | PingPong of PingPong.t
 
+    include Headed with type t := t
+    include Marked with type t := t
 
     val to_string : t -> string
   end

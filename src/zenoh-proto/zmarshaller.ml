@@ -3,6 +3,7 @@ open Zlocator
 open Ziobuf
 open Zmessage
 open Zmessage.Message
+open Zmessage.Marker
 open Lwt
 open Zlwt
 open Zframe
@@ -66,11 +67,15 @@ let read_locator_seq = read_seq read_locator
 
 let write_locator_seq = write_seq write_locator
 
+type element =
+  | Message of Message.t
+  | Marker of Marker.t
+
 let read_scout buf header =
   let%lwt _ =  Lwt_log.debug "Rading Scout" in
   let%lwt (mask, buf) = IOBuf.get_vle buf in
   let%lwt (ps, buf) = read_properties buf header in
-  return (Scout (Scout.create mask ps), buf)
+  return (Message (Scout (Scout.create mask ps)), buf)
 
 
 let write_scout buf scout =
@@ -87,7 +92,7 @@ let read_hello buf header =
   let%lwt (olocators, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
   let locators = Locators.of_list @@ OptionM.get @@ OptionM.flatten olocators in
-  return (Hello (Hello.create mask locators ps), buf)
+  return (Message (Hello (Hello.create mask locators ps)), buf)
 
 let write_hello buf hello =
   let open Hello in
@@ -105,7 +110,7 @@ let read_open buf header =
   let%lwt(olocs, buf) = read_locator_seq buf in
   let%lwt (ps, buf) = read_properties buf header in
   let locs = Locators.of_list @@ OptionM.get @@ OptionM.flatten olocs in
-  return (Open (Open.create version pid lease locs ps), buf)
+  return (Message (Open (Open.create version pid lease locs ps)), buf)
 
 let write_open buf msg =
   let open Open in
@@ -123,7 +128,7 @@ let read_accept buf header =
   let%lwt (apid, buf) = IOBuf.get_io_buf buf in
   let%lwt (lease, buf) = IOBuf.get_vle buf in
   let%lwt (ps, buf) = read_properties buf header in
-  return (Accept (Accept.create opid apid lease ps), buf)
+  return (Message (Accept (Accept.create opid apid lease ps)), buf)
 
 
 let write_accept buf accept =
@@ -141,7 +146,7 @@ let read_close buf header =
   let%lwt _ = Lwt_log.debug "Reading Close" in
   let%lwt (pid, buf) = IOBuf.get_io_buf buf in
   let%lwt (reason, buf) = IOBuf.get_char buf in
-  return (Close (Close.create pid reason), buf)
+  return (Message (Close (Close.create pid reason)), buf)
 
 let write_close buf close =
   let open Close in
@@ -446,7 +451,7 @@ let read_declare buf h =
   let%lwt _ =  Lwt_log.debug "Reading Declare message" in
   let%lwt (sn, buf) = get_vle buf in
   let%lwt (ds, buf) = read_declarations buf in
-  return (Declare (Declare.create ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.cFlag)) sn ds), buf)
+  return (Message (Declare (Declare.create ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.cFlag)) sn ds)), buf)
 
 let write_declare buf decl =
   let open Declare in
@@ -464,7 +469,7 @@ let read_write_data buf h =
   let%lwt (resource, buf) = IOBuf.get_string buf in
   let%lwt (payload, buf) = get_io_buf buf in
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
-  return (WriteData (WriteData.create (s, r) sn resource payload),buf)
+  return (Message (WriteData (WriteData.create (s, r) sn resource payload)),buf)
 
 let write_write_data buf m =
   let open WriteData in
@@ -487,7 +492,7 @@ let read_stream_data buf h =
   in
   let%lwt (payload, buf) = get_io_buf buf in
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
-  return (StreamData (StreamData.create (s, r) sn id prid payload),buf)
+  return (Message (StreamData (StreamData.create (s, r) sn id prid payload)),buf)
 
 let write_stream_data buf m =
   let open StreamData in
@@ -508,9 +513,9 @@ let read_synch buf h =
   let%lwt (sn, buf) = get_vle buf in
   let  (s, r) = Flags.(hasFlag h sFlag, hasFlag h rFlag) in
   if Flags.(hasFlag h uFlag) then
-    let%lwt (c, buf) = get_vle buf in return (Synch (Synch.create (s,r) sn (Some c)), buf)
+    let%lwt (c, buf) = get_vle buf in return (Message (Synch (Synch.create (s,r) sn (Some c))), buf)
     else
-      return (Synch (Synch.create (s,r) sn None), buf)
+      return (Message (Synch (Synch.create (s,r) sn None)), buf)
 
 let write_synch buf m =
   let open Synch in
@@ -528,9 +533,9 @@ let read_ack_nack buf h =
   let%lwt (sn, buf) = get_vle buf in
   if Flags.(hasFlag h mFlag) then
     let%lwt (m, buf) = get_vle buf in
-    return (AckNack (AckNack.create sn (Some m)), buf)
+    return (Message (AckNack (AckNack.create sn (Some m))), buf)
     else
-      return (AckNack (AckNack.create sn None), buf)
+      return (Message (AckNack (AckNack.create sn None)), buf)
 
 let write_ack_nack buf m =
   let open AckNack in
@@ -545,7 +550,7 @@ let write_ack_nack buf m =
 let read_keep_alive buf header =
   let%lwt _ = Lwt_log.debug "Reading KeepAlive" in
   let%lwt (pid, buf) =  IOBuf.get_io_buf buf in
-  return (KeepAlive (KeepAlive.create pid), buf)
+  return (Message (KeepAlive (KeepAlive.create pid)), buf)
 
 let write_keep_alive buf keep_alive =
   let open KeepAlive in
@@ -565,7 +570,7 @@ let read_migrate buf header =
   in
   let%lwt (rch_last_sn, buf) = get_vle buf in
   let%lwt (bech_last_sn, buf) = get_vle buf in
-  return (Migrate (Migrate.create ocid id rch_last_sn bech_last_sn), buf)
+  return (Message (Migrate (Migrate.create ocid id rch_last_sn bech_last_sn)), buf)
 
 let write_migrate buf m =
   let open Migrate in
@@ -592,7 +597,7 @@ let read_pull buf header =
     else return (None, buf)
   in
   let (s, f) = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.fFlag)) in
-  return (Pull (Pull.create (s, f) sn id max_samples), buf)
+  return (Message (Pull (Pull.create (s, f) sn id max_samples)), buf)
 
 let write_pull buf m =
   let open Pull in
@@ -610,7 +615,7 @@ let read_ping_pong buf header =
   let%lwt _ = Lwt_log.debug "Reading PingPong" in
   let%lwt (hash, buf) = get_vle buf in
   let o = Flags.hasFlag header Flags.oFlag in
-  return (PingPong (PingPong.create ~pong:o hash), buf)
+  return (Message (PingPong (PingPong.create ~pong:o hash)), buf)
 
 let write_ping_pong buf m =
   let open PingPong in
@@ -620,7 +625,93 @@ let write_ping_pong buf m =
   let%lwt buf = put_vle buf @@ hash m in
   return buf
 
-let read_msg buf =
+let read_conduit buf header = 
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading Conduit" in
+  let%lwt (id, buf) =
+    if Flags.(hasFlag header zFlag) then
+      let%lwt (id, buf) = get_vle buf in return (Some id, buf)
+    else return (None, buf) 
+  in
+  let id =
+    match id with 
+    | Some id -> id
+    | None -> (match Flags.(hasFlag header hFlag) with
+               | false -> (match Flags.(hasFlag header lFlag) with
+                           | false -> Vle.zero
+                           | true -> Vle.one)
+               | true -> (match Flags.(hasFlag header lFlag) with
+                          | false -> Vle.of_int 2
+                          | true -> Vle.of_int 3)) 
+  in
+  return (Marker (ConduitMarker (ConduitMarker.create id)), buf)
+  
+let write_conduit buf m = 
+  let open ConduitMarker in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing Conduit" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = 
+    if Flags.(hasFlag (header m) zFlag) then
+       put_vle buf @@ (id m)
+    else return buf in
+  return buf
+
+let read_frag buf header = 
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading Frag" in
+  let%lwt (sn_base, buf) = get_vle buf in
+  let%lwt (n, buf) =
+    if Flags.(hasFlag header nFlag) then
+      let%lwt (n, buf) = get_vle buf in return (Some n, buf)
+    else return (None, buf) 
+  in
+  return (Marker (Frag (Frag.create sn_base n)), buf)
+
+let write_frag buf m = 
+  let open Frag in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing Frag" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = put_vle buf @@ sn_base m in
+  let%lwt buf = match n m with 
+                | Some n -> put_vle buf @@ n
+                | None -> return buf in
+  return buf
+  
+let read_rspace buf header = 
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Reading ResourceSpace" in
+  let%lwt (id, buf) =
+    if Flags.(hasFlag header zFlag) then
+      let%lwt (id, buf) = get_vle buf in return (Some id, buf)
+    else return (None, buf) 
+  in
+  let id =
+    match id with 
+    | Some id -> id
+    | None -> (match Flags.(hasFlag header hFlag) with
+               | false -> (match Flags.(hasFlag header lFlag) with
+                           | false -> Vle.zero
+                           | true -> Vle.one)
+               | true -> (match Flags.(hasFlag header lFlag) with
+                          | false -> Vle.of_int 2
+                          | true -> Vle.of_int 3)) 
+  in
+  return (Marker (RSpace (RSpace.create id)), buf)
+  
+let write_rspace buf m = 
+  let open RSpace in
+  let open IOBuf in
+  let%lwt _ = Lwt_log.debug "Writing ResourceSpace" in
+  let%lwt buf = put_char buf @@ header m in
+  let%lwt buf = 
+    if Flags.(hasFlag (header m) zFlag) then
+       put_vle buf @@ (id m)
+    else return buf in
+  return buf
+
+let read_element buf =
   let%lwt (header, buf) = IOBuf.get_char buf in
   let%lwt _ = Lwt_log.debug (Printf.sprintf "Received message with id: %d\n" (Header.mid header)) in
   match char_of_int (Header.mid (header)) with
@@ -638,12 +729,29 @@ let read_msg buf =
   | id when id = MessageId.migrateId -> (read_migrate buf header)
   | id when id = MessageId.pullId -> (read_pull buf header)
   | id when id = MessageId.pingPongId -> (read_ping_pong buf header)
+  | id when id = MessageId.conduitId -> (read_conduit buf header)
+  | id when id = MessageId.fragmetsId -> (read_frag buf header)
+  | id when id = MessageId.rSpaceId -> (read_rspace buf header)
   | uid ->
     let%lwt _ = Lwt_log.debug @@ Printf.sprintf "Received unknown message id: %d" (int_of_char uid) in
     fail @@ ZError Error.(InvalidFormat NoMsg)
 
+let rec read_msg_rec buf markers = 
+  let%lwt (elem, buf) = read_element buf in 
+  match elem with 
+  | Marker m -> read_msg_rec buf (m :: markers)
+  | Message m -> return (with_markers m markers, buf) 
 
-let write_msg buf msg =
+let read_msg buf = read_msg_rec buf []
+
+
+let write_marker buf marker =
+  match marker with
+  | ConduitMarker c -> write_conduit buf c
+  | Frag c -> write_frag buf c
+  | RSpace c -> write_rspace buf c
+
+let write_msg_element buf msg =
   match msg with
   | Scout m -> write_scout buf m
   | Hello m -> write_hello buf m
@@ -660,22 +768,31 @@ let write_msg buf msg =
   | Pull m -> write_pull buf m
   | PingPong m -> write_ping_pong buf m
 
-  let read_frame_length buf = IOBuf.get_vle buf
+let rec write_msg buf msg markers =
+  match markers with 
+  | marker :: markers -> 
+    let%lwt buf = write_marker buf marker in
+    write_msg buf msg markers
+  | [] -> write_msg_element buf msg
 
-  let write_frame_length buf f = IOBuf.put_vle buf (Vle.of_int @@ Frame.length f)
+let write_msg buf msg = write_msg buf msg (markers msg)
 
-  let read_frame buf =
-    let rec rloop buf n msgs =
-      if n = 0 then return (msgs, buf)
-      else
-        let%lwt (msg, buf) = read_msg buf in
-        rloop buf (n-1) (msg::msgs)
-    in
-    let%lwt (len, buf) = read_frame_length buf in
-    let%lwt (msgs, buf) = rloop buf (Vle.to_int len) [] in
-    return @@ (Frame.create msgs, buf)
+let read_frame_length buf = IOBuf.get_vle buf
 
-  let write_frame buf f =
-    let open Zlwt in
-    LwtM.fold_m write_msg buf (Frame.to_list f)
+let write_frame_length buf f = IOBuf.put_vle buf (Vle.of_int @@ Frame.length f)
+
+let read_frame buf =
+  let rec rloop buf n msgs =
+    if n = 0 then return (msgs, buf)
+    else
+      let%lwt (msg, buf) = read_msg buf in
+      rloop buf (n-1) (msg::msgs)
+  in
+  let%lwt (len, buf) = read_frame_length buf in
+  let%lwt (msgs, buf) = rloop buf (Vle.to_int len) [] in
+  return @@ (Frame.create msgs, buf)
+
+let write_frame buf f =
+  let open Zlwt in
+  LwtM.fold_m write_msg buf (Frame.to_list f)
 end

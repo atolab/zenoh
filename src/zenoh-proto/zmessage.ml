@@ -36,6 +36,7 @@ module MessageId = struct
 
   let conduitCloseId = char_of_int 0x11
   let fragmetsId = char_of_int 0x12
+  let rSpaceId = char_of_int 0x18
 
   let conduitId = char_of_int 0x13
   let migrateId = char_of_int 0x14
@@ -181,7 +182,6 @@ end
 module type Reliable =
 sig
   type t
-  val header : t -> char
   val reliable : t -> bool
   val synch : t -> bool
   val sn : t -> Vle.t
@@ -383,6 +383,109 @@ module Declarations = struct
   let singleton d = [d]
   let add ds d = d::ds
 end
+
+module ConduitMarker = struct
+  type t = {
+    header : Header.t;
+    id : Vle.t option
+  }
+
+  let create id = 
+    match Vle.to_int id with 
+      | 0 -> {header=MessageId.conduitId; id=None}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag)); id=None}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag)); id=None}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); id=None}
+      | _ -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); id=Some id}
+
+  let header m = m.header
+
+  let id m = 
+    match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
+    | 0 -> (match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
+            | 0 -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
+                    | 0 -> Vle.zero
+                    | _ -> Vle.one)
+            | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
+                    | 0 -> Vle.of_int 2
+                    | _ -> Vle.of_int 3))
+    | _ -> match m.id with 
+           | Some id -> id
+           | None -> Vle.zero (* Should never happen *)
+end
+
+module Frag = struct
+  type t = {
+    header : Header.t;
+    sn_base : Vle.t;
+    n : Vle.t option;
+  }
+  let create sn_base n = {header=MessageId.fragmetsId; sn_base=sn_base; n=n}
+    
+  let header m = m.header
+
+  let sn_base m = m.sn_base
+  let n m = m.n
+end
+
+module RSpace = struct
+  type t = {
+    header : Header.t;
+    id : Vle.t option
+  }
+
+  let create id = 
+    match Vle.to_int id with 
+      | 0 -> {header=MessageId.conduitId; id=None}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.lFlag)); id=None}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag)); id=None}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); id=None}
+      | _ -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.zFlag)); id=Some id}
+
+  let header m = m.header
+
+  let id m = 
+    match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
+    | 0 -> (match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
+            | 0 -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
+                    | 0 -> Vle.zero
+                    | _ -> Vle.one)
+            | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
+                    | 0 -> Vle.of_int 2
+                    | _ -> Vle.of_int 3))
+    | _ -> match m.id with 
+           | Some id -> id
+           | None -> Vle.zero (* Should never happen *)
+end
+
+
+module Marker =
+struct
+  type t =
+    | ConduitMarker of ConduitMarker.t
+    | Frag of Frag.t
+    | RSpace of RSpace.t
+end
+
+module type Marked =
+sig
+  type t
+  val markers : t -> Marker.t list
+  val with_marker : t -> Marker.t -> t
+  val with_markers : t -> Marker.t list -> t
+  val remove_markers : t -> t
+end
+
+module Markers = 
+struct
+  type t = Marker.t list
+
+  let empty = []
+  let with_marker t m  = m :: t
+  let with_markers t ms = ms @ t
+end
+
+
 (**
    The SCOUT message can be sent at any point in time to solicit HELLO messages from
    matching parties
@@ -407,16 +510,26 @@ module Scout = struct
     header : Header.t;
     mask : Vle.t;
     properties : Properties.t;
+    markers : Markers.t;
   }
 
   let create mask properties =
     let header = match properties with
       | [] -> MessageId.scoutId
       | _ -> char_of_int ((int_of_char MessageId.scoutId) lor (int_of_char Flags.pFlag))
-    in {header=header; mask=mask; properties=properties}
-  let header scout = scout.header
+    in {header=header; mask=mask; properties=properties; markers=Markers.empty}
+  
+  let header msg = msg.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let mask scout = scout.mask
   let properties scout = scout.properties
+
+
 end
 
 (**
@@ -443,9 +556,10 @@ end
 module Hello = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     mask : Vle.t;
     locators : Locators.t;
-    properties : Properties.t
+    properties : Properties.t;
   }
 
   let create mask locators properties =
@@ -453,8 +567,15 @@ module Hello = struct
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.helloId in
       char_of_int @@ pflag lor mid in
-    {header=header; mask=mask; locators=locators; properties=properties}
+    {header=header; mask=mask; locators=locators; properties=properties; markers=Markers.empty}
+  
   let header hello = hello.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let mask hello = hello.mask
   let locators hello = hello.locators
   let properties hello = hello.properties
@@ -488,6 +609,7 @@ end
 module Open = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     version : char;
     pid : IOBuf.t;
     lease : Vle.t;
@@ -500,8 +622,15 @@ module Open = struct
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.openId in
       char_of_int @@ pflag lor mid in
-    {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties}
+    {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties; markers=Markers.empty}
+  
   let header open_ = open_.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let version open_ = open_.version
   let pid open_ = open_.pid
   let lease open_ = open_.lease
@@ -526,6 +655,7 @@ end
 module Accept = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     opid : IOBuf.t;
     apid : IOBuf.t;
     lease : Vle.t;
@@ -537,8 +667,15 @@ module Accept = struct
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.acceptId in
       char_of_int @@ pflag lor mid in
-    {header=header; opid=opid; apid=apid; lease=lease; properties=properties}
+    {header=header; opid=opid; apid=apid; lease=lease; properties=properties; markers=Markers.empty}
+
   let header accept = accept.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let apid accept = accept.apid
   let opid accept = accept.opid
   let lease accept = accept.lease
@@ -560,12 +697,20 @@ end
 module Close = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     pid : IOBuf.t;
     reason : char;
   }
 
-  let create pid reason = {header=MessageId.closeId; pid=pid; reason=reason}
+  let create pid reason = {header=MessageId.closeId; pid=pid; reason=reason; markers=Markers.empty}
+
   let header close = close.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let pid close = close.pid
   let reason close = close.reason
 end
@@ -581,11 +726,19 @@ end
 module KeepAlive = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     pid : IOBuf.t;
   }
 
-  let create pid = {header=MessageId.keepAliveId; pid=pid}
+  let create pid = {header=MessageId.keepAliveId; pid=pid; markers=Markers.empty}
+
   let header keep_alive = keep_alive.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let pid keep_alive = keep_alive.pid
 end
 
@@ -602,6 +755,7 @@ end
 module Declare = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     declarations : Declarations.t;
   }
@@ -612,8 +766,15 @@ module Declare = struct
       let cflag = if committed then int_of_char Flags.cFlag  else 0 in
       let mid = int_of_char MessageId.declareId in
       char_of_int @@ sflag lor cflag lor mid in
-    {header=header; sn=sn; declarations=declarations}
+    {header=header; sn=sn; declarations=declarations; markers=Markers.empty}
+
   let header declare = declare.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let sn declare = declare.sn
   let declarations declare = declare.declarations
   let sync declare = ((int_of_char declare.header) land (int_of_char Flags.sFlag)) <> 0
@@ -623,12 +784,11 @@ end
 module WriteData = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     resource : string;
     payload: IOBuf.t;
   }
-
-  let header d = d.header
 
   let create (s, r) sn resource payload =
     let header  =
@@ -636,7 +796,14 @@ module WriteData = struct
       let rflag =  if r then int_of_char Flags.rFlag  else 0 in
       let mid = int_of_char MessageId.wdataId in
       char_of_int @@ sflag lor rflag lor mid in
-    { header; sn; resource; payload}
+    { header; sn; resource; payload; markers=Markers.empty}
+
+  let header d = d.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
 
   let sn d = d.sn
   let resource d = d.resource
@@ -649,13 +816,12 @@ end
 module StreamData = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     id : Vle.t;
     prid : Vle.t option;
     payload: IOBuf.t;
   }
-
-  let header d = d.header
 
   let create (s, r) sn id prid payload =
     let header  =
@@ -664,7 +830,14 @@ module StreamData = struct
       let aflag = match prid with | None -> 0 | _ -> int_of_char Flags.aFlag in
       let mid = int_of_char MessageId.sdataId in
       char_of_int @@ sflag lor rflag lor aflag lor mid in
-    { header; sn; id; prid; payload}
+    { header; sn; id; prid; payload; markers=Markers.empty}
+
+  let header d = d.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
 
   let sn d = d.sn
   let id d = d.id
@@ -678,6 +851,7 @@ end
 module Synch = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     count : Vle.t option
   }
@@ -688,9 +862,15 @@ module Synch = struct
       let sflag = if s then int_of_char Flags.sFlag else 0 in
       let mid = int_of_char MessageId.synchId in
       char_of_int @@ uflag lor rflag lor sflag lor mid
-    in { header; sn; count }
+    in { header; sn; count; markers=Markers.empty}
 
   let header s = s.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let sn s = s .sn
   let count s = s.count
 end
@@ -698,6 +878,7 @@ end
 module AckNack = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     mask :Vle.t option
   }
@@ -707,9 +888,15 @@ module AckNack = struct
       let mflag = match mask with | None -> 0 | _ -> int_of_char Flags.mFlag in
       let mid = int_of_char MessageId.ackNackId in
       char_of_int @@ mflag lor mid
-    in  { header; sn; mask }
+    in  { header; sn; mask; markers=Markers.empty}
 
   let header a = a.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
+
   let sn a = a.sn
   let mask a = a.mask
 end
@@ -717,20 +904,26 @@ end
 module Migrate = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     ocid : Vle.t;
     id : Vle.t option;
     rch_last_sn : Vle.t;
     bech_last_sn : Vle.t;
   }
 
-  let header m = m.header
-
   let create ocid id rch_last_sn bech_last_sn =
     let header  =
       let iflag = match id with | None -> 0 | _ -> int_of_char Flags.iFlag in
       let mid = int_of_char MessageId.migrateId in
       char_of_int @@ iflag lor mid in
-    { header; ocid; id; rch_last_sn; bech_last_sn}
+    { header; ocid; id; rch_last_sn; bech_last_sn; markers=Markers.empty}
+
+  let header m = m.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
 
   let ocid m = m.ocid
   let id m = m.id
@@ -741,12 +934,11 @@ end
 module Pull = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     sn : Vle.t;
     id : Vle.t;
     max_samples : Vle.t option;
   }
-
-  let header p = p.header
 
   let create (s, f) sn id max_samples =
     let header  =
@@ -755,7 +947,14 @@ module Pull = struct
       let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
       let mid = int_of_char MessageId.pullId in
       char_of_int @@ sflag lor nflag lor fflag lor mid in
-    { header; sn; id; max_samples}
+    { header; sn; id; max_samples; markers=Markers.empty}
+
+  let header p = p.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
 
   let sn p = p.sn
   let id p = p.id
@@ -767,17 +966,23 @@ end
 module PingPong = struct
   type t = {
     header : Header.t;
+    markers : Markers.t;
     hash : Vle.t;
   }
-
-  let header p = p.header
 
   let create ?pong:(pong=false) hash =
     let header  =
       let oflag =  if pong then int_of_char Flags.oFlag  else 0 in
       let mid = int_of_char MessageId.pingPongId in
       char_of_int @@ oflag lor mid in
-    { header; hash}
+    { header; hash; markers=Markers.empty}
+
+  let header p = p.header
+  
+  let markers msg = msg.markers
+  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
+  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
+  let remove_markers msg = {msg with markers=Markers.empty}
 
   let is_pong p = Flags.hasFlag p.header Flags.oFlag
   let hash p = p.hash
@@ -801,7 +1006,86 @@ module Message = struct
     | Pull of Pull.t
     | PingPong of PingPong.t
 
+  let header = function 
+    | Scout s -> Scout.header s
+    | Hello h ->  Hello.header h
+    | Open o ->  Open.header o
+    | Accept a ->  Accept.header a
+    | Close c ->  Close.header c
+    | Declare d ->  Declare.header d
+    | WriteData d ->  WriteData.header d
+    | StreamData d ->  StreamData.header d
+    | Synch s ->  Synch.header s
+    | AckNack a ->  AckNack.header a
+    | KeepAlive a ->  KeepAlive.header a
+    | Migrate m ->  Migrate.header m
+    | Pull p ->  Pull.header p
+    | PingPong p ->  PingPong.header p
+  
+  let markers = function
+    | Scout s -> Scout.markers s
+    | Hello h ->  Hello.markers h
+    | Open o ->  Open.markers o
+    | Accept a ->  Accept.markers a
+    | Close c ->  Close.markers c
+    | Declare d ->  Declare.markers d
+    | WriteData d ->  WriteData.markers d
+    | StreamData d ->  StreamData.markers d
+    | Synch s ->  Synch.markers s
+    | AckNack a ->  AckNack.markers a
+    | KeepAlive a ->  KeepAlive.markers a
+    | Migrate m ->  Migrate.markers m
+    | Pull p ->  Pull.markers p
+    | PingPong p ->  PingPong.markers p
 
+  let with_marker msg marker = match msg with 
+    | Scout s -> Scout (Scout.with_marker s marker)
+    | Hello h ->  Hello (Hello.with_marker h marker)
+    | Open o ->  Open (Open.with_marker o marker)
+    | Accept a ->  Accept (Accept.with_marker a marker)
+    | Close c ->  Close (Close.with_marker c marker)
+    | Declare d ->  Declare (Declare.with_marker d marker)
+    | WriteData d ->  WriteData (WriteData.with_marker d marker)
+    | StreamData d ->  StreamData (StreamData.with_marker d marker)
+    | Synch s ->  Synch (Synch.with_marker s marker)
+    | AckNack a ->  AckNack (AckNack.with_marker a marker)
+    | KeepAlive a ->  KeepAlive (KeepAlive.with_marker a marker)
+    | Migrate m ->  Migrate (Migrate.with_marker m marker)
+    | Pull p ->  Pull (Pull.with_marker p marker)
+    | PingPong p ->  PingPong (PingPong.with_marker p marker)
+
+  let with_markers msg markers = match msg with 
+    | Scout s -> Scout (Scout.with_markers s markers)
+    | Hello h ->  Hello (Hello.with_markers h markers)
+    | Open o ->  Open (Open.with_markers o markers)
+    | Accept a ->  Accept (Accept.with_markers a markers)
+    | Close c ->  Close (Close.with_markers c markers)
+    | Declare d ->  Declare (Declare.with_markers d markers)
+    | WriteData d ->  WriteData (WriteData.with_markers d markers)
+    | StreamData d ->  StreamData (StreamData.with_markers d markers)
+    | Synch s ->  Synch (Synch.with_markers s markers)
+    | AckNack a ->  AckNack (AckNack.with_markers a markers)
+    | KeepAlive a ->  KeepAlive (KeepAlive.with_markers a markers)
+    | Migrate m ->  Migrate (Migrate.with_markers m markers)
+    | Pull p ->  Pull (Pull.with_markers p markers)
+    | PingPong p ->  PingPong (PingPong.with_markers p markers)
+    
+  let remove_markers = function
+    | Scout s -> Scout (Scout.remove_markers s)
+    | Hello h ->  Hello (Hello.remove_markers h)
+    | Open o ->  Open (Open.remove_markers o)
+    | Accept a ->  Accept (Accept.remove_markers a)
+    | Close c ->  Close (Close.remove_markers c)
+    | Declare d ->  Declare (Declare.remove_markers d)
+    | WriteData d ->  WriteData (WriteData.remove_markers d)
+    | StreamData d ->  StreamData (StreamData.remove_markers d)
+    | Synch s ->  Synch (Synch.remove_markers s)
+    | AckNack a ->  AckNack (AckNack.remove_markers a)
+    | KeepAlive a ->  KeepAlive (KeepAlive.remove_markers a)
+    | Migrate m ->  Migrate (Migrate.remove_markers m)
+    | Pull p ->  Pull (Pull.remove_markers p)
+    | PingPong p ->  PingPong (PingPong.remove_markers p)
+  
   let to_string = function (** This should actually call the to_string on individual messages *)
     | Scout s -> "Scout"
     | Hello h -> Hello.to_string h
