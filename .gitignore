@@ -9,7 +9,7 @@
 *.cmxa
 .merlin
 *.install
-
+tmp
 # ocamlbuild working directory
 _build/
 

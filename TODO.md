@@ -13,10 +13,10 @@ replace the use of:
 ; match ((int_of_char header) land (int_of_char Flags.pFlag)) with
   | 0x00 -> Result.ok (Scout.create mask [], buf)
   | _ -> Result.do_
-         ; (props, buf) <-- read_prop_seq buf
+         ; (props, buf) <-- decode_prop_seq buf
          ; Result.ok (Scout.create mask props, buf)
 
-with the new function write_properties
+with the new function encode_properties
 
 ## Pub/Sub Matching
 The current implementation sends matches each time one happens. This is

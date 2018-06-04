@@ -9,101 +9,70 @@ open Ztypes
     A buffer's limit is the index of the first element that should not
     be read or written.
 
-*)
+    This buffer was designed for performance, additionally the only way 
+    a method may fail is if it violates one of the invariants for the 
+    type and in this case an exception is raised as this would cleary 
+    represent a bug in the application using the buffer. *)
 
-module IOBuf : sig
-  type t
+module IOBuf : sig  
+  type t      
 
-  val create : int -> t Lwt.t
+  val create : int -> t
   (** [create] allocates a new IOBuf  of the given capacity. *)
 
   val to_bytes : t -> Lwt_bytes.t
   (** [to_bytes] provides the [Lwt_bytes.t] representation for this buffer so that
       it can be used for I/O such as sockets, etc... This buffer should be
-      considered as read-only.
-  *)
+      considered as read-only. *)
 
-  val from_bytes : Lwt_bytes.t -> t Lwt.t
+  val from_bytes : Lwt_bytes.t -> t 
   (** [from_bytes] creates an IOBuf by wrapping the provided [Lwt_bytes.t].
-      The capacity for the IOBuf will be set to the buffer length.
-  *)
+      The capacity for the IOBuf will be set to the buffer length. *)
 
-  val flip : t -> t Lwt.t
+  val flip : t -> t 
   (** [flip] sets the limit to the current position and the position to zero. *)
 
-  val clear : t -> t Lwt.t
+  val clear : t -> t
   (** [clear] sets the position to zero and the limit to the capacity. *)
 
-  val rewind : t -> t Lwt.t
+  val rewind : t -> t
   (** [rewind] makes the buffer ready to be read again by setting the position
-      to zero and keeping the limit as it is.
-  *)
+      to zero and keeping the limit as it is. *)
 
-  val get_position : t -> int
-  val set_position : t -> int -> t Lwt.t
+  val position : t -> int
+  val set_position : int -> t -> (t, Error.e) result 
 
-  val get_limit : t -> int
-  val set_limit : t -> int -> t Lwt.t
+  val limit : t -> int
+  val set_limit : int -> t ->  (t, Error.e) result 
 
   val capacity : t -> int
 
-  val mark : t -> t Lwt.t
-  val reset : t -> t Lwt.t
-  val reset_with : t -> int -> int -> t Lwt.t
+  (** remaining bytes to read/write overflowing *)
+  val available : t -> int
 
-  val put_char : t -> char -> t Lwt.t
-  val get_char : t -> (char * t) Lwt.t
+  val mark : t -> t
+  val reset : t -> t
+  val reset_with : int -> int -> t -> (t, Error.e) result 
 
-  val put_vle : t -> Vle.t -> t Lwt.t
-  val get_vle : t -> (Vle.t * t) Lwt.t
+  val put_char : char -> t ->  (t, Error.e) result 
+  val get_char : t -> ((char * t), Error.e) result 
 
-  val put_string : t -> string -> t Lwt.t
+  val blit_from_bytes : Lwt_bytes.t -> int -> int ->  t -> (t, Error.e) result 
 
-  val get_string : t -> (string * t) Lwt.t
+  val blit_to_bytes : int -> t ->  ((Lwt_bytes.t * t), Error.e) result 
 
-  val put_io_buf : t -> t -> t Lwt.t
+  val put_string : string -> t -> (t, Error.e) result 
+  
+  val get_string : int -> t -> (t, Error.e) result 
 
-  val get_io_buf : t -> (t * t) Lwt.t
+  val put_buf : t -> t -> (t, Error.e) result 
 
-  val blit_from_bytes : Lwt_bytes.t -> int -> t -> int -> t Lwt.t
-
-  val blit : t -> t -> t Lwt.t
-
-  val to_io_vec : t -> Lwt_bytes.io_vector
+  val get_buf : int -> t -> (t*t, Error.e) result 
 
   val to_string : t -> string
 
-(** I/O related functions *)
+  type io_vector = Lwt_bytes.io_vector
 
-
-  val read : Lwt_unix.file_descr -> t -> int Lwt.t
-(** [read] at most (limit -pos) bytes out of the file descriptior in to
-    the IOBuf. Returns the  actual number of bytes read. *)
-
-
-  val write : Lwt_unix.file_descr -> t -> int Lwt.t
-(** [write]  the bytes between {e pos} and {e limit}. Returns the number
-    of bytes actually written. *)
-
-  val recv : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> int Lwt.t
-(** [recv] receives at most (limit -pos) bytes out of the file descriptior
-    in to the IOBuf. Returns the  actual number of bytes received.  *)
-
-  val send : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> int Lwt.t
-  (** [send] send the bytes between {e pos} and {e limit}. Returns the number
-      of bytes actually sent. *)
-
-  val recvfrom : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> (int * Unix.sockaddr) Lwt.t
-
-  val sendto : ?flags:Unix.msg_flag list -> Lwt_unix.file_descr -> t -> Unix.sockaddr -> int Lwt.t
-
-  type io_vector
-
-  val io_vector : t -> io_vector
-
-  val recv_vec : Lwt_unix.file_descr -> t list -> (int * Unix.file_descr list) Lwt.t
-
-  val send_vec : Lwt_unix.file_descr -> t list -> int Lwt.t
-
+  val to_io_vector : t -> io_vector
 
 end

@@ -5,20 +5,23 @@ open Ziplocator
 
 module Locator = struct
   (** This will become a union time once we'll support non IP-based transpots *)
-  type t = UdpLocator of UdpLocator.t | TcpLocator of TcpLocator.t
+  type t = 
+  | UdpLocator of UdpLocator.t 
+  | TcpLocator of TcpLocator.t
+  
     
   let to_string = function 
   | UdpLocator ul -> UdpLocator.to_string ul
   | TcpLocator tl -> TcpLocator.to_string tl
 
   let of_string s = 
-    let open OptionM.Infix in 
+    let open OptionM.InfixM in 
     String.index_opt s '/'
     >>= (fun pos -> 
           match String.sub s 0 pos with 
           | "tcp" -> (TcpLocator.of_string s) >>= fun loc -> Some (TcpLocator loc)
           | "udp" -> (UdpLocator.of_string s) >>= fun loc -> Some (UdpLocator loc)
-          | _ -> None)
+          | _  -> None)
   
   end
 

@@ -6,6 +6,7 @@ open Zmessage
 open Zsession
 open Ziobuf
 open Printf
+open Zproperty
 
 module SessionMap = Map.Make (SessionId)
 module PubSubMap = Map.Make(Vle)

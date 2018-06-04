@@ -1,11 +1,9 @@
-open Lwt
-open Lwt.Infix
 open Ztypes
 open Ziobuf
 open Zmessage
 open Zsession
-open Zmarshaller
-
+open Mcodec
+open Apero
 let udp_id = 0x00
 let tcp_id = 0x01
 let ble_id = 0x02
@@ -40,7 +38,7 @@ module Tcp = struct
     let _ = setsockopt sock TCP_NODELAY true in
     let _ = bind sock locator in
     let _ = listen sock backlog in
-    return {
+    Lwt.return {
       tx_id;
       socket = sock;
       locator;
@@ -51,36 +49,50 @@ module Tcp = struct
 
 
   let send s msg  =
+    let  open Apero.ResultM.InfixM in
     let open IOBuf in
-    let%lwt _ = Lwt_log.debug (Printf.sprintf ">> sending message: %s\n" @@ Message.to_string msg ) in
-    let%lwt buf =IOBuf.clear Session.(s.wbuf) in
-    let%lwt buf = Marshaller.write_msg buf msg in
-    let%lwt buf =IOBuf.flip buf in
-    let%lwt wlbuf = IOBuf.clear s.wlenbuf in
-    let%lwt wlbuf = IOBuf.put_vle wlbuf  @@ Vle.of_int @@ IOBuf.get_limit  buf in
-    let%lwt wlbuf = IOBuf.flip wlbuf in
-    let%lwt rs = IOBuf.send_vec s.socket [wlbuf; buf] in
-    let%lwt _ = Lwt_log.debug (Printf.sprintf ">>>>>>> Done sending message: %s <<<<<<\n" @@ Message.to_string msg ) in
-    return_unit
+    Logs.debug (fun m -> m  ">> sending message: %s\n" @@ Message.to_string msg );
+    let buf = IOBuf.clear Session.(s.wbuf) in
+    
+    ResultM.try_get 
+      ~run:(Znet.send_vec s.socket)
+      ~fail_with:(fun e -> Lwt.fail (ZError e))
+      ~on:(Mcodec.encode_msg msg buf
+      >>> IOBuf.flip
+      >>= (fun buf -> 
+        let wlbuf = IOBuf.clear s.wlenbuf in        
+        Tcodec.encode_vle (Vle.of_int @@ IOBuf.limit buf) wlbuf  
+        >>> IOBuf.flip
+        >>= fun (wlbuf) -> ResultM.return ([wlbuf; buf])))
 
+    
 
 
   let maybe_send s smsg = match smsg with
     | Some msg -> send s msg
-    | _ ->  return_unit
+    | _ ->  Lwt.return 0
 
 
   let get_message_length sock buf =
-    let rec extract_length buf v bc =
-      let%lwt buf = IOBuf.reset_with buf 0 1 in
-      match%lwt IOBuf.recv sock buf with
-      | 0 -> fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
-      | _ ->
-        let%lwt (b, buf) = (IOBuf.get_char buf) in
-        match int_of_char b with
-        | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
-        | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
-    in extract_length buf 0 0
+    let rec extract_length v bc buf =       
+      ResultM.try_get 
+        ~on:(IOBuf.reset_with 0 1 buf)
+        ~run:(fun buf ->
+          match%lwt Znet.recv sock buf with
+          | 0 -> Lwt.fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
+          | _ ->
+            ResultM.try_get 
+              ~on:(IOBuf.get_char buf)
+              ~run:(fun (b, buf) -> 
+                match int_of_char b with
+                | c when c <= 0x7f -> Lwt.return (v lor (c lsl (bc * 7)))
+                | c  -> extract_length  (v lor ((c land 0x7f) lsl bc)) (bc + 1) buf)
+              ~fail_with:(fun e -> Lwt.fail @@ ZError e))
+            
+        ~fail_with:(fun e -> Lwt.fail @@ ZError e)
+        
+    in extract_length 0 0 buf 
+
 
   let string_of_sockaddr = function
     | Lwt_unix.ADDR_UNIX s -> s
@@ -94,23 +106,25 @@ module Tcp = struct
         let _ = try%lwt
           Lwt_unix.close c.socket
         with
-        | _ -> return_unit
+        | _ -> Lwt.return_unit
         in ()
       ) cs ;
     tx.handle_close s ;
 
-    return_unit
+    Lwt.return_unit
 
   let handle_session tx (s: Session.t) =
     let rec serve_session () =
-      let%lwt _ = Lwt_log.debug (Printf.sprintf "======== Transport handling session %Ld" s.sid) in
-      let%lwt r = try%lwt
+      Logs.debug (fun m -> m "======== Transport handling session %Ld" s.sid);
+      Lwt.return_unit
+      
+      (* let%lwt r = try%lwt
           let%lwt len = get_message_length s.socket s.rlenbuf in
-          let%lwt _ = Lwt_log.debug (Printf.sprintf "Received message of %d bytes" len) in
-          let%lwt buf = IOBuf.reset_with s.rbuf 0 len in
+          Logs.debug (fun m -> m  "Received message of %d bytes" len);
+          IOBuf.reset_with s.rbuf 0 len in
           let%lwt _ = IOBuf.recv s.socket buf in
           let%lwt _ = Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n" in
-          let%lwt (msg, buf) = Marshaller.read_msg buf in
+          let%lwt (msg, buf) = Marshaller.decode_msg buf in
           let replies = tx.listener s msg in
           (** need to sequence the message being sent on a given socket otherwise
               we will have concurrent use of the buffers associated with the session*)
@@ -129,20 +143,21 @@ module Tcp = struct
         Lwt.fail @@ ZError Error.(ClosedSession NoMsg)
       in
         let%lwt _ = Lwt_log.debug (Printf.sprintf "Looping to serve session %Ld" s.sid) in
-        serve_session ()
+        serve_session () *)
 
     in serve_session ()
 
   let accept_connection tx conn =
     let fd, addr = conn in
-    let _ = Lwt_log.debug ("Incoming connection from: " ^ (string_of_sockaddr addr)) in
+    Logs.debug (fun m -> m "Incoming connection from: %s"  (string_of_sockaddr addr));
     let%lwt session = Session.make tcp_id fd addr tx.buf_len in
     session.close <- (fun () -> close_session tx session) ;
-    session.send <- (fun msg -> send session msg) ;
+    session.send <- (fun msg -> Lwt.bind (send session msg) (fun _ -> Lwt.return_unit)) ;
     tx.sessions <- session :: tx.sessions ;
     let _ = Lwt.on_failure (handle_session tx session)  (fun e -> Lwt_log.ign_error (Printexc.to_string e)) in
 
-    Lwt_log.debug ("New Transport Session with Id = " ^ (SessionId.to_string session.sid))  >>= return
+    Logs.debug (fun m ->  m "New Transport Session with Id = %s"  (SessionId.to_string session.sid));
+    Lwt.return_unit
 
 
   let run_loop tx =

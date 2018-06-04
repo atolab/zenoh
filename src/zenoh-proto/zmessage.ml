@@ -1,6 +1,7 @@
+open Apero
 open Ztypes
 open Zlocator
-open Apero
+open Zproperty
 open Ziobuf
 
 module PropertyId = struct
@@ -73,6 +74,7 @@ module Flags = struct
   let hasFlag h f =  (int_of_char h) land (int_of_char f) <> 0
   let mid h =  char_of_int @@ (int_of_char h) land  (int_of_char midMask)
   let flags h = char_of_int @@ (int_of_char h) land  (int_of_char hFlagMask)
+  let mid_len = 5
 
 end
 
@@ -146,26 +148,6 @@ module SubscriptionMode = struct
 
 end
 
-module Property = struct
-  type id_t = Vle.t
-  type t = Vle.t * IOBuf.t
-  let create id data = (id, data)
-  let id p = fst p
-  let data p = snd p
-
-end
-
-module Properties = struct
-  type t = Property.t list
-  let empty = []
-  let singleton p = [p]
-  let add p ps = p::ps
-  let find f ps = List.find_opt f ps
-  let get name ps = List.find_opt (fun (n, _) -> if n = name then true else false) ps
-  let length ps = List.length ps
-  let of_list xs = xs
-  let to_list ps = ps
-end
 
 module Header = struct
   type t = char
@@ -384,6 +366,8 @@ module Declarations = struct
   let add ds d = d::ds
 end
 
+(* @AC: A conduit marker should always have a cid, its representation changes, but the id is always there. 
+       This should be reflected in the type declaration *)
 module ConduitMarker = struct
   type t = {
     header : Header.t;
@@ -401,6 +385,8 @@ module ConduitMarker = struct
   let header m = m.header
 
   let id m = 
+    (* @AC: Olivier, this is way to complicated, 
+       we shoud just mask and get the id from the header *)
     match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
     | 0 -> (match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
             | 0 -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 

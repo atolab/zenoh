@@ -7,10 +7,9 @@ open Apero
 let () =
     (Lwt_log.append_rule "*" Lwt_log.Debug)
 
-let%lwt pid = (do_
-              ; buf <-- IOBuf.create 16
-              ; buf <-- IOBuf.put_string buf "zenohd"
-              ; IOBuf.flip buf)
+
+let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohd" (IOBuf.create 16) 
+   
 
 
 let lease = 0L

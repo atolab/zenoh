@@ -19,7 +19,7 @@ module IpLocator = struct
     let endpoint loc = loc
     let compare a b = 0
     let of_string s = 
-    let open OptionM.Infix in  
+    let open OptionM.InfixM in  
     String.index_opt s '/' 
     >>= (fun idx ->          
           let proto = String.sub s 0 idx in          

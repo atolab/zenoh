@@ -105,10 +105,10 @@ end = struct
   let make tx_id socket remote_addr buf_len  =
     let ic = InChannel.create Int64.(shift_left 1L 16) in
     let oc = OutChannel.create Int64.(shift_left 1L 16) in
-    let%lwt wbuf = IOBuf.create buf_len in
-    let%lwt rbuf = IOBuf.create buf_len in
-    let%lwt wlenbuf = IOBuf.create framing_buf_len in
-    let%lwt rlenbuf = IOBuf.create framing_buf_len in
+    let wbuf = IOBuf.create buf_len in
+    let rbuf = IOBuf.create buf_len in
+    let wlenbuf = IOBuf.create framing_buf_len in
+    let rlenbuf = IOBuf.create framing_buf_len in
     return {
       tx_id;
       sid = SessionId.next_id ();
