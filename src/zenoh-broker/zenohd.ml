@@ -4,10 +4,6 @@ open Lwt.Infix
 open Zenoh
 open Apero 
 
-let () =
-    (Lwt_log.append_rule "*" Lwt_log.Debug)
-
-
 let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohd" (IOBuf.create 16) 
    
 
@@ -22,11 +18,34 @@ let backlog = 10
 let max_buf_len = 64 * 1024
 let tcp_tx_id = 0x01
 
-let handle_message s msg =
-  print_endline " >> handle_message" ;
-  let _ = Lwt_log.debug @@ "Received message: " ^ (Message.to_string msg) in None
+
+let setup_log style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  Logs.set_reporter (Logs_fmt.reporter ());
+  ()
+
+
+(* Command line interface *)
+
+open Cmdliner
+
+let setup_log =
+  let env = Arg.env_var "ZENOD_VERBOSITY" in
+  Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
+
+(* let msg =
+  let doc = "Startup message."  in
+  Arg.(value & pos 0 string "Starting the zenod broker!" & info [] ~doc)
+
+let main () =
+  match Term.(eval (const hello $ setup_log $ msg, Term.info "tool")) with
+  | `Error _ -> exit 1
+  | _ -> exit (if Logs.err_count () > 0 then 1 else 0) *)
+
 
 let () =
+  let _ = Term.(eval (setup_log, Term.info "tool")) in
   let locator = Unix.ADDR_INET(listen_address, port) in  
   let tcp_locator = OptionM.get @@ Locator.of_string "tcp/192.168.1.11:7447" in  
   let engine = ProtocolEngine.create pid lease @@ Locators.singleton tcp_locator in
@@ -35,6 +54,6 @@ let () =
       (fun s msg -> ProtocolEngine.process engine s msg)
       (fun s -> ProtocolEngine.remove_session engine s)
       max_buf_len in
-  let _ = Lwt_log.debug "Starting zenoh broker..." in
+  Logs.debug (fun m -> m "Starting zenoh broker...") ;
   let run_loop = Tcp.run_loop tx in
   Lwt_main.run @@ run_loop ()

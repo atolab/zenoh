@@ -5,8 +5,7 @@ open Apero.ResultM.InfixM
 module Error = struct
   type kind = NoMsg | Msg of string | Code of int | Pos of (string * int * int * int) | Loc of string [@@deriving show]
 
-  type e = ..
-  type e +=
+  type e =
     | OutOfBounds of kind
     | OutOfRange of kind
     | IOError of kind
@@ -15,6 +14,8 @@ module Error = struct
     | ProtocolError of kind
     | InvalidSession of kind
     | NotImplemented
+    | UnknownSubMode
+    | UnknownMessageId
     | ErrorStack of e list
     [@@deriving show]
 end
@@ -88,3 +89,8 @@ let read5_spec log p1 p2 p3 p4 p5 c buf =
           p5 buf 
           >>= (fun (a5, buf) ->
         return ((c a1 a2 a3 a4 a5),buf))))))
+
+
+let lwt_of_result = function 
+| Ok v -> Lwt.return v
+| Error e -> Lwt.fail (ZError e)

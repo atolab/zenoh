@@ -54,25 +54,30 @@ let encode_hello hello buf =
 
 let make_open version pid lease locs ps = Message (Open (Open.create version pid lease locs ps))
 
-let decode_open header =
-  read5_spec 
+let decode_open header =      
+  (read5_spec 
     (Logs.debug (fun m -> m "Reading Open"))
     IOBuf.get_char
     Tcodec.decode_bytes
     Tcodec.decode_vle
     decode_locators
     (decode_properties header)
-    make_open
+    make_open)
+  
 
 let encode_open msg buf =
   let open Open in
   Logs.debug (fun m -> m "Writing Open") ;
-  IOBuf.put_char (header msg) buf 
+  match IOBuf.put_char (header msg) buf 
   >>= IOBuf.put_char (version msg)
   >>= Tcodec.encode_bytes (pid msg) 
   >>= Tcodec.encode_vle (lease msg)
   >>= Tcodec.encode_locators (locators msg)
-  >>= Pcodec.encode_properties (properties msg)
+  >>= Pcodec.encode_properties (properties msg) 
+  with 
+  | Ok v as b -> b
+  | Error e as f ->
+    Logs.debug (fun m -> m "Failed to encode Open: %s" (Error.show_e e)); f 
 
 
 let make_accept opid apid lease ps = Message (Accept (Accept.create opid apid lease ps))
@@ -463,7 +468,7 @@ let decode_element buf =
     | id when id = MessageId.rSpaceId -> (decode_rspace header buf)
     | uid ->
       Logs.debug (fun m -> m "Received unknown message id: %d" (int_of_char uid));
-      fail Error.(InvalidFormat NoMsg))
+      fail Error.UnknownMessageId)
 
 
 let rec decode_msg_rec buf markers = 

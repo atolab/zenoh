@@ -86,7 +86,7 @@ let decode_sub_mode buf =
         >>= (fun (tp, buf) -> 
           return (SubscriptionMode.PeriodicPullMode tp, buf))
       
-      | _ -> fail Error.(OutOfBounds NoMsg))
+      | _ -> fail Error.UnknownSubMode)
   
   
 

@@ -8,6 +8,21 @@ open Zproperty
   (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 
+let setup_log style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  Logs.set_reporter (Logs_fmt.reporter ());
+  ()
+
+
+(* Command line interface *)
+
+open Cmdliner
+
+let setup_log =
+  let env = Arg.env_var "ZENOD_VERBOSITY" in
+  Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
+
 let dbuf = IOBuf.create 1024
 
 let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohc" (IOBuf.create 16) 
@@ -71,16 +86,16 @@ let send_message sock (msg: Message.t) =
   
 
 let send_scout sock =
-  let%lwt _ = Lwt_log.debug "send_scout\n" in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "send_scout\n") in
   let msg = Message.Scout (Scout.create (Vle.of_int 1) []) in send_message sock msg
 
 let send_open  sock =
-  let%lwt _ = Lwt_log.debug "send_open\n" in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "send_open\n") in 
   let msg = Message.Open (Open.create version pid lease Locators.empty Properties.empty)
   in send_message sock msg
 
 let send_close sock =
-  let%lwt _ = Lwt_log.debug "send_close\n" in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "send_close\n") in
   let msg = Message.Close (Close.create pid (Char.chr 1)) in send_message sock msg
 
 let send_declare_pub sock id =
@@ -138,8 +153,8 @@ let produce_message sock cmd =
 
 
 let rec run_encode_loop sock =
-  let%lwt _ = Lwt_log.debug "[Starting run_encode_loop]\n"  in
-  let _ = Lwt_io.printf ">> "  in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_encode_loop]\n") in 
+  let%lwt _ = Lwt_io.printf ">> "  in
   let%lwt msg = Lwt_io.read_line Lwt_io.stdin in
   let%lwt _ = produce_message sock (Command.of_string msg) in
   run_encode_loop sock
@@ -150,36 +165,40 @@ let process_incoming_message = function
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
     let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
-    let%lwt _ = Lwt_io.printf "\n[received data rid: %Ld payload: %s]\n>> " rid data in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "\n[received data rid: %Ld payload: %s]\n>> " rid data) in    
     return_true
   | msg ->
-    let%lwt _ = Lwt_io.printf "\n[received: %s]\n>> " (Message.to_string msg) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg)) in
+    
     return_true
 
 
-let rec run_decode_loop sock =
-  let%lwt _ = Lwt_log.debug "[Starting run_decode_loop]\n"  in
-  let r = try%lwt
+let rec run_decode_loop sock =  
+  try%lwt
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
     let%lwt len = get_message_length sock rbuf in
+    let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
     let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
     let rbuf = ResultM.get @@ IOBuf.set_position 0 rbuf in
     let rbuf = ResultM.get @@ IOBuf.set_limit len rbuf in
-    let%lwt _ = Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string rbuf) ^ "\n" in
+    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
     let (msg, rbuf) = ResultM.get @@ Mcodec.decode_msg rbuf in
     let%lwt c = process_incoming_message msg in
-    return sock
+    run_decode_loop sock
   with
   | _ ->
-    let%lwt _ = Lwt_log.debug "Connection close by peer" in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Connection close by peer") in
     try%lwt
       let%lwt _ = Lwt_unix.close sock in
-      fail @@ ZError Error.(ClosedSession NoMsg)
+      fail @@ ZError Error.(ClosedSession (Msg "Connection  closed by peer"))
     with
-    | _ ->
+    | _ ->  
+      let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
       fail @@ ZError Error.(ClosedSession NoMsg)
-  in r >>= run_decode_loop
+    
 
 let () =
+  let _ = Term.(eval (setup_log, Term.info "tool")) in
   let addr, port  = get_args () in
   let open Lwt_unix in
   let sock = socket PF_INET SOCK_STREAM 0 in

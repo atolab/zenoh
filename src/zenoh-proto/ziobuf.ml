@@ -44,7 +44,7 @@ module IOBuf = struct
   let set_position pos buf  =
     if pos >=0 && pos <= buf.limit
     then  return { buf with pos = pos }
-    else fail Error.(OutOfBounds NoMsg)
+    else fail Error.(OutOfBounds (Msg (Printf.sprintf "IOBuf.set_position with %d > %d" pos buf.limit)))
 
   let limit buf = buf.limit
 
@@ -53,7 +53,7 @@ module IOBuf = struct
   let set_limit lim buf  =
     if lim >= buf.pos && lim <= buf.capacity
     then return { buf with limit = lim}
-    else fail Error.(OutOfBounds NoMsg)
+    else fail Error.(OutOfBounds (Msg (Printf.sprintf "IOBuf.set_limit with %d > %d" lim buf.capacity)))
 
   let reset_with pos lim buf =
     set_position pos buf
@@ -66,7 +66,7 @@ module IOBuf = struct
       ; return { buf with pos = buf.pos + 1}
       end
     else
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.put_char"))
 
   let get_char buf =
     if buf.pos < buf.limit then
@@ -74,7 +74,8 @@ module IOBuf = struct
         let c = Lwt_bytes.get buf.buffer buf.pos in
         return (c, {buf with pos = buf.pos+1})
       end
-    else fail Error.(OutOfBounds NoMsg)
+    else 
+      fail Error.(OutOfBounds (Msg "IOBuf.get_char"))
 
   let blit_from_bytes bs ofs len  buf =
     if buf.pos + len < buf.limit then
@@ -83,7 +84,7 @@ module IOBuf = struct
       ; return { buf with pos = buf.pos + len }
       end
     else
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.blit_from_bytes"))
 
   let blit_to_bytes n buf = 
     if n <= available buf then 
@@ -93,7 +94,7 @@ module IOBuf = struct
         ; return (bs, { buf with pos = buf.pos + n })
       end
     else 
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.blit_to_bytes"))
 
   (** Copies  [b.limit - b.pos] bytes from the [src] into [buf]*)
   let put_buf src buf  =
@@ -104,7 +105,7 @@ module IOBuf = struct
         return { buf with pos = buf.pos + len}
       end
     else
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.pub_buf"))
     
   type io_vector = Lwt_bytes.io_vector
 
@@ -112,9 +113,10 @@ module IOBuf = struct
     if len <= available buf then 
       let dst = create len in 
       Lwt_bytes.blit buf.buffer buf.pos dst.buffer 0 len ;
-      return ({buf with pos = buf.pos + len}, dst)
+      return (dst, {buf with pos = buf.pos + len})
     else 
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.get_buf"))
+  
   let to_io_vector buf =
     Lwt_bytes.{ iov_buffer = buf.buffer; iov_offset = buf.pos; iov_length = buf.limit; }
 
@@ -126,7 +128,7 @@ module IOBuf = struct
         return { buf with pos = buf.pos + len }
       end 
     else 
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.put_sting"))
 
   
   let get_string len buf = 
@@ -137,5 +139,5 @@ module IOBuf = struct
         return { buf with pos = buf.pos + len }
       end 
     else 
-      fail Error.(OutOfBounds NoMsg)
+      fail Error.(OutOfBounds (Msg "IOBuf.get_string"))
 end

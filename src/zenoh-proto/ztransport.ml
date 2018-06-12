@@ -4,6 +4,7 @@ open Zmessage
 open Zsession
 open Mcodec
 open Apero
+open Lwt.Infix
 let udp_id = 0x00
 let tcp_id = 0x01
 let ble_id = 0x02
@@ -51,7 +52,7 @@ module Tcp = struct
   let send s msg  =
     let  open Apero.ResultM.InfixM in
     let open IOBuf in
-    Logs.debug (fun m -> m  ">> sending message: %s\n" @@ Message.to_string msg );
+    let%lwt _ = Logs_lwt.debug (fun m -> m  ">> sending message: %s\n" @@ Message.to_string msg ) in
     let buf = IOBuf.clear Session.(s.wbuf) in
     
     ResultM.try_get 
@@ -112,51 +113,52 @@ module Tcp = struct
     tx.handle_close s ;
 
     Lwt.return_unit
-
+  
   let handle_session tx (s: Session.t) =
-    let rec serve_session () =
-      Logs.debug (fun m -> m "======== Transport handling session %Ld" s.sid);
-      Lwt.return_unit
-      
-      (* let%lwt r = try%lwt
-          let%lwt len = get_message_length s.socket s.rlenbuf in
-          Logs.debug (fun m -> m  "Received message of %d bytes" len);
-          IOBuf.reset_with s.rbuf 0 len in
-          let%lwt _ = IOBuf.recv s.socket buf in
-          let%lwt _ = Lwt_log.debug @@ Printf.sprintf "tx-received: " ^ (IOBuf.to_string buf) ^ "\n" in
-          let%lwt (msg, buf) = Marshaller.decode_msg buf in
-          let replies = tx.listener s msg in
-          (** need to sequence the message being sent on a given socket otherwise
-              we will have concurrent use of the buffers associated with the session*)
-          let rec send_loop = function
-            | [] -> return_unit
+    let rec serve_session () = 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %Ld" s.sid) in     
+      try%lwt
+        let%lwt _ = Logs_lwt.debug (fun m -> m "======== Transport handling session %Ld" s.sid) in      
+        let%lwt len = get_message_length s.socket s.rlenbuf in
+        let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message of %d bytes" len) in
+        let%lwt rbuf = lwt_of_result @@ IOBuf.reset_with 0 len s.rbuf in
+        let%lwt _ = Znet.recv s.socket rbuf in
+        let%lwt _ = Logs_lwt.debug (fun m ->  m "tx-received: %s\n" (IOBuf.to_string rbuf)) in
+        let%lwt (msg, buf) = match Mcodec.decode_msg rbuf with 
+        | Ok (m,b) -> Lwt.return (m,b)
+        | Error e -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "%s" (Error.show_e e)) in 
+          Lwt.fail (ZError e)
+        in        
+        let replies = tx.listener s msg in
+        let rec send_loop = function
+            | [] -> Lwt.return_unit
             | h::tl ->
               let%lwt _ = send s h in
               send_loop tl
-          in
-            let%lwt _ = send_loop replies in
-            let%lwt _ = Lwt_log.debug "Message Handled successfully!\n" in return_unit
+        in
+          let%lwt _ = send_loop replies in
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") in           
+          serve_session ()
       with
       |_ ->
         let%lwt _ = Lwt_log.debug (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid) in
         let%lwt _ = close_session tx s in
-        Lwt.fail @@ ZError Error.(ClosedSession NoMsg)
-      in
-        let%lwt _ = Lwt_log.debug (Printf.sprintf "Looping to serve session %Ld" s.sid) in
-        serve_session () *)
-
-    in serve_session ()
+        Lwt.fail @@ ZError Error.(ClosedSession (Msg "received zero sized message"))      
+      
+      
+  in serve_session ()       
 
   let accept_connection tx conn =
     let fd, addr = conn in
-    Logs.debug (fun m -> m "Incoming connection from: %s"  (string_of_sockaddr addr));
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Incoming connection from: %s"  (string_of_sockaddr addr)) in
     let%lwt session = Session.make tcp_id fd addr tx.buf_len in
     session.close <- (fun () -> close_session tx session) ;
     session.send <- (fun msg -> Lwt.bind (send session msg) (fun _ -> Lwt.return_unit)) ;
     tx.sessions <- session :: tx.sessions ;
     let _ = Lwt.on_failure (handle_session tx session)  (fun e -> Lwt_log.ign_error (Printexc.to_string e)) in
 
-    Logs.debug (fun m ->  m "New Transport Session with Id = %s"  (SessionId.to_string session.sid));
+    let%lwt _ = Logs_lwt.debug (fun m ->  m "New Transport Session with Id = %s"  (SessionId.to_string session.sid)) in
     Lwt.return_unit
 
 

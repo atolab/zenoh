@@ -51,22 +51,23 @@ let decode_vle buf =
         let rec skip k buf =
           IOBuf.get_char buf
           >>= (fun (c, buf)  -> 
-          if from_char c <= Vle.byte_mask then fail Error.(OutOfBounds NoMsg)
+          if from_char c <= Vle.byte_mask then fail Error.(OutOfBounds (Msg "vle out of bounds"))
           else skip (k+1) buf )
         in skip n buf
       end
   in decode_vle_rec 0L 0 buf
 
-let encode_bytes dst src  =
+let encode_bytes src dst =
+  Logs.debug (fun m -> m "Encoding Bytes");
   let n = IOBuf.available src in
   let m = IOBuf.available dst in
-  if n >= m then
+  if n <= m then
     begin
       encode_vle (Vle.of_int n) dst 
       >>= (IOBuf.put_buf src)      
     end
-    else
-      fail Error.(OutOfBounds NoMsg)
+    else      
+        fail Error.(OutOfBounds (Msg (Printf.sprintf "encode_bytes failed because of bounds error %d < %d" n m)))    
 
   let decode_bytes buf =
     decode_vle buf
@@ -129,7 +130,9 @@ let decode_locator buf =
   decode_string buf 
   >>= (fun (s, buf) ->  return (Locator.of_string s, buf))
 
-let encode_locator l = encode_string (Locator.to_string l) 
+let encode_locator l = 
+  Logs.debug (fun m -> m "Encoding Locator");
+  encode_string (Locator.to_string l) 
 
 let decode_locators buf =   
   decode_seq decode_locator buf
@@ -139,6 +142,7 @@ let decode_locators buf =
   )
   
 let encode_locators ls buf = 
+  Logs.debug (fun m -> m "Encoding Locators");
   let locs = Locators.to_list ls in
   encode_seq encode_locator locs buf
 
