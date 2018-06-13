@@ -165,12 +165,11 @@ let process_incoming_message = function
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
     let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
-    let%lwt _ = Logs_lwt.debug (fun m -> m "\n[received data rid: %Ld payload: %s]\n>> " rid data) in    
+    Logs.debug (fun m -> m "\n[received data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | msg ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg)) in
-    
-    return_true
+      Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
+      return_true
 
 
 let rec run_decode_loop sock =  

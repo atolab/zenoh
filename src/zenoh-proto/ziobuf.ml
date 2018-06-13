@@ -19,7 +19,9 @@ module IOBuf = struct
       else ""
     in "(pos: " ^ (string_of_int buf.pos) ^ ", limit: "^ (string_of_int buf.limit) ^ " content: " ^ (hexa_print 0)
 
-  let create len =  { buffer = Lwt_bytes.create len;  pos = 0; limit = len; capacity = len; mark = 0 }
+  let create len =  
+    Logs.debug (fun m -> m "IOBuf.create %d " len);
+    { buffer = Lwt_bytes.create len;  pos = 0; limit = len; capacity = len; mark = 0 }
 
   let to_bytes buf = buf.buffer
 

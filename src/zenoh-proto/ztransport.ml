@@ -117,7 +117,7 @@ module Tcp = struct
   let handle_session tx (s: Session.t) =
     let rec serve_session () = 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %Ld" s.sid) in     
-      try%lwt
+      let r = try%lwt
         let%lwt _ = Logs_lwt.debug (fun m -> m "======== Transport handling session %Ld" s.sid) in      
         let%lwt len = get_message_length s.socket s.rlenbuf in
         let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message of %d bytes" len) in
@@ -139,13 +139,13 @@ module Tcp = struct
         in
           let%lwt _ = send_loop replies in
           let%lwt _ = Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") in           
-          serve_session ()
+          Lwt.return_unit          
       with
       |_ ->
         let%lwt _ = Lwt_log.debug (Printf.sprintf "Received zero sized frame, closing session %Ld" s.sid) in
         let%lwt _ = close_session tx s in
         Lwt.fail @@ ZError Error.(ClosedSession (Msg "received zero sized message"))      
-      
+      in r >>= serve_session
       
   in serve_session ()       
 
