@@ -41,6 +41,7 @@ module Command = struct
     | [] ->  NoCmd
     | [a] -> Cmd a
     | h::tl when h = "pub" -> CmdSArgs (h, tl)
+    | h::tl when h = "pubn" -> CmdSArgs (h, tl)
     | a::tl  -> CmdIArgs (a, tl |> (List.map (int_of_string)))
 
 end
@@ -119,6 +120,17 @@ let send_stream_data sock rid data =
   let msg = Message.StreamData (StreamData.create (false,false) sn rid None buf) in
   send_message sock msg
   
+  let rec send_stream_data_n sock rid n p data = 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sending periodic sample...]") in
+    if n = 0 then Lwt.return 0
+    else 
+      begin
+        let%lwt _ = (send_stream_data sock rid data) in
+        let%lwt _ =  Lwt_unix.sleep p in
+        send_stream_data_n sock rid (n-1) p data
+      end
+
+
 
 let produce_message sock cmd =
   match cmd with
@@ -145,9 +157,17 @@ let produce_message sock cmd =
         let rid = Vle.of_string (List.hd xs) in
         let data = List.hd @@ List.tl @@ xs in
         send_stream_data sock rid data
-        | _ ->
-          let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
-          return 0)
+      | "pubn" ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "pubn....") in
+        let rid = Vle.of_string (List.hd xs) in
+        let n = int_of_string (List.nth xs 1) in
+        let p = float_of_string (List.nth xs 2) in
+        let data = (List.nth xs 3) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Staring pub loop with %d %f %s" n p data) in
+        send_stream_data_n sock rid n p data
+      | _ ->
+        let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
+        return 0)
 
   | Command.NoCmd -> return 0
 
