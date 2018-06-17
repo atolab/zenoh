@@ -1,6 +1,6 @@
-open Zendpoint
+open Endpoint
 open Apero
-open Ziplocator
+open Iplocator
 
 
 module Locator = struct

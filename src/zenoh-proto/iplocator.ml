@@ -1,4 +1,4 @@
-open Zendpoint
+open Endpoint
 open Apero
 
 module IpLocator = struct

@@ -2,14 +2,14 @@ open Apero
 open Apero.ResultM
 open Apero.ResultM.InfixM
 open Ztypes
-open Zproperty
+open Property
 open Pcodec
-open Ziobuf
+open Iobuf
 open Tcodec
-open Zmessage
-open Zmessage.Message
-open Zmessage.Marker
-open Zframe
+open Message
+open Frame
+
+
 let make_res_decl rid resource ps = Declaration.ResourceDecl (ResourceDecl.create rid resource ps)
 
 let decode_res_decl header = 

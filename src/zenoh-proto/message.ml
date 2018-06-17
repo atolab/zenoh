@@ -1,8 +1,8 @@
 open Apero
 open Ztypes
-open Zlocator
-open Zproperty
-open Ziobuf
+open Locator
+open Property
+open Iobuf
 
 module PropertyId = struct
   let maxConduits = 2L

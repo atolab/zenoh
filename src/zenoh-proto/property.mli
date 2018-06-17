@@ -1,5 +1,5 @@
 open Ztypes
-open Ziobuf
+open Iobuf
 
 module Property : sig
   type t = Vle.t * IOBuf.t

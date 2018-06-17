@@ -1,5 +1,5 @@
 open Ztypes
-open Zlocator
+open Locator
 open Apero.ResultM
 open Tcodec
 

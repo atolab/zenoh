@@ -1,5 +1,5 @@
-open Zmessage
-open Ziobuf
+open Message
+open Iobuf
 
 module Frame : sig
   type t

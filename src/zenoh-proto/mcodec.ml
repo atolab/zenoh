@@ -2,16 +2,14 @@ open Apero
 open Apero.ResultM
 open Apero.ResultM.InfixM
 open Ztypes
-open Zlocator
-open Zproperty
-open Ziobuf
-open Zmessage
-open Zmessage.Message
-open Zmessage.Marker
+open Locator
+open Property
+open Iobuf
+open Message
 open Lcodec
 open Pcodec
 open Dcodec
-open Zframe
+open Frame
 
 
 type element =
@@ -476,17 +474,19 @@ let rec decode_msg_rec buf markers =
   >>= (fun (elem, buf) ->
     match elem with 
     | Marker m -> decode_msg_rec buf (m :: markers)
-    | Message m -> return (with_markers m markers, buf))
+    | Message m -> return (Message.with_markers m markers, buf))
 
 let decode_msg buf = decode_msg_rec buf []
 
 let encode_marker marker =
+  let open Marker in
   match marker with
   | ConduitMarker c -> encode_conduit c
   | Frag c -> encode_frag c
   | RSpace c -> encode_rspace c
 
 let encode_msg_element msg =
+  let open Message in
   match msg with
   | Scout m -> encode_scout m
   | Hello m -> encode_hello m
@@ -505,6 +505,7 @@ let encode_msg_element msg =
     
 
 let encode_msg msg buf =
+  let open Message in
   let rec encode_msg_wm msg markers buf =
     match markers with 
     | marker :: markers -> 

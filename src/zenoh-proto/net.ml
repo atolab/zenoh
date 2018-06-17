@@ -1,5 +1,5 @@
 open Ztypes
-open Ziobuf
+open Iobuf
 open Lwt
 
 let read sock buf = Lwt_bytes.read sock (IOBuf.to_bytes buf) (IOBuf.position buf) (IOBuf.limit buf)

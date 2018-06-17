@@ -5,11 +5,11 @@
  (modules (zenohd zconfig_t))
   (libraries (lwt lwt.unix zenoh_proto atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner))
   (preprocess
-    (pps (lwt_ppx ppx_monadic ppx_deriving)))))
+    (pps (lwt_ppx ppx_monadic ppx_deriving.show ppx_deriving.ord)))))
 
 (executable
   ((name           zenohc)
   (modules (zenohc))
   (libraries (lwt lwt.unix zenoh_proto apero atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner))
   (preprocess
-    (pps (lwt_ppx ppx_monadic ppx_deriving)))))
+    (pps (lwt_ppx ppx_monadic ppx_deriving.show ppx_deriving.ord)))))

@@ -1,6 +1,6 @@
-open Zendpoint
 open Apero
-open Ziplocator
+open Endpoint
+open Iplocator
 
 
 module Locator : sig 

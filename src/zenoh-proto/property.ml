@@ -1,5 +1,5 @@
 open Ztypes
-open Ziobuf
+open Iobuf
 
 module Property = struct
   type id_t = Vle.t

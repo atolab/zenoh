@@ -1,4 +1,4 @@
-open Ziobuf
+open Iobuf
 
 
 (** I/O related functions *)

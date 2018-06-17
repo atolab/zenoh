@@ -1,7 +1,7 @@
 open Ztypes
-open Ziobuf
-open Zproperty
-open Zlocator
+open Iobuf
+open Property
+open Locator
 
 (** This module encodes and decodes primitive zeno types *)
 

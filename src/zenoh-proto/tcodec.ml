@@ -1,10 +1,10 @@
 open Ztypes
-open Ziobuf
+open Iobuf
 open Apero
 open Apero.ResultM
 open Apero.ResultM.InfixM
-open Zproperty
-open Zlocator
+open Property
+open Locator
 
 let encode_vle v buf =
   let to_char l = char_of_int @@ Int64.to_int l in

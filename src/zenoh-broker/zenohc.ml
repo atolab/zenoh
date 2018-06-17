@@ -2,7 +2,7 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 open Apero
-open Zproperty
+open Property
 
 (* let () =
   (Lwt_log.append_rule "*" Lwt_log.Debug) *)
@@ -52,7 +52,7 @@ let rbuf = IOBuf.create 8192
 let get_message_length sock buf =
   let rec extract_length buf v bc =
     let buf = ResultM.get @@ IOBuf.reset_with  0 1 buf in
-    match%lwt Znet.recv sock buf with
+    match%lwt Net.recv sock buf with
     | 0 -> fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
     | _ ->
       let (b, buf) = ResultM.get (IOBuf.get_char buf) in
@@ -81,8 +81,8 @@ let send_message sock (msg: Message.t) =
   let len = IOBuf.limit wbuf in
   let lbuf = ResultM.get (Tcodec.encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
-  let%lwt n = Znet.send sock lbuf in
-  Znet.send sock wbuf
+  let%lwt n = Net.send sock lbuf in
+  Net.send sock wbuf
   
 
 let send_scout sock =

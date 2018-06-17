@@ -13,6 +13,7 @@ module Error = struct
     | InvalidFormat of kind
     | ProtocolError of kind
     | InvalidSession of kind
+    | InvalidAddress
     | NotImplemented
     | UnknownSubMode
     | UnknownMessageId
@@ -94,3 +95,6 @@ let read5_spec log p1 p2 p3 p4 p5 c buf =
 let lwt_of_result = function 
 | Ok v -> Lwt.return v
 | Error e -> Lwt.fail (ZError e)
+
+
+let failw_with_not_impl () = fail (ZError Error.(NotImplemented))

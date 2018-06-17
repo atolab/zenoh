@@ -1,6 +1,6 @@
 open Ztypes
-open Zproperty
-open Zmessage
+open Property
+open Message
 open Apero.ResultM
 open Tcodec
 

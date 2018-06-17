@@ -1,3 +1,5 @@
+open Ztypes
+
 (**  Module representing an IP endpoint. *)
 module IpEndpoint = struct
   type t = { addr : Lwt_unix.inet_addr ; port : int }
@@ -6,7 +8,12 @@ module IpEndpoint = struct
 
   let port e = e.port 
 
-  let to_sock_addr e = Lwt_unix.ADDR_INET (e.addr, e.port)
+  let to_sockaddr e = Lwt_unix.ADDR_INET (e.addr, e.port)
+
+  let of_sockaddr = function 
+  | Lwt_unix.ADDR_INET (a, p) -> {addr = a; port = p}
+  | _ -> raise @@ ZError Error.InvalidAddress
+
 
   let of_string s =     
     let ridx = String.rindex s ':' in

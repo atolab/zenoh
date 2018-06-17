@@ -1,7 +1,7 @@
 open Ztypes
-open Zlocator
-open Ziobuf
-open Zproperty
+open Locator
+open Iobuf
+open Property
 
 module PropertyId :
 sig
