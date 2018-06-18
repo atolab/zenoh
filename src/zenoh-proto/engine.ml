@@ -241,17 +241,17 @@ module ProtocolEngine = struct
       | Some s ->
         let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data for res : %s to session %Ld" (SID.show sid) (StreamData.id msg)) in
         let oc = Session.out_channel s  in
-        let fsn = if StreamData.reliable msg then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
+        let fsn = if reliable msg then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
         let fwd_msg = StreamData.with_sn msg fsn in
         pe.tx_push @@ Sink.SessionMessage (Frame.create [Message.StreamData fwd_msg], sid)
 
   let process_stream_data pe (sid : SID.t) msg =
     let id = StreamData.id msg in
     let subs = PubSubMap.find_opt id pe.submap in
-    let sn = StreamData.sn msg in
+    let sn = sn msg in
     let sn1 = Vle.add sn 1L in
     (* maybe_ack *)
-    let _  = if StreamData.synch msg then [Message.AckNack (AckNack.create sn1 None)] else [] in
+    let _  = if synch msg then [Message.AckNack (AckNack.create sn1 None)] else [] in
     let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: %Ld " id) in
     match subs with
     | None -> Lwt.return []

@@ -155,82 +155,68 @@ module Header = struct
   let flags h = (int_of_char h) land (int_of_char Flags.hFlagMask)
 end
 
-module type Headed =
-sig
-  type t
-  val header : t -> char
-end
-
-module type Reliable =
-sig
-  type t
-  val reliable : t -> bool
-  val synch : t -> bool
-  val sn : t -> Vle.t
-end
+type 'a block = {body : 'a; header : char}
+let header msg = msg.header
 
 module ResourceDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     rid : Vle.t;
     resource : string;
     properties : Properties.t;
   }
+  type t = body block
 
   let create rid resource properties =
     let header = match properties with
       | [] -> DeclarationId.resourceDeclId
       | _ -> char_of_int ((int_of_char DeclarationId.resourceDeclId) lor (int_of_char Flags.pFlag))
-    in {header=header; rid=rid; resource=resource; properties=properties}
-  let header resourceDecl = resourceDecl.header
-  let rid resourceDecl = resourceDecl.rid
-  let resource resourceDecl = resourceDecl.resource
-  let properties resourceDecl = resourceDecl.properties
+    in {header=header; body={rid=rid; resource=resource; properties=properties}}
+  let rid resourceDecl = resourceDecl.body.rid
+  let resource resourceDecl = resourceDecl.body.resource
+  let properties resourceDecl = resourceDecl.body.properties
 end
 
 module PublisherDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     rid : Vle.t;
     properties : Properties.t;
   }
+  type t = body block
 
   let create rid properties =
     let header = match properties with
       | [] -> DeclarationId.publisherDeclId
       | _ -> char_of_int ((int_of_char DeclarationId.publisherDeclId) lor (int_of_char Flags.pFlag))
-    in {header=header; rid=rid; properties=properties}
-  let header resourceDecl = resourceDecl.header
-  let rid resourceDecl = resourceDecl.rid
-  let properties resourceDecl = resourceDecl.properties
+    in {header=header; body={rid=rid; properties=properties}}
+  let rid resourceDecl = resourceDecl.body.rid
+  let properties resourceDecl = resourceDecl.body.properties
 end
 
 module SubscriberDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     rid : Vle.t;
     mode : SubscriptionMode.t;
     properties : Properties.t;
   }
+  type t = body block
 
   let create rid mode properties =
     let header = match properties with
       | [] -> DeclarationId.subscriberDeclId
       | _ -> char_of_int ((int_of_char DeclarationId.subscriberDeclId) lor (int_of_char Flags.pFlag))
-    in {header=header; rid=rid; mode=mode; properties=properties}
-  let header subscriberDecl = subscriberDecl.header
-  let rid subscriberDecl = subscriberDecl.rid
-  let mode subscriberDecl = subscriberDecl.mode
-  let properties subscriberDecl = subscriberDecl.properties
+    in {header=header; body={rid=rid; mode=mode; properties=properties}}
+  let rid subscriberDecl = subscriberDecl.body.rid
+  let mode subscriberDecl = subscriberDecl.body.mode
+  let properties subscriberDecl = subscriberDecl.body.properties
 end
 
 module SelectionDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     sid : Vle.t;
     query : string;
     properties : Properties.t;
   }
+  type t = body block
 
   let create sid query properties global =
     let header = match properties with
@@ -241,105 +227,97 @@ module SelectionDecl = struct
         | true -> char_of_int ((int_of_char DeclarationId.selectionDeclId) lor (int_of_char Flags.pFlag) lor (int_of_char Flags.gFlag))
         | false -> char_of_int ((int_of_char DeclarationId.selectionDeclId) lor (int_of_char Flags.pFlag)))
     in
-    {header=header; sid=sid; query=query; properties=properties}
-  let header selectionDecl = selectionDecl.header
-  let sid selectionDecl = selectionDecl.sid
-  let query selectionDecl = selectionDecl.query
-  let properties selectionDecl = selectionDecl.properties
+    {header=header; body={sid=sid; query=query; properties=properties}}
+  let sid selectionDecl = selectionDecl.body.sid
+  let query selectionDecl = selectionDecl.body.query
+  let properties selectionDecl = selectionDecl.body.properties
   let global selectionDecl = ((int_of_char selectionDecl.header) land (int_of_char Flags.gFlag)) <> 0
 end
 
 module BindingDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     old_id : Vle.t;
     new_id : Vle.t;
   }
+  type t = body block
 
   let create old_id new_id global =
     let header = match global with
       | false -> DeclarationId.bindingDeclId
       | true -> char_of_int ((int_of_char DeclarationId.bindingDeclId) lor (int_of_char Flags.gFlag))
-    in {header; old_id; new_id}
-  let header bd = bd.header
-  let old_id bd = bd.old_id
-  let new_id bd = bd.new_id
+    in {header; body={old_id; new_id}}
+  let old_id bd = bd.body.old_id
+  let new_id bd = bd.body.new_id
   let global selectionDecl = ((int_of_char selectionDecl.header) land (int_of_char Flags.gFlag)) <> 0
 end
 
 module CommitDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     commit_id : char;
   }
+  type t = body block
 
-  let create id = { header = DeclarationId.commitDeclId; commit_id = id }
-  let header cd = cd.header
-  let commit_id cd = cd.commit_id
+  let create id = {header=DeclarationId.commitDeclId; body={commit_id=id}}
+  let commit_id cd = cd.body.commit_id
 end
 
 module ResultDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     commit_id : char;
     status : char;
     id : Vle.t option;
   }
+  type t = body block
 
   let create commit_id status id = {
     header=DeclarationId.resultDeclId;
-    commit_id;
+    body={commit_id;
     status;
-    id = if status = char_of_int 0 then None else id}
+    id = if status = char_of_int 0 then None else id}}
 
-  let header d = d.header
-  let commit_id d = d.commit_id
-  let status d = d.status
-  let id d = d.id
+  let commit_id d = d.body.commit_id
+  let status d = d.body.status
+  let id d = d.body.id
 end
 
 module ForgetResourceDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     rid : Vle.t;
   }
+  type t = body block
 
-  let create rid = {header=DeclarationId.forgetResourceDeclId; rid=rid}
-  let header decl = decl.header
-  let rid decl = decl.rid
+  let create rid = {header=DeclarationId.forgetResourceDeclId; body={rid=rid}}
+  let rid decl = decl.body.rid
 end
 
 module ForgetPublisherDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     id : Vle.t;
   }
+  type t = body block
 
-  let create id = {header=DeclarationId.forgetPublisherDeclId; id=id}
-  let header decl = decl.header
-  let id decl = decl.id
+  let create id = {header=DeclarationId.forgetPublisherDeclId; body={id=id}}
+  let id decl = decl.body.id
 end
 
 module ForgetSubscriberDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     id : Vle.t;
   }
+  type t = body block
 
-  let create id = {header=DeclarationId.forgetSubscriberDeclId; id=id}
-  let header decl = decl.header
-  let id decl = decl.id
+  let create id = {header=DeclarationId.forgetSubscriberDeclId; body={id=id}}
+  let id decl = decl.body.id
 end
 
 module ForgetSelectionDecl = struct
-  type t = {
-    header : Header.t;
+  type body = {
     sid : Vle.t;
   }
+  type t = body block
 
-  let create sid = {header=DeclarationId.forgetSelectionDeclId; sid=sid}
-  let header decl = decl.header
-  let sid decl = decl.sid
+  let create sid = {header=DeclarationId.forgetSelectionDeclId; body={sid=sid}}
+  let sid decl = decl.body.sid
 end
 
 module Declaration = struct
@@ -369,20 +347,18 @@ end
 (* @AC: A conduit marker should always have a cid, its representation changes, but the id is always there. 
        This should be reflected in the type declaration *)
 module ConduitMarker = struct
-  type t = {
-    header : Header.t;
+  type body = {
     id : Vle.t option
   }
+  type t = body block
 
   let create id = 
     match Vle.to_int id with 
-      | 0 -> {header=MessageId.conduitId; id=None}
-      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag)); id=None}
-      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag)); id=None}
-      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); id=None}
-      | _ -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); id=Some id}
-
-  let header m = m.header
+      | 0 -> {header=MessageId.conduitId; body={id=None}}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag)); body={id=None}}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag)); body={id=None}}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); body={id=None}}
+      | _ -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); body={id=Some id}}
 
   let id m = 
     (* @AC: Olivier, this is way to complicated, 
@@ -395,40 +371,37 @@ module ConduitMarker = struct
             | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.of_int 2
                     | _ -> Vle.of_int 3))
-    | _ -> match m.id with 
+    | _ -> match m.body.id with 
            | Some id -> id
            | None -> Vle.zero (* Should never happen *)
 end
 
 module Frag = struct
-  type t = {
-    header : Header.t;
+  type body = {
     sn_base : Vle.t;
     n : Vle.t option;
   }
-  let create sn_base n = {header=MessageId.fragmetsId; sn_base=sn_base; n=n}
-    
-  let header m = m.header
+  type t = body block
 
-  let sn_base m = m.sn_base
-  let n m = m.n
+  let create sn_base n = {header=MessageId.fragmetsId; body={sn_base=sn_base; n=n}}
+
+  let sn_base m = m.body.sn_base
+  let n m = m.body.n
 end
 
 module RSpace = struct
-  type t = {
-    header : Header.t;
+  type body = {
     id : Vle.t option
   }
+  type t = body block
 
   let create id = 
     match Vle.to_int id with 
-      | 0 -> {header=MessageId.conduitId; id=None}
-      | 1 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.lFlag)); id=None}
-      | 2 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag)); id=None}
-      | 3 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); id=None}
-      | _ -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.zFlag)); id=Some id}
-
-  let header m = m.header
+      | 0 -> {header=MessageId.conduitId; body={id=None}}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.lFlag)); body={id=None}}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag)); body={id=None}}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); body={id=None}}
+      | _ -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.zFlag)); body={id=Some id}}
 
   let id m = 
     match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
@@ -439,37 +412,36 @@ module RSpace = struct
             | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.of_int 2
                     | _ -> Vle.of_int 3))
-    | _ -> match m.id with 
+    | _ -> match m.body.id with 
            | Some id -> id
            | None -> Vle.zero (* Should never happen *)
 end
 
-
-module Marker =
-struct
-  type t =
-    | ConduitMarker of ConduitMarker.t
-    | Frag of Frag.t
-    | RSpace of RSpace.t
-end
-
-module type Marked =
-sig
-  type t
-  val markers : t -> Marker.t list
-  val with_marker : t -> Marker.t -> t
-  val with_markers : t -> Marker.t list -> t
-  val remove_markers : t -> t
-end
+type marker =
+  | ConduitMarker of ConduitMarker.t
+  | Frag of Frag.t
+  | RSpace of RSpace.t
 
 module Markers = 
 struct
-  type t = Marker.t list
+  type t = marker list
 
   let empty = []
   let with_marker t m  = m :: t
   let with_markers t ms = ms @ t
 end
+
+type 'a marked = {mbody : 'a; markers : Markers.t}
+let markers m = m.body.markers
+let with_marker m marker = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_marker m.body.markers marker}}
+let with_markers m markers = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_markers m.body.markers markers}}
+let remove_markers m = {header=m.header; body={mbody=m.body.mbody; markers=Markers.empty}}
+
+ 
+type 'a reliable = {rbody : 'a; sn : Vle.t}
+let reliable m = Flags.hasFlag (header m) Flags.rFlag
+let synch m = Flags.hasFlag (header m) Flags.sFlag
+let sn m = m.body.mbody.sn
 
 
 (**
@@ -492,30 +464,20 @@ end
    b4-b13: Reserved
  **)
 module Scout = struct
-  type t = {
-    header : Header.t;
+  type body = {
     mask : Vle.t;
     properties : Properties.t;
-    markers : Markers.t;
   }
+  type t = body marked block
 
   let create mask properties =
     let header = match properties with
       | [] -> MessageId.scoutId
       | _ -> char_of_int ((int_of_char MessageId.scoutId) lor (int_of_char Flags.pFlag))
-    in {header=header; mask=mask; properties=properties; markers=Markers.empty}
-  
-  let header msg = msg.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
+    in {header=header; body={markers=Markers.empty; mbody={mask=mask; properties=properties}}}
 
-  let mask scout = scout.mask
-  let properties scout = scout.properties
-
-
+  let mask scout = scout.body.mbody.mask
+  let properties scout = scout.body.mbody.properties
 end
 
 (**
@@ -540,34 +502,25 @@ end
      udp/239.255.255.123:5555
  **)
 module Hello = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     mask : Vle.t;
     locators : Locators.t;
     properties : Properties.t;
   }
+  type t = body marked block
 
   let create mask locators properties =
     let header =
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.helloId in
       char_of_int @@ pflag lor mid in
-    {header=header; mask=mask; locators=locators; properties=properties; markers=Markers.empty}
-  
-  let header hello = hello.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
+    {header=header; body={markers=Markers.empty; mbody={mask=mask; locators=locators; properties=properties}}}
 
-  let mask hello = hello.mask
-  let locators hello = hello.locators
-  let properties hello = hello.properties
+  let mask hello = hello.body.mbody.mask
+  let locators hello = hello.body.mbody.locators
+  let properties hello = hello.body.mbody.properties
   let to_string h =
-    Printf.sprintf "Hello:[header: %d, mask: %Ld, locators: %s]" (int_of_char @@ h.header) (h.mask) (Locators.to_string h.locators)
-
+    Printf.sprintf "Hello:[header: %d, mask: %Ld, locators: %s]" (int_of_char @@ h.header) (mask h) (Locators.to_string (locators h))
 end
 
 (**
@@ -593,35 +546,27 @@ end
            always communicates to the broker provided locators
 **)
 module Open = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     version : char;
     pid : IOBuf.t;
     lease : Vle.t;
     locators : Locators.t;
     properties : Properties.t;
   }
+  type t = body marked block
 
   let create version pid lease locators properties =
     let header =
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.openId in
       char_of_int @@ pflag lor mid in
-    {header=header; version=version; pid=pid; lease=lease; locators=locators; properties=properties; markers=Markers.empty}
-  
-  let header open_ = open_.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
+    {header=header; body={markers=Markers.empty; mbody={version=version; pid=pid; lease=lease; locators=locators; properties=properties}}}
 
-  let version open_ = open_.version
-  let pid open_ = open_.pid
-  let lease open_ = open_.lease
-  let locators open_ = open_.locators
-  let properties open_ = open_.properties
+  let version open_ = open_.body.mbody.version
+  let pid open_ = open_.body.mbody.pid
+  let lease open_ = open_.body.mbody.lease
+  let locators open_ = open_.body.mbody.locators
+  let properties open_ = open_.body.mbody.properties
 end
 
 (**
@@ -639,33 +584,25 @@ end
      +---------------+
  **)
 module Accept = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     opid : IOBuf.t;
     apid : IOBuf.t;
     lease : Vle.t;
     properties : Properties.t;
   }
+  type t = body marked block
 
   let create opid apid lease properties =
     let header =
       let pflag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.acceptId in
       char_of_int @@ pflag lor mid in
-    {header=header; opid=opid; apid=apid; lease=lease; properties=properties; markers=Markers.empty}
+    {header=header; body={markers=Markers.empty; mbody={opid=opid; apid=apid; lease=lease; properties=properties;}}}
 
-  let header accept = accept.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let apid accept = accept.apid
-  let opid accept = accept.opid
-  let lease accept = accept.lease
-  let properties accept = accept.properties
+  let apid accept = accept.body.mbody.apid
+  let opid accept = accept.body.mbody.opid
+  let lease accept = accept.body.mbody.lease
+  let properties accept = accept.body.mbody.properties
 end
 
 (**
@@ -681,24 +618,16 @@ end
        - The protocol reserves reasons in the set [0, 127] U {255}
  **)
 module Close = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     pid : IOBuf.t;
     reason : char;
   }
+  type t = body marked block
 
-  let create pid reason = {header=MessageId.closeId; pid=pid; reason=reason; markers=Markers.empty}
+  let create pid reason = {header=MessageId.closeId; body={markers=Markers.empty; mbody={pid=pid; reason=reason}}}
 
-  let header close = close.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let pid close = close.pid
-  let reason close = close.reason
+  let pid close = close.body.mbody.pid
+  let reason close = close.body.mbody.reason
 end
 
 (**
@@ -710,22 +639,14 @@ end
        +---------------+
  **)
 module KeepAlive = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     pid : IOBuf.t;
   }
+  type t = body marked block
 
-  let create pid = {header=MessageId.keepAliveId; pid=pid; markers=Markers.empty}
+  let create pid = {header=MessageId.keepAliveId; body={markers=Markers.empty; mbody={pid=pid}}}
 
-  let header keep_alive = keep_alive.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let pid keep_alive = keep_alive.pid
+  let pid keep_alive = keep_alive.body.mbody.pid
 end
 
 (**
@@ -739,12 +660,11 @@ end
        +---------------+
  **)
 module Declare = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     sn : Vle.t;
     declarations : Declarations.t;
   }
+  type t = body marked block
 
   let create (sync, committed) sn declarations =
     let header =
@@ -752,29 +672,20 @@ module Declare = struct
       let cflag = if committed then int_of_char Flags.cFlag  else 0 in
       let mid = int_of_char MessageId.declareId in
       char_of_int @@ sflag lor cflag lor mid in
-    {header=header; sn=sn; declarations=declarations; markers=Markers.empty}
+    {header=header; body={markers=Markers.empty; mbody={sn=sn; declarations=declarations}}}
 
-  let header declare = declare.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn declare = declare.sn
-  let declarations declare = declare.declarations
-  let sync declare = ((int_of_char declare.header) land (int_of_char Flags.sFlag)) <> 0
-  let committed declare = ((int_of_char declare.header) land (int_of_char Flags.cFlag)) <> 0
+  let sn declare = declare.body.mbody.sn
+  let declarations declare = declare.body.mbody.declarations
+  let sync declare = Flags.hasFlag (header declare) Flags.sFlag
+  let committed declare = Flags.hasFlag (header declare) Flags.cFlag
 end
 
 module WriteData = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
-    sn : Vle.t;
+  type body = {
     resource : string;
     payload: IOBuf.t;
   }
+  type t = body reliable marked block
 
   let create (s, r) sn resource payload =
     let header  =
@@ -782,32 +693,20 @@ module WriteData = struct
       let rflag =  if r then int_of_char Flags.rFlag  else 0 in
       let mid = int_of_char MessageId.wdataId in
       char_of_int @@ sflag lor rflag lor mid in
-    { header; sn; resource; payload; markers=Markers.empty}
+    { header; body={markers=Markers.empty; mbody={sn; rbody={resource; payload}}}}
 
-  let header d = d.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn d = d.sn
-  let resource d = d.resource
-  let reliable d = Flags.hasFlag d.header Flags.rFlag
-  let synch d = Flags.hasFlag d.header Flags.sFlag
-  let payload d = d.payload
-  let with_sn d nsn = {d with sn = nsn}
+  let resource d = d.body.mbody.rbody.resource
+  let payload d = d.body.mbody.rbody.payload
+  let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
 end
 
 module StreamData = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
-    sn : Vle.t;
+  type body = {
     id : Vle.t;
     prid : Vle.t option;
     payload: IOBuf.t;
   }
+  type t = body reliable marked block
 
   let create (s, r) sn id prid payload =
     let header  =
@@ -816,31 +715,21 @@ module StreamData = struct
       let aflag = match prid with | None -> 0 | _ -> int_of_char Flags.aFlag in
       let mid = int_of_char MessageId.sdataId in
       char_of_int @@ sflag lor rflag lor aflag lor mid in
-    { header; sn; id; prid; payload; markers=Markers.empty}
+    { header; body={markers=Markers.empty; mbody={sn; rbody={id; prid; payload}}}}
 
-  let header d = d.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn d = d.sn
-  let id d = d.id
-  let reliable d = Flags.hasFlag d.header Flags.rFlag
-  let synch d = Flags.hasFlag d.header Flags.sFlag
-  let prid d = d.prid
-  let payload d = d.payload
-  let with_sn d nsn = {d with sn = nsn}
+  let id d = d.body.mbody.rbody.id
+  let prid d = d.body.mbody.rbody.prid
+  let payload d = d.body.mbody.rbody.payload
+  let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
 end
 
 module Synch = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     sn : Vle.t;
     count : Vle.t option
   }
+  type t = body marked block
+
   let create (s, r) sn count =
     let header =
       let uflag = match count with | None -> 0 | _ -> int_of_char Flags.uFlag in
@@ -848,83 +737,59 @@ module Synch = struct
       let sflag = if s then int_of_char Flags.sFlag else 0 in
       let mid = int_of_char MessageId.synchId in
       char_of_int @@ uflag lor rflag lor sflag lor mid
-    in { header; sn; count; markers=Markers.empty}
+    in { header; body={markers=Markers.empty; mbody={sn; count}}}
 
-  let header s = s.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn s = s .sn
-  let count s = s.count
+  let sn s = s.body.mbody.sn
+  let count s = s.body.mbody.count
 end
 
 module AckNack = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     sn : Vle.t;
     mask :Vle.t option
   }
+  type t = body marked block
 
   let create sn mask =
     let header =
       let mflag = match mask with | None -> 0 | _ -> int_of_char Flags.mFlag in
       let mid = int_of_char MessageId.ackNackId in
       char_of_int @@ mflag lor mid
-    in  { header; sn; mask; markers=Markers.empty}
+    in  { header; body={markers=Markers.empty; mbody={sn; mask}}}
 
-  let header a = a.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn a = a.sn
-  let mask a = a.mask
+  let sn a = a.body.mbody.sn
+  let mask a = a.body.mbody.mask
 end
 
 module Migrate = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     ocid : Vle.t;
     id : Vle.t option;
     rch_last_sn : Vle.t;
     bech_last_sn : Vle.t;
   }
+  type t = body marked block
 
   let create ocid id rch_last_sn bech_last_sn =
     let header  =
       let iflag = match id with | None -> 0 | _ -> int_of_char Flags.iFlag in
       let mid = int_of_char MessageId.migrateId in
       char_of_int @@ iflag lor mid in
-    { header; ocid; id; rch_last_sn; bech_last_sn; markers=Markers.empty}
-
-  let header m = m.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let ocid m = m.ocid
-  let id m = m.id
-  let rch_last_sn m = m.rch_last_sn
-  let bech_last_sn m = m.bech_last_sn
+    { header; body={markers=Markers.empty; mbody={ocid; id; rch_last_sn; bech_last_sn}}}
+    
+  let ocid m = m.body.mbody.ocid
+  let id m = m.body.mbody.id
+  let rch_last_sn m = m.body.mbody.rch_last_sn
+  let bech_last_sn m = m.body.mbody.bech_last_sn
 end
 
 module Pull = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     sn : Vle.t;
     id : Vle.t;
     max_samples : Vle.t option;
   }
+  type t = body marked block
 
   let create (s, f) sn id max_samples =
     let header  =
@@ -933,169 +798,136 @@ module Pull = struct
       let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
       let mid = int_of_char MessageId.pullId in
       char_of_int @@ sflag lor nflag lor fflag lor mid in
-    { header; sn; id; max_samples; markers=Markers.empty}
+    { header; body={markers=Markers.empty; mbody={sn; id; max_samples}}}
 
-  let header p = p.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let sn p = p.sn
-  let id p = p.id
-  let max_samples p = p.max_samples
-  let final p = Flags.hasFlag p.header Flags.fFlag
-  let sync p = Flags.hasFlag p.header Flags.sFlag
+  let sn p = p.body.mbody.sn
+  let id p = p.body.mbody.id
+  let max_samples p = p.body.mbody.max_samples
+  let final p = Flags.hasFlag (header p) Flags.fFlag
+  let sync p = Flags.hasFlag (header p) Flags.sFlag
 end
 
 module PingPong = struct
-  type t = {
-    header : Header.t;
-    markers : Markers.t;
+  type body = {
     hash : Vle.t;
   }
+  type t = body marked block
 
   let create ?pong:(pong=false) hash =
     let header  =
       let oflag =  if pong then int_of_char Flags.oFlag  else 0 in
       let mid = int_of_char MessageId.pingPongId in
       char_of_int @@ oflag lor mid in
-    { header; hash; markers=Markers.empty}
+    { header; body={markers=Markers.empty; mbody={hash}}}
 
-  let header p = p.header
-  
-  let markers msg = msg.markers
-  let with_marker msg marker = {msg with markers=Markers.with_marker msg.markers marker}
-  let with_markers msg markers = {msg with markers=Markers.with_markers msg.markers markers}
-  let remove_markers msg = {msg with markers=Markers.empty}
-
-  let is_pong p = Flags.hasFlag p.header Flags.oFlag
-  let hash p = p.hash
-  let to_pong p = {p with header = char_of_int @@ int_of_char p.header lor int_of_char Flags.oFlag}
+  let is_pong p = Flags.hasFlag (header p) Flags.oFlag
+  let hash p = p.body.mbody.hash
+  let to_pong p = {p with header = char_of_int @@ int_of_char (header p) lor int_of_char Flags.oFlag}
 end
 
-module Message = struct
-  type t =
-    | Scout of Scout.t
-    | Hello of Hello.t
-    | Open of Open.t
-    | Accept of Accept.t
-    | Close of Close.t
-    | Declare of Declare.t
-    | WriteData of WriteData.t
-    | StreamData of StreamData.t
-    | Synch of Synch.t
-    | AckNack of AckNack.t
-    | KeepAlive of KeepAlive.t
-    | Migrate of Migrate.t
-    | Pull of Pull.t
-    | PingPong of PingPong.t
+type t =
+  | Scout of Scout.t
+  | Hello of Hello.t
+  | Open of Open.t
+  | Accept of Accept.t
+  | Close of Close.t
+  | Declare of Declare.t
+  | WriteData of WriteData.t
+  | StreamData of StreamData.t
+  | Synch of Synch.t
+  | AckNack of AckNack.t
+  | KeepAlive of KeepAlive.t
+  | Migrate of Migrate.t
+  | Pull of Pull.t
+  | PingPong of PingPong.t
 
-  let header = function 
-    | Scout s -> Scout.header s
-    | Hello h ->  Hello.header h
-    | Open o ->  Open.header o
-    | Accept a ->  Accept.header a
-    | Close c ->  Close.header c
-    | Declare d ->  Declare.header d
-    | WriteData d ->  WriteData.header d
-    | StreamData d ->  StreamData.header d
-    | Synch s ->  Synch.header s
-    | AckNack a ->  AckNack.header a
-    | KeepAlive a ->  KeepAlive.header a
-    | Migrate m ->  Migrate.header m
-    | Pull p ->  Pull.header p
-    | PingPong p ->  PingPong.header p
+let markers = function
+  | Scout s -> markers s
+  | Hello h ->  markers h
+  | Open o ->  markers o
+  | Accept a ->  markers a
+  | Close c ->  markers c
+  | Declare d ->  markers d
+  | WriteData d ->  markers d
+  | StreamData d ->  markers d
+  | Synch s ->  markers s
+  | AckNack a ->  markers a
+  | KeepAlive a ->  markers a
+  | Migrate m ->  markers m
+  | Pull p ->  markers p
+  | PingPong p ->  markers p
+
+let with_marker msg marker = match msg with 
+  | Scout s -> Scout (with_marker s marker)
+  | Hello h ->  Hello (with_marker h marker)
+  | Open o ->  Open (with_marker o marker)
+  | Accept a ->  Accept (with_marker a marker)
+  | Close c ->  Close (with_marker c marker)
+  | Declare d ->  Declare (with_marker d marker)
+  | WriteData d ->  WriteData (with_marker d marker)
+  | StreamData d ->  StreamData (with_marker d marker)
+  | Synch s ->  Synch (with_marker s marker)
+  | AckNack a ->  AckNack (with_marker a marker)
+  | KeepAlive a ->  KeepAlive (with_marker a marker)
+  | Migrate m ->  Migrate (with_marker m marker)
+  | Pull p ->  Pull (with_marker p marker)
+  | PingPong p ->  PingPong (with_marker p marker)
+
+let with_markers msg markers = match msg with 
+  | Scout s -> Scout (with_markers s markers)
+  | Hello h ->  Hello (with_markers h markers)
+  | Open o ->  Open (with_markers o markers)
+  | Accept a ->  Accept (with_markers a markers)
+  | Close c ->  Close (with_markers c markers)
+  | Declare d ->  Declare (with_markers d markers)
+  | WriteData d ->  WriteData (with_markers d markers)
+  | StreamData d ->  StreamData (with_markers d markers)
+  | Synch s ->  Synch (with_markers s markers)
+  | AckNack a ->  AckNack (with_markers a markers)
+  | KeepAlive a ->  KeepAlive (with_markers a markers)
+  | Migrate m ->  Migrate (with_markers m markers)
+  | Pull p ->  Pull (with_markers p markers)
+  | PingPong p ->  PingPong (with_markers p markers)
   
-  let markers = function
-    | Scout s -> Scout.markers s
-    | Hello h ->  Hello.markers h
-    | Open o ->  Open.markers o
-    | Accept a ->  Accept.markers a
-    | Close c ->  Close.markers c
-    | Declare d ->  Declare.markers d
-    | WriteData d ->  WriteData.markers d
-    | StreamData d ->  StreamData.markers d
-    | Synch s ->  Synch.markers s
-    | AckNack a ->  AckNack.markers a
-    | KeepAlive a ->  KeepAlive.markers a
-    | Migrate m ->  Migrate.markers m
-    | Pull p ->  Pull.markers p
-    | PingPong p ->  PingPong.markers p
+let remove_markers = function
+  | Scout s -> Scout (remove_markers s)
+  | Hello h ->  Hello (remove_markers h)
+  | Open o ->  Open (remove_markers o)
+  | Accept a ->  Accept (remove_markers a)
+  | Close c ->  Close (remove_markers c)
+  | Declare d ->  Declare (remove_markers d)
+  | WriteData d ->  WriteData (remove_markers d)
+  | StreamData d ->  StreamData (remove_markers d)
+  | Synch s ->  Synch (remove_markers s)
+  | AckNack a ->  AckNack (remove_markers a)
+  | KeepAlive a ->  KeepAlive (remove_markers a)
+  | Migrate m ->  Migrate (remove_markers m)
+  | Pull p ->  Pull (remove_markers p)
+  | PingPong p ->  PingPong (remove_markers p)
 
-  let with_marker msg marker = match msg with 
-    | Scout s -> Scout (Scout.with_marker s marker)
-    | Hello h ->  Hello (Hello.with_marker h marker)
-    | Open o ->  Open (Open.with_marker o marker)
-    | Accept a ->  Accept (Accept.with_marker a marker)
-    | Close c ->  Close (Close.with_marker c marker)
-    | Declare d ->  Declare (Declare.with_marker d marker)
-    | WriteData d ->  WriteData (WriteData.with_marker d marker)
-    | StreamData d ->  StreamData (StreamData.with_marker d marker)
-    | Synch s ->  Synch (Synch.with_marker s marker)
-    | AckNack a ->  AckNack (AckNack.with_marker a marker)
-    | KeepAlive a ->  KeepAlive (KeepAlive.with_marker a marker)
-    | Migrate m ->  Migrate (Migrate.with_marker m marker)
-    | Pull p ->  Pull (Pull.with_marker p marker)
-    | PingPong p ->  PingPong (PingPong.with_marker p marker)
+let to_string = function (** This should actually call the to_string on individual messages *)
+  | Scout s -> "Scout"
+  | Hello h -> Hello.to_string h
+  | Open o -> "Open"
+  | Accept a -> "Accept"
+  | Close c -> "Close"
+  | Declare d -> "Declare"
+  | WriteData d -> "WriteData"
+  | StreamData d -> "StreamData"
+  | Synch s -> "Synch"
+  | AckNack a -> "AckNack"
+  | KeepAlive a -> "KeepAlive"
+  | Migrate m -> "Migrate"
+  | Pull p -> "Pull"
+  | PingPong p -> "PingPong"
 
-  let with_markers msg markers = match msg with 
-    | Scout s -> Scout (Scout.with_markers s markers)
-    | Hello h ->  Hello (Hello.with_markers h markers)
-    | Open o ->  Open (Open.with_markers o markers)
-    | Accept a ->  Accept (Accept.with_markers a markers)
-    | Close c ->  Close (Close.with_markers c markers)
-    | Declare d ->  Declare (Declare.with_markers d markers)
-    | WriteData d ->  WriteData (WriteData.with_markers d markers)
-    | StreamData d ->  StreamData (StreamData.with_markers d markers)
-    | Synch s ->  Synch (Synch.with_markers s markers)
-    | AckNack a ->  AckNack (AckNack.with_markers a markers)
-    | KeepAlive a ->  KeepAlive (KeepAlive.with_markers a markers)
-    | Migrate m ->  Migrate (Migrate.with_markers m markers)
-    | Pull p ->  Pull (Pull.with_markers p markers)
-    | PingPong p ->  PingPong (PingPong.with_markers p markers)
-    
-  let remove_markers = function
-    | Scout s -> Scout (Scout.remove_markers s)
-    | Hello h ->  Hello (Hello.remove_markers h)
-    | Open o ->  Open (Open.remove_markers o)
-    | Accept a ->  Accept (Accept.remove_markers a)
-    | Close c ->  Close (Close.remove_markers c)
-    | Declare d ->  Declare (Declare.remove_markers d)
-    | WriteData d ->  WriteData (WriteData.remove_markers d)
-    | StreamData d ->  StreamData (StreamData.remove_markers d)
-    | Synch s ->  Synch (Synch.remove_markers s)
-    | AckNack a ->  AckNack (AckNack.remove_markers a)
-    | KeepAlive a ->  KeepAlive (KeepAlive.remove_markers a)
-    | Migrate m ->  Migrate (Migrate.remove_markers m)
-    | Pull p ->  Pull (Pull.remove_markers p)
-    | PingPong p ->  PingPong (PingPong.remove_markers p)
-  
-  let to_string = function (** This should actually call the to_string on individual messages *)
-    | Scout s -> "Scout"
-    | Hello h -> Hello.to_string h
-    | Open o -> "Open"
-    | Accept a -> "Accept"
-    | Close c -> "Close"
-    | Declare d -> "Declare"
-    | WriteData d -> "WriteData"
-    | StreamData d -> "StreamData"
-    | Synch s -> "Synch"
-    | AckNack a -> "AckNack"
-    | KeepAlive a -> "KeepAlive"
-    | Migrate m -> "Migrate"
-    | Pull p -> "Pull"
-    | PingPong p -> "PingPong"
-
-    let make_scout s = Scout s
-    let make_hello h = Hello h
-    let make_open o = Open o
-    let make_accept a =  Accept a
-    let make_close c =  Close c
-    let make_declare d = Declare d
-    let make_stream_data sd =  StreamData sd
-    let make_synch s = Synch s
-    let make_ack_nack a = AckNack a
-    let make_keep_alive a = KeepAlive a
-end
+  let make_scout s = Scout s
+  let make_hello h = Hello h
+  let make_open o = Open o
+  let make_accept a =  Accept a
+  let make_close c =  Close c
+  let make_declare d = Declare d
+  let make_stream_data sd =  StreamData sd
+  let make_synch s = Synch s
+  let make_ack_nack a = AckNack a
+  let make_keep_alive a = KeepAlive a

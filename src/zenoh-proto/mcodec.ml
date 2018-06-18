@@ -14,7 +14,7 @@ open Frame
 
 type element =
   | Message of Message.t
-  | Marker of Marker.t
+  | Marker of marker
 
 let make_scout mask ps = Message (Scout (Scout.create mask ps))
 
@@ -479,7 +479,6 @@ let rec decode_msg_rec buf markers =
 let decode_msg buf = decode_msg_rec buf []
 
 let encode_marker marker =
-  let open Marker in
   match marker with
   | ConduitMarker c -> encode_conduit c
   | Frag c -> encode_frag c

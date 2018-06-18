@@ -138,23 +138,13 @@ sig
   val flags : char -> int
 end
 
-module type Headed =
-sig
-  type t
-  val header : t -> char
-end
-
-module type Reliable =
-sig
-  type t
-  val reliable : t -> bool
-  val synch : t -> bool
-  val sn : t -> Vle.t
-end
+type 'a block
+val header : 'a block -> char
 
 module ResourceDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> string -> Properties.t -> t
   val rid : t -> Vle.t
   val resource : t -> string
@@ -163,7 +153,8 @@ end
 
 module PublisherDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> Properties.t -> t
   val rid : t -> Vle.t
   val properties : t -> Properties.t
@@ -171,7 +162,8 @@ end
 
 module  SubscriberDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> SubscriptionMode.t -> Properties.t -> t
   val rid : t -> Vle.t
   val mode : t -> SubscriptionMode.t
@@ -180,7 +172,8 @@ end
 
 module SelectionDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> string -> Properties.t -> bool -> t
   val sid : t -> Vle.t
   val query : t -> string
@@ -190,7 +183,8 @@ end
 
 module BindingDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> Vle.t -> bool -> t
   val old_id : t -> Vle.t
   val new_id : t -> Vle.t
@@ -199,14 +193,16 @@ end
 
 module CommitDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : char -> t
   val commit_id : t -> char
 end
 
 module ResultDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : char -> char -> Vle.t option-> t
   val commit_id : t -> char
   val status : t -> char
@@ -215,28 +211,32 @@ end
 
 module ForgetResourceDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val rid : t -> Vle.t
 end
 
 module ForgetPublisherDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val id : t -> Vle.t
 end
 
 module ForgetSubscriberDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val id : t -> Vle.t
 end
 
 module ForgetSelectionDecl :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val sid : t -> Vle.t
 end
@@ -268,14 +268,16 @@ end
 
 module ConduitMarker :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val id : t -> Vle.t
 end
 
 module Frag :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> Vle.t option -> t
   val sn_base : t -> Vle.t
   val n : t -> Vle.t option
@@ -283,32 +285,33 @@ end
 
 module RSpace :
 sig
-  include Headed
+  type body
+  type t = body block
   val create : Vle.t -> t
   val id : t -> Vle.t
 end 
 
-module Marker :
-sig
-  type t =
-    | ConduitMarker of ConduitMarker.t
-    | Frag of Frag.t
-    | RSpace of RSpace.t
-end
+type marker =
+  | ConduitMarker of ConduitMarker.t
+  | Frag of Frag.t
+  | RSpace of RSpace.t
 
-module type Marked =
-sig
-  type t
-  val markers : t -> Marker.t list
-  val with_marker : t -> Marker.t -> t
-  val with_markers : t -> Marker.t list -> t
-  val remove_markers : t -> t
-end
+type 'a marked
+val markers : 'a marked block -> marker list
+val with_marker : 'a marked block -> marker -> 'a marked block
+val with_markers : 'a marked block -> marker list -> 'a marked block
+val remove_markers : 'a marked block -> 'a marked block
+
+
+type 'a reliable
+val reliable : 'a reliable marked block -> bool
+val synch : 'a reliable marked block -> bool
+val sn : 'a reliable marked block -> Vle.t
 
 module Scout :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : Vle.t -> Properties.t -> t
   val mask : t -> Vle.t
   val properties : t -> Properties.t
@@ -316,8 +319,8 @@ end
 
 module Hello :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : Vle.t -> Locators.t -> Properties.t -> t
   val mask : t -> Vle.t
   val locators : t -> Locators.t
@@ -326,8 +329,8 @@ end
 
 module Open :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : char -> IOBuf.t -> Vle.t -> Locators.t -> Properties.t -> t
   val version : t -> char
   val pid : t -> IOBuf.t
@@ -338,8 +341,8 @@ end
 
 module Accept :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : IOBuf.t -> IOBuf.t -> Vle.t -> Properties.t -> t
   val opid : t -> IOBuf.t
   val apid : t -> IOBuf.t
@@ -349,8 +352,8 @@ end
 
 module Close :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : IOBuf.t -> char -> t
   val pid : t -> IOBuf.t
   val reason : t -> char
@@ -358,16 +361,16 @@ end
 
 module KeepAlive :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : IOBuf.t -> t
   val pid : t -> IOBuf.t
 end
 
 module Declare :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : (bool * bool) -> Vle.t -> Declaration.t list -> t
   val sn : t -> Vle.t
   val declarations : t -> Declaration.t list
@@ -377,9 +380,8 @@ end
 
 module WriteData :
 sig
-  include Headed
-  include Marked with type t := t
-  include Reliable with type t := t
+  type body
+  type t = body reliable marked block
   val create : bool * bool -> Vle.t -> string -> IOBuf.t -> t
   val resource : t -> string
   val payload : t -> IOBuf.t
@@ -388,9 +390,8 @@ end
 
 module StreamData :
 sig
-  include Headed
-  include Marked with type t := t
-  include Reliable with type t := t
+  type body
+  type t = body reliable marked block
   val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> IOBuf.t -> t
   val id : t -> Vle.t
   val prid : t -> Vle.t option
@@ -400,8 +401,8 @@ end
 
 module Synch :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : bool * bool -> Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val count : t -> Vle.t option
@@ -409,8 +410,8 @@ end
 
 module AckNack :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val mask : t -> Vle.t option
@@ -418,8 +419,8 @@ end
 
 module Migrate :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : Vle.t -> Vle.t option -> Vle.t -> Vle.t -> t
   val ocid : t -> Vle.t
   val id : t -> Vle.t option
@@ -429,8 +430,8 @@ end
 
 module Pull :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> t
   val sn : t -> Vle.t
   val id : t -> Vle.t
@@ -441,34 +442,33 @@ end
 
 module PingPong :
 sig
-  include Headed
-  include Marked with type t := t
+  type body
+  type t = body marked block
   val create : ?pong:bool -> Vle.t -> t
   val is_pong : t -> bool
   val hash : t -> Vle.t
   val to_pong : t -> t
 end
 
-module Message :
-  sig
-    type t =
-      | Scout of Scout.t
-      | Hello of Hello.t
-      | Open of Open.t
-      | Accept of Accept.t
-      | Close of Close.t
-      | Declare of Declare.t
-      | WriteData of WriteData.t
-      | StreamData of StreamData.t
-      | Synch of Synch.t
-      | AckNack of AckNack.t
-      | KeepAlive of KeepAlive.t
-      | Migrate of Migrate.t
-      | Pull of Pull.t
-      | PingPong of PingPong.t
+type t =
+  | Scout of Scout.t
+  | Hello of Hello.t
+  | Open of Open.t
+  | Accept of Accept.t
+  | Close of Close.t
+  | Declare of Declare.t
+  | WriteData of WriteData.t
+  | StreamData of StreamData.t
+  | Synch of Synch.t
+  | AckNack of AckNack.t
+  | KeepAlive of KeepAlive.t
+  | Migrate of Migrate.t
+  | Pull of Pull.t
+  | PingPong of PingPong.t
 
-    include Headed with type t := t
-    include Marked with type t := t
+val markers : t -> marker list
+val with_marker : t -> marker -> t
+val with_markers : t -> marker list -> t
+val remove_markers : t -> t
 
-    val to_string : t -> string
-  end
+val to_string : t -> string
