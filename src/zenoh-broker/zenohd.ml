@@ -3,11 +3,10 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 open Apero 
-open Engine
+open Proto_engine
+open Cmdliner
 
 let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohd" (IOBuf.create 16) 
-   
-
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -27,8 +26,6 @@ let setup_log style_renderer level =
   ()
 
 
-open Cmdliner
-
 let setup_log =
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
@@ -38,9 +35,9 @@ let run_broker () =
   let%lwt tx = makeTcpTransport [locator] in  
   let module TxTcp = (val tx : Transport.S) in   
   let e = ProtocolEngine.create pid lease (Locators.of_list [Locator.TcpLocator locator]) in
-  let%lwt (push, loop) = TxTcp.start (ProtocolEngine.event_push e) in  
-  ProtocolEngine.attach_tx push e;    
-  Lwt.join [loop; ProtocolEngine.start e]
+  let _ = ProtocolEngine.start e in
+  TxTcp.start (ProtocolEngine.event_push e)   
+  
  
 
 let () =

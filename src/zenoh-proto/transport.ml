@@ -42,28 +42,20 @@ module Transport = struct
     end
   end
 
-   module EventSource = struct 
+
+   
+  module Event = struct
     type event = 
       | SessionClose of Session.Id.t
-      | SessionMessage of  Frame.t * Session.Id.t
-      | LocatorMessage of Frame.t * Locator.t   
-      | Events of event list      
-
-    type pull = unit -> event Lwt.t
+      | SessionMessage of  Frame.t * Session.Id.t * (push option)
+      | LocatorMessage of Frame.t * Locator.t * (push option)
+      | Events of event list 
+    and  pull = unit -> event Lwt.t
+    and  push = event -> unit Lwt.t
   end
   
-  module EventSink = struct 
-    type event = 
-      | SessionClose of Session.Id.t
-      | SessionMessage of  Frame.t * Session.Id.t
-      | LocatorMessage of Frame.t * Locator.t   
-      | Events of event list       
-
-    type push = event -> unit Lwt.t       
-  end  
-
   module type S = sig 
-    val start : EventSink.push -> (EventSink.push * unit Lwt.t) Lwt.t
+    val start : Event.push -> unit Lwt.t
     val stop : unit -> unit Lwt.t
     val info : Info.t  
     val listen : Locator.t -> Session.Id.t Lwt.t

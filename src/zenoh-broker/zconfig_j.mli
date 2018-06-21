@@ -1,45 +1,23 @@
 (* Auto-generated from "zconfig.atd" *)
-
-
-type verbosity = Zconfig_t.verbosity
+[@@@ocaml.warning "-27-32-35-39"]
 
 type udp_config = Zconfig_t.udp_config = {
-  iface: string;
+  addr: string;
   port: int;
-  multicast: string option
+  multicast: string option;
+  bufsize: int
 }
 
 type tcp_config = Zconfig_t.tcp_config = {
+  addr: string;
   port: int;
-  connection_backlog: int
+  connection_backlog: int;
+  bufsize: int
 }
 
 type transport_config = Zconfig_t.transport_config
 
-type config = Zconfig_t.config = {
-  transports: transport_config list;
-  log_level: verbosity
-}
-
-val write_verbosity :
-  Bi_outbuf.t -> verbosity -> unit
-  (** Output a JSON value of type {!verbosity}. *)
-
-val string_of_verbosity :
-  ?len:int -> verbosity -> string
-  (** Serialize a value of type {!verbosity}
-      into a JSON string.
-      @param len specifies the initial length
-                 of the buffer used internally.
-                 Default: 1024. *)
-
-val read_verbosity :
-  Yojson.Safe.lexer_state -> Lexing.lexbuf -> verbosity
-  (** Input JSON data of type {!verbosity}. *)
-
-val verbosity_of_string :
-  string -> verbosity
-  (** Deserialize JSON data of type {!verbosity}. *)
+type config = Zconfig_t.config = { transports: transport_config list }
 
 val write_udp_config :
   Bi_outbuf.t -> udp_config -> unit

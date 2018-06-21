@@ -35,30 +35,19 @@ module Transport : sig
     end
   end
 
-  module EventSource : sig 
+  module Event : sig
     type event = 
       | SessionClose of Session.Id.t
-      | SessionMessage of  Frame.t * Session.Id.t
-      | LocatorMessage of Frame.t * Locator.t   
-      | Events of event list
-
-    type pull = unit -> event Lwt.t
+      | SessionMessage of  Frame.t * Session.Id.t * (push option)
+      | LocatorMessage of Frame.t * Locator.t * (push  option)
+      | Events of event list 
+    and  pull = unit -> event Lwt.t
+    and  push = event -> unit Lwt.t
   end
-  
-  module EventSink : sig 
-    type event = 
-      | SessionClose of Session.Id.t
-      | SessionMessage of  Frame.t * Session.Id.t
-      | LocatorMessage of Frame.t * Locator.t   
-      | Events of event list      
-
-    type push = event -> unit Lwt.t           
-  end    
-  
   
   module type S = sig       
     val info : Info.t
-    val start : EventSink.push -> (EventSink.push * unit Lwt.t) Lwt.t
+    val start : Event.push ->  unit Lwt.t
     val stop : unit -> unit Lwt.t
     val info : Info.t      
     val listen : Locator.t -> Session.Id.t Lwt.t
@@ -76,7 +65,7 @@ module Transport : sig
     val remove_transport : t -> Id.t -> bool Lwt.t
     val listen : t -> Locator.t -> Session.Id.t Lwt.t
     val connect : t -> Locator.t -> Session.Id.t Lwt.t
-    val start : t -> EventSource.pull -> EventSink.push Lwt.t     
+    val start : t -> Event.pull -> Event.push Lwt.t     
     val session_info : t -> Session.Id.t -> Session.Info.t option
   end
 end

@@ -18,7 +18,7 @@ end
 
 (** Transport.S
     val info : Info.t
-    val start : EventSink.push -> EventSource.pull Lwt.t
+    val start : Event.push -> EventSource.pull Lwt.t
     val stop : unit -> unit Lwt.t
     val info : Info.t  
     val connect : Locator.t -> Session.Id.t Lwt.t
@@ -38,8 +38,6 @@ module TcpTransport = struct
     
     type t = { 
       socks : Lwt_unix.file_descr list;  
-      evt_sink : Transport.EventSink.event Lwt_stream.t;
-      evt_sink_push : Transport.EventSink.push; 
       info : Transport.Info.t;
       mutable smap: session_context SessionMap.t       
     }
@@ -57,12 +55,8 @@ module TcpTransport = struct
 
     let info = Transport.Info.create C.name C.id true Transport.Info.Stream None
 
-    let self = 
-      let (evt_sink, bpush) = Lwt_stream.create_bounded C.channel_bound in 
-      let evt_sink_push = fun e -> bpush#push e in
-      { socks = List.map create_server_socket C.locators;  
-        evt_sink; 
-        evt_sink_push; 
+    let self =       
+      { socks = List.map create_server_socket C.locators;          
         info = info;
         smap = SessionMap.empty }
     
@@ -129,42 +123,11 @@ module TcpTransport = struct
           Lwt.fail @@ ZError Error.(InvalidFormat  (Msg "Frame exeeds the 64K limit" ))
 
 
-(*     
-    
-    (* let handle_session ctx handler = return_unit *)
-    let handle_session ctx (handler: Transport.transport_react) =
+    let handle_session (sctx: session_context) push (spush : Transport.Event.push) = 
       let module Sx = Transport.Session in
       let module Inf = Transport.Session.Info in
       let module I = Transport.Session.Id in
-
-      let sid = Inf.id ctx.info in   
-      let socket = ctx.sock in   
-      let ssid = I.show sid in 
-      let rlenbuf = IOBuf.create 8 in
-      let rbuf = ctx.buf in
-    
-      let rec serve_session () =  
-        let open Lwt.Infix in        
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %s" ssid) in     
-        
-        let%lwt _ = Logs_lwt.debug (fun m -> m "======== Transport handling session %s" ssid) in      
-        (match Mcodec.decode_frame rbuf with 
-        | Ok (frame, buf) -> 
-          List.iter (fun m -> let _ = handler (Transport.SessionClose sid) in ()) (Frame.to_list frame);
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") in           
-          Lwt.return_unit
-          
-        | Error e -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Received invalid frame  closing session %s" ssid) in
-          let%lwt _ = close_session socket in
-          Lwt.fail (ZError e)) >>= serve_session
-      in serve_session () *)
-
-    let handle_session (sctx: session_context) push = 
-      let module Sx = Transport.Session in
-      let module Inf = Transport.Session.Info in
-      let module I = Transport.Session.Id in
-      let module E = Transport.EventSink in
+      let module E = Transport.Event in
       let sid = Inf.id sctx.info in   
       let socket = sctx.sock in   
       let ssid = I.show sid in       
@@ -175,7 +138,7 @@ module TcpTransport = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %s" ssid) in                      
         match%lwt decode_frame socket rbuf with
         | Ok frame -> 
-          List.iter (fun m -> let _ = push (E.SessionMessage (frame, sid)) in ()) (Frame.to_list frame) ;
+          List.iter (fun m -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) (Frame.to_list frame) ;
           Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") 
           >>= serve_session                  
         | Error e -> 
@@ -192,13 +155,11 @@ module TcpTransport = struct
 
       (* List.fold_left (fun a b  -> a ^ ", " ^ (TcpLocator.to_string b)) "" C.locators  *)
 
-    let process_event evt = 
-      let open Transport.EventSink in 
+    let process_event sctx evt = 
+      let open Transport.Event in 
       match evt with 
       | SessionClose sid -> Lwt.return_unit 
-      | SessionMessage (f, sid) -> 
-        (match SessionMap.find_opt sid self.smap with 
-        | Some sctx -> 
+      | SessionMessage (f, sid, _) -> 
           let buf = IOBuf.reset sctx.outbuf in
           let lbuf = IOBuf.reset sctx.lenbuf in
           (match ResultM.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
@@ -209,31 +170,28 @@ module TcpTransport = struct
           | Error e -> 
             let%lwt _ = Logs_lwt.err (fun m -> m "Error while encoding frame -- this is a bug!") in           
             Lwt.return_unit
-          )
-        | None -> 
-          let%lwt _ = Logs_lwt.err (fun m -> m "Received Session message for unknown sid: %s" (Transport.Session.Id.show sid)) in           
-          Lwt.return_unit)
+          )        
 
-      | LocatorMessage (f, l) -> Lwt.return_unit
+      | LocatorMessage (f, l, _) -> Lwt.return_unit
       | Events es -> Lwt.return_unit 
     
-    let rec event_loop () : unit Lwt.t = 
+    let rec event_loop sctx stream : unit Lwt.t = 
       let open Lwt.Infix in
       let%lwt _ = Logs_lwt.debug (fun m -> m "TcpTransport Event Loop") in
-      let%lwt evt = Lwt_stream.get self.evt_sink in 
+      let%lwt evt = Lwt_stream.get stream in 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Received TcpTransport Event") in
       match evt with 
       | Some e -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Processing event") in
-        (process_event e) >>= event_loop
+        let%lwt _ = (process_event sctx e) in  event_loop sctx stream
      
       | None -> 
          let%lwt _ = Logs_lwt.debug (fun m -> m "Event Source retourned None...") in
-        event_loop ()
+        event_loop sctx stream
       
 
 
-    let start push =
+    let start (push : Transport.Event.push) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Starting TcpTransport@%s" (string_of_locators C.locators)) in 
       let rec acceptor_loop (ssock, locator) = 
         let%lwt (sock, addr) = Lwt_unix.accept ssock in
@@ -248,14 +206,17 @@ module TcpTransport = struct
         let sm = SessionMap.add sid sctx self.smap in
         self.smap <- sm ;        
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted connection with session-id = %s" (Transport.Session.Id.show sid)) in 
-        let _ = handle_session sctx push in       
+        let (sch, p) = Lwt_stream.create_bounded C.channel_bound in
+        let spush : Transport.Event.push  = fun e -> p#push e in
+        let _ = handle_session sctx push spush in       
+        let _ = event_loop sctx sch  in
         acceptor_loop (ssock, locator)
       in 
         let ls = List.map (fun l -> Locator.TcpLocator l) C.locators in
         let zs = List.zip self.socks ls in
         let als = List.map acceptor_loop zs  in
-        let eloop = event_loop () in 
-        Lwt.return (self.evt_sink_push, Lwt.join (eloop::als))
+        (* let eloop = event_loop () in  *)
+        Lwt.join als
     
 
     (* TODO: Operation to implement *)
