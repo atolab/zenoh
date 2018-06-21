@@ -27,22 +27,11 @@ let setup_log style_renderer level =
   ()
 
 
-(* Command line interface *)
-
 open Cmdliner
 
 let setup_log =
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
-
-(* let msg =
-  let doc = "Startup message."  in
-  Arg.(value & pos 0 string "Starting the zenod broker!" & info [] ~doc)
-
-let main () =
-  match Term.(eval (const hello $ setup_log $ msg, Term.info "tool")) with
-  | `Error _ -> exit 1
-  | _ -> exit (if Logs.err_count () > 0 then 1 else 0) *)
 
 let run_broker () =   
   let locator = OptionM.get @@ Iplocator.TcpLocator.of_string "tcp/0.0.0.0:7447" in   
@@ -55,15 +44,5 @@ let run_broker () =
  
 
 let () =
-  let _ = Term.(eval (setup_log, Term.info "tool")) in
-  (* let locator = Unix.ADDR_INET(listen_address, port) in  
-  let tcp_locator = OptionM.get @@ Locator.of_string "tcp/0.0.0.0:7447" in  
-  let engine = ProtocolEngine.create pid lease @@ Locators.singleton tcp_locator in
-  let tx =
-    Tcp.create tcp_tx_id locator
-      (fun s msg -> ProtocolEngine.process engine s msg)
-      (fun s -> ProtocolEngine.remove_session engine s)
-      max_buf_len in
-  Logs.debug (fun m -> m "Starting zenoh broker...") ;
-  let run_loop = Tcp.run_loop tx in *)
+  let _ = Term.(eval (setup_log, Term.info "tool")) in  
   Lwt_main.run @@ run_broker ()
