@@ -98,8 +98,7 @@ let decode_seq read buf  =
       >>= (fun (value, buf) -> get_remaining (value :: seq) (length - 1) buf)
   in
   decode_vle buf
-  >>= (fun (length, buf) ->
-    let _ = Lwt_log.debug @@  (Printf.sprintf "Reading seq of %d elements" (Vle.to_int length)) in
+  >>= (fun (length, buf) ->    
     (get_remaining  [] (Vle.to_int length) buf))
 
 let encode_seq write seq buf =

@@ -158,6 +158,12 @@ end
 type 'a block = {body : 'a; header : char}
 let header msg = msg.header
 
+(** TODO: 
+    - Add flag global flag G to Resource/Pub/Sub Declarations to indicate a global resource ID  
+
+    - Remove ResourceDecl as everything should be a selection. A predicate on a publisher is
+      either ignored or used to filter at the source.
+    *)
 module ResourceDecl = struct
   type body = {
     rid : Vle.t;
@@ -175,6 +181,7 @@ module ResourceDecl = struct
   let resource resourceDecl = resourceDecl.body.resource
   let properties resourceDecl = resourceDecl.body.properties
 end
+
 
 module PublisherDecl = struct
   type body = {
