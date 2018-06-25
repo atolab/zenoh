@@ -42,6 +42,7 @@ module Command = struct
     | [a] -> Cmd a
     | h::tl when h = "pub" -> CmdSArgs (h, tl)
     | h::tl when h = "pubn" -> CmdSArgs (h, tl)
+    | h::tl when h = "dres" -> CmdSArgs (h, tl)
     | a::tl  -> CmdIArgs (a, tl |> (List.map (int_of_string)))
 
 end
@@ -98,6 +99,12 @@ let send_open  sock =
 let send_close sock =
   let%lwt _ = Logs_lwt.debug (fun m -> m "send_close\n") in
   let msg = Message.Close (Close.create pid (Char.chr 1)) in send_message sock msg
+
+let send_declare_res sock id uri = 
+  let res_id = id in
+  let decls = Declarations.singleton @@ ResourceDecl (ResourceDecl.create res_id uri Properties.empty)  in
+  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  in send_message sock msg
 
 let send_declare_pub sock id =
   let pub_id = Vle.of_int id in
@@ -165,6 +172,11 @@ let produce_message sock cmd =
         let data = (List.nth xs 3) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Staring pub loop with %d %f %s" n p data) in
         send_stream_data_n sock rid n p data
+      | "dres" ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "dres....") in
+        let rid = Vle.of_string (List.hd xs) in
+        let uri = List.nth xs 1 in
+        send_declare_res sock rid uri
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
         return 0)
@@ -185,7 +197,7 @@ let process_incoming_message = function
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
     let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
-    Logs.debug (fun m -> m "\n[received data rid: %Ld payload: %s]\n>>" rid data);
+    Logs.info (fun m -> m "\n[received data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | msg ->
       Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  

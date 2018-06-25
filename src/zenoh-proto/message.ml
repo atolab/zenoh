@@ -728,6 +728,7 @@ module StreamData = struct
   let prid d = d.body.mbody.rbody.prid
   let payload d = d.body.mbody.rbody.payload
   let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
+  let with_id d id = {d with body = {d.body with mbody = {d.body.mbody with rbody = {d.body.mbody.rbody with id = id}}}}
 end
 
 module Synch = struct

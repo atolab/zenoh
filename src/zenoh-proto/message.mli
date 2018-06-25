@@ -397,6 +397,7 @@ sig
   val prid : t -> Vle.t option
   val payload : t -> IOBuf.t
   val with_sn : t -> Vle.t -> t
+  val with_id : t -> Vle.t -> t
 end
 
 module Synch :
