@@ -33,13 +33,13 @@ module Resource = struct
     session : SID.t;
     pub : bool;
     sub : bool;
+    matched_pub : bool;
   }
 
   type name = | URI of string | ID of Vle.t
 
   type t = {
     name : name;
-    (* uri : string; *)
     mappings : mapping list;
   }
 
@@ -106,8 +106,6 @@ module ProtocolEngine = struct
     locators : Locators.t;
     mutable smap : Session.t SIDMap.t;
     mutable rlist : Resource.t list;
-    (* mutable pubmap : (SID.t list) VleMap.t;
-    mutable submap : (SID.t list) VleMap.t; *)
     evt_sink : Event.event Lwt_stream.t;
     evt_sink_push : Event.push;
   }
@@ -158,7 +156,7 @@ module ProtocolEngine = struct
         match r.name with 
         | URI u -> u = uri
         | ID _ -> false) pe.rlist in
-      let nmapping =  {id = rid; session = ssid; pub = false; sub = false;} in
+      let nmapping =  {id = rid; session = ssid; pub = false; sub = false; matched_pub = false} in
       let res = match res with 
       | Some res -> {res with mappings=(nmapping :: List.filter (fun m -> not (SID.equal m.session ssid)) res.mappings)}
       | None -> {name=URI(uri); mappings=[nmapping]} in 
@@ -185,13 +183,12 @@ module ProtocolEngine = struct
         let mappings = mapping :: List.filter (fun m -> not( m.session = ssid)) res.mappings in 
         {res with mappings=mappings}
       | None -> 
-        let mapping = {id = rid; session = ssid; pub = true; sub = false;} in 
+        let mapping = {id = rid; session = ssid; pub = true; sub = false; matched_pub = false} in 
         match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
         | Some res -> {res with mappings = mapping :: res.mappings}
         | None -> {name = ID(rid); mappings = [mapping]} in 
       let session = {session with rmap=VleMap.add rid res session.rmap} in
       pe.rlist <- res :: List.filter (fun r -> r.name != res.name) pe.rlist;
-      pe.rlist <- List.map (fun r -> if r.name = res.name then res else r) pe.rlist;
       pe.smap <- SIDMap.add ssid session pe.smap;
       Lwt.return (Some res)
 
@@ -209,7 +206,7 @@ module ProtocolEngine = struct
         let mappings = mapping :: List.filter (fun m -> not( m.session = ssid)) res.mappings in 
         {res with mappings=mappings}
       | None -> 
-        let mapping = {id = rid; session = ssid; pub = false; sub = true;} in 
+        let mapping = {id = rid; session = ssid; pub = false; sub = true; matched_pub = false} in 
         match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
         | Some res -> {res with mappings = mapping :: res.mappings}
         | None -> {name = ID(rid); mappings = [mapping]} in 
@@ -240,12 +237,19 @@ module ProtocolEngine = struct
     let open Resource in
     let ps = List.flatten (
       pe.rlist
-      |> List.filter (fun r -> Resource.do_match res r)
-      |> List.map (fun r -> 
-        r.mappings 
-        |> List.filter (fun m -> m.pub && m.session != sid)
+      |> List.filter (fun pr -> Resource.do_match res pr)
+      |> List.map (fun pr -> 
+        pr.mappings 
+        |> List.filter (fun m -> m.pub && not m.matched_pub && m.session != sid)
         |> List.map (fun m -> 
+          let m = {m with matched_pub = true} in
+          let ms = m :: List.filter (fun am -> not (SID.equal m.session am.session)) pr.mappings in
+          let pr = {pr with mappings = ms} in
+          pe.rlist <- pr :: List.filter (fun r -> r.name != pr.name) pe.rlist;
           let session = SIDMap.find m.session pe.smap in
+          let session = {session with rmap=VleMap.add m.id pr session.rmap} in
+          pe.smap <- SIDMap.add session.sid session pe.smap;
+
           let oc = Session.out_channel session in
           let ds = [Declaration.SubscriberDecl (SubscriberDecl.create m.id SubscriptionMode.push_mode Properties.empty)] in
           let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
@@ -269,15 +273,27 @@ module ProtocolEngine = struct
     let%lwt _ = Logs_lwt.debug (fun m -> m "Matching PubDeclaration") in   
     let open Resource in 
     let id = PublisherDecl.rid pd in
-    let%lwt res  = add_publication pe sid pd in
-    match res with 
+    let%lwt pr = add_publication pe sid pd in
+    match pr with 
     | None -> Lwt.return []
-    | Some res -> 
-      match List.exists 
-        (fun r ->  Resource.do_match res r && List.exists 
-          (fun m -> m.sub && m.session != sid) r.mappings) pe.rlist with
-      | false -> Lwt.return []
-      | true -> Lwt.return [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode Properties.empty)]
+    | Some pr -> 
+      let pm = List.find (fun m -> m.session = sid) pr.mappings in
+      match pm.matched_pub with 
+      | true -> Lwt.return []
+      | false -> 
+        match List.exists 
+          (fun sr ->  Resource.do_match pr sr && List.exists 
+            (fun m -> m.sub && m.session != sid) sr.mappings) pe.rlist with
+        | false -> Lwt.return []
+        | true -> 
+          let pm = {pm with matched_pub = true} in
+          let pms = pm :: List.filter (fun m -> not (SID.equal m.session sid)) pr.mappings in
+          let pr = {pr with mappings = pms} in
+          pe.rlist <- pr :: List.filter (fun r -> r.name != pr.name) pe.rlist;
+          let ps = SIDMap.find sid pe.smap in 
+          let ps = {ps with rmap=VleMap.add id pr ps.rmap} in
+          pe.smap <- SIDMap.add ps.sid ps pe.smap;
+          Lwt.return [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode Properties.empty)]
 
   let process_declaration pe (sid : SID.t) d =
     let open Declaration in
