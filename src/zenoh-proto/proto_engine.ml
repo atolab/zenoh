@@ -250,25 +250,20 @@ module ProtocolEngine = struct
           let ds = [Declaration.SubscriberDecl (SubscriberDecl.create m.id SubscriptionMode.push_mode Properties.empty)] in
           let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
           let%lwt _ = Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (SID.show session.sid)) in          
-          (* TODO: This is going to throw an exception is the channel is our of places... need to handle that! *)
+          (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
           (get_tx_push pe sid)  (Event.SessionMessage (Frame.create [decl], sid, None)))
       )) 
     in  Lwt.join ps
 
   let match_sub pe (sid : SID.t) sd =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Matching SubDeclaration") in   
-    let open Resource in 
-    let id = SubscriberDecl.rid sd in
+    let open Resource in
     let%lwt res  = add_subscription pe sid sd in
     match res with 
     | None -> Lwt.return []
     | Some res -> 
       let%lwt _ = notify_pub_matching_res pe sid res in
-      match List.exists 
-        (fun r ->  Resource.do_match r res && List.exists 
-          (fun m -> m.pub && m.session != sid) r.mappings) pe.rlist with
-      | false -> Lwt.return []
-      | true -> Lwt.return [Declaration.PublisherDecl (PublisherDecl.create id Properties.empty)]
+      Lwt.return []
 
   let match_pub pe (sid : SID.t) pd =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Matching PubDeclaration") in   
@@ -343,17 +338,21 @@ module ProtocolEngine = struct
 
   let process_ack_nack pe sid msg = Lwt.return []
 
-
-  let forward_data pe (sid : SID.t) msg =
-      match SIDMap.find_opt sid pe.smap with
-      | None -> Lwt.return_unit
-      | Some s ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data to session %s" (SID.show sid)) in
-        let oc = Session.out_channel s  in
-        let fsn = if reliable msg then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
-        let fwd_msg = StreamData.with_sn msg fsn in        
-
-        get_tx_push pe sid @@ Event.SessionMessage (Frame.create [Message.StreamData fwd_msg], sid, None)
+  let forward_data pe srcres dstres dstmap reliable payload =
+    let open Session in
+    let open Resource in
+    match SIDMap.find_opt dstmap.session pe.smap with
+    | None -> Lwt.return_unit
+    | Some s ->
+      let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data to session %s" (SID.show s.sid)) in
+      let oc = Session.out_channel s in
+      let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
+      let msg = match srcres.name with 
+      | ID id -> StreamData(StreamData.create (true, reliable) fsn id None payload)
+      | URI uri -> match srcres.name = dstres.name with 
+        | true -> StreamData(StreamData.create (true, reliable) fsn dstmap.id None payload)
+        | false -> WriteData(WriteData.create (true, reliable) fsn uri payload) in
+      get_tx_push pe s.sid @@ Event.SessionMessage (Frame.create [msg], s.sid, None)
 
   let process_stream_data pe (sid : SID.t) msg =
     let open Resource in 
@@ -374,9 +373,9 @@ module ProtocolEngine = struct
           if Resource.do_match res r then 
           begin
             List.iter (fun m ->
-              if m.sub && m.session != sid then 
+              if m.sub && m.session != sid then
               begin 
-                Lwt.ignore_result @@ forward_data pe m.session (StreamData.with_id msg m.id)
+                Lwt.ignore_result @@ forward_data pe res r m (reliable msg) (StreamData.payload msg)
               end) r.mappings 
           end) pe.rlist;
         Lwt.return []
