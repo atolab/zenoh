@@ -197,7 +197,13 @@ let process_incoming_message = function
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
     let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
-    Logs.info (fun m -> m "\n[received data rid: %Ld payload: %s]\n>>" rid data);
+    Logs.info (fun m -> m "\n[received stream data rid: %Ld payload: %s]\n>>" rid data);
+    return_true
+  | Message.WriteData dmsg ->
+    let res = WriteData.resource dmsg in
+    let buf = WriteData.payload dmsg in
+    let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
+    Logs.info (fun m -> m "\n[received write data res: %s payload: %s]\n>>" res data);
     return_true
   | msg ->
       Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
