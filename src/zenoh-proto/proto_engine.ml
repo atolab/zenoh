@@ -43,6 +43,13 @@ module Resource = struct
     mappings : mapping list;
   }
 
+  let with_mapping res mapping = 
+    {res with mappings=mapping :: List.filter (fun m -> not (SID.equal m.session mapping.session)) res.mappings}
+
+  let remove_mapping res sid = 
+    {res with mappings=List.filter (fun m -> not (SID.equal m.session sid)) res.mappings}
+    
+
   let do_match name1 name2 =
     match name1 with 
     | ID id1 -> (match name2 with 
@@ -135,19 +142,14 @@ module ProtocolEngine = struct
   let remove_session pe sid =    
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (SID.show sid)) in
     let m = SIDMap.remove sid pe.smap in pe.smap <- m ;
-    pe.rlist <- List.map (fun r ->
-        let open Resource in
-        let ms = List.filter (fun s -> not (SID.equal s.session sid)) r.mappings in
-        {name=r.name; mappings=ms} 
-      ) pe.rlist ;
+    pe.rlist <- List.map (fun r -> Resource.remove_mapping r sid) pe.rlist ;
     Lwt.return_unit
 
-  let add_resource pe ssid rd =
+  let add_resource pe sid rd =
     let open Resource in 
-    let open Session in 
-    let session = SIDMap.find_opt ssid pe.smap in 
+    let session = SIDMap.find_opt sid pe.smap in 
     match session with 
-    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (SID.show ssid)) in Lwt.return_unit
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (SID.show sid)) in Lwt.return_unit
     | Some session -> 
       let rid = ResourceDecl.rid rd in 
       let uri = ResourceDecl.resource rd in 
@@ -156,63 +158,61 @@ module ProtocolEngine = struct
         match r.name with 
         | URI u -> u = uri
         | ID _ -> false) pe.rlist in
-      let nmapping =  {id = rid; session = ssid; pub = false; sub = false; matched_pub = false} in
+      let mapping =  {id = rid; session = sid; pub = false; sub = false; matched_pub = false} in
       let res = match res with 
-      | Some res -> {res with mappings=(nmapping :: List.filter (fun m -> not (SID.equal m.session ssid)) res.mappings)}
-      | None -> {name=URI(uri); mappings=[nmapping]} in 
+      | Some res -> with_mapping res mapping
+      | None -> {name=URI(uri); mappings=[mapping]} in 
       pe.rlist <- res :: List.filter (fun r -> 
         match r.name with 
         | URI u -> u != uri
         | ID _ -> true) pe.rlist;
       let session = {session with rmap=VleMap.add rid res session.rmap;} in
-      pe.smap <- SIDMap.add ssid session pe.smap;
+      pe.smap <- SIDMap.add sid session pe.smap;
       Lwt.return_unit
 
 
-  let add_publication pe ssid pd =
+  let add_publication pe sid pd =
     let open Resource in 
-    let session = SIDMap.find_opt ssid pe.smap in 
+    let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received PublicationDecl on unknown session %s: Ignore it!" 
-                          (SID.show ssid)) in Lwt.return None
+                          (SID.show sid)) in Lwt.return None
     | Some session -> 
       let rid = PublisherDecl.rid pd in 
       let res = match VleMap.find_opt rid session.rmap with 
       | Some res -> 
-        let mapping = {(List.find (fun m -> m.session = ssid) res.mappings) with pub=true;} in 
-        let mappings = mapping :: List.filter (fun m -> not( m.session = ssid)) res.mappings in 
-        {res with mappings=mappings}
+        let mapping = {(List.find (fun m -> m.session = sid) res.mappings) with pub=true;} in 
+        with_mapping res mapping
       | None -> 
-        let mapping = {id = rid; session = ssid; pub = true; sub = false; matched_pub = false} in 
+        let mapping = {id = rid; session = sid; pub = true; sub = false; matched_pub = false} in 
         match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
-        | Some res -> {res with mappings = mapping :: res.mappings}
+        | Some res -> with_mapping res mapping
         | None -> {name = ID(rid); mappings = [mapping]} in 
       let session = {session with rmap=VleMap.add rid res session.rmap} in
       pe.rlist <- res :: List.filter (fun r -> r.name != res.name) pe.rlist;
-      pe.smap <- SIDMap.add ssid session pe.smap;
+      pe.smap <- SIDMap.add sid session pe.smap;
       Lwt.return (Some res)
 
-  let add_subscription pe ssid sd =
+  let add_subscription pe sid sd =
     let open Resource in 
-    let session = SIDMap.find_opt ssid pe.smap in 
+    let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received SubscriptionDecl on unknown session %s: Ignore it!" 
-                          (SID.show ssid)) in Lwt.return None
+                          (SID.show sid)) in Lwt.return None
     | Some session -> 
       let rid = SubscriberDecl.rid sd in 
       let res = match VleMap.find_opt rid session.rmap with 
       | Some res -> 
-        let mapping = {(List.find (fun m -> m.session = ssid) res.mappings) with sub=true;} in 
-        let mappings = mapping :: List.filter (fun m -> not( m.session = ssid)) res.mappings in 
-        {res with mappings=mappings}
+        let mapping = {(List.find (fun m -> m.session = sid) res.mappings) with sub=true;} in 
+        with_mapping res mapping
       | None -> 
-        let mapping = {id = rid; session = ssid; pub = false; sub = true; matched_pub = false} in 
+        let mapping = {id = rid; session = sid; pub = false; sub = true; matched_pub = false} in 
         match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
-        | Some res -> {res with mappings = mapping :: res.mappings}
+        | Some res -> with_mapping res mapping
         | None -> {name = ID(rid); mappings = [mapping]} in 
       let session = {session with rmap=VleMap.add rid res session.rmap} in
       pe.rlist <- res :: List.filter (fun r -> r.name != res.name) pe.rlist;
-      pe.smap <- SIDMap.add ssid session pe.smap;
+      pe.smap <- SIDMap.add sid session pe.smap;
       Lwt.return (Some res)
 
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
@@ -243,8 +243,7 @@ module ProtocolEngine = struct
         |> List.filter (fun m -> m.pub && not m.matched_pub && m.session != sid)
         |> List.map (fun m -> 
           let m = {m with matched_pub = true} in
-          let ms = m :: List.filter (fun am -> not (SID.equal m.session am.session)) pr.mappings in
-          let pr = {pr with mappings = ms} in
+          let pr = with_mapping pr m in
           pe.rlist <- pr :: List.filter (fun r -> r.name != pr.name) pe.rlist;
           let session = SIDMap.find m.session pe.smap in
           let session = {session with rmap=VleMap.add m.id pr session.rmap} in
@@ -287,8 +286,7 @@ module ProtocolEngine = struct
         | false -> Lwt.return []
         | true -> 
           let pm = {pm with matched_pub = true} in
-          let pms = pm :: List.filter (fun m -> not (SID.equal m.session sid)) pr.mappings in
-          let pr = {pr with mappings = pms} in
+          let pr = with_mapping pr pm in
           pe.rlist <- pr :: List.filter (fun r -> r.name != pr.name) pe.rlist;
           let ps = SIDMap.find sid pe.smap in 
           let ps = {ps with rmap=VleMap.add id pr ps.rmap} in
