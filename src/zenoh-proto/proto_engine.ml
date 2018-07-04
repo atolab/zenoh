@@ -11,11 +11,10 @@ open Frame
 
 module SID = Transport.Session.Id
 module Event = Transport.Event
-module SIDMap = Map.Make(SID)
-module VleMap = Map.Make(Vle)
 
 module URI = struct
-  let do_match uri1 uri2 =
+
+  let uri_match uri1 uri2 =
     let pattern_match uri pattern = 
       let expr = Str.regexp (pattern 
       |> Str.global_replace (Str.regexp "\\.") "\\."
@@ -24,7 +23,39 @@ module URI = struct
       |> Str.global_replace (Str.regexp "\\\\\\.\\*") "\\.[^/]*") in
       (Str.string_match expr uri 0) && (Str.match_end() = String.length uri) in
     (pattern_match uri1 uri2) || (pattern_match uri2 uri1)
+
 end
+
+module ResName = struct 
+  type t  = | URI of string | ID of Vle.t
+
+  let compare name1 name2 = 
+    match name1 with 
+    | ID id1 -> (match name2 with 
+      | ID id2 -> Vle.compare id1 id2
+      | URI _ -> 1)
+    | URI uri1 -> (match name2 with 
+      | ID _ -> -1
+      | URI uri2 -> String.compare uri1 uri2)
+
+  let name_match name1 name2 =
+    match name1 with 
+    | ID id1 -> (match name2 with 
+      | ID id2 -> id1 = id2
+      | URI _ -> false)
+    | URI uri1 -> (match name2 with 
+      | ID _ -> false
+      | URI uri2 -> URI.uri_match uri1 uri2)
+
+  let to_string = function 
+    | URI uri -> uri 
+    | ID id -> Vle.to_string id
+
+end 
+
+module SIDMap = Map.Make(SID)
+module VleMap = Map.Make(Vle)
+module ResMap = Map.Make(ResName)
 
 module Resource = struct 
 
@@ -36,30 +67,23 @@ module Resource = struct
     matched_pub : bool;
   }
 
-  type name = | URI of string | ID of Vle.t
-
   type t = {
-    name : name;
+    name : ResName.t;
     mappings : mapping list;
   }
 
   let with_mapping res mapping = 
     {res with mappings=mapping :: List.filter (fun m -> not (SID.equal m.session mapping.session)) res.mappings}
 
+  let update_mapping res sid updater = 
+    let mapping = List.find_opt (fun m -> m.session = sid) res.mappings in 
+    let mapping = updater mapping in
+    with_mapping res mapping
+
   let remove_mapping res sid = 
     {res with mappings=List.filter (fun m -> not (SID.equal m.session sid)) res.mappings}
-    
 
-  let do_match name1 name2 =
-    match name1 with 
-    | ID id1 -> (match name2 with 
-      | ID id2 -> id1 = id2
-      | URI _ -> false)
-    | URI uri1 -> (match name2 with 
-      | ID _ -> false
-      | URI uri2 -> URI.do_match uri1 uri2)
-
-  let do_match res1 res2 = do_match res1.name res2.name
+  let res_match res1 res2 = ResName.name_match res1.name res2.name
 end
 
 module Session : sig
@@ -69,7 +93,7 @@ module Session : sig
     tx_push : Transport.Event.push;
     ic : InChannel.t;
     oc : OutChannel.t;
-    rmap : Resource.t VleMap.t;
+    rmap : ResName.t VleMap.t;
   }
   val create : SID.t -> Transport.Event.push -> t
   val in_channel : t -> InChannel.t
@@ -87,7 +111,7 @@ end = struct
     tx_push : Transport.Event.push;
     ic : InChannel.t;
     oc : OutChannel.t;
-    rmap : Resource.t VleMap.t;
+    rmap : ResName.t VleMap.t;
   }
 
   let create sid txp =
@@ -112,7 +136,7 @@ module ProtocolEngine = struct
     lease : Vle.t;
     locators : Locators.t;
     smap : Session.t SIDMap.t;
-    rlist : Resource.t list;
+    rmap : Resource.t ResMap.t;
     evt_sink : Event.event Lwt_stream.t;
     evt_sink_push : Event.push;
   }
@@ -126,7 +150,7 @@ module ProtocolEngine = struct
     lease; 
     locators = ls; 
     smap = SIDMap.empty; 
-    rlist = []; 
+    rmap = ResMap.empty; 
     evt_sink;
     evt_sink_push }
 
@@ -143,11 +167,23 @@ module ProtocolEngine = struct
   let remove_session pe sid =    
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (SID.show sid)) in
     let smap = SIDMap.remove sid pe.smap in
-    let rlist = List.map (fun r -> Resource.remove_mapping r sid) pe.rlist in 
-    Lwt.return {pe with rlist; smap}
+    let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
+    Lwt.return {pe with rmap; smap}
+
+  let update_resource_mapping (pe:t) name session rid updater = 
+    let open Resource in 
+    let open Session in 
+    let res = ResMap.find_opt name pe.rmap in
+    let res = match res with 
+    | Some res -> update_mapping res session.sid updater
+    | None -> {name; mappings=[updater None]} in 
+    let rmap = ResMap.add res.name res pe.rmap in
+    let session = {session with rmap=VleMap.add rid res.name session.rmap;} in
+    let smap = SIDMap.add session.sid session pe.smap in
+    Lwt.return ({pe with smap; rmap}, res)
 
   let add_resource pe sid rd =
-    let open Resource in 
+    let open Resource in
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (SID.show sid)) in Lwt.return pe
@@ -155,21 +191,11 @@ module ProtocolEngine = struct
       let rid = ResourceDecl.rid rd in 
       let uri = ResourceDecl.resource rd in 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Register resource %s" uri) in
-      let res = List.find_opt (fun r -> 
-        match r.name with 
-        | URI u -> u = uri
-        | ID _ -> false) pe.rlist in
-      let mapping =  {id = rid; session = sid; pub = false; sub = false; matched_pub = false} in
-      let res = match res with 
-      | Some res -> with_mapping res mapping
-      | None -> {name=URI(uri); mappings=[mapping]} in 
-      let rlist = res :: List.filter (fun r -> 
-        match r.name with 
-        | URI u -> u != uri
-        | ID _ -> true) pe.rlist in
-      let session = {session with rmap=VleMap.add rid res session.rmap;} in
-      let smap = SIDMap.add sid session pe.smap in
-      Lwt.return {pe with smap; rlist}
+      let%lwt (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
+        (fun m -> match m with 
+          | Some mapping -> mapping
+          | None -> {id = rid; session = session.sid; pub = false; sub = false; matched_pub = false}) in 
+      Lwt.return pe
 
   let add_publication pe sid pd =
     let open Resource in 
@@ -179,19 +205,14 @@ module ProtocolEngine = struct
                           (SID.show sid)) in Lwt.return (pe, None)
     | Some session -> 
       let rid = PublisherDecl.rid pd in 
-      let res = match VleMap.find_opt rid session.rmap with 
-      | Some res -> 
-        let mapping = {(List.find (fun m -> m.session = sid) res.mappings) with pub=true;} in 
-        with_mapping res mapping
-      | None -> 
-        let mapping = {id = rid; session = sid; pub = true; sub = false; matched_pub = false} in 
-        match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
-        | Some res -> with_mapping res mapping
-        | None -> {name = ID(rid); mappings = [mapping]} in 
-      let session = {session with rmap=VleMap.add rid res session.rmap} in
-      let rlist = res :: List.filter (fun r -> r.name != res.name) pe.rlist in
-      let smap = SIDMap.add sid session pe.smap in
-      Lwt.return ({pe with rlist; smap}, Some res)
+      let resname = match VleMap.find_opt rid session.rmap with 
+      | Some name -> name
+      | None -> ID(rid) in
+      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
+        (fun m -> match m with 
+          | Some m -> {m with pub=true;} 
+          | None -> {id = rid; session = sid; pub = true; sub = false; matched_pub = false}) in
+      Lwt.return (pe, Some res)
 
   let add_subscription pe sid sd =
     let open Resource in 
@@ -201,19 +222,14 @@ module ProtocolEngine = struct
                           (SID.show sid)) in Lwt.return (pe, None)
     | Some session -> 
       let rid = SubscriberDecl.rid sd in 
-      let res = match VleMap.find_opt rid session.rmap with 
-      | Some res -> 
-        let mapping = {(List.find (fun m -> m.session = sid) res.mappings) with sub=true;} in 
-        with_mapping res mapping
-      | None -> 
-        let mapping = {id = rid; session = sid; pub = false; sub = true; matched_pub = false} in 
-        match (List.find_opt (fun r -> match r.name with ID i -> i = rid | URI _ -> false) pe.rlist) with 
-        | Some res -> with_mapping res mapping
-        | None -> {name = ID(rid); mappings = [mapping]} in 
-      let session = {session with rmap=VleMap.add rid res session.rmap} in
-      let rlist = res :: List.filter (fun r -> r.name != res.name) pe.rlist in
-      let smap = SIDMap.add sid session pe.smap in
-      Lwt.return ({pe with rlist; smap}, Some res)
+      let resname = match VleMap.find_opt rid session.rmap with 
+      | Some name -> name
+      | None -> ID(rid) in
+      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
+        (fun m -> match m with 
+          | Some m -> {m with sub=true;} 
+          | None -> {id = rid; session = sid; pub = false; sub = true; matched_pub = false}) in
+      Lwt.return (pe, Some res)
 
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
 
@@ -235,11 +251,11 @@ module ProtocolEngine = struct
   let notify_pub_matching_res pe (sid : SID.t) res =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Pub Matching Subs") in 
     let open Resource in
-    let (pe, ps) = List.fold_left (fun x pr -> 
-      match Resource.do_match res pr with
+    let (pe, ps) = ResMap.fold (fun _ pr x -> 
+      match res_match res pr with
       | false -> x 
       | true -> 
-        let (pe, ps) =x in 
+        let (pe, ps) = x in 
         List.fold_left (fun x m -> 
           match (m.pub && not m.matched_pub && m.session != sid) with 
           | false -> x
@@ -247,12 +263,10 @@ module ProtocolEngine = struct
             let m = {m with matched_pub = true} in
             let ms = m :: List.filter (fun am -> not (SID.equal m.session am.session)) pr.mappings in
             let pr = {pr with mappings = ms} in
-            let rlist = pr :: List.filter (fun r -> r.name != pr.name) pe.rlist in
-            let session = SIDMap.find m.session pe.smap in
-            let session = {session with rmap=VleMap.add m.id pr session.rmap} in
-            let smap = SIDMap.add session.sid session pe.smap in
-            let pe = {pe with rlist; smap} in
+            let rmap = ResMap.add pr.name pr pe.rmap in
+            let pe = {pe with rmap} in
 
+            let session = SIDMap.find m.session pe.smap in
             let oc = Session.out_channel session in
             let ds = [Declaration.SubscriberDecl (SubscriberDecl.create m.id SubscriptionMode.push_mode Properties.empty)] in
             let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
@@ -260,7 +274,7 @@ module ProtocolEngine = struct
             (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
             (pe, (get_tx_push pe sid)  (Event.SessionMessage (Frame.create [decl], sid, None)) :: ps)
         ) (pe, ps) pr.mappings
-    ) (pe, []) pe.rlist in
+    ) pe.rmap (pe, []) in
     Lwt.ignore_result @@ Lwt.join ps;
     Lwt.return pe
 
@@ -286,18 +300,15 @@ module ProtocolEngine = struct
       match pm.matched_pub with 
       | true -> Lwt.return (pe, [])
       | false -> 
-        match List.exists 
-          (fun sr ->  Resource.do_match pr sr && List.exists 
-            (fun m -> m.sub && m.session != sid) sr.mappings) pe.rlist with
+        match ResMap.exists 
+          (fun _ sr ->  res_match pr sr && List.exists 
+            (fun m -> m.sub && m.session != sid) sr.mappings) pe.rmap with
         | false -> Lwt.return (pe, [])
         | true -> 
           let pm = {pm with matched_pub = true} in
           let pr = with_mapping pr pm in
-          let rlist = pr :: List.filter (fun r -> r.name != pr.name) pe.rlist in
-          let ps = SIDMap.find sid pe.smap in 
-          let ps = {ps with rmap=VleMap.add id pr ps.rmap} in
-          let smap = SIDMap.add ps.sid ps pe.smap in 
-          let pe = {pe with rlist; smap} in
+          let rmap = ResMap.add pr.name pr pe.rmap in
+          let pe = {pe with rmap} in
           Lwt.return (pe, [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode Properties.empty)])
 
   let process_declaration pe (sid : SID.t) d =
@@ -384,24 +395,26 @@ module ProtocolEngine = struct
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
                           (SID.show sid)) in Lwt.return (pe, [])
     | Some session -> 
-      let res = VleMap.find_opt rid session.rmap in
-      match res with 
+      match VleMap.find_opt rid session.rmap with 
       | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %Ld on session %s: Ignore it!" 
                             rid (SID.show sid)) in Lwt.return (pe, [])
-      | Some res -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
-                    (SID.show sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-        List.iter (fun r -> 
-          Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m " ___ Check against %s" (match r.name with URI u -> u | ID id -> string_of_int (Vle.to_int id)));
-          if Resource.do_match res r then 
-          begin
-            List.iter (fun m ->
-              if m.sub && m.session != sid then
-              begin 
-                Lwt.ignore_result @@ forward_data pe res r m (reliable msg) (StreamData.payload msg)
-              end) r.mappings 
-          end) pe.rlist;
-        Lwt.return (pe, [])
+      | Some name -> 
+        match ResMap.find_opt name pe.rmap with 
+        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+                            (ResName.to_string name) (SID.show sid)) in Lwt.return (pe, [])
+        | Some res -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
+                      (SID.show sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+          ResMap.iter (fun _ r -> 
+            if res_match res r then 
+            begin
+              List.iter (fun m ->
+                if m.sub && m.session != sid then
+                begin 
+                  Lwt.ignore_result @@ forward_data pe res r m (reliable msg) (StreamData.payload msg)
+                end) r.mappings 
+            end) pe.rmap;
+          Lwt.return (pe, [])
   
   let process pe (sid : SID.t) msg push =
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message: %s" (Message.to_string msg)) in
