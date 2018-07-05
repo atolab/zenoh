@@ -20,6 +20,7 @@ module URI = struct
       |> Str.global_replace (Str.regexp "\\.") "\\."
       |> Str.global_replace (Str.regexp "\\*\\*") ".*"
       |> Str.global_replace (Str.regexp "\\([^\\.]\\)\\*") "\\1[^/]*"
+      |> Str.global_replace (Str.regexp "^\\*") "[^/]*"
       |> Str.global_replace (Str.regexp "\\\\\\.\\*") "\\.[^/]*") in
       (Str.string_match expr uri 0) && (Str.match_end() = String.length uri) in
     (pattern_match uri1 uri2) || (pattern_match uri2 uri1)
