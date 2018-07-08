@@ -25,7 +25,7 @@ let setup_log =
 
 let dbuf = IOBuf.create 1024
 
-let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohc" (IOBuf.create 16) 
+let pid  = IOBuf.flip @@ Result.get @@ IOBuf.put_string "zenohc" (IOBuf.create 16) 
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -53,11 +53,11 @@ let rbuf = IOBuf.create 8192
 
 let get_message_length sock buf =
   let rec extract_length buf v bc =
-    let buf = ResultM.get @@ IOBuf.reset_with  0 1 buf in
+    let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
     match%lwt Net.recv sock buf with
-    | 0 -> fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
+    | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
     | _ ->
-      let (b, buf) = ResultM.get (IOBuf.get_char buf) in
+      let (b, buf) = Result.get (IOBuf.get_char buf) in
       match int_of_char b with
       | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
       | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
@@ -74,14 +74,14 @@ let get_args () =
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock (msg: Message.t) =
-  let open ResultM.InfixM in
+  let open Result.Infix in
   let wbuf = IOBuf.clear wbuf
   and lbuf = IOBuf.clear lbuf in
   
-  let wbuf = ResultM.get (Mcodec.encode_msg msg wbuf >>> IOBuf.flip) in
+  let wbuf = Result.get (Mcodec.encode_msg msg wbuf >>> IOBuf.flip) in
 
   let len = IOBuf.limit wbuf in
-  let lbuf = ResultM.get (Tcodec.encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
+  let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
   let%lwt n = Net.send sock lbuf in
   Net.send sock wbuf
@@ -120,9 +120,9 @@ let send_declare_sub sock id =
 
 
 let send_stream_data sock rid data =
-  let open ResultM.InfixM in  
+  let open Result.Infix in  
   let sn = Conduit.next_usn default_conduit in   
-  let buf = ResultM.get (Tcodec.encode_string data (IOBuf.clear dbuf)
+  let buf = Result.get (encode_string data (IOBuf.clear dbuf)
   >>> IOBuf.flip) in
   let msg = Message.StreamData (StreamData.create (false,false) sn rid None buf) in
   send_message sock msg
@@ -196,13 +196,13 @@ let process_incoming_message = function
   | Message.StreamData dmsg ->
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
-    let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
+    let (data, buf) = Result.get @@ decode_string  buf in
     Logs.info (fun m -> m "\n[received stream data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | Message.WriteData dmsg ->
     let res = WriteData.resource dmsg in
     let buf = WriteData.payload dmsg in
-    let (data, buf) = ResultM.get @@ Tcodec.decode_string  buf in
+    let (data, buf) = Result.get @@ decode_string  buf in
     Logs.info (fun m -> m "\n[received write data res: %s payload: %s]\n>>" res data);
     return_true
   | msg ->
@@ -216,10 +216,10 @@ let rec run_decode_loop sock =
     let%lwt len = get_message_length sock rbuf in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
     let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
-    let rbuf = ResultM.get @@ IOBuf.set_position 0 rbuf in
-    let rbuf = ResultM.get @@ IOBuf.set_limit len rbuf in
+    let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
+    let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
     let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, rbuf) = ResultM.get @@ Mcodec.decode_msg rbuf in
+    let (msg, rbuf) = Result.get @@ Mcodec.decode_msg rbuf in
     let%lwt c = process_incoming_message msg in
     run_decode_loop sock
   with
@@ -227,11 +227,11 @@ let rec run_decode_loop sock =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Connection close by peer") in
     try%lwt
       let%lwt _ = Lwt_unix.close sock in
-      fail @@ ZError Error.(ClosedSession (Msg "Connection  closed by peer"))
+      fail @@ Exception (`ClosedSession (`Msg "Connection  closed by peer"))
     with
     | _ ->  
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
-      fail @@ ZError Error.(ClosedSession NoMsg)
+      fail @@ Exception (`ClosedSession `NoMsg)
     
 
 let () =

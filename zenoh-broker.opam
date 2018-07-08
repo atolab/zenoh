@@ -21,6 +21,8 @@ depends: [
   "lwt" {<= "4.0.1"}
   "lwt.unix"
   "lwt.preemptive"
+  "apero-core" {>= "0.2.0"}
+  "apero-net" {>= "0.2.0"}
 ]
 
 available: [ocaml-version >= "4.03.0"]

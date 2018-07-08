@@ -6,7 +6,7 @@ open Apero
 open Proto_engine
 open Cmdliner
 
-let pid  = IOBuf.flip @@ ResultM.get @@ IOBuf.put_string "zenohd" (IOBuf.create 16) 
+let pid  = IOBuf.flip @@ Result.get @@ IOBuf.put_string "zenohd" (IOBuf.create 16) 
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -31,7 +31,7 @@ let setup_log =
   Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
 
 let run_broker () =   
-  let locator = OptionM.get @@ Iplocator.TcpLocator.of_string "tcp/0.0.0.0:7447" in   
+  let locator = Option.get @@ Iplocator.TcpLocator.of_string "tcp/0.0.0.0:7447" in   
   let%lwt tx = makeTcpTransport [locator] in  
   let module TxTcp = (val tx : Transport.S) in   
   let e = ProtocolEngine.create pid lease (Locators.of_list [Locator.TcpLocator locator]) in

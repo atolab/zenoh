@@ -1,10 +1,7 @@
-open Ztypes
-open Iobuf
-open Transport
-open Endpoint
-open Locator
-open Iplocator
 open Apero
+open Apero_net
+
+open Transport
 open Frame
 
 module type TcpTransportConfig = sig 
@@ -67,37 +64,37 @@ module TcpTransport = struct
 
     let decode_frame_length sock buf =
       let rec extract_length v bc buf =       
-        ResultM.try_get 
+        Result.try_get 
           ~on:(IOBuf.reset_with 0 1 buf)
           ~run:(fun buf ->
             match%lwt Net.recv sock buf with
-            | 0 -> Lwt.fail @@ ZError Error.(ClosedSession (Msg "Peer closed the session unexpectedly"))
+            | 0 -> Lwt.fail @@ Exception (`ClosedSession (`Msg "Peer closed the session unexpectedly"))
             | _ ->
-              ResultM.try_get 
+              Result.try_get 
                 ~on:(IOBuf.get_char buf)
                 ~run:(fun (b, buf) -> 
                   match int_of_char b with
                   | c when c <= 0x7f -> Lwt.return (v lor (c lsl (bc * 7)))
                   | c  -> extract_length  (v lor ((c land 0x7f) lsl bc)) (bc + 1) buf)
-                ~fail_with:(fun e -> Lwt.fail @@ ZError e))            
-          ~fail_with:(fun e -> Lwt.fail @@ ZError e)        
+                ~fail_with:(fun e -> Lwt.fail @@ Exception e))            
+          ~fail_with:(fun e -> Lwt.fail @@ Exception e)        
       in extract_length 0 0 buf 
     
     let close_session sock  = Lwt_unix.close sock
 
     let make_frame buf = 
-      let open ResultM.InfixM in
+      let open Result.Infix in
       let rec parse_messages msr buf =      
         if IOBuf.available buf > 0 then                     
           Mcodec.decode_msg buf
           >>= (fun (m, buf) -> msr 
             >>= (fun ms -> 
-              parse_messages (ResultM.ok (m::ms)) buf
+              parse_messages (Result.ok (m::ms)) buf
             )
           )          
         else msr
       in 
-        let ms = parse_messages (ResultM.ok []) buf in 
+        let ms = parse_messages (Result.ok []) buf in 
         Frame.create <$> ms        
 
       
@@ -115,12 +112,12 @@ module TcpTransport = struct
           else 
             begin
               let%lwt _ = Logs_lwt.warn (fun m -> m "Peer closed connection") in
-              Lwt.return @@ (ResultM.fail Error.(ClosedSession (Msg "Peer Closed Session")))
+              Lwt.return @@ (Result.fail (`ClosedSession (`Msg "Peer Closed Session")))
             end 
         | Error e -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Received frame of %d bytes " len) in
           let%lwt _ = close_session sock  in          
-          Lwt.fail @@ ZError Error.(InvalidFormat  (Msg "Frame exeeds the 64K limit" ))
+          Lwt.fail @@ Exception (`InvalidFormat  (`Msg "Frame exeeds the 64K limit" ))
 
 
     let handle_session (sctx: session_context) push (spush : Transport.Event.push) = 
@@ -144,7 +141,7 @@ module TcpTransport = struct
         | Error e -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "Received invalid frame  closing session %s" ssid) in
           let%lwt _ = close_session socket in
-          Lwt.return (ZError e)  
+          Lwt.return (Exception e)  
       in serve_session ()     
 
     let string_of_locators ls = 
@@ -162,9 +159,9 @@ module TcpTransport = struct
       | SessionMessage (f, sid, _) -> 
           let buf = IOBuf.reset sctx.outbuf in
           let lbuf = IOBuf.reset sctx.lenbuf in
-          (match ResultM.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
+          (match Result.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
           | Ok buf ->            
-            let%lwt lbuf = lwt_of_result (Tcodec.encode_vle (Vle.of_int (IOBuf.position buf)) lbuf) in
+            let%lwt lbuf = lwt_of_result (encode_vle (Vle.of_int (IOBuf.position buf)) lbuf) in
             let%lwt _ = Net.send_vec sctx.sock [IOBuf.flip lbuf; IOBuf.flip buf] in
             Lwt.return_unit
           | Error e -> 
@@ -227,7 +224,7 @@ module TcpTransport = struct
     let close sid = Lwt.return_unit        
 
     let session_info sid = 
-      let open OptionM.InfixM in 
+      let open Option.Infix in 
       (SessionMap.find_opt sid self.smap) >>= (fun cx -> Some cx.info)
       
   end

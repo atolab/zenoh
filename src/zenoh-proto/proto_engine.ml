@@ -1,13 +1,10 @@
 open Apero
-open Ztypes
-open Locator
-open Message
+open Apero_net
 open Transport
 open Channel
-open Iobuf
 open Printf
-open Property
 open Frame
+open Message
 
 module SID = Transport.Session.Id
 module Event = Transport.Event
@@ -164,7 +161,7 @@ module ProtocolEngine = struct
 
   let event_push pe = pe.evt_sink_push
 
-  let get_tx_push pe sid =  (OptionM.get @@ SIDMap.find_opt sid pe.smap).tx_push
+  let get_tx_push pe sid =  (Option.get @@ SIDMap.find_opt sid pe.smap).tx_push
     
   let add_session pe (sid : SID.t) tx_push =    
     let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (SID.show sid)) in

@@ -1,4 +1,4 @@
-open Ztypes
+open Apero
 
 (** NOTE: The current channel implementation uses only the default conduit,
     this should be extended to support arbitrary number of conduits. *)

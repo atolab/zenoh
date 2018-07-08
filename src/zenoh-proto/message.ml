@@ -1,8 +1,5 @@
 open Apero
-open Ztypes
-open Locator
-open Property
-open Iobuf
+open Apero_net
 
 module PropertyId = struct
   let maxConduits = 2L
@@ -161,7 +158,8 @@ let header msg = msg.header
 (** TODO: 
     - Add flag global flag G to Resource/Pub/Sub Declarations to indicate a global resource ID  
 
-    - Remove ResourceDecl as everything should be a selection. A predicate on a publisher is
+    - Remove 
+     as everything should be a selection. A predicate on a publisher is
       either ignored or used to filter at the source.
     *)
 module ResourceDecl = struct
@@ -508,6 +506,7 @@ end
      tcp/192.168.0.2:1234
      udp/239.255.255.123:5555
  **)
+ 
 module Hello = struct
   type body = {
     mask : Vle.t;

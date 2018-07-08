@@ -1,7 +1,7 @@
-open Ztypes
+open Apero
+open Apero_net
 open Frame
 open Lwt
-open Locator
 
 module ZId = Id
 
@@ -70,9 +70,9 @@ module Transport = struct
     let create () = Lwt.return 0
     let add_transport (e: t) (m : (module S)) = return Id.zero 
     let remove_transport e id = return false
-    let listen e loc = fail (ZError Error.(NotImplemented))
-    let connect e loc = fail (ZError Error.(NotImplemented))
-    let start e pull = fail (ZError Error.(NotImplemented))    
+    let listen e loc = fail @@ Exception `NotImplemented
+    let connect e loc = fail @@ Exception `NotImplemented
+    let start e pull = fail @@ Exception `NotImplemented
     let session_info e sid = None    
   end
 end

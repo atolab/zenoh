@@ -1,6 +1,4 @@
 open Lwt
-open Ztypes
-open Iobuf
 open Message
 
 module Frame = struct
