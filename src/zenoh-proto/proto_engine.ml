@@ -462,10 +462,10 @@ module ProtocolEngine = struct
     | _ -> Lwt.return (pe, [])
     in 
     match rs with 
-    | [] -> Lwt.return (pe, Lwt.return_unit)
+    | [] -> Lwt.return pe
     | _ as xs -> 
-      Lwt.return (pe, get_tx_push pe sid @@ (Event.SessionMessage (Frame.create xs, sid, None)))
-
+      let%lwt _ = get_tx_push pe sid @@ (Event.SessionMessage (Frame.create xs, sid, None)) in
+      Lwt.return pe
 
   let start pe =    
     let rec loop pe =      
@@ -475,12 +475,8 @@ module ProtocolEngine = struct
       | Some(Event.SessionMessage (f, sid, Some push)) -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Processing SessionMessage") in
         let msgs = Frame.to_list f in
-        let%lwt (pe, ps) = List.fold_left (fun x msg -> 
-          let%lwt (pe, ps) = x in 
-          let%lwt (pe, p) = process pe sid msg push in 
-          Lwt.return (pe, p :: ps)) (Lwt.return (pe, [])) msgs in
-        Lwt.ignore_result @@ Lwt.join ps;
-        Lwt.return pe
+        List.fold_left (fun pe msg -> 
+          pe >>= (fun pe -> process pe sid msg push)) (Lwt.return pe) msgs
       |Some _ -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Some other Event...") in
         Lwt.return pe
