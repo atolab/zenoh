@@ -25,21 +25,32 @@ let setup_log style_renderer level =
   Logs.set_reporter (Logs_fmt.reporter ());
   ()
 
+let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
+let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
 
-let setup_log =
-  let env = Arg.env_var "ZENOD_VERBOSITY" in
-  Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
+let to_string peers = 
+  peers
+  |> List.map (fun p -> Locator.to_string p) 
+  |> String.concat "," 
 
-let run_broker () =   
-  let locator = Option.get @@ Iplocator.TcpLocator.of_string "tcp/0.0.0.0:7447" in   
+let run_broker tcpport peers = 
+  let peers = String.split_on_char ',' peers 
+  |> List.filter (fun s -> not (String.equal s ""))
+  |> List.map (fun s -> Option.get @@ Locator.of_string s) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "tcpport : %d" tcpport) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "peers : %s" (to_string peers)) in
+  let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
   let%lwt tx = makeTcpTransport [locator] in  
   let module TxTcp = (val tx : Transport.S) in   
-  let e = ProtocolEngine.create pid lease (Locators.of_list [Locator.TcpLocator locator]) in
-  let _ = ProtocolEngine.start e in
-  TxTcp.start (ProtocolEngine.event_push e)   
-  
- 
+  let e = ProtocolEngine.create pid lease (Locators.of_list [Locator.TcpLocator locator]) peers in
+  let _ = TxTcp.start (ProtocolEngine.event_push e) in
+  ProtocolEngine.start e tx
 
+let run tcpport peers style_renderer level = 
+  setup_log style_renderer level; 
+  Lwt_main.run @@ run_broker tcpport peers
+   
 let () =
-  let _ = Term.(eval (setup_log, Term.info "tool")) in  
-  Lwt_main.run @@ run_broker ()
+  let env = Arg.env_var "ZENOD_VERBOSITY" in
+  let _ = Term.(eval (const run $ tcpport $ peers $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "broker")) in  ()
+  

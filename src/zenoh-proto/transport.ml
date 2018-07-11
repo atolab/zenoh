@@ -59,7 +59,7 @@ module Transport = struct
     val stop : unit -> unit Lwt.t
     val info : Info.t  
     val listen : Locator.t -> Session.Id.t Lwt.t
-    val connect : Locator.t -> Session.Id.t Lwt.t
+    val connect : Locator.t -> (Session.Id.t * Event.push) Lwt.t
     val session_info : Session.Id.t -> Session.Info.t option
   end  
 

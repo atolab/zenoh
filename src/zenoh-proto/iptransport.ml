@@ -36,7 +36,8 @@ module TcpTransport = struct
     type t = { 
       socks : Lwt_unix.file_descr list;  
       info : Transport.Info.t;
-      mutable smap: session_context SessionMap.t       
+      mutable smap: session_context SessionMap.t;
+      mutable push: Transport.Event.push option;
     }
     
     let create_server_socket locator = 
@@ -55,7 +56,8 @@ module TcpTransport = struct
     let self =       
       { socks = List.map create_server_socket C.locators;          
         info = info;
-        smap = SessionMap.empty }
+        smap = SessionMap.empty;
+        push = None }
     
     
     let stop () = 
@@ -190,6 +192,7 @@ module TcpTransport = struct
 
     let start (push : Transport.Event.push) =
       let%lwt _ = Logs_lwt.debug (fun m -> m "Starting TcpTransport@%s" (string_of_locators C.locators)) in 
+      self.push <- Some push;
       let rec acceptor_loop (ssock, locator) = 
         let%lwt (sock, addr) = Lwt_unix.accept ssock in
         let ep = IpEndpoint.of_sockaddr addr in
@@ -201,7 +204,7 @@ module TcpTransport = struct
         let lenbuf = IOBuf.create 4 in
         let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
         let sm = SessionMap.add sid sctx self.smap in
-        self.smap <- sm ;        
+        self.smap <- sm ;        (* fixme : race condition*)  
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted connection with session-id = %s" (Transport.Session.Id.show sid)) in 
         let (sch, p) = Lwt_stream.create_bounded C.channel_bound in
         let spush : Transport.Event.push  = fun e -> p#push e in
@@ -219,7 +222,33 @@ module TcpTransport = struct
     (* TODO: Operation to implement *)
     let listen loc = Lwt.return @@ Transport.Session.Id.next_id ()
     
-    let connect loc = Lwt.return @@ Transport.Session.Id.next_id ()
+    let connect loc = 
+      match loc with 
+      | Locator.TcpLocator tcploc -> (
+        let open Lwt in
+        let open Lwt_unix in
+        let sock = socket PF_INET SOCK_STREAM 0 in
+        let _ = setsockopt sock SO_REUSEADDR true in
+        let _ = setsockopt sock TCP_NODELAY true in
+        let saddr = IpEndpoint.to_sockaddr @@ TcpLocator.endpoint tcploc in
+        connect sock saddr >>= ( fun () ->
+          let ep = IpEndpoint.of_sockaddr saddr in
+          let src = Locator.TcpLocator (TcpLocator.make ep) in
+          let sid = (Transport.Session.Id.next_id ()) in
+          let info = Transport.Session.Info.create sid src loc self.info in
+          let inbuf = IOBuf.create C.bufsize in
+          let outbuf = IOBuf.create C.bufsize in
+          let lenbuf = IOBuf.create 4 in
+          let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
+          let sm = SessionMap.add sid sctx self.smap in
+          self.smap <- sm ;      (* fixme : race condition*)  
+          Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Openned cennection with session-id = %s" (Transport.Session.Id.show sid));
+          let (sch, p) = Lwt_stream.create_bounded C.channel_bound in
+          let spush : Transport.Event.push  = fun e -> p#push e in
+          let _ = handle_session sctx (Option.get self.push) spush in       
+          let _ = event_loop sctx sch in 
+          Lwt.return (sid, spush)))
+      | _ -> Lwt.fail @@ Exception (`InvalidAddress)
     
     let close sid = Lwt.return_unit        
 

@@ -144,9 +144,10 @@ module ProtocolEngine = struct
     rmap : Resource.t ResMap.t;
     evt_sink : Event.event Lwt_stream.t;
     evt_sink_push : Event.push;
+    peers : Locator.t list;
   }
 
-  let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) = 
+  let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) = 
     (* TODO Parametrize depth *)
     let (evt_sink, bpush) = Lwt_stream.create_bounded 128 in 
     let evt_sink_push = fun e -> bpush#push e in
@@ -157,7 +158,8 @@ module ProtocolEngine = struct
     smap = SIDMap.empty; 
     rmap = ResMap.empty; 
     evt_sink;
-    evt_sink_push }
+    evt_sink_push;
+    peers }
 
   let event_push pe = pe.evt_sink_push
 
@@ -259,11 +261,14 @@ module ProtocolEngine = struct
           | None -> {id = rid; session = sid; pub = false; sub = true; matched_pub = false}) in
       Lwt.return (pe, Some res)
 
+  let make_scout = Message.Scout (Scout.create (Vle.of_char ScoutFlags.scoutBroker) [])
+
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
 
   let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease Properties.empty)
 
-  let process_scout pe sid msg =
+  let process_scout pe sid msg push =
+    let%lwt pe = add_session pe sid push in 
     if Vle.logand (Scout.mask msg) (Vle.of_char ScoutFlags.scoutBroker) <> 0L then Lwt.return (pe, [make_hello pe])
     else Lwt.return (pe, [])
 
@@ -448,7 +453,7 @@ module ProtocolEngine = struct
   let process pe (sid : SID.t) msg push =
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message: %s" (Message.to_string msg)) in
     let%lwt (pe, rs) = match msg with
-    | Message.Scout msg -> process_scout pe sid msg
+    | Message.Scout msg -> process_scout pe sid msg push
     | Message.Hello _ -> Lwt.return (pe, [])
     | Message.Open msg -> process_open pe sid msg push
     | Message.Close msg -> 
@@ -467,7 +472,26 @@ module ProtocolEngine = struct
       let%lwt _ = get_tx_push pe sid @@ (Event.SessionMessage (Frame.create xs, sid, None)) in
       Lwt.return pe
 
-  let start pe =    
+  let rec connect_peer peer tx = 
+    let module TxTcp = (val tx : Transport.S) in 
+    let open Lwt in
+    Lwt.catch(fun () ->
+        TxTcp.connect peer >>= (fun (sid, push) -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Connected to %s (sid = %s)" (Locator.to_string peer) (SID.show sid)) in 
+        let%lwt _ = push (Event.SessionMessage (Frame.create [make_scout], sid, None)) in 
+        Lwt.return_unit))
+      (fun ex -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
+        let%lwt _ = Lwt_unix.sleep 2.0 in 
+        connect_peer peer tx)
+
+  let connect_peers peers tx = 
+    let open Lwt in
+    let module TxTcp = (val tx : Transport.S) in 
+    Lwt_list.iter_p (fun p -> connect_peer p tx) peers
+
+  let start pe tx = 
+    Printexc.record_backtrace true;
     let rec loop pe =      
       let open Lwt.Infix in 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Protocol Engine Events") in
@@ -486,5 +510,6 @@ module ProtocolEngine = struct
       >>= loop
     in 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Starting Protocol Engine") in
+    Lwt.ignore_result @@ connect_peers pe.peers tx;
     loop pe
 end
