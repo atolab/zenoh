@@ -360,25 +360,23 @@ module ConduitMarker = struct
   let create id = 
     match Vle.to_int id with 
       | 0 -> {header=MessageId.conduitId; body={id=None}}
-      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag)); body={id=None}}
-      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag)); body={id=None}}
-      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); body={id=None}}
-      | _ -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); body={id=Some id}}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | _ -> {header=MessageId.conduitId; body={id=Some id}}
 
   let id m = 
     (* @AC: Olivier, this is way to complicated, 
        we shoud just mask and get the id from the header *)
     match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
-    | 0 -> (match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
+    | 0 -> Option.get m.body.id
+    | _ -> match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
             | 0 -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.zero
                     | _ -> Vle.one)
             | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.of_int 2
-                    | _ -> Vle.of_int 3))
-    | _ -> match m.body.id with 
-           | Some id -> id
-           | None -> Vle.zero (* Should never happen *)
+                    | _ -> Vle.of_int 3)
 end
 
 module Frag = struct
@@ -403,23 +401,21 @@ module RSpace = struct
   let create id = 
     match Vle.to_int id with 
       | 0 -> {header=MessageId.conduitId; body={id=None}}
-      | 1 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.lFlag)); body={id=None}}
-      | 2 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag)); body={id=None}}
-      | 3 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag)); body={id=None}}
-      | _ -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.zFlag)); body={id=Some id}}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.rSpaceId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | _ -> {header=MessageId.rSpaceId; body={id=Some id}}
 
   let id m = 
     match (int_of_char m.header) land (int_of_char Flags.zFlag) with 
-    | 0 -> (match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
+    | 0 -> Option.get m.body.id
+    | _ -> match (int_of_char m.header) land (int_of_char Flags.hFlag) with 
             | 0 -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.zero
                     | _ -> Vle.one)
             | _ -> (match (int_of_char m.header) land (int_of_char Flags.lFlag) with 
                     | 0 -> Vle.of_int 2
-                    | _ -> Vle.of_int 3))
-    | _ -> match m.body.id with 
-           | Some id -> id
-           | None -> Vle.zero (* Should never happen *)
+                    | _ -> Vle.of_int 3)
 end
 
 type marker =

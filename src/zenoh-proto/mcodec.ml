@@ -31,7 +31,7 @@ let make_hello mask ls ps = Message (Hello (Hello.create mask ls ps))
 
 let decode_hello header =
   read3_spec
-    (Logs.debug (fun m -> m "Readings Hello"))    
+    (Logs.debug (fun m -> m "Reading Hello"))    
     decode_vle
     decode_locators     
     (decode_properties header)    
@@ -432,10 +432,9 @@ let encode_rspace m buf =
   let open RSpace in  
   Logs.debug (fun m -> m "Writing ResourceSpace");
   IOBuf.put_char (header m) buf 
-  >>= if Flags.(hasFlag (header m) zFlag) then encode_vle (id m) 
-      else return
-  
-
+  >>= match Flags.hasFlag (header m) Flags.zFlag with 
+    | true -> return 
+    | false -> encode_vle @@ id m
 
 let decode_element buf =
   IOBuf.get_char buf
