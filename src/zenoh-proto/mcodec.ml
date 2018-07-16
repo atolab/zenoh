@@ -378,7 +378,7 @@ let decode_compact_id header buf =
          having an id... *)
   if Flags.(hasFlag header zFlag) then
     let flags = (int_of_char (Flags.flags header)) lsr Flags.mid_len in 
-    let cid = Vle.of_int @@ (flags land 0x3) + 1 in 
+    let cid = Vle.of_int @@ (flags land 0x3) in 
     return (cid, buf)
   else 
     decode_vle buf
