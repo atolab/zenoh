@@ -207,7 +207,7 @@ module ProtocolEngine = struct
     let%lwt (pe, res) = update_resource pe name 
       (fun r -> match r with 
       | Some res -> update_mapping res session.sid updater
-      | None -> {name; mappings=[updater None]; matches=[]}) in
+      | None -> {name; mappings=[updater None]; matches=[name]}) in
     let session = {session with rmap=VleMap.add rid res.name session.rmap;} in
     let smap = SIDMap.add session.sid session pe.smap in
     Lwt.return ({pe with smap}, res)
