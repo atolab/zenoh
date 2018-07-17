@@ -4,6 +4,6 @@
  ((name            zenoh_proto)
   (public_name     zenoh-proto)
   (wrapped     false)
-  (libraries       (apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
+  (libraries       (apero-core apero-net sexplib lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord))
   (preprocess
-    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))
+    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_sexp_conv)))))
