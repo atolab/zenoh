@@ -19,10 +19,6 @@ let setup_log style_renderer level =
 
 open Cmdliner
 
-let setup_log =
-  let env = Arg.env_var "ZENOD_VERBOSITY" in
-  Term.(const setup_log $ Fmt_cli.style_renderer () $ Logs_cli.level ~env ())
-
 let dbuf = IOBuf.create 1024
 
 let pid  = IOBuf.flip @@ Result.get @@ IOBuf.put_string "zenohc" (IOBuf.create 16) 
@@ -233,15 +229,28 @@ let rec run_decode_loop sock =
       let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
       fail @@ Exception (`ClosedSession `NoMsg)
     
+let peer = Arg.(value & opt string "tcp/127.0.0.1:7447" & info ["p"; "peer"] ~docv:"PEER" ~doc:"peer")
 
-let () =
-  let _ = Term.(eval (setup_log, Term.info "tool")) in
-  let addr, port  = get_args () in
+let to_string peers = 
+  peers
+  |> List.map (fun p -> Locator.to_string p) 
+  |> String.concat "," 
+
+let run peer style_renderer level = 
+  setup_log style_renderer level; 
   let open Lwt_unix in
   let sock = socket PF_INET SOCK_STREAM 0 in
   let _ = setsockopt sock SO_REUSEADDR true in
   let _ = setsockopt sock TCP_NODELAY true in
-  let saddr = ADDR_INET (Unix.inet_addr_of_string addr, port) in
+  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun protocol ip port -> 
+    ADDR_INET (Unix.inet_addr_of_string ip, port)) in
+  let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
+  let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let _ = connect sock  saddr in
-
   Lwt_main.run @@ Lwt.join [run_encode_loop sock; run_decode_loop sock >>= fun _ -> return_unit]
+
+let () =
+  Printexc.record_backtrace true;
+  let env = Arg.env_var "ZENOD_VERBOSITY" in
+  let _ = Term.(eval (const run $ peer $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "client")) in  ()
+  
