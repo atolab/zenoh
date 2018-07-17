@@ -314,11 +314,7 @@ module ProtocolEngine = struct
           | None -> {id = rid; session = sid; pub = false; sub = true; matched_pub = false}) in
       Lwt.return (pe, Some res)
 
-<<<<<<< ec118b2b13c5f6fd8512aa8986a73e25360e56e1
   let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
-=======
-  let pid_to_string pid = fst @@ Result.get (IOBuf.get_string 16 pid)
->>>>>>> Added spanning tree algo
 
   let make_scout = Message.Scout (Scout.create (Vle.of_char ScoutFlags.scoutBroker) [])
 
