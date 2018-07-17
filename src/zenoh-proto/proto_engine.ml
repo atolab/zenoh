@@ -515,6 +515,7 @@ module ProtocolEngine = struct
       | RSpace rs -> RSpace.id rs 
       | _ -> res) 0L (markers msg)
 
+<<<<<<< 955363152e2654c565bfc7274626d93b2e998097
   let forward_data pe sid srcres reliable payload = 
     let open Resource in
     let (_, ps) = List.fold_left (fun (sss, pss) name -> 
@@ -531,6 +532,8 @@ module ProtocolEngine = struct
     ) ([], []) srcres.matches in 
     Lwt.join ps 
 
+=======
+>>>>>>> Added spanning tree algo
   let process_user_data (pe:t) session msg =
     let open Resource in 
     let open Session in 
