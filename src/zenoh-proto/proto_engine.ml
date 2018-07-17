@@ -307,7 +307,7 @@ module ProtocolEngine = struct
           (pe, (get_tx_push pe sid)  (Event.SessionMessage (Frame.create [decl], sid, None)) :: ps)
         ) (pe, ps) mres.mappings
     ) (pe, []) res.matches in
-    Lwt.ignore_result @@ Lwt.join ps;
+    let%lwt _ = Lwt.join ps in
     Lwt.return pe
 
 
@@ -491,7 +491,6 @@ module ProtocolEngine = struct
     Lwt_list.iter_p (fun p -> connect_peer p tx) peers
 
   let start pe tx = 
-    Printexc.record_backtrace true;
     let rec loop pe =      
       let open Lwt.Infix in 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Protocol Engine Events") in
