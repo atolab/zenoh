@@ -14,9 +14,21 @@ zenohdpid=$!
 
 sleep 1
 
+printf "run %-20s > %s\n" "zenohc pub" "$outdir/zenohc_pub.log"
+mkfifo $outdir/zenohc_pub.in
+exec 3<>$outdir/zenohc_pub.in 
+zenohc.exe < $outdir/zenohc_pub.in > $outdir/zenohc_pub.log 2>&1 &
+zenohcpubpid=$!
+
+echo "open" > $outdir/zenohc_pub.in
+echo "dres 5 //test/res1" > $outdir/zenohc_pub.in
+echo "dpub 5" > $outdir/zenohc_pub.in
+
+sleep 1
+
 printf "run %-20s > %s\n" "zenohc sub" "$outdir/zenohc_sub.log"
 mkfifo $outdir/zenohc_sub.in
-exec 3<>$outdir/zenohc_sub.in 
+exec 4<>$outdir/zenohc_sub.in 
 zenohc.exe < $outdir/zenohc_sub.in > $outdir/zenohc_sub.log 2>&1 &
 zenohcsubpid=$!
 
@@ -26,15 +38,6 @@ echo "dsub 10"> $outdir/zenohc_sub.in
 
 sleep 1
 
-printf "run %-20s > %s\n" "zenohc pub" "$outdir/zenohc_pub.log"
-mkfifo $outdir/zenohc_pub.in
-exec 4<>$outdir/zenohc_pub.in 
-zenohc.exe < $outdir/zenohc_pub.in > $outdir/zenohc_pub.log 2>&1 &
-zenohcpubpid=$!
-
-echo "open" > $outdir/zenohc_pub.in
-echo "dres 5 //test/res*" > $outdir/zenohc_pub.in
-echo "dpub 5" > $outdir/zenohc_pub.in
 echo "pub 5 MSG" > $outdir/zenohc_pub.in
 
 sleep 1
