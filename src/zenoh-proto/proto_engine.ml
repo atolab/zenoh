@@ -304,7 +304,7 @@ module ProtocolEngine = struct
           let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
           Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (SID.show session.sid));
           (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
-          (pe, (get_tx_push pe sid)  (Event.SessionMessage (Frame.create [decl], sid, None)) :: ps)
+          (pe, (get_tx_push pe session.sid)  (Event.SessionMessage (Frame.create [decl], session.sid, None)) :: ps)
         ) (pe, ps) mres.mappings
     ) (pe, []) res.matches in
     let%lwt _ = Lwt.join ps in
