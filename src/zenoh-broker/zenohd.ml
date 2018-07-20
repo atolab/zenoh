@@ -18,11 +18,21 @@ let backlog = 10
 let max_buf_len = 64 * 1024
 let tcp_tx_id = 0x01
 
+let reporter ppf =
+  let report src level ~over k msgf =
+    let k _ = over (); k () in
+    let with_stamp h tags k ppf fmt =
+      Format.kfprintf k ppf ("[%f]%a @[" ^^ fmt ^^ "@]@.")
+        (Unix.gettimeofday ()) Logs.pp_header (level, h)
+    in
+    msgf @@ fun ?header ?tags fmt -> with_stamp header tags k ppf fmt
+  in
+  { Logs.report = report }
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
-  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
 let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
@@ -51,6 +61,7 @@ let run tcpport peers style_renderer level =
   Lwt_main.run @@ run_broker tcpport peers
    
 let () =
+  Printexc.record_backtrace true;
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   let _ = Term.(eval (const run $ tcpport $ peers $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "broker")) in  ()
   

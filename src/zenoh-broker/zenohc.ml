@@ -7,11 +7,21 @@ open Property
 (* let () =
   (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
+let reporter ppf =
+  let report src level ~over k msgf =
+    let k _ = over (); k () in
+    let with_stamp h tags k ppf fmt =
+      Format.kfprintf k ppf ("[%f]%a @[" ^^ fmt ^^ "@]@.")
+        (Unix.gettimeofday ()) Logs.pp_header (level, h)
+    in
+    msgf @@ fun ?header ?tags fmt -> with_stamp header tags k ppf fmt
+  in
+  { Logs.report = report }
 
 let setup_log style_renderer level =
   Fmt_tty.setup_std_outputs ?style_renderer ();
   Logs.set_level level;
-  Logs.set_reporter (Logs_fmt.reporter ());
+  Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
 
