@@ -236,18 +236,19 @@ module ProtocolEngine = struct
     | None -> match_resource pe.rmap res
     | Some _ -> (pe.rmap, res) in
     let rmap = ResMap.add res.name res rmap in 
-    Lwt.return ({pe with rmap}, res)
+    ({pe with rmap}, res)
 
   let update_resource_mapping (pe:t) name session rid updater = 
     let open Resource in 
     let open Session in 
-    let%lwt (pe, res) = update_resource pe name 
+    Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (SID.show session.sid) (Vle.to_int rid));
+    let(pe, res) = update_resource pe name 
       (fun r -> match r with 
       | Some res -> update_mapping res session.sid updater
       | None -> {name; mappings=[updater None]; matches=[name]}) in
     let session = {session with rmap=VleMap.add rid res.name session.rmap;} in
     let smap = SIDMap.add session.sid session pe.smap in
-    Lwt.return ({pe with smap}, res)
+    ({pe with smap}, res)
 
   let declare_resource pe sid rd =
     let open Resource in
@@ -257,8 +258,7 @@ module ProtocolEngine = struct
     | Some session -> 
       let rid = ResourceDecl.rid rd in 
       let uri = ResourceDecl.resource rd in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Register resource %s" uri) in
-      let%lwt (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
+      let (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
         (fun m -> match m with 
           | Some mapping -> mapping
           | None -> {id = rid; session = session.sid; pub = false; sub = false; matched_pub = false}) in 
@@ -275,10 +275,28 @@ module ProtocolEngine = struct
         let (pe, rid) = next_mapping pe in 
         let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
         let pubdecl = Declaration.PublisherDecl (PublisherDecl.create rid []) in
+        let (pe, _) = update_resource_mapping pe res.name s rid 
+          (fun m -> match m with 
+            | Some mapping -> mapping
+            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false}) in 
         (pe, [resdecl; pubdecl]) in
     let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
     (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
     (pe,  s.tx_push  (Event.SessionMessage (Frame.create [decl], s.sid, None)))
+
+  let forward_pubdecl_to_parents pe res = 
+    let open Router in
+    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+      (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
+    |> List.fold_left (fun x sid -> 
+       let (pe, ps) = x in
+       let s = Option.get @@ SIDMap.find_opt sid pe.smap in
+       let (pe, p) = forward_pubdecl_to_session pe res s in 
+       (pe, p :: ps)
+       ) (pe, []) in 
+    let%lwt _ = Lwt.join ps in
+    Lwt.return pe
 
   let declare_publication pe sid pd =
     let open Resource in 
@@ -291,11 +309,46 @@ module ProtocolEngine = struct
       let resname = match VleMap.find_opt rid session.rmap with 
       | Some name -> name
       | None -> ID(rid) in
-      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
+      let (pe, res) = update_resource_mapping pe resname session rid 
         (fun m -> match m with 
           | Some m -> {m with pub=true;} 
           | None -> {id = rid; session = sid; pub = true; sub = false; matched_pub = false}) in
+      let%lwt pe = forward_pubdecl_to_parents pe res in
       Lwt.return (pe, Some res)
+
+  let forward_subdecl_to_session pe res s = 
+    let open Resource in 
+    let oc = Session.out_channel s in
+    let (pe, ds) = match res.name with 
+      | ID id -> (
+        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode []) in
+        (pe, [subdecl]))
+      | URI uri -> 
+        let (pe, rid) = next_mapping pe in 
+        let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
+        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create rid SubscriptionMode.push_mode []) in
+        let (pe, _) = update_resource_mapping pe res.name s rid 
+          (fun m -> match m with 
+            | Some mapping -> mapping
+            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false}) in 
+        (pe, [resdecl; subdecl]) in
+    let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+    (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
+    (pe,  s.tx_push  (Event.SessionMessage (Frame.create [decl], s.sid, None)))
+
+  let forward_subdecl_to_parents pe res = 
+    let open Router in
+    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+      (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
+    |> List.fold_left (fun x sid -> 
+       let (pe, ps) = x in
+       let s = Option.get @@ SIDMap.find_opt sid pe.smap in
+       let (pe, p) = forward_subdecl_to_session pe res s in 
+       (pe, p :: ps)
+       ) (pe, []) in 
+    let%lwt _ = Lwt.join ps in
+    Lwt.return pe
 
   let declare_subscription pe sid sd =
     let open Resource in 
@@ -308,10 +361,12 @@ module ProtocolEngine = struct
       let resname = match VleMap.find_opt rid session.rmap with 
       | Some name -> name
       | None -> ID(rid) in
-      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
-        (fun m -> match m with 
+      let (pe, res) = update_resource_mapping pe resname session rid 
+        (fun m -> 
+          match m with 
           | Some m -> {m with sub=true;} 
           | None -> {id = rid; session = sid; pub = false; sub = true; matched_pub = false}) in
+      let%lwt pe = forward_subdecl_to_parents pe res in
       Lwt.return (pe, Some res)
 
   let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
@@ -418,6 +473,7 @@ module ProtocolEngine = struct
     match pr with 
     | None -> Lwt.return (pe, [])
     | Some pr -> 
+      let%lwt _ = notify_pub_matching_res pe sid pr in
       let pm = List.find (fun m -> m.session = sid) pr.mappings in
       match pm.matched_pub with 
       | true -> Lwt.return (pe, [])
@@ -454,10 +510,17 @@ module ProtocolEngine = struct
       Lwt.return (pe, [])
 
   let process_declarations pe (sid : SID.t) ds =  
-    List.fold_left (fun x d -> 
+    let open Declaration in
+    (* Must process ResourceDecls first *)
+    List.sort (fun x y -> match (x, y) with 
+      | (ResourceDecl _, ResourceDecl _) -> 0
+      | (ResourceDecl _, _) -> -1
+      | (_, ResourceDecl _) -> 1
+      | (_, _) -> 0) ds
+    |> List.fold_left (fun x d -> 
       let%lwt (pe, ds) = x in
       let%lwt (pe, decl) = process_declaration pe sid d in 
-      Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) ds
+      Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) 
 
   let process_declare pe (sid : SID.t) msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
