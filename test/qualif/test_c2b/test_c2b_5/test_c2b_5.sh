@@ -1,0 +1,85 @@
+cd "$(dirname $0)"
+basename=`basename $0`
+filename="${basename%.*}"
+outdir=${filename}_`date +"%y-%m-%d_%H-%M"`
+mkdir $outdir
+
+. ../../common/proc_mgr.sh
+
+echo "==== Run test $filename ===="
+
+runproc zenohd zenohd.exe
+zenohd=$?
+
+sleep 1
+
+runproc zenohc_sub1 zenohc.exe
+sub1=$?
+
+echo "open" > ${proc_in[$sub1]}
+echo "dres 10 //test/res*"> ${proc_in[$sub1]}
+echo "dsub 10"> ${proc_in[$sub1]}
+
+sleep 1
+
+runproc zenohc_sub2 zenohc.exe
+sub2=$?
+ 
+echo "open" > ${proc_in[$sub2]}
+echo "dsub 10"> ${proc_in[$sub2]}
+
+sleep 1
+
+runproc zenohc_pub1 zenohc.exe
+pub1=$?
+
+echo "open" > ${proc_in[$pub1]}
+echo "dres 10 //test/res1" > ${proc_in[$pub1]}
+echo "dpub 10" > ${proc_in[$pub1]}
+echo "pub 10 MSG_RES1" > ${proc_in[$pub1]}
+
+sleep 1
+
+runproc zenohc_pub2 zenohc.exe
+pub2=$?
+
+echo "open" > ${proc_in[$pub2]}
+echo "dres 5 //test/res2" > ${proc_in[$pub2]}
+echo "dpub 5" > ${proc_in[$pub2]}
+echo "pub 5 MSG_RES2" > ${proc_in[$pub2]}
+
+echo "dpub 10" > ${proc_in[$pub2]}
+echo "pub 10 MSG_SUB2" > ${proc_in[$pub2]}
+
+sleep 1
+
+cleanall
+
+if [ `cat ${proc_log[$sub1]} | grep MSG_RES1 | wc -l` -eq 0 ]
+then
+  echo "[ERROR] zenohc_sub1 didn't receive MSG_RES1"
+  exit -1
+elif [ `cat ${proc_log[$sub1]} | grep MSG_RES2 | wc -l` -eq 0  ]
+  then
+  echo "[ERROR] zenohc_sub1 didn't receive MSG_RES2"
+  exit -1
+elif [ `cat ${proc_log[$sub1]} | grep MSG_SUB2 | wc -l` -gt 0  ]
+then
+  echo "[ERROR] zenohc_sub1 received MSG_SUB2"
+  exit -1
+elif [ `cat ${proc_log[$sub2]} | grep MSG_SUB2 | wc -l` -eq 0  ]
+then
+  echo "[ERROR] zenohc_sub2 didn't receive MSG_SUB2"
+  exit -1
+elif [ `cat ${proc_log[$sub2]} | grep MSG_RES1 | wc -l` -gt 0  ]
+then
+  echo "[ERROR] zenohc_sub2 received MSG_RES1"
+  exit -1
+elif [ `cat ${proc_log[$sub2]} | grep MSG_RES2 | wc -l` -gt 0  ]
+then
+  echo "[ERROR] zenohc_sub2 received MSG_RES2"
+  exit -1
+else
+  echo "[OK]"
+  exit 0
+fi
