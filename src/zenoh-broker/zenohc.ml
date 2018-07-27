@@ -99,7 +99,7 @@ let send_scout sock =
 
 let send_open  sock =
   let%lwt _ = Logs_lwt.debug (fun m -> m "send_open\n") in 
-  let msg = Message.Open (Open.create version pid lease Locators.empty Properties.empty)
+  let msg = Message.Open (Open.create version pid lease Locators.empty [])
   in send_message sock msg
 
 let send_close sock =
@@ -108,13 +108,13 @@ let send_close sock =
 
 let send_declare_res sock id uri = 
   let res_id = id in
-  let decls = Declarations.singleton @@ ResourceDecl (ResourceDecl.create res_id uri Properties.empty)  in
+  let decls = Declarations.singleton @@ ResourceDecl (ResourceDecl.create res_id uri [])  in
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 let send_declare_pub sock id =
   let pub_id = Vle.of_int id in
-  let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id Properties.empty)  in
+  let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id [])  in
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 

@@ -1,7 +1,15 @@
 open Apero
 open Locator
-open Iobuf
+open Zproperty
 
+
+(* module Property = struct
+  type t = Vle.t * IOBuf.t
+  let create id data = (id, data)
+  let id p = fst p
+  let data p = snd p
+
+end *)
 
 module PropertyId :
 sig
@@ -96,7 +104,7 @@ sig
   val periodicPullModeId : char
 end
 
-module TemporalProperties : sig
+module TemporalProperty : sig
   type t = {
     origin : Vle.t;
     period : Vle.t;
@@ -115,19 +123,19 @@ sig
   type t =
       | PushMode
       | PullMode
-      | PeriodicPushMode of TemporalProperties.t
-      | PeriodicPullMode of TemporalProperties.t
+      | PeriodicPushMode of TemporalProperty.t
+      | PeriodicPullMode of TemporalProperty.t
 
   val push_mode : t
   val pull_mode : t
-  val periodic_push : TemporalProperties.t -> t
-  val periodic_pull : TemporalProperties.t -> t
+  val periodic_push : TemporalProperty.t -> t
+  val periodic_pull : TemporalProperty.t  -> t
 
   val id : t -> char
 
   val has_temporal_properties : char -> bool
 
-  val temporal_properties : t -> TemporalProperties.t option
+  val temporal_properties : t -> TemporalProperty.t option
 end
 
 
@@ -145,39 +153,39 @@ module ResourceDecl :
 sig
   type body
   type t = body block
-  val create : Vle.t -> string -> Properties.t -> t
+  val create : Vle.t -> string -> ZProperty.t list -> t
   val rid : t -> Vle.t
   val resource : t -> string
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module PublisherDecl :
 sig
   type body
   type t = body block
-  val create : Vle.t -> Properties.t -> t
+  val create : Vle.t -> ZProperty.t list -> t
   val rid : t -> Vle.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module  SubscriberDecl :
 sig
   type body
   type t = body block
-  val create : Vle.t -> SubscriptionMode.t -> Properties.t -> t
+  val create : Vle.t -> SubscriptionMode.t -> ZProperty.t list -> t
   val rid : t -> Vle.t
   val mode : t -> SubscriptionMode.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module SelectionDecl :
 sig
   type body
   type t = body block
-  val create : Vle.t -> string -> Properties.t -> bool -> t
+  val create : Vle.t -> string -> ZProperty.t list -> bool -> t
   val sid : t -> Vle.t
   val query : t -> string
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
   val global : t -> bool
 end
 
@@ -312,42 +320,42 @@ module Scout :
 sig
   type body
   type t = body marked block
-  val create : Vle.t -> Properties.t -> t
+  val create : Vle.t -> ZProperty.t list -> t
   val mask : t -> Vle.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module Hello :
 sig
   type body
   type t = body marked block
-  val create : Vle.t -> Locators.t -> Properties.t -> t
+  val create : Vle.t -> Locators.t -> ZProperty.t list -> t
   val mask : t -> Vle.t
   val locators : t -> Locators.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module Open :
 sig
   type body
   type t = body marked block
-  val create : char -> IOBuf.t -> Vle.t -> Locators.t -> Properties.t -> t
+  val create : char -> IOBuf.t -> Vle.t -> Locators.t -> ZProperty.t list -> t
   val version : t -> char
   val pid : t -> IOBuf.t
   val lease : t -> Vle.t
   val locators : t -> Locators.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module Accept :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> IOBuf.t -> Vle.t -> Properties.t -> t
+  val create : IOBuf.t -> IOBuf.t -> Vle.t -> ZProperty.t list -> t
   val opid : t -> IOBuf.t
   val apid : t -> IOBuf.t
   val lease : t -> Vle.t
-  val properties : t -> Properties.t
+  val properties : t -> ZProperty.t list
 end
 
 module Close :

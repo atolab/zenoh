@@ -265,7 +265,7 @@ module ProtocolEngine = struct
 
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
 
-  let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease Properties.empty)
+  let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease [])
 
   let process_scout pe sid msg push =
     let%lwt pe = add_session pe sid push in 
@@ -300,7 +300,7 @@ module ProtocolEngine = struct
 
           let session = SIDMap.find m.session pe.smap in
           let oc = Session.out_channel session in
-          let ds = [Declaration.SubscriberDecl (SubscriberDecl.create m.id SubscriptionMode.push_mode Properties.empty)] in
+          let ds = [Declaration.SubscriberDecl (SubscriberDecl.create m.id SubscriptionMode.push_mode [])] in
           let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
           Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (SID.show session.sid));
           (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
@@ -343,7 +343,7 @@ module ProtocolEngine = struct
           let pr = with_mapping pr pm in
           let rmap = ResMap.add pr.name pr pe.rmap in
           let pe = {pe with rmap} in
-          Lwt.return (pe, [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode Properties.empty)])
+          Lwt.return (pe, [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode [])])
 
   let process_declaration pe (sid : SID.t) d =
     let open Declaration in

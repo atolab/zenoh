@@ -3,16 +3,18 @@ open Apero.Result
 open Apero.Result.Infix
 open Message
 open Frame
+open Pcodec
 (* open Pcodec *)
 
 
-let encode_properties ps =
-  if ps = Properties.empty then return 
-  else (encode_seq encode_property) ps 
+let encode_properties = function
+  | [] -> return 
+  | ps -> (encode_seq encode_property) ps 
+  
 
 let decode_properties h  buf =
-  if Flags.(hasFlag h pFlag) then ((decode_seq decode_property) buf) >>= fun (ps, buf) -> Ok (Properties.of_list ps, buf)
-  else return (Properties.empty, buf) 
+  if Flags.(hasFlag h pFlag) then ((decode_seq decode_property) buf) >>= fun (ps, buf) -> Ok (ps, buf)
+  else return ([], buf) 
 
 
 let make_res_decl rid resource ps = Declaration.ResourceDecl (ResourceDecl.create rid resource ps)
@@ -51,7 +53,7 @@ let encode_pub_decl d buf =
   >>= encode_vle id 
   >>= encode_properties (properties d)
 
-let make_temporal_properties origin period duration = TemporalProperties.create origin period duration
+let make_temporal_properties origin period duration = TemporalProperty.create origin period duration
 
 let decode_temporal_properties =
   read3_spec
@@ -62,7 +64,7 @@ let decode_temporal_properties =
     make_temporal_properties
   
 let encode_temporal_properties stp buf =
-  let open TemporalProperties in
+  let open TemporalProperty in
   match stp with
   | None -> return buf
   | Some tp ->

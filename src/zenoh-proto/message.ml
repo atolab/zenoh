@@ -1,5 +1,7 @@
 open Apero
 open Apero_net
+open Zproperty
+(* module ZProperty = Property.Make (Vle) (IOBuf) *)
 
 module PropertyId = struct
   let maxConduits = 2L
@@ -103,7 +105,7 @@ module SubscriptionModeId = struct
   let periodicPullModeId = char_of_int 0x04
 end
 
-module TemporalProperties = struct
+module TemporalProperty = struct
   type t = {
     origin : Vle.t;
     period : Vle.t;
@@ -121,8 +123,8 @@ module SubscriptionMode = struct
   type t =
     | PushMode
     | PullMode
-    | PeriodicPushMode of TemporalProperties.t
-    | PeriodicPullMode of TemporalProperties.t
+    | PeriodicPushMode of TemporalProperty.t
+    | PeriodicPullMode of TemporalProperty.t
 
   let push_mode = PushMode
   let pull_mode = PullMode
@@ -166,7 +168,7 @@ module ResourceDecl = struct
   type body = {
     rid : Vle.t;
     resource : string;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body block
 
@@ -184,7 +186,7 @@ end
 module PublisherDecl = struct
   type body = {
     rid : Vle.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body block
 
@@ -201,7 +203,7 @@ module SubscriberDecl = struct
   type body = {
     rid : Vle.t;
     mode : SubscriptionMode.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body block
 
@@ -219,7 +221,7 @@ module SelectionDecl = struct
   type body = {
     sid : Vle.t;
     query : string;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body block
 
@@ -457,7 +459,7 @@ let sn m = m.body.mbody.sn
 module Scout = struct
   type body = {
     mask : Vle.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body marked block
 
@@ -497,7 +499,7 @@ module Hello = struct
   type body = {
     mask : Vle.t;
     locators : Locators.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body marked block
 
@@ -543,7 +545,7 @@ module Open = struct
     pid : IOBuf.t;
     lease : Vle.t;
     locators : Locators.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body marked block
 
@@ -580,7 +582,7 @@ module Accept = struct
     opid : IOBuf.t;
     apid : IOBuf.t;
     lease : Vle.t;
-    properties : Properties.t;
+    properties : ZProperty.t list;
   }
   type t = body marked block
 

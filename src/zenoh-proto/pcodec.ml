@@ -1,3 +1,4 @@
+open Zproperty
 (* open Apero
 open Apero.Result
 
@@ -22,3 +23,33 @@ let decode_properties h buf =
     end
   else Result.return (Properties.empty, buf) 
  *)
+
+
+
+(*   
+let encode_properties ps =
+  if ps = Properties.empty then return 
+  else (encode_seq encode_property) ps 
+  
+let decode_properties = (decode_seq decode_property) 
+
+
+
+*)
+
+ 
+open Apero.Result
+open Apero.Result.Infix
+
+let decode_property buf =
+  Apero.decode_vle buf 
+  >>= (fun (id, buf) -> 
+      Apero.decode_bytes buf 
+      >>= (fun (data, buf) -> 
+      return (ZProperty.make id data, buf)))
+  
+  
+
+let encode_property (id, value) buf =  
+  Apero.encode_vle id buf
+  >>= Apero.encode_bytes value
