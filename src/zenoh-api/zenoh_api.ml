@@ -23,6 +23,9 @@ let remove_match res mrid =
 
 let with_sub sub res = 
   {res with subs = sub :: List.filter (fun s -> s != sub) res.subs}
+
+let remove_sub subid res = 
+  {res with subs = List.filter (fun s -> s.subid != subid) res.subs}
   
 
 type state = {
@@ -43,7 +46,7 @@ type t = {
   state : state Lwt_mvar.t;
 }
 
-type sub = {z:t; id:int;}
+type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
 
 
@@ -212,12 +215,29 @@ let publish resname z =
   Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
 
 
+let write buf resname z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let (sn, state) = get_next_sn state in
+  let%lwt _ = Lwt_mvar.put z.state state in
+  send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname buf))
+  >> Lwt.return_unit
+
+
 let stream buf pub = 
   let%lwt state = Lwt_mvar.take pub.z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = Lwt_mvar.put pub.z.state state in
   send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid None buf))
   >> Lwt.return_unit
+
+
+let unpublish pub z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let (sn, state) = get_next_sn state in
+  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ForgetPublisherDecl(ForgetPublisherDecl.create pub.resid)
+  ])) in 
+  Lwt_mvar.put z.state state 
   
 
 let subscribe resname listener z = 
@@ -245,5 +265,20 @@ let subscribe resname listener z =
   ])) in 
 
   let%lwt _ = Lwt_mvar.put z.state state in
-  Lwt.return {z=z; id=subid}
+  Lwt.return {z=z; id=subid; resid=res.rid}
 
+let unsubscribe (sub:sub) z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let state = match VleMap.find_opt sub.resid state.resmap with 
+  | None -> state 
+  | Some res -> 
+    let res = remove_sub sub.id res in 
+    let resmap = VleMap.add res.rid res state.resmap in 
+    {state with resmap} in
+  let (sn, state) = get_next_sn state in
+  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ForgetSubscriberDecl(ForgetSubscriberDecl.create sub.resid)
+  ])) in 
+  Lwt_mvar.put z.state state 
+
+  

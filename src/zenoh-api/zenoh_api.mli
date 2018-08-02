@@ -9,14 +9,14 @@ val zopen : string -> t Lwt.t
 
 val publish : string -> t -> pub Lwt.t
 
-(* val unpublish : pub -> t -> unit *)
+val unpublish : pub -> t -> unit Lwt.t
 
-(* val write : bytes -> string -> t -> unit *)
+val write : IOBuf.t -> string -> t -> unit Lwt.t
 
 val stream : IOBuf.t -> pub -> unit Lwt.t
 
 val subscribe : string -> listener -> t -> sub Lwt.t
 
-(* val unsubscriber : sub -> t -> unit *)
+val unsubscribe : sub -> t -> unit Lwt.t
 
 (* val terminate : t -> unit  *)
