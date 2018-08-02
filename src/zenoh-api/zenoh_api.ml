@@ -77,8 +77,8 @@ let add_resource resname state =
 
 
 let make_hello = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) Locators.empty [])
-let make_open = Message.Open (Open.create version pid lease Locators.empty Properties.empty)
-let make_accept opid = Message.Accept (Accept.create opid pid lease Properties.empty)
+let make_open = Message.Open (Open.create version pid lease Locators.empty [])
+let make_accept opid = Message.Accept (Accept.create opid pid lease [])
 
 let send_message sock msg =
   let open Result.Infix in
