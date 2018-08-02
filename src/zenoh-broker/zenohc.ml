@@ -2,7 +2,6 @@ open Lwt
 open Lwt.Infix
 open Zenoh
 open Apero
-open Property
 
 (* let () =
   (Lwt_log.append_rule "*" Lwt_log.Debug) *)
