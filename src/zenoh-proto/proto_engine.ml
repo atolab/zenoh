@@ -405,7 +405,7 @@ module ProtocolEngine = struct
 
   let process_ack_nack pe sid msg = Lwt.return (pe, [])
 
-  let forward_data pe srcres dstres dstmap reliable payload =
+  let forward_data_to_mapping pe srcres dstres dstmap reliable payload =
     let open Session in
     let open Resource in
     match SIDMap.find_opt dstmap.session pe.smap with
@@ -420,6 +420,22 @@ module ProtocolEngine = struct
         | true -> StreamData(StreamData.create (true, reliable) fsn dstmap.id None payload)
         | false -> WriteData(WriteData.create (true, reliable) fsn uri payload) in
       get_tx_push pe s.sid @@ Event.SessionMessage (Frame.create [msg], s.sid, None)
+
+  let forward_data pe sid srcres reliable payload = 
+    let open Resource in
+    let (_, ps) = List.fold_left (fun (sss, pss) name -> 
+      match ResMap.find_opt name pe.rmap with 
+      | None -> (sss, pss)
+      | Some r -> 
+        List.fold_left (fun (ss, ps) m ->
+          match m.sub && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+          | true -> 
+            let p = forward_data_to_mapping pe srcres r m reliable payload in
+            (m.session :: ss , p :: ps)
+          | false -> (ss, ps)
+        ) (sss, pss) r.mappings 
+    ) ([], []) srcres.matches in 
+    Lwt.join ps 
 
   let process_stream_data pe (sid : SID.t) msg =
     let open Resource in 
@@ -439,15 +455,7 @@ module ProtocolEngine = struct
         | Some res -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
                       (SID.show sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-          List.iter (fun name -> 
-            match ResMap.find_opt name pe.rmap with 
-            | None -> ()
-            | Some r -> 
-              List.iter (fun m ->
-                if m.sub && m.session != sid then
-                begin 
-                  Lwt.ignore_result @@ forward_data pe res r m (reliable msg) (StreamData.payload msg)
-                end) r.mappings ) res.matches;
+          Lwt.ignore_result @@ forward_data pe sid res (reliable msg) (StreamData.payload msg);
           Lwt.return (pe, [])
   
   let process pe (sid : SID.t) msg push =
