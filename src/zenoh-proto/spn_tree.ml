@@ -197,7 +197,7 @@ module Make_tree_set
       List.map (fun tree -> 
         if tree.local.tree_nb = node.tree_nb then Tree.update tree node else tree)
         tree_set in
-    let tree_set = match is_stable tree_set with
+    let tree_set = match is_stable tree_set && List.length tree_set < Conf.max_trees with
     | false -> tree_set
     | true -> match min_dist tree_set > Conf.max_dist with
       | false -> tree_set

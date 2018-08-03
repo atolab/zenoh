@@ -147,7 +147,7 @@ module Config = struct
   let local_id = hostid ^ Printf.sprintf "%08d" (Unix.getpid ())
   let local_prio = Unix.getpid ()
   let max_dist = 2
-  let max_trees = 5
+  let max_trees = 1
 end
 
 module Router = Router.Make(Config)
