@@ -375,9 +375,9 @@ module ProtocolEngine = struct
 
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
 
-  let make_open pe = Message.Open (Open.create (char_of_int 0) pe.pid 0L pe.locators Properties.empty)
+  let make_open pe = Message.Open (Open.create (char_of_int 0) pe.pid 0L pe.locators [])
 
-  let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease Properties.empty)
+  let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease [])
 
   let process_scout pe sid msg push =
     let%lwt pe = add_session pe sid push (Scout.mask msg) in 
@@ -608,15 +608,7 @@ module ProtocolEngine = struct
       | Some res -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
                     (SID.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-        List.iter (fun name -> 
-          match ResMap.find_opt name pe.rmap with 
-          | None -> ()
-          | Some r -> 
-            List.iter (fun m ->
-              if m.sub && m.session != session.sid then
-              begin 
-                Lwt.ignore_result @@ forward_data pe res r m (reliable msg) (StreamData.payload msg)
-              end) r.mappings ) res.matches;
+        Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (StreamData.payload msg);
         Lwt.return (pe, [])
 
   let process_broker_data (pe:t) session msg = 
