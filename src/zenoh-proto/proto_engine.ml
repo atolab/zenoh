@@ -99,8 +99,9 @@ module Session : sig
     ic : InChannel.t;
     oc : OutChannel.t;
     rmap : ResName.t VleMap.t;
+    mask : Vle.t;
   }
-  val create : SID.t -> Transport.Event.push -> t
+  val create : SID.t -> Transport.Event.push -> Vle.t -> t
   val in_channel : t -> InChannel.t
   val out_channel : t -> OutChannel.t
   val sid : t -> SID.t  
@@ -117,9 +118,10 @@ end = struct
     ic : InChannel.t;
     oc : OutChannel.t;
     rmap : ResName.t VleMap.t;
+    mask : Vle.t;
   }
 
-  let create sid txp =
+  let create sid txp mask =
     let ic = InChannel.create Int64.(shift_left 1L 16) in
     let oc = OutChannel.create Int64.(shift_left 1L 16) in        
     {
@@ -128,11 +130,28 @@ end = struct
       ic;
       oc;
       rmap = VleMap.empty; 
+      mask = mask;
     }
   let in_channel s = s.ic
   let out_channel s = s.oc
   let sid s = s.sid
 end
+
+let hostid = Unix.open_process_in "hostid" |> input_line
+
+module Config = struct
+  type nid_t = string
+  type prio_t = int
+  type dist_t = int
+
+  let local_id = hostid ^ Printf.sprintf "%08d" (Unix.getpid ())
+  let local_prio = Unix.getpid ()
+  let max_dist = 2
+  let max_trees = 1
+end
+
+module Router = Router.Make(Config)
+open Router 
 
 module ProtocolEngine = struct
 
@@ -145,7 +164,23 @@ module ProtocolEngine = struct
     evt_sink : Event.event Lwt_stream.t;
     evt_sink_push : Event.push;
     peers : Locator.t list;
+    router : Router.t;
+    next_mapping : Vle.t;
   }
+
+  let next_mapping pe = 
+    let next = pe.next_mapping in
+    ({pe with next_mapping = Vle.add next 1L}, next)
+
+  let send_nodes peer _nodes = 
+    List.iter (fun node -> 
+      let b = Marshal.to_bytes node [] in
+      let sdata = with_marker 
+        (StreamData(StreamData.create (true, true) 0L 0L None (IOBuf.from_bytes (Lwt_bytes.of_bytes b))))
+        (RSpace (RSpace.create 1L)) in 
+      Lwt.ignore_result @@ peer.push (Event.SessionMessage (Frame.create [sdata], peer.sid, None)) ) _nodes
+
+  let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
   let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) = 
     (* TODO Parametrize depth *)
@@ -159,15 +194,17 @@ module ProtocolEngine = struct
     rmap = ResMap.empty; 
     evt_sink;
     evt_sink_push;
-    peers }
+    peers;
+    router = Router.create send_nodes;
+    next_mapping = 0L; }
 
   let event_push pe = pe.evt_sink_push
 
   let get_tx_push pe sid =  (Option.get @@ SIDMap.find_opt sid pe.smap).tx_push
     
-  let add_session pe (sid : SID.t) tx_push =    
+  let add_session pe (sid : SID.t) tx_push mask =    
     let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (SID.show sid)) in
-    let s = Session.create sid tx_push in     
+    let s = Session.create sid tx_push mask in     
     let smap = SIDMap.add sid s pe.smap in 
     Lwt.return {pe with smap}
 
@@ -199,18 +236,19 @@ module ProtocolEngine = struct
     | None -> match_resource pe.rmap res
     | Some _ -> (pe.rmap, res) in
     let rmap = ResMap.add res.name res rmap in 
-    Lwt.return ({pe with rmap}, res)
+    ({pe with rmap}, res)
 
   let update_resource_mapping (pe:t) name session rid updater = 
     let open Resource in 
     let open Session in 
-    let%lwt (pe, res) = update_resource pe name 
+    Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (SID.show session.sid) (Vle.to_int rid));
+    let(pe, res) = update_resource pe name 
       (fun r -> match r with 
       | Some res -> update_mapping res session.sid updater
       | None -> {name; mappings=[updater None]; matches=[name]}) in
     let session = {session with rmap=VleMap.add rid res.name session.rmap;} in
     let smap = SIDMap.add session.sid session pe.smap in
-    Lwt.return ({pe with smap}, res)
+    ({pe with smap}, res)
 
   let declare_resource pe sid rd =
     let open Resource in
@@ -220,12 +258,45 @@ module ProtocolEngine = struct
     | Some session -> 
       let rid = ResourceDecl.rid rd in 
       let uri = ResourceDecl.resource rd in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Register resource %s" uri) in
-      let%lwt (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
+      let (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
         (fun m -> match m with 
           | Some mapping -> mapping
           | None -> {id = rid; session = session.sid; pub = false; sub = false; matched_pub = false}) in 
       Lwt.return pe
+
+  let forward_pubdecl_to_session pe res s = 
+    let open Resource in 
+    let oc = Session.out_channel s in
+    let (pe, ds) = match res.name with 
+      | ID id -> (
+        let pubdecl = Declaration.PublisherDecl (PublisherDecl.create id []) in
+        (pe, [pubdecl]))
+      | URI uri -> 
+        let (pe, rid) = next_mapping pe in 
+        let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
+        let pubdecl = Declaration.PublisherDecl (PublisherDecl.create rid []) in
+        let (pe, _) = update_resource_mapping pe res.name s rid 
+          (fun m -> match m with 
+            | Some mapping -> mapping
+            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false}) in 
+        (pe, [resdecl; pubdecl]) in
+    let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+    (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
+    (pe,  s.tx_push  (Event.SessionMessage (Frame.create [decl], s.sid, None)))
+
+  let forward_pubdecl_to_parents pe res = 
+    let open Router in
+    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+      (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
+    |> List.fold_left (fun x sid -> 
+       let (pe, ps) = x in
+       let s = Option.get @@ SIDMap.find_opt sid pe.smap in
+       let (pe, p) = forward_pubdecl_to_session pe res s in 
+       (pe, p :: ps)
+       ) (pe, []) in 
+    let%lwt _ = Lwt.join ps in
+    Lwt.return pe
 
   let declare_publication pe sid pd =
     let open Resource in 
@@ -238,11 +309,46 @@ module ProtocolEngine = struct
       let resname = match VleMap.find_opt rid session.rmap with 
       | Some name -> name
       | None -> ID(rid) in
-      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
+      let (pe, res) = update_resource_mapping pe resname session rid 
         (fun m -> match m with 
           | Some m -> {m with pub=true;} 
           | None -> {id = rid; session = sid; pub = true; sub = false; matched_pub = false}) in
+      let%lwt pe = forward_pubdecl_to_parents pe res in
       Lwt.return (pe, Some res)
+
+  let forward_subdecl_to_session pe res s = 
+    let open Resource in 
+    let oc = Session.out_channel s in
+    let (pe, ds) = match res.name with 
+      | ID id -> (
+        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode []) in
+        (pe, [subdecl]))
+      | URI uri -> 
+        let (pe, rid) = next_mapping pe in 
+        let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
+        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create rid SubscriptionMode.push_mode []) in
+        let (pe, _) = update_resource_mapping pe res.name s rid 
+          (fun m -> match m with 
+            | Some mapping -> mapping
+            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false}) in 
+        (pe, [resdecl; subdecl]) in
+    let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+    (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
+    (pe,  s.tx_push  (Event.SessionMessage (Frame.create [decl], s.sid, None)))
+
+  let forward_subdecl_to_parents pe res = 
+    let open Router in
+    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+      (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
+    |> List.fold_left (fun x sid -> 
+       let (pe, ps) = x in
+       let s = Option.get @@ SIDMap.find_opt sid pe.smap in
+       let (pe, p) = forward_subdecl_to_session pe res s in 
+       (pe, p :: ps)
+       ) (pe, []) in 
+    let%lwt _ = Lwt.join ps in
+    Lwt.return pe
 
   let declare_subscription pe sid sd =
     let open Resource in 
@@ -255,26 +361,63 @@ module ProtocolEngine = struct
       let resname = match VleMap.find_opt rid session.rmap with 
       | Some name -> name
       | None -> ID(rid) in
-      let%lwt (pe, res) = update_resource_mapping pe resname session rid 
-        (fun m -> match m with 
+      let (pe, res) = update_resource_mapping pe resname session rid 
+        (fun m -> 
+          match m with 
           | Some m -> {m with sub=true;} 
           | None -> {id = rid; session = sid; pub = false; sub = true; matched_pub = false}) in
+      let%lwt pe = forward_subdecl_to_parents pe res in
       Lwt.return (pe, Some res)
+
+  let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
 
   let make_scout = Message.Scout (Scout.create (Vle.of_char ScoutFlags.scoutBroker) [])
 
   let make_hello pe = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) pe.locators [])
 
+  let make_open pe = Message.Open (Open.create (char_of_int 0) pe.pid 0L pe.locators [])
+
   let make_accept pe opid = Message.Accept (Accept.create opid pe.pid pe.lease [])
 
   let process_scout pe sid msg push =
-    let%lwt pe = add_session pe sid push in 
-    if Vle.logand (Scout.mask msg) (Vle.of_char ScoutFlags.scoutBroker) <> 0L then Lwt.return (pe, [make_hello pe])
-    else Lwt.return (pe, [])
+    let%lwt pe = add_session pe sid push (Scout.mask msg) in 
+    Lwt.return (pe, [make_hello pe])
+
+  let process_hello pe sid msg push =
+    let%lwt pe = add_session pe sid push (Hello.mask msg) in 
+    match Vle.logand (Hello.mask msg) (Vle.of_char ScoutFlags.scoutBroker) <> 0L with 
+    | false -> (Lwt.return (pe, []))
+    | true -> (
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Try to open ZENOH session with broker on transport session: %s\n" (SID.show sid)) in
+      Lwt.return (pe, [make_open pe]))
 
   let process_open pe s msg push =
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (IOBuf.to_string @@ Open.pid msg)) in
-    let%lwt pe = add_session pe s push in Lwt.return (pe, [make_accept pe (Open.pid msg)])
+    match SIDMap.find_opt s pe.smap with
+    | None -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Open.pid msg)) in
+      let%lwt pe = add_session pe s push Vle.zero in Lwt.return (pe, [make_accept pe (Open.pid msg)])
+    | Some session -> match Vle.logand session.mask (Vle.of_char ScoutFlags.scoutBroker) <> 0L with 
+      | false -> (
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Open.pid msg)) in
+        Lwt.return (pe, [make_accept pe (Open.pid msg)]))
+      | true -> (
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Open.pid msg)) in
+        let pe = {pe with router = Router.new_node pe.router {pid = pid_to_string @@ Open.pid msg; sid = session.sid; push = push}} in
+        Lwt.return (pe, [make_accept pe (Open.pid msg)]))
+
+  let process_accept pe s msg push =
+    match SIDMap.find_opt s pe.smap with
+    | None -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from unscouted remote peer: %s\n" (pid_to_string @@ Accept.apid msg)) in
+      let%lwt pe = add_session pe s push Vle.zero in Lwt.return (pe, [])
+    | Some session -> match Vle.logand session.mask (Vle.of_char ScoutFlags.scoutBroker) <> 0L with 
+      | false -> (
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote peer: %s\n" (pid_to_string @@ Accept.apid msg)) in
+        Lwt.return (pe, []))
+      | true -> (
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Accept.apid msg)) in
+        let pe = {pe with router = Router.new_node pe.router {pid = pid_to_string @@ Accept.apid msg; sid = session.sid; push = push}} in
+        Lwt.return (pe, []))
 
   let make_result pe s cd =
     let open Declaration in
@@ -330,6 +473,7 @@ module ProtocolEngine = struct
     match pr with 
     | None -> Lwt.return (pe, [])
     | Some pr -> 
+      let%lwt _ = notify_pub_matching_res pe sid pr in
       let pm = List.find (fun m -> m.session = sid) pr.mappings in
       match pm.matched_pub with 
       | true -> Lwt.return (pe, [])
@@ -366,10 +510,17 @@ module ProtocolEngine = struct
       Lwt.return (pe, [])
 
   let process_declarations pe (sid : SID.t) ds =  
-    List.fold_left (fun x d -> 
+    let open Declaration in
+    (* Must process ResourceDecls first *)
+    List.sort (fun x y -> match (x, y) with 
+      | (ResourceDecl _, ResourceDecl _) -> 0
+      | (ResourceDecl _, _) -> -1
+      | (_, ResourceDecl _) -> 1
+      | (_, _) -> 0) ds
+    |> List.fold_left (fun x d -> 
       let%lwt (pe, ds) = x in
       let%lwt (pe, decl) = process_declaration pe sid d in 
-      Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) ds
+      Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) 
 
   let process_declare pe (sid : SID.t) msg =
     let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
@@ -420,6 +571,12 @@ module ProtocolEngine = struct
         | true -> StreamData(StreamData.create (true, reliable) fsn dstmap.id None payload)
         | false -> WriteData(WriteData.create (true, reliable) fsn uri payload) in
       get_tx_push pe s.sid @@ Event.SessionMessage (Frame.create [msg], s.sid, None)
+  
+  let rspace msg = 
+    List.fold_left (fun res marker -> 
+      match marker with 
+      | RSpace rs -> RSpace.id rs 
+      | _ -> res) 0L (markers msg)
 
   let forward_data pe sid srcres reliable payload = 
     let open Resource in
@@ -437,33 +594,51 @@ module ProtocolEngine = struct
     ) ([], []) srcres.matches in 
     Lwt.join ps 
 
-  let process_stream_data pe (sid : SID.t) msg =
+  let process_user_data (pe:t) session msg =
     let open Resource in 
+    let open Session in 
     let rid = StreamData.id msg in
+    match VleMap.find_opt rid session.rmap with 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %Ld on session %s: Ignore it!" 
+                          rid (SID.show session.sid)) in Lwt.return (pe, [])
+    | Some name -> 
+      match ResMap.find_opt name pe.rmap with 
+      | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+                          (ResName.to_string name) (SID.show session.sid)) in Lwt.return (pe, [])
+      | Some res -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
+                    (SID.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+        Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (StreamData.payload msg);
+        Lwt.return (pe, [])
+
+  let process_broker_data (pe:t) session msg = 
+    let open Session in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Received tree state on %s\n" (SID.show session.sid)) in
+    let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ StreamData.payload msg in 
+    let node = Marshal.from_bytes b 0 in
+    let pe = {pe with router = Router.update pe.router node} in
+    Router.print pe.router; 
+    Lwt.return (pe, []) 
+
+  let process_stream_data pe sid msg =
+    let open Resource in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
                           (SID.show sid)) in Lwt.return (pe, [])
     | Some session -> 
-      match VleMap.find_opt rid session.rmap with 
-      | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %Ld on session %s: Ignore it!" 
-                            rid (SID.show sid)) in Lwt.return (pe, [])
-      | Some name -> 
-        match ResMap.find_opt name pe.rmap with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
-                            (ResName.to_string name) (SID.show sid)) in Lwt.return (pe, [])
-        | Some res -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
-                      (SID.show sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-          Lwt.ignore_result @@ forward_data pe sid res (reliable msg) (StreamData.payload msg);
-          Lwt.return (pe, [])
+      Logs.debug (fun m -> m "RSPACE %d "  (Vle.to_int (rspace (StreamData(msg)))));
+      match rspace (StreamData(msg)) with 
+      | 1L -> process_broker_data pe session msg
+      | _ -> process_user_data pe session msg
   
   let process pe (sid : SID.t) msg push =
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message: %s" (Message.to_string msg)) in
     let%lwt (pe, rs) = match msg with
     | Message.Scout msg -> process_scout pe sid msg push
-    | Message.Hello _ -> Lwt.return (pe, [])
+    | Message.Hello msg -> process_hello pe sid msg push
     | Message.Open msg -> process_open pe sid msg push
+    | Message.Accept msg -> process_accept pe sid msg push
     | Message.Close msg -> 
       let%lwt _ = remove_session pe sid in 
       Lwt.return (pe, [Message.Close (Close.create pe.pid '0')])
