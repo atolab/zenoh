@@ -137,7 +137,11 @@ end = struct
   let sid s = s.sid
 end
 
-let hostid = Unix.open_process_in "hostid" |> input_line
+let rec hash = function 
+  | "" -> 0
+  | s -> (31 * (hash (String.sub s 1 ((String.length s) - 1))) + int_of_char s.[0]) mod 4294967295
+
+let hostid = Printf.sprintf "%08X" @@ hash @@ Unix.gethostname ()
 
 module Config = struct
   type nid_t = string

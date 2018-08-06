@@ -6,8 +6,6 @@ open Apero
 open Proto_engine
 open Cmdliner
 
-let hostid = Unix.open_process_in "hostid" |> input_line
-
 let pid  = IOBuf.flip @@ 
            Result.get @@ IOBuf.put_string (Printf.sprintf "%08d" (Unix.getpid ())) @@
            Result.get @@ IOBuf.put_string hostid @@
