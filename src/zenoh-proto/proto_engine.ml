@@ -602,18 +602,17 @@ module ProtocolEngine = struct
     let open Resource in 
     let open Session in 
     let rid = StreamData.id msg in
-    match VleMap.find_opt rid session.rmap with 
-    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %Ld on session %s: Ignore it!" 
-                          rid (SID.show session.sid)) in Lwt.return (pe, [])
-    | Some name -> 
-      match ResMap.find_opt name pe.rmap with 
-      | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
-                          (ResName.to_string name) (SID.show session.sid)) in Lwt.return (pe, [])
-      | Some res -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
-                    (SID.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-        Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (StreamData.payload msg);
-        Lwt.return (pe, [])
+    let name = match VleMap.find_opt rid session.rmap with 
+    | None -> ResName.ID(rid)
+    | Some name -> name in 
+    match ResMap.find_opt name pe.rmap with 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+                        (ResName.to_string name) (SID.show session.sid)) in Lwt.return (pe, [])
+    | Some res -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
+                  (SID.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+      Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (StreamData.payload msg);
+      Lwt.return (pe, [])
 
   let process_broker_data (pe:t) session msg = 
     let open Session in
