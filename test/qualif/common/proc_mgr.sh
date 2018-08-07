@@ -1,7 +1,7 @@
 proc_pid=""
 proc_in=""
 proc_log=""
-lastproc=2
+lastproc=10
 
 runproc()
 {
@@ -27,7 +27,7 @@ cleanproc()
 
 cleanall()
 {
-  for i in $(seq 3 $lastproc)
+  for i in $(seq 11 $lastproc)
   do
     cleanproc $i
   done

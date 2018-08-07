@@ -6,7 +6,7 @@ mkdir $outdir
 
 . ../../common/proc_mgr.sh
 
-echo "==== Run test $filename ===="
+echo "-------- START test $filename"
 
 runproc zenohd zenohd.exe
 zenohd=$?
@@ -58,28 +58,42 @@ cleanall
 if [ `cat ${proc_log[$sub1]} | grep MSG_RES1 | wc -l` -eq 0 ]
 then
   echo "[ERROR] zenohc_sub1 didn't receive MSG_RES1"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 elif [ `cat ${proc_log[$sub1]} | grep MSG_RES2 | wc -l` -eq 0  ]
   then
   echo "[ERROR] zenohc_sub1 didn't receive MSG_RES2"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 elif [ `cat ${proc_log[$sub1]} | grep MSG_SUB2 | wc -l` -gt 0  ]
 then
   echo "[ERROR] zenohc_sub1 received MSG_SUB2"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 elif [ `cat ${proc_log[$sub2]} | grep MSG_SUB2 | wc -l` -eq 0  ]
 then
   echo "[ERROR] zenohc_sub2 didn't receive MSG_SUB2"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 elif [ `cat ${proc_log[$sub2]} | grep MSG_RES1 | wc -l` -gt 0  ]
 then
   echo "[ERROR] zenohc_sub2 received MSG_RES1"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 elif [ `cat ${proc_log[$sub2]} | grep MSG_RES2 | wc -l` -gt 0  ]
 then
   echo "[ERROR] zenohc_sub2 received MSG_RES2"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 else
   echo "[OK]"
+  echo "-------- END test $filename"
+  echo ""
   exit 0
 fi

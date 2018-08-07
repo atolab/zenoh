@@ -6,7 +6,7 @@ mkdir $outdir
 
 . ../../common/proc_mgr.sh
 
-echo "==== Run test $filename ===="
+echo "-------- START test $filename"
 
 runproc zenohd zenohd.exe
 zenohd=$?
@@ -37,8 +37,12 @@ cleanall
 if [ `cat ${proc_log[$sub]} | grep MSG | wc -l` -gt 0 ]
 then 
   echo "[OK]"
+  echo "-------- END test $filename"
+  echo ""
   exit 0
 else
   echo "[ERROR] sub didn't receive MSG"
+  echo "-------- END test $filename"
+  echo ""
   exit -1
 fi
