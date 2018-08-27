@@ -477,7 +477,6 @@ module ProtocolEngine = struct
     match pr with 
     | None -> Lwt.return (pe, [])
     | Some pr -> 
-      let%lwt _ = notify_pub_matching_res pe sid pr in
       let pm = List.find (fun m -> m.session = sid) pr.mappings in
       match pm.matched_pub with 
       | true -> Lwt.return (pe, [])
@@ -487,6 +486,7 @@ module ProtocolEngine = struct
             (fun m -> m.sub && m.session != sid) sr.mappings) pe.rmap with
         | false -> Lwt.return (pe, [])
         | true -> 
+          let%lwt _ = notify_pub_matching_res pe sid pr in
           let pm = {pm with matched_pub = true} in
           let pr = with_mapping pr pm in
           let rmap = ResMap.add pr.name pr pe.rmap in
