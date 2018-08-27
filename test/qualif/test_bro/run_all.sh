@@ -13,9 +13,6 @@ echo "====== START bro tests"
 ./test_bro_50b_1/test_bro_50b_1.sh && \
 ./test_bro_50b_2/test_bro_50b_2.sh
 
-
-retcode=$?
-
 if [ $? -eq 0 ]
 then
     echo "[OK]"
