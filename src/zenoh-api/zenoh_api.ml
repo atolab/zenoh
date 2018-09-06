@@ -196,20 +196,11 @@ let publish resname z =
   let (res, state) = add_resource resname state in
   let (pubid, state) = get_next_pubsub_id state in
 
-  (* zenohd does not support that yet *)
-  (* let _ = send_message e.sock (Message.Declare(Declare.create (true, false) 1L [
-    ResourceDecl(ResourceDecl.create 1L res []);
-    PublisherDecl(PublisherDecl.create 1L [])
-  ])) in  *)
-
   let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
-    ResourceDecl(ResourceDecl.create res.rid res.name [])
-  ])) in 
-  let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+  let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ResourceDecl(ResourceDecl.create res.rid res.name []);
     PublisherDecl(PublisherDecl.create res.rid [])
-  ])) in
+  ])) in 
 
   let%lwt _ = Lwt_mvar.put z.state state in
   Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
@@ -249,18 +240,9 @@ let subscribe resname listener z =
   let resmap = VleMap.add res.rid res state.resmap in 
   let state = {state with resmap} in
 
-  (* zenohd does not support that yet *)
-  (* let _ = send_message e.sock (Message.Declare(Declare.create (true, false) 1L [
-    ResourceDecl(ResourceDecl.create 1L res []);
-    SubscriberDecl(SubscriberDecl.create 1L SubscriptionMode.pull_mode [])
-  ])) in  *)
-
   let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
-    ResourceDecl(ResourceDecl.create res.rid res.name [])
-  ])) in 
-  let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+  let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ResourceDecl(ResourceDecl.create res.rid res.name []);
     SubscriberDecl(SubscriberDecl.create res.rid SubscriptionMode.pull_mode [])
   ])) in 
 
