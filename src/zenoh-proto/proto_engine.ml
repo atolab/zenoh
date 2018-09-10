@@ -70,6 +70,7 @@ module Resource = struct
     name : ResName.t;
     mappings : mapping list;
     matches : ResName.t list;
+    local_id : Vle.t;
   }
 
   let with_mapping res mapping = 
@@ -247,10 +248,13 @@ module ProtocolEngine = struct
     let open Resource in 
     let open Session in 
     Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (SID.show session.sid) (Vle.to_int rid));
+    let (pe, local_id) = match name with 
+    | URI _ -> next_mapping pe
+    | ID id -> (pe, id) in
     let(pe, res) = update_resource pe name 
       (fun r -> match r with 
       | Some res -> update_mapping res session.sid updater
-      | None -> {name; mappings=[updater None]; matches=[name]}) in
+      | None -> {name; mappings=[updater None]; matches=[name]; local_id}) in
     let session = {session with rmap=VleMap.add rid res.name session.rmap;} in
     let smap = SIDMap.add session.sid session pe.smap in
     ({pe with smap}, res)
@@ -352,13 +356,12 @@ module ProtocolEngine = struct
         let pubdecl = Declaration.PublisherDecl (PublisherDecl.create id []) in
         (pe, [pubdecl]))
       | URI uri -> 
-        let (pe, rid) = next_mapping pe in 
-        let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
-        let pubdecl = Declaration.PublisherDecl (PublisherDecl.create rid []) in
-        let (pe, _) = update_resource_mapping pe res.name s rid 
+        let resdecl = Declaration.ResourceDecl (ResourceDecl.create res.local_id uri []) in
+        let pubdecl = Declaration.PublisherDecl (PublisherDecl.create res.local_id []) in
+        let (pe, _) = update_resource_mapping pe res.name s res.local_id 
           (fun m -> match m with 
             | Some mapping -> mapping
-            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false; matched_sub=false}) in 
+            | None -> {id = res.local_id; session = s.sid; pub = false; sub = false; matched_pub = false; matched_sub=false}) in 
         (pe, [resdecl; pubdecl]) in
     let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
     (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
@@ -415,13 +418,12 @@ module ProtocolEngine = struct
         let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode []) in
         (pe, [subdecl]))
       | URI uri -> 
-        let (pe, rid) = next_mapping pe in 
-        let resdecl = Declaration.ResourceDecl (ResourceDecl.create rid uri []) in
-        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create rid SubscriptionMode.push_mode []) in
-        let (pe, _) = update_resource_mapping pe res.name s rid 
+        let resdecl = Declaration.ResourceDecl (ResourceDecl.create res.local_id uri []) in
+        let subdecl = Declaration.SubscriberDecl (SubscriberDecl.create res.local_id SubscriptionMode.push_mode []) in
+        let (pe, _) = update_resource_mapping pe res.name s res.local_id 
           (fun m -> match m with 
             | Some mapping -> mapping
-            | None -> {id = rid; session = s.sid; pub = false; sub = false; matched_pub = false; matched_sub=false}) in 
+            | None -> {id = res.local_id; session = s.sid; pub = false; sub = false; matched_pub = false; matched_sub=false}) in 
         (pe, [resdecl; subdecl]) in
     let decl = Message.Declare (Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
     (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
