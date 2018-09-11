@@ -569,18 +569,19 @@ module ProtocolEngine = struct
 
   let process_ack_nack pe sid msg = Lwt.return (pe, [])
 
-  let forward_data_to_mapping pe srcres dstres dstmap reliable payload =
+  let forward_data_to_mapping pe srcresname dstres dstmap reliable payload =
     let open Session in
     let open Resource in
+    let open ResName in
     match SIDMap.find_opt dstmap.session pe.smap with
     | None -> Lwt.return_unit
     | Some s ->
       let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data to session %s" (SID.show s.sid)) in
       let oc = Session.out_channel s in
       let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
-      let msg = match srcres.name with 
+      let msg = match srcresname with 
       | ID id -> StreamData(StreamData.create (true, reliable) fsn id None payload)
-      | URI uri -> match srcres.name = dstres.name with 
+      | URI uri -> match srcresname = dstres.name with 
         | true -> StreamData(StreamData.create (true, reliable) fsn dstmap.id None payload)
         | false -> WriteData(WriteData.create (true, reliable) fsn uri payload) in
       get_tx_push pe s.sid @@ Event.SessionMessage (Frame.create [msg], s.sid, None)
@@ -600,14 +601,30 @@ module ProtocolEngine = struct
         List.fold_left (fun (ss, ps) m ->
           match m.sub && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
           | true -> 
-            let p = forward_data_to_mapping pe srcres r m reliable payload in
+            let p = forward_data_to_mapping pe srcres.name r m reliable payload in
             (m.session :: ss , p :: ps)
           | false -> (ss, ps)
         ) (sss, pss) r.mappings 
     ) ([], []) srcres.matches in 
     Lwt.join ps 
 
-  let process_user_data (pe:t) session msg =
+  let forward_oneshot_data pe sid srcresname reliable payload = 
+    let open Resource in
+    let (_, ps) = ResMap.fold (fun _ res (sss, pss) -> 
+      match ResName.name_match srcresname res.name with 
+      | false -> (sss, pss)
+      | true -> 
+        List.fold_left (fun (ss, ps) m ->
+          match m.sub && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+          | true -> 
+            let p = forward_data_to_mapping pe srcresname res m reliable payload in
+            (m.session :: ss , p :: ps)
+          | false -> (ss, ps)
+        ) (sss, pss) res.mappings 
+    ) pe.rmap ([], []) in
+    Lwt.join ps 
+
+  let process_user_streamdata (pe:t) session msg =
     let open Resource in 
     let open Session in 
     let rid = StreamData.id msg in
@@ -621,6 +638,19 @@ module ProtocolEngine = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
                   (SID.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
       Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (StreamData.payload msg);
+      Lwt.return (pe, [])
+
+  let process_user_writedata (pe:t) session msg =
+    let open Resource in 
+    let open Session in 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Handling WriteData Message for resource: (%s)" (WriteData.resource msg)) in
+    let name = ResName.URI(WriteData.resource msg) in
+    match ResMap.find_opt name pe.rmap with 
+    | None -> 
+      Lwt.ignore_result @@ forward_oneshot_data pe session.sid name (reliable msg) (WriteData.payload msg);
+      Lwt.return (pe, [])
+    | Some res -> 
+      Lwt.ignore_result @@ forward_data pe session.sid res (reliable msg) (WriteData.payload msg);
       Lwt.return (pe, [])
 
   let process_broker_data (pe:t) session msg = 
@@ -639,10 +669,20 @@ module ProtocolEngine = struct
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
                           (SID.show sid)) in Lwt.return (pe, [])
     | Some session -> 
-      Logs.debug (fun m -> m "RSPACE %d "  (Vle.to_int (rspace (StreamData(msg)))));
       match rspace (StreamData(msg)) with 
       | 1L -> process_broker_data pe session msg
-      | _ -> process_user_data pe session msg
+      | _ -> process_user_streamdata pe session msg
+
+  let process_write_data pe sid msg =
+    let open Resource in 
+    let session = SIDMap.find_opt sid pe.smap in 
+    match session with 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received WriteData on unknown session %s: Ignore it!" 
+                          (SID.show sid)) in Lwt.return (pe, [])
+    | Some session -> 
+      match rspace (WriteData(msg)) with 
+      | 1L -> Lwt.return (pe, []) 
+      | _ -> process_user_writedata pe session msg
   
   let process pe (sid : SID.t) msg push =
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message: %s" (Message.to_string msg)) in
@@ -658,6 +698,7 @@ module ProtocolEngine = struct
     | Message.Synch msg -> process_synch pe sid msg
     | Message.AckNack msg -> process_ack_nack pe sid msg
     | Message.StreamData msg -> process_stream_data pe sid msg
+    | Message.WriteData msg -> process_write_data pe sid msg
     | Message.KeepAlive msg -> Lwt.return (pe, [])
     | _ -> Lwt.return (pe, [])
     in 
