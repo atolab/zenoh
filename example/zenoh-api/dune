@@ -1,0 +1,11 @@
+(executable
+  (name       sub)
+  (modules    sub)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(executable
+  (name       pub)
+  (modules    pub)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

@@ -1,9 +1,0 @@
-(jbuild_version 1)
-
-(library
- ((name            zenoh_api)
-  (public_name     zenoh-api)
-  (wrapped         false)
-  (libraries       (apero-core apero-net zenoh-proto lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord str))
-  (preprocess
-    (pps (ppx_deriving.show ppx_deriving.ord lwt_ppx)))))

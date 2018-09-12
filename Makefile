@@ -1,16 +1,16 @@
 .PHONY: all clean test doc
 
-BUILD_LIB=jbuilder build #--dev
-BUILD_BROKER=jbuilder build src/zenoh-broker/zenohd.exe
-BUILD_CLIENT=jbuilder build src/zenoh-broker/zenohc.exe
-BUILD_API_EXAMPLE_SUB=jbuilder build example/zenoh-api/sub.exe
-BUILD_API_EXAMPLE_PUB=jbuilder build example/zenoh-api/pub.exe
-BUILD_ROUNDTRIP_PING=jbuilder build example/roundtrip/roundtrip_ping.exe
-BUILD_ROUNDTRIP_PONG=jbuilder build example/roundtrip/roundtrip_pong.exe
-CLEAN= jbuilder clean
-TEST=jbuilder runtest -j1 --no-buffer #--dev
-DOC=jbuilder build --dev @doc
-INSTALL=jbuilder install
+BUILD_LIB=dune build --profile=release
+BUILD_BROKER=dune build src/zenoh-broker/zenohd.exe --profile=release
+BUILD_CLIENT=dune build src/zenoh-broker/zenohc.exe --profile=release
+BUILD_API_EXAMPLE_SUB=dune build example/zenoh-api/sub.exe --profile=release
+BUILD_API_EXAMPLE_PUB=dune build example/zenoh-api/pub.exe --profile=release
+BUILD_ROUNDTRIP_PING=dune build example/roundtrip/roundtrip_ping.exe --profile=release
+BUILD_ROUNDTRIP_PONG=dune build example/roundtrip/roundtrip_pong.exe --profile=release
+CLEAN= dune clean
+TEST=dune runtest -j1 --no-buffer
+DOC=dune build --dev @doc
+INSTALL=dune install
 
 all:
 		${BUILD_LIB}

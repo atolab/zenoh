@@ -1,0 +1,11 @@
+(executable
+  (name       roundtrip_ping)
+  (modules    roundtrip_ping times)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(executable
+  (name       roundtrip_pong)
+  (modules    roundtrip_pong)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
