@@ -1,5 +1,4 @@
 open Frame
-open Lwt
 open Locator
 
 module ZId = Id
@@ -44,8 +43,7 @@ module Transport : sig
     and  push = event -> unit Lwt.t
   end
   
-  module type S = sig       
-    val info : Info.t
+  module type S = sig
     val start : Event.push ->  unit Lwt.t
     val stop : unit -> unit Lwt.t
     val info : Info.t      

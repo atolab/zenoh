@@ -2,9 +2,9 @@ open Apero
 open Apero_net
 open Transport
 open Channel
-open Printf
 open Frame
 open Message
+open Message.Reliable
 
 module SID = Transport.Session.Id
 module Event = Transport.Event
@@ -108,11 +108,11 @@ module Session : sig
   val out_channel : t -> OutChannel.t
   val sid : t -> SID.t  
 end = struct
-  type sessionRes = {
+  (* type sessionRes = {
     uri : string;
     id : Vle.t;
     session : SID.t;
-  }
+  } *)
 
   type t = {    
     sid : SID.t;   
@@ -181,7 +181,7 @@ module ProtocolEngine = struct
   let send_nodes peer _nodes = 
     List.iter (fun node -> 
       let b = Marshal.to_bytes node [] in
-      let sdata = with_marker 
+      let sdata = Message.with_marker 
         (StreamData(StreamData.create (true, true) 0L 0L None (IOBuf.from_bytes (Lwt_bytes.of_bytes b))))
         (RSpace (RSpace.create 1L)) in 
       Lwt.ignore_result @@ peer.push (Event.SessionMessage (Frame.create [sdata], peer.sid, None)) ) _nodes
@@ -323,8 +323,7 @@ module ProtocolEngine = struct
         let pe = {pe with router = Router.new_node pe.router {pid = pid_to_string @@ Accept.apid msg; sid = session.sid; push = push}} in
         Lwt.return (pe, []))
 
-  let make_result pe s cd =
-    let open Declaration in
+  let make_result pe _ cd =
     let%lwt _ =  Logs_lwt.debug (fun m -> m  "Crafting Declaration Result") in
     Lwt.return (pe, [Declaration.ResultDecl (ResultDecl.create (CommitDecl.commit_id cd) (char_of_int 0) None)])
 
@@ -399,7 +398,6 @@ module ProtocolEngine = struct
         Lwt.return (pe, [Declaration.SubscriberDecl (SubscriberDecl.create id SubscriptionMode.push_mode [])])
 
   let process_pdecl pe (sid : SID.t) pd =
-    let open Resource in 
     let%lwt (pe, pr) = register_publication pe sid pd in
     match pr with 
     | None -> Lwt.return (pe, [])
@@ -491,7 +489,6 @@ module ProtocolEngine = struct
     Lwt.return pe
 
   let process_sdecl pe (sid : SID.t) sd =
-    let open Resource in
     let%lwt (pe, res) = register_subscription pe sid sd in
     match res with 
     | None -> Lwt.return (pe, [])
@@ -563,11 +560,11 @@ module ProtocolEngine = struct
         end
       | None -> Lwt.return (pe, [])
 
-  let process_synch pe (sid : SID.t) msg =
+  let process_synch pe _ msg =
     let asn = Synch.sn msg in
     Lwt.return (pe, [Message.AckNack (AckNack.create asn None)])
 
-  let process_ack_nack pe sid msg = Lwt.return (pe, [])
+  let process_ack_nack pe _ _ = Lwt.return (pe, [])
 
   let forward_data_to_mapping pe srcresname dstres dstmap reliable payload =
     let open Session in
@@ -641,7 +638,6 @@ module ProtocolEngine = struct
       Lwt.return (pe, [])
 
   let process_user_writedata (pe:t) session msg =
-    let open Resource in 
     let open Session in 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Handling WriteData Message for resource: (%s)" (WriteData.resource msg)) in
     let name = ResName.URI(WriteData.resource msg) in
@@ -663,7 +659,6 @@ module ProtocolEngine = struct
     Lwt.return (pe, []) 
 
   let process_stream_data pe sid msg =
-    let open Resource in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
@@ -674,7 +669,6 @@ module ProtocolEngine = struct
       | _ -> process_user_streamdata pe session msg
 
   let process_write_data pe sid msg =
-    let open Resource in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received WriteData on unknown session %s: Ignore it!" 
@@ -691,7 +685,7 @@ module ProtocolEngine = struct
     | Message.Hello msg -> process_hello pe sid msg push
     | Message.Open msg -> process_open pe sid msg push
     | Message.Accept msg -> process_accept pe sid msg push
-    | Message.Close msg -> 
+    | Message.Close _ -> 
       let%lwt _ = remove_session pe sid in 
       Lwt.return (pe, [Message.Close (Close.create pe.pid '0')])
     | Message.Declare msg -> process_declare pe sid msg
@@ -699,7 +693,7 @@ module ProtocolEngine = struct
     | Message.AckNack msg -> process_ack_nack pe sid msg
     | Message.StreamData msg -> process_stream_data pe sid msg
     | Message.WriteData msg -> process_write_data pe sid msg
-    | Message.KeepAlive msg -> Lwt.return (pe, [])
+    | Message.KeepAlive _ -> Lwt.return (pe, [])
     | _ -> Lwt.return (pe, [])
     in 
     match rs with 
@@ -716,13 +710,12 @@ module ProtocolEngine = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "Connected to %s (sid = %s)" (Locator.to_string peer) (SID.show sid)) in 
         let%lwt _ = push (Event.SessionMessage (Frame.create [make_scout], sid, None)) in 
         Lwt.return_unit))
-      (fun ex -> 
+      (fun _ -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
         let%lwt _ = Lwt_unix.sleep 2.0 in 
         connect_peer peer tx)
 
   let connect_peers peers tx = 
-    let open Lwt in
     let module TxTcp = (val tx : Transport.S) in 
     Lwt_list.iter_p (fun p -> connect_peer p tx) peers
 

@@ -147,7 +147,10 @@ sig
 end
 
 type 'a block
-val header : 'a block -> char
+module Block : 
+sig
+  val header : 'a block -> char
+end
 
 module ResourceDecl :
 sig
@@ -305,16 +308,21 @@ type marker =
   | RSpace of RSpace.t
 
 type 'a marked
-val markers : 'a marked block -> marker list
-val with_marker : 'a marked block -> marker -> 'a marked block
-val with_markers : 'a marked block -> marker list -> 'a marked block
-val remove_markers : 'a marked block -> 'a marked block
-
+module Marked : 
+sig
+  val markers : 'a marked block -> marker list
+  val with_marker : 'a marked block -> marker -> 'a marked block
+  val with_markers : 'a marked block -> marker list -> 'a marked block
+  val remove_markers : 'a marked block -> 'a marked block
+end
 
 type 'a reliable
-val reliable : 'a reliable marked block -> bool
-val synch : 'a reliable marked block -> bool
-val sn : 'a reliable marked block -> Vle.t
+module Reliable : 
+sig
+  val reliable : 'a reliable marked block -> bool
+  val synch : 'a reliable marked block -> bool
+  val sn : 'a reliable marked block -> Vle.t
+end
 
 module Scout :
 sig

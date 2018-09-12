@@ -155,7 +155,11 @@ module Header = struct
 end
 
 type 'a block = {body : 'a; header : char}
-let header msg = msg.header
+module Block = struct
+  let header msg = msg.header
+end
+
+open Block
 
 (** TODO: 
     - Add flag global flag G to Resource/Pub/Sub Declarations to indicate a global resource ID  
@@ -425,16 +429,21 @@ struct
 end
 
 type 'a marked = {mbody : 'a; markers : Markers.t}
-let markers m = m.body.markers
-let with_marker m marker = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_marker m.body.markers marker}}
-let with_markers m markers = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_markers m.body.markers markers}}
-let remove_markers m = {header=m.header; body={mbody=m.body.mbody; markers=Markers.empty}}
+module Marked = struct 
+  let markers m = m.body.markers
+  let with_marker m marker = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_marker m.body.markers marker}}
+  let with_markers m markers = {header=m.header; body={mbody=m.body.mbody; markers=Markers.with_markers m.body.markers markers}}
+  let remove_markers m = {header=m.header; body={mbody=m.body.mbody; markers=Markers.empty}}
+end
+open Marked
 
  
 type 'a reliable = {rbody : 'a; sn : Vle.t}
-let reliable m = Flags.hasFlag (header m) Flags.rFlag
-let synch m = Flags.hasFlag (header m) Flags.sFlag
-let sn m = m.body.mbody.sn
+module Reliable = struct 
+  let reliable m = Flags.hasFlag (header m) Flags.rFlag
+  let synch m = Flags.hasFlag (header m) Flags.sFlag
+  let sn m = m.body.mbody.sn
+end
 
 
 (**
@@ -901,22 +910,22 @@ let remove_markers = function
   | PingPong p ->  PingPong (remove_markers p)
 
 let to_string = function (** This should actually call the to_string on individual messages *)
-  | Scout s -> "Scout"
+  | Scout _ -> "Scout"
   | Hello h -> Hello.to_string h
-  | Open o -> "Open"
-  | Accept a -> "Accept"
-  | Close c -> "Close"
-  | Declare d -> "Declare"
-  | WriteData d -> "WriteData"
-  | StreamData d -> "StreamData"
-  | Synch s -> "Synch"
-  | AckNack a -> "AckNack"
-  | KeepAlive a -> "KeepAlive"
-  | Migrate m -> "Migrate"
-  | Pull p -> "Pull"
-  | PingPong p -> "PingPong"
+  | Open _ -> "Open"
+  | Accept _ -> "Accept"
+  | Close _ -> "Close"
+  | Declare _ -> "Declare"
+  | WriteData _ -> "WriteData"
+  | StreamData _ -> "StreamData"
+  | Synch _ -> "Synch"
+  | AckNack _ -> "AckNack"
+  | KeepAlive _ -> "KeepAlive"
+  | Migrate _ -> "Migrate"
+  | Pull _ -> "Pull"
+  | PingPong _ -> "PingPong"
 
-  let make_scout s = Scout s
+  (* let make_scout s = Scout s
   let make_hello h = Hello h
   let make_open o = Open o
   let make_accept a =  Accept a
@@ -925,4 +934,4 @@ let to_string = function (** This should actually call the to_string on individu
   let make_stream_data sd =  StreamData sd
   let make_synch s = Synch s
   let make_ack_nack a = AckNack a
-  let make_keep_alive a = KeepAlive a
+  let make_keep_alive a = KeepAlive a *)

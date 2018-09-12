@@ -1,7 +1,6 @@
 open Apero
 open Apero_net
 open Frame
-open Lwt
 
 module ZId = Id
 
@@ -10,7 +9,7 @@ module Transport = struct
   module Id = ZId.Make ( 
     struct 
       include Int32 
-      let show = Int32.to_string       
+      (* let show = Int32.to_string *)
     end)
 
   module  Info = struct
@@ -29,7 +28,7 @@ module Transport = struct
     module Id = ZId.Make ( 
       struct 
         include Int64
-        let show = Int64.to_string
+        (* let show = Int64.to_string *)
       end)
     module Info = struct 
       type t = { id : Id.t; src : Locator.t; dest : Locator.t; transport_info : Info.t }
@@ -68,11 +67,11 @@ module Transport = struct
     type t = int   
 
     let create () = Lwt.return 0
-    let add_transport (e: t) (m : (module S)) = return Id.zero 
-    let remove_transport e id = return false
-    let listen e loc = fail @@ Exception `NotImplemented
-    let connect e loc = fail @@ Exception `NotImplemented
-    let start e pull = fail @@ Exception `NotImplemented
-    let session_info e sid = None    
+    let add_transport _ _ = return Id.zero 
+    let remove_transport _ _ = return false
+    let listen _ _ = fail @@ Exception `NotImplemented
+    let connect _ _ = fail @@ Exception `NotImplemented
+    let start _ _ = fail @@ Exception `NotImplemented
+    let session_info _ _ = None    
   end
 end

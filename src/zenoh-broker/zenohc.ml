@@ -7,9 +7,9 @@ open Apero
   (Lwt_log.append_rule "*" Lwt_log.Debug) *)
 
 let reporter ppf =
-  let report src level ~over k msgf =
+  let report _ level ~over k msgf =
     let k _ = over (); k () in
-    let with_stamp h tags k ppf fmt =
+    let with_stamp h _ k ppf fmt =
       Format.kfprintf k ppf ("[%f]%a @[" ^^ fmt ^^ "@]@.")
         (Unix.gettimeofday ()) Logs.pp_header (level, h)
     in
@@ -88,7 +88,7 @@ let send_message sock (msg: Message.t) =
   let len = IOBuf.limit wbuf in
   let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
-  let%lwt n = Net.send sock lbuf in
+  let%lwt _ = Net.send sock lbuf in
   Net.send sock wbuf
   
 
@@ -201,13 +201,13 @@ let process_incoming_message = function
   | Message.StreamData dmsg ->
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
-    let (data, buf) = Result.get @@ decode_string  buf in
+    let (data, _) = Result.get @@ decode_string  buf in
     Logs.info (fun m -> m "\n[received stream data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | Message.WriteData dmsg ->
     let res = WriteData.resource dmsg in
     let buf = WriteData.payload dmsg in
-    let (data, buf) = Result.get @@ decode_string  buf in
+    let (data, _) = Result.get @@ decode_string  buf in
     Logs.info (fun m -> m "\n[received write data res: %s payload: %s]\n>>" res data);
     return_true
   | msg ->
@@ -220,12 +220,12 @@ let rec run_decode_loop sock =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
     let%lwt len = get_message_length sock rbuf in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let%lwt n = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
+    let%lwt _ = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
     let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
     let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
     let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, rbuf) = Result.get @@ Mcodec.decode_msg rbuf in
-    let%lwt c = process_incoming_message msg in
+    let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+    let%lwt _ = process_incoming_message msg in
     run_decode_loop sock
   with
   | _ ->
@@ -251,7 +251,7 @@ let run peer style_renderer level =
   let sock = socket PF_INET SOCK_STREAM 0 in
   let _ = setsockopt sock SO_REUSEADDR true in
   let _ = setsockopt sock TCP_NODELAY true in
-  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun protocol ip port -> 
+  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
     ADDR_INET (Unix.inet_addr_of_string ip, port)) in
   let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in

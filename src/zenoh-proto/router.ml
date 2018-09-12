@@ -12,7 +12,6 @@ module type Configuration = Spn_tree.Configuration with type nid_t = string and 
 
 module Make(Conf : Configuration) = struct
   module TreeSet = Make_tree_set(struct type t = string [@@deriving sexp] end)(IntLBRange)(IntLBRange)(Conf)
-  open TreeSet
   open TreeSet.Tree
   open TreeSet.Tree.Node
   open Pervasives

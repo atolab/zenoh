@@ -116,7 +116,7 @@ module TcpTransport = struct
               let%lwt _ = Logs_lwt.warn (fun m -> m "Peer closed connection") in
               Lwt.return @@ (Result.fail (`ClosedSession (`Msg "Peer Closed Session")))
             end 
-        | Error e -> 
+        | Error _ -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Received frame of %d bytes " len) in
           let%lwt _ = close_session sock  in          
           Lwt.fail @@ Exception (`InvalidFormat  (`Msg "Frame exeeds the 64K limit" ))
@@ -137,7 +137,7 @@ module TcpTransport = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %s" ssid) in                      
         match%lwt decode_frame socket rbuf with
         | Ok frame -> 
-          List.iter (fun m -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) (Frame.to_list frame) ;
+          List.iter (fun _ -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) (Frame.to_list frame) ;
           Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") 
           >>= serve_session                  
         | Error e -> 
@@ -149,7 +149,7 @@ module TcpTransport = struct
     let string_of_locators ls = 
       match ls with 
       | [l] -> "[" ^ (TcpLocator.to_string l) ^ "]"
-      | l::ls -> "[" ^ (TcpLocator.to_string l) ^ (List.fold_left (fun a b  -> a ^ ", " ^ (TcpLocator.to_string b)) "" C.locators) ^ "]"
+      | l::_ -> "[" ^ (TcpLocator.to_string l) ^ (List.fold_left (fun a b  -> a ^ ", " ^ (TcpLocator.to_string b)) "" C.locators) ^ "]"
       | _ -> "[]"
 
       (* List.fold_left (fun a b  -> a ^ ", " ^ (TcpLocator.to_string b)) "" C.locators  *)
@@ -157,8 +157,8 @@ module TcpTransport = struct
     let process_event sctx evt = 
       let open Transport.Event in 
       match evt with 
-      | SessionClose sid -> Lwt.return_unit 
-      | SessionMessage (f, sid, _) -> 
+      | SessionClose _ -> Lwt.return_unit 
+      | SessionMessage (f, _, _) -> 
           let buf = IOBuf.reset sctx.outbuf in
           let lbuf = IOBuf.reset sctx.lenbuf in
           (match Result.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
@@ -166,16 +166,15 @@ module TcpTransport = struct
             let%lwt lbuf = lwt_of_result (encode_vle (Vle.of_int (IOBuf.position buf)) lbuf) in
             let%lwt _ = Net.send_vec sctx.sock [IOBuf.flip lbuf; IOBuf.flip buf] in
             Lwt.return_unit
-          | Error e -> 
+          | Error _ -> 
             let%lwt _ = Logs_lwt.err (fun m -> m "Error while encoding frame -- this is a bug!") in           
             Lwt.return_unit
           )        
 
-      | LocatorMessage (f, l, _) -> Lwt.return_unit
-      | Events es -> Lwt.return_unit 
+      | LocatorMessage (_, _, _) -> Lwt.return_unit
+      | Events _ -> Lwt.return_unit 
     
     let rec event_loop sctx stream : unit Lwt.t = 
-      let open Lwt.Infix in
       let%lwt _ = Logs_lwt.debug (fun m -> m "TcpTransport Event Loop") in
       let%lwt evt = Lwt_stream.get stream in 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Received TcpTransport Event") in
@@ -220,7 +219,7 @@ module TcpTransport = struct
     
 
     (* TODO: Operation to implement *)
-    let listen loc = Lwt.return @@ Transport.Session.Id.next_id ()
+    let listen _ = Lwt.return @@ Transport.Session.Id.next_id ()
     
     let connect loc = 
       match loc with 
@@ -250,7 +249,7 @@ module TcpTransport = struct
           Lwt.return (sid, spush)))
       | _ -> Lwt.fail @@ Exception (`InvalidAddress)
     
-    let close sid = Lwt.return_unit        
+    (* let close _ = Lwt.return_unit *)
 
     let session_info sid = 
       let open Option.Infix in 

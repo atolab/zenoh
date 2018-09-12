@@ -1,6 +1,3 @@
-open Lwt
-open Message
-
 module Frame = struct
   type t = {msgs : Message.t list}
   let empty = {msgs = [];}

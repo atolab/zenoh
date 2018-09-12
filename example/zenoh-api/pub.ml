@@ -1,9 +1,8 @@
 open Zenoh_api
-open Common
 open Common.Result.Infix
 open Apero
 
-let run peer = 
+let run = 
   let%lwt z = zopen "tcp/127.0.0.1:7447" in 
   let%lwt home1pub = publish "/home1" z in 
   let%lwt res1pub = publish "/res1" z in 
@@ -16,4 +15,4 @@ let run peer =
 
 
 let () = 
-  Lwt_main.run @@ run "tcp/127.0.0.1:7447"
+  Lwt_main.run @@ run

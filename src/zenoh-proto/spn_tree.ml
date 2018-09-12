@@ -65,7 +65,7 @@ module Make_tree
       peers =
         match List.find_opt (fun peer -> peer.node_id = node.node_id) tree.peers with
         | None -> node :: tree.peers
-        | Some existing -> List.map (fun peer -> if peer.node_id = node.node_id then node else peer) tree.peers
+        | Some _ -> List.map (fun peer -> if peer.node_id = node.node_id then node else peer) tree.peers
     }
 
   let delete_node tree node =

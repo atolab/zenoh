@@ -1,7 +1,5 @@
 open Zenoh_api
-open Common
 open Apero
-open Lwt.Infix
 open Cmdliner
 
 let peers = Arg.(value & opt string "tcp/127.0.0.1:7447" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
@@ -21,14 +19,14 @@ let run peers nb size =
     let%lwt z = zopen peers in
     let%lwt pub = publish "/roundtrip/ping" z in
 
-    let listener data src state = 
+    let listener _ _ state = 
       let now = Unix.gettimeofday() in 
       (match state.count + 1 < nb with 
       | true -> Lwt.ignore_result @@ stream (IOBuf.create size) pub
       | false -> Lwt.wakeup_later resolver ());
       Lwt.return (Lwt.return_unit, {wr_time=now; count=state.count + 1; rt_times=(now -. state.wr_time) :: state.rt_times}) in
 
-    let%lwt sub = subscribe "/roundtrip/pong" (fun d s -> MVar_lwt.guarded state (listener d s)) z in
+    let%lwt _ = subscribe "/roundtrip/pong" (fun d s -> MVar_lwt.guarded state (listener d s)) z in
 
     Lwt.ignore_result @@ stream (IOBuf.create size) pub;
 

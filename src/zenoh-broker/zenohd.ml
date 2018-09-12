@@ -1,6 +1,3 @@
-
-open Lwt
-open Lwt.Infix
 open Zenoh
 open Apero 
 open Proto_engine
@@ -22,9 +19,9 @@ let max_buf_len = 64 * 1024
 let tcp_tx_id = 0x01
 
 let reporter ppf =
-  let report src level ~over k msgf =
+  let report _ level ~over k msgf =
     let k _ = over (); k () in
-    let with_stamp h tags k ppf fmt =
+    let with_stamp h _ k ppf fmt =
       Format.kfprintf k ppf ("[%f]%a @[" ^^ fmt ^^ "@]@.")
         (Unix.gettimeofday ()) Logs.pp_header (level, h)
     in

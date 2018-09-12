@@ -5,7 +5,8 @@ open Apero_net
 open Message
 open Dcodec
 open Frame
-
+open Block
+open Reliable
 
 type element =
   | Message of Message.t
@@ -68,7 +69,7 @@ let encode_open msg buf =
   >>= encode_locators (locators msg)
   >>= Dcodec.encode_properties (properties msg) 
   with 
-  | Ok v as b -> b
+  | Ok _ as b -> b
   | Error e as f ->
     Logs.debug (fun m -> m "Failed to encode Open: %s" (show_error e)); f 
 
@@ -93,7 +94,7 @@ let encode_accept accept buf =
   >>= Dcodec.encode_properties (properties accept)
 
 let make_close pid reason = Message (Close (Close.create pid reason))
-let decode_close header = 
+let decode_close _ = 
   read2_spec
     (Logs.debug (fun m -> m "Reading Close"))
     decode_bytes
@@ -159,7 +160,6 @@ let decode_declarations buf =
       loop (Vle.to_int len) [] buf)
     
 let encode_declarations ds buf =
-  let open Declare in
   Logs.debug (fun m -> m "Writing Declarations");  
   encode_vle  (Vle.of_int @@ List.length ds) buf
   >>= (fold_m (fun d b -> encode_declaration d b) ds)
@@ -290,7 +290,7 @@ let encode_ack_nack m buf =
     | None -> return 
     | Some v -> encode_vle v
 
-let decode_keep_alive header buf =
+let decode_keep_alive _ buf =
   Logs.debug (fun m -> m "Reading KeepAlive");
   decode_bytes buf
   >>= (fun (pid, buf) -> return (Message (KeepAlive (KeepAlive.create pid)), buf))

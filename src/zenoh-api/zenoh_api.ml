@@ -1,8 +1,6 @@
 open Apero
 open Common
 open Iobuf
-open Iptransport
-open Transport
 open Message
 open Locator
 open Lwt
@@ -18,8 +16,8 @@ type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list
 let with_match res mrid = 
   {res with matches = mrid :: List.filter (fun r -> r != mrid) res.matches}
 
-let remove_match res mrid = 
-  {res with matches = List.filter (fun r -> r != mrid) res.matches}
+(* let remove_match res mrid = 
+  {res with matches = List.filter (fun r -> r != mrid) res.matches} *)
 
 let with_sub sub res = 
   {res with subs = sub :: List.filter (fun s -> s != sub) res.subs}
@@ -79,9 +77,9 @@ let add_resource resname state =
   (res, {state with resmap})
 
 
-let make_hello = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) Locators.empty [])
+(* let make_hello = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) Locators.empty []) *)
 let make_open = Message.Open (Open.create version pid lease Locators.empty [])
-let make_accept opid = Message.Accept (Accept.create opid pid lease [])
+(* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
 let send_message sock msg =
   let open Result.Infix in
@@ -93,7 +91,7 @@ let send_message sock msg =
   let len = IOBuf.limit wbuf in
   let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
-  let%lwt n = Net.send sock lbuf in
+  let%lwt _ = Net.send sock lbuf in
   Net.send sock wbuf
 
 
@@ -154,12 +152,12 @@ let rec run_decode_loop resolver t =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
     let%lwt len = get_message_length t.sock rbuf in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let%lwt n = Lwt_bytes.recv t.sock (IOBuf.to_bytes rbuf) 0 len [] in
+    let%lwt _ = Lwt_bytes.recv t.sock (IOBuf.to_bytes rbuf) 0 len [] in
     let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
     let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
     let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, rbuf) = Result.get @@ Mcodec.decode_msg rbuf in
-    let%lwt c = process_incoming_message msg resolver t in
+    let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+    let%lwt _ = process_incoming_message msg resolver t in
     run_decode_loop resolver t
   with
   | _ ->
@@ -176,11 +174,10 @@ let (>>) a b = a >>= fun x -> x |> fun _ -> b
 
 let zopen peer = 
   let open Lwt_unix in
-  let open Common.Infix in
   let sock = socket PF_INET SOCK_STREAM 0 in
   setsockopt sock SO_REUSEADDR true;
   setsockopt sock TCP_NODELAY true;
-  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun protocol ip port -> 
+  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
     ADDR_INET (Unix.inet_addr_of_string ip, port)) in
   let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
