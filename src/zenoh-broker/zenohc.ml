@@ -45,6 +45,7 @@ module Command = struct
     match (String.split_on_char ' ' s |> List.filter (fun x -> x != "") |> List.map (fun s -> String.trim s)) with
     | [] ->  NoCmd
     | [a] -> Cmd a
+    | h::tl when h = "dsub" -> CmdSArgs (h, tl)
     | h::tl when h = "pub" -> CmdSArgs (h, tl)
     | h::tl when h = "pubn" -> CmdSArgs (h, tl)
     | h::tl when h = "dres" -> CmdSArgs (h, tl)
@@ -117,9 +118,10 @@ let send_declare_pub sock id =
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
-let send_declare_sub sock id =
+let send_declare_sub sock id mode =
   let sub_id = Vle.of_int id in
-  let decls = Declarations.singleton @@ SubscriberDecl (SubscriberDecl.create sub_id SubscriptionMode.push_mode [])  in
+  let mode = if mode = "pull" then SubscriptionMode.pull_mode else SubscriptionMode.push_mode in
+  let decls = Declarations.singleton @@ SubscriberDecl (SubscriberDecl.create sub_id mode [])  in
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
@@ -142,7 +144,10 @@ let send_stream_data sock rid data =
         send_stream_data_n sock rid (n-1) p data
       end
 
-
+ let send_pull sock rid =
+   let sn = Conduit.next_usn default_conduit in   
+   let msg = Message.Pull (Pull.create (true, false) sn (Vle.of_int rid) None) in
+   send_message sock msg
 
 let produce_message sock cmd =
   match cmd with
@@ -158,13 +163,19 @@ let produce_message sock cmd =
   | Command.CmdIArgs (msg, xs) -> (
       match msg with
       | "dpub" -> send_declare_pub sock (List.hd xs)
-      | "dsub" -> send_declare_sub sock (List.hd xs)
+      | "pull" -> send_pull sock (List.hd xs)
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
         return 0)
 
   | Command.CmdSArgs (msg, xs) -> (
       match msg with
+      | "dsub" ->
+        let id = int_of_string (List.hd xs) in
+        let mode = match xs with 
+        | _::s::_ -> s
+        | _ -> "" in
+        send_declare_sub sock id mode
       | "pub" ->
         let rid = Vle.of_string (List.hd xs) in
         let data = List.hd @@ List.tl @@ xs in
