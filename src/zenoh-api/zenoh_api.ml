@@ -240,7 +240,7 @@ let subscribe resname listener z =
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid res.name []);
-    SubscriberDecl(SubscriberDecl.create res.rid SubscriptionMode.pull_mode [])
+    SubscriberDecl(SubscriberDecl.create res.rid SubscriptionMode.push_mode [])
   ])) in 
 
   let%lwt _ = Lwt_mvar.put z.state state in
