@@ -47,6 +47,7 @@ type t = {
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
 
+type submode = SubscriptionMode.t
 
 let lbuf = IOBuf.create 16
 let wbuf = IOBuf.create 8192
@@ -226,9 +227,13 @@ let unpublish pub z =
     ForgetPublisherDecl(ForgetPublisherDecl.create pub.resid)
   ])) in 
   Lwt_mvar.put z.state state 
-  
 
-let subscribe resname listener z = 
+
+let push_mode = SubscriptionMode.push_mode
+let pull_mode = SubscriptionMode.pull_mode
+
+
+let subscribe resname listener ?(mode=push_mode) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
   let (subid, state) = get_next_pubsub_id state in
@@ -240,11 +245,20 @@ let subscribe resname listener z =
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid res.name []);
-    SubscriberDecl(SubscriberDecl.create res.rid SubscriptionMode.push_mode [])
+    SubscriberDecl(SubscriberDecl.create res.rid mode [])
   ])) in 
 
   let%lwt _ = Lwt_mvar.put z.state state in
   Lwt.return {z=z; id=subid; resid=res.rid}
+
+
+let pull (sub:sub) = 
+  let%lwt state = Lwt_mvar.take sub.z.state in
+  let (sn, state) = get_next_sn state in 
+  let%lwt _ = Lwt_mvar.put sub.z.state state in
+  let%lwt _ = send_message sub.z.sock (Message.Pull(Pull.create (true, true) sn sub.resid None)) in 
+  Lwt.return_unit
+
 
 let unsubscribe (sub:sub) z = 
   let%lwt state = Lwt_mvar.take z.state in
