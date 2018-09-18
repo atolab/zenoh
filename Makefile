@@ -9,7 +9,7 @@ BUILD_ROUNDTRIP_PING=dune build example/roundtrip/roundtrip_ping.exe
 BUILD_ROUNDTRIP_PONG=dune build example/roundtrip/roundtrip_pong.exe
 CLEAN= dune clean
 TEST=dune runtest -j1 --no-buffer
-DOC=dune build --dev @doc
+DOC=dune build @doc
 INSTALL=dune install
 
 all:

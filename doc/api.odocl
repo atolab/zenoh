@@ -1,2 +1,2 @@
-src/zenoh_proto
-src/zenoh_pervasives
+src/zenoh-api
+src/zenoh-proto
