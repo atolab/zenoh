@@ -1,4 +1,4 @@
-open Zenoh
+open Zenoh_proto
 open Apero 
 open Proto_engine
 open Cmdliner

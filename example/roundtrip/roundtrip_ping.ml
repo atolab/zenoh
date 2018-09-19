@@ -1,4 +1,4 @@
-open Zenoh_api
+open Zenoh
 open Apero
 open Cmdliner
 

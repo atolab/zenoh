@@ -50,24 +50,24 @@ let make_open version pid lease locs ps = Message (Open (Open.create version pid
 
 let decode_open header =      
   (read5_spec 
-    (Logs.debug (fun m -> m "Reading Open"))
-    IOBuf.get_char
-    decode_bytes
-    decode_vle
-    decode_locators
-    (decode_properties header)
-    make_open)
-  
+     (Logs.debug (fun m -> m "Reading Open"))
+     IOBuf.get_char
+     decode_bytes
+     decode_vle
+     decode_locators
+     (decode_properties header)
+     make_open)
+
 
 let encode_open msg buf =
   let open Open in
   Logs.debug (fun m -> m "Writing Open") ;
   match IOBuf.put_char (header msg) buf 
-  >>= IOBuf.put_char (version msg)
-  >>= encode_bytes (pid msg) 
-  >>= encode_vle (lease msg)
-  >>= encode_locators (locators msg)
-  >>= Dcodec.encode_properties (properties msg) 
+    >>= IOBuf.put_char (version msg)
+    >>= encode_bytes (pid msg) 
+    >>= encode_vle (lease msg)
+    >>= encode_locators (locators msg)
+    >>= Dcodec.encode_properties (properties msg) 
   with 
   | Ok _ as b -> b
   | Error e as f ->
@@ -83,7 +83,7 @@ let decode_accept header =
     decode_vle 
     (decode_properties header)
     make_accept  
-  
+
 let encode_accept accept buf =
   let open Accept in
   Logs.debug (fun m -> m "Writing Accept") ;
@@ -110,8 +110,8 @@ let encode_close close buf =
 
 let decode_declaration buf =  
   Logs.debug (fun m -> m "Reading Declaration");
-   IOBuf.get_char buf
-   >>= (fun (header, buf) -> 
+  IOBuf.get_char buf
+  >>= (fun (header, buf) -> 
       Logs.debug (fun m -> m "Declaration Id = %d" (Header.mid header) );
       match Flags.mid header with
       | r when r = DeclarationId.resourceDeclId -> decode_res_decl header buf
@@ -126,9 +126,9 @@ let decode_declaration buf =
       | r when r = DeclarationId.forgetSubscriberDeclId -> decode_forget_sub_decl  buf 
       | r when r = DeclarationId.forgetSelectionDeclId -> decode_forget_sel_decl buf 
       | _ -> fail `NotImplemented
-   ) 
-  
-  
+    ) 
+
+
 
 
 let encode_declaration (d: Declaration.t) buf=
@@ -153,12 +153,12 @@ let decode_declarations buf =
       decode_declaration buf 
       >>= (fun (d, buf) -> loop (n-1) (d::ds) buf)
   in 
-    Logs.debug (fun m -> m "Reading Declarations");
-    decode_vle buf 
-    >>= (fun (len, buf) -> 
+  Logs.debug (fun m -> m "Reading Declarations");
+  decode_vle buf 
+  >>= (fun (len, buf) -> 
       Logs.debug (fun m -> m "Parsing %Ld declarations" len);
       loop (Vle.to_int len) [] buf)
-    
+
 let encode_declarations ds buf =
   Logs.debug (fun m -> m "Writing Declarations");  
   encode_vle  (Vle.of_int @@ List.length ds) buf
@@ -174,14 +174,14 @@ let decode_declare header =
     decode_declarations
     (make_declare header)
 
-  
+
 let encode_declare decl buf=
   let open Declare in  
   Logs.debug (fun m -> m "Writing Declare message");
   IOBuf.put_char (header decl) buf
   >>= encode_vle (sn decl)
   >>= encode_declarations (declarations decl)
-  
+
 
 let make_encode_data h sn resource payload = 
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
@@ -194,7 +194,7 @@ let decode_encode_data header =
     decode_string
     decode_bytes
     (make_encode_data header)
-  
+
 let encode_encode_data m buf =
   let open WriteData in
   Logs.debug (fun m -> m "Writing WriteData");
@@ -225,7 +225,7 @@ let decode_stream_data header =
     (decode_prid header)
     decode_bytes
     (make_stream_data header)
- 
+
 let encode_stream_data m buf =
   let open StreamData in
   Logs.debug (fun m -> m "Writing StreamData");
@@ -241,7 +241,7 @@ let decode_synch_count h buf =
     >>= (fun (v, b) -> return (Some v,b))
   else 
     return (None, buf)
-  
+
 let make_synch h sn c= 
   let  (s, r) = Flags.(hasFlag h sFlag, hasFlag h rFlag) in
   Message (Synch (Synch.create (s,r) sn c))
@@ -252,7 +252,7 @@ let decode_synch header =
     decode_vle
     (decode_synch_count header)
     (make_synch header)
-    
+
 
 let encode_synch m buf =
   let open Synch in  
@@ -262,7 +262,7 @@ let encode_synch m buf =
   >>= match count m  with
   | None -> return 
   | Some c -> encode_vle c
-  
+
 
 let make_ack sn m = Message (AckNack (AckNack.create sn m))
 
@@ -271,7 +271,7 @@ let decode_acknack_mask h buf =
     decode_vle buf
     >>= (fun (m, buf) -> return (Some m, buf))
   else return (None, buf)
-    
+
 
 let decode_ack_nack header =
   read2_spec 
@@ -282,19 +282,19 @@ let decode_ack_nack header =
 
 let encode_ack_nack m buf =
   let open AckNack in
-  
+
   Logs.debug (fun m -> m "Writing AckNack");
   IOBuf.put_char (header m) buf
   >>= encode_vle (sn m)
   >>= match mask m with
-    | None -> return 
-    | Some v -> encode_vle v
+  | None -> return 
+  | Some v -> encode_vle v
 
 let decode_keep_alive _ buf =
   Logs.debug (fun m -> m "Reading KeepAlive");
   decode_bytes buf
   >>= (fun (pid, buf) -> return (Message (KeepAlive (KeepAlive.create pid)), buf))
-  
+
 let encode_keep_alive keep_alive buf =
   let open KeepAlive in  
   Logs.debug (fun m -> m "Writing KeepAlive");
@@ -325,11 +325,11 @@ let encode_migrate m buf =
   IOBuf.put_char (header m) buf
   >>= encode_vle (ocid m)
   >>=  (match id m with
-    | None -> return
-    | Some id -> encode_vle id)
+      | None -> return
+      | Some id -> encode_vle id)
   >>= encode_vle @@ rch_last_sn m
   >>= encode_vle  @@ bech_last_sn m 
-  
+
 
 let decode_pull_max_samples header buf = 
   if Flags.(hasFlag header nFlag) then
@@ -348,7 +348,7 @@ let decode_pull header =
     decode_vle
     (decode_pull_max_samples header)
     (make_pull header)
-  
+
 let encode_pull m buf =
   let open Pull in  
   Logs.debug (fun m -> m "Writing Pull");
@@ -356,16 +356,16 @@ let encode_pull m buf =
   >>= encode_vle @@ sn m
   >>=  encode_vle @@ id m
   >>=  match max_samples m with
-    | None -> return 
-    | Some max -> encode_vle max
+  | None -> return 
+  | Some max -> encode_vle max
 
 let decode_ping_pong header buf =  
   Logs.debug (fun m -> m "Reading PingPong");
   let o = Flags.hasFlag header Flags.oFlag in
   decode_vle buf
   >>= (fun (hash, buf) ->     
-    return (Message (PingPong (PingPong.create ~pong:o hash)), buf))
-  
+      return (Message (PingPong (PingPong.create ~pong:o hash)), buf))
+
 let encode_ping_pong  m buf=
   let open PingPong in
   Logs.debug (fun m -> m "Writing PingPong");
@@ -388,15 +388,15 @@ let decode_conduit header buf =
   Logs.debug (fun m -> m "Reading Conduit") ;
   decode_compact_id header buf 
   >>= fun (id, buf) -> return (Marker (ConduitMarker (ConduitMarker.create id)), buf)
-  
+
 let encode_conduit m buf = 
   let open ConduitMarker in
   Logs.debug (fun m -> m "Writing Conduit");
   IOBuf.put_char (header m) buf
   >>= match Flags.hasFlag (header m) Flags.zFlag with 
-    | true -> return 
-    | false -> encode_vle @@ id m
-  
+  | true -> return 
+  | false -> encode_vle @@ id m
+
 
 let decode_frag_num header buf = 
   if Flags.(hasFlag header nFlag) then
@@ -404,7 +404,7 @@ let decode_frag_num header buf =
     >>= fun (n, buf) -> return (Some n, buf)
   else 
     return (None, buf) 
-  
+
 let make_frag sn_base n = Marker (Frag (Frag.create sn_base n))  
 
 let decode_frag header =   
@@ -413,62 +413,62 @@ let decode_frag header =
     decode_vle
     (decode_frag_num header)
     make_frag 
-  
+
 let encode_frag m buf = 
   let open Frag in  
   Logs.debug (fun m ->  m "Writing Frag");
   IOBuf.put_char (header m) buf
   >>= encode_vle @@ sn_base m
   >>= match n m with 
-    | Some n -> encode_vle n
-    | None -> return   
+  | Some n -> encode_vle n
+  | None -> return   
 
 let decode_rspace header buf = 
   Logs.debug (fun m -> m "Reading ResourceSpace");
   decode_compact_id header buf 
   >>= fun (id, buf) -> return (Marker (RSpace (RSpace.create id)), buf)
-  
+
 let encode_rspace m buf = 
   let open RSpace in  
   Logs.debug (fun m -> m "Writing ResourceSpace");
   IOBuf.put_char (header m) buf 
   >>= match Flags.hasFlag (header m) Flags.zFlag with 
-    | true -> return 
-    | false -> encode_vle @@ id m
+  | true -> return 
+  | false -> encode_vle @@ id m
 
 let decode_element buf =
   IOBuf.get_char buf
   >>= (fun (header, buf) -> 
-    Logs.debug (fun m -> m "Received message with id: %d\n" (Header.mid header));
-    match char_of_int (Header.mid (header)) with
-    | id when id = MessageId.scoutId ->  (decode_scout header buf) 
-    | id when id = MessageId.helloId ->  (decode_hello header buf)
-    | id when id = MessageId.openId ->  (decode_open header buf)
-    | id when id = MessageId.acceptId -> (decode_accept header buf)
-    | id when id = MessageId.closeId ->  (decode_close header buf)
-    | id when id = MessageId.declareId -> (decode_declare header buf)
-    | id when id = MessageId.wdataId ->  (decode_encode_data header buf)
-    | id when id = MessageId.sdataId ->  (decode_stream_data header buf)
-    | id when id = MessageId.synchId -> (decode_synch header buf)
-    | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
-    | id when id = MessageId.keepAliveId -> (decode_keep_alive header buf)
-    | id when id = MessageId.migrateId -> (decode_migrate header buf)
-    | id when id = MessageId.pullId -> (decode_pull header buf)
-    | id when id = MessageId.pingPongId -> (decode_ping_pong header buf)
-    | id when id = MessageId.conduitId -> (decode_conduit header buf)
-    | id when id = MessageId.fragmetsId -> (decode_frag header buf)
-    | id when id = MessageId.rSpaceId -> (decode_rspace header buf)
-    | uid ->
-      Logs.debug (fun m -> m "Received unknown message id: %d" (int_of_char uid));
-      fail `UnknownMessageId)
+      Logs.debug (fun m -> m "Received message with id: %d\n" (Header.mid header));
+      match char_of_int (Header.mid (header)) with
+      | id when id = MessageId.scoutId ->  (decode_scout header buf) 
+      | id when id = MessageId.helloId ->  (decode_hello header buf)
+      | id when id = MessageId.openId ->  (decode_open header buf)
+      | id when id = MessageId.acceptId -> (decode_accept header buf)
+      | id when id = MessageId.closeId ->  (decode_close header buf)
+      | id when id = MessageId.declareId -> (decode_declare header buf)
+      | id when id = MessageId.wdataId ->  (decode_encode_data header buf)
+      | id when id = MessageId.sdataId ->  (decode_stream_data header buf)
+      | id when id = MessageId.synchId -> (decode_synch header buf)
+      | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
+      | id when id = MessageId.keepAliveId -> (decode_keep_alive header buf)
+      | id when id = MessageId.migrateId -> (decode_migrate header buf)
+      | id when id = MessageId.pullId -> (decode_pull header buf)
+      | id when id = MessageId.pingPongId -> (decode_ping_pong header buf)
+      | id when id = MessageId.conduitId -> (decode_conduit header buf)
+      | id when id = MessageId.fragmetsId -> (decode_frag header buf)
+      | id when id = MessageId.rSpaceId -> (decode_rspace header buf)
+      | uid ->
+        Logs.debug (fun m -> m "Received unknown message id: %d" (int_of_char uid));
+        fail `UnknownMessageId)
 
 
 let rec decode_msg_rec buf markers = 
   decode_element buf
   >>= (fun (elem, buf) ->
-    match elem with 
-    | Marker m -> decode_msg_rec buf (m :: markers)
-    | Message m -> return (Message.with_markers m markers, buf))
+      match elem with 
+      | Marker m -> decode_msg_rec buf (m :: markers)
+      | Message m -> return (Message.with_markers m markers, buf))
 
 let decode_msg buf = decode_msg_rec buf []
 
@@ -495,7 +495,7 @@ let encode_msg_element msg =
   | Migrate m -> encode_migrate  m
   | Pull m -> encode_pull m
   | PingPong m -> encode_ping_pong m
-    
+
 
 let encode_msg msg buf =
   let open Message in
@@ -510,20 +510,36 @@ let encode_msg msg buf =
 
 let decode_frame_length = decode_vle 
 
-let encode_frame_length f = encode_vle (Vle.of_int @@ Frame.length f)
+let encode_frame_length = encode_vle 
 
-let decode_frame buf =
+
+let decode_frame buf = 
+  let open Result.Infix in
+  let rec parse_messages = function
+  | Ok (ms, buf) -> 
+    if IOBuf.available buf > 0 then                     
+      decode_msg buf >>= fun (m, buf) -> parse_messages @@ Result.ok (m::ms, buf)
+    else Result.ok (List.rev ms, buf) 
+  | _ as e -> e
+  in 
+  parse_messages (Result.ok ([], buf)) 
+  >>= fun (ms, buf) -> Result.ok (Frame.create ms, buf)
+
+let encode_frame frame buf = Result.fold_m (fun m b -> encode_msg  m b) buf frame
+
+
+(* let decode_frame buf =
   let rec rloop n msgs buf =
     if n = 0 then return (msgs, buf)
     else
       decode_msg buf
       >>= (fun (msg, buf) -> rloop (n-1) (msg::msgs) buf)
-      
+
   in
-    decode_frame_length buf 
-    >>= (fun (len, buf) -> 
+  decode_frame_length buf 
+  >>= (fun (len, buf) -> 
       rloop  (Vle.to_int len) [] buf
       >>= fun (msgs, buf)  -> return (Frame.create msgs, buf))
-    
+
 let encode_frame f =  
-  fold_m encode_msg (Frame.to_list f)
+  fold_m encode_msg (Frame.to_list f) *)

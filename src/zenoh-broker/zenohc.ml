@@ -1,6 +1,6 @@
 open Lwt
 open Lwt.Infix
-open Zenoh
+open Zenoh_proto
 open Apero
 
 (* let () =
