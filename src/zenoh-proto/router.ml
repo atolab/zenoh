@@ -38,7 +38,7 @@ module Make(Conf : Configuration) = struct
       send_to = sender
     }
 
-  let print router = TreeSet.print router.tree_set
+  let report router = TreeSet.report router.tree_set
 
   let update router node =
     let increased_node = {

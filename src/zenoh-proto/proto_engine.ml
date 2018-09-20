@@ -666,7 +666,7 @@ module ProtocolEngine = struct
     let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ StreamData.payload msg in 
     let node = Marshal.from_bytes b 0 in
     let pe = {pe with router = Router.update pe.router node} in
-    Router.print pe.router; 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (Router.report pe.router)) in
     Lwt.return (pe, []) 
 
   let process_stream_data pe sid msg =

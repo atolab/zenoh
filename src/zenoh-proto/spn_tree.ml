@@ -112,14 +112,14 @@ module Make_tree
         | None -> true
         | Some parent -> parent.node_id <> peer.node_id)
 
-  let print tree =
-    printf "   Local : %s\n%!" (Sexplib.Sexp.to_string (Node.sexp_of_t tree.local));
-    printf "      Parent      : %s\n%!"
+  let report tree =
+    sprintf "   Local : %s\n" (Sexplib.Sexp.to_string (Node.sexp_of_t tree.local)) ^
+    sprintf "      Parent      : %s\n%!"
       (match get_parent tree with
       | None -> "none"
-      | Some parent -> (Sexplib.Sexp.to_string (Node.sexp_of_t (parent))));
-    List.iter (fun peer -> printf "      Children    : %s\n%!" (Sexplib.Sexp.to_string (Node.sexp_of_t peer))) (get_childs tree);
-    List.iter (fun peer -> printf "      Broken link : %s\n%!" (Sexplib.Sexp.to_string (Node.sexp_of_t peer))) (get_broken_links tree)
+      | Some parent -> (Sexplib.Sexp.to_string (Node.sexp_of_t (parent)))) ^
+    List.fold_left (fun s peer -> sprintf "%s      Children    : %s\n" s (Sexplib.Sexp.to_string (Node.sexp_of_t peer))) "" (get_childs tree) ^
+    List.fold_left (fun s peer -> sprintf "%s      Broken link : %s\n" s (Sexplib.Sexp.to_string (Node.sexp_of_t peer))) ""  (get_broken_links tree)
 end
 
 module type Configuration = sig
@@ -219,8 +219,8 @@ module Make_tree_set
   let delete_node tree_set node =
     List.map (fun x -> Tree.delete_node x node) tree_set
 
-  let print tree_set =
+  let report tree_set =
     tree_set
     |> List.sort (fun a b -> compare a.local.tree_nb b.local.tree_nb)
-    |> List.iter (fun tree -> printf "Tree nb %i:\n%!" tree.local.tree_nb; print tree)
+    |> List.fold_left (fun s tree -> sprintf "%sTree nb %i:\n%s" s tree.local.tree_nb (report tree)) ""
 end
