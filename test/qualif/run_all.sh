@@ -1,5 +1,5 @@
 cd "$(dirname $0)"
-sh init.sh
+source init.sh
 
 ./test_c2b/run_all.sh && \
 ./test_bro/run_all.sh
