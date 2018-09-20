@@ -7,6 +7,8 @@ BUILD_API_EXAMPLE_SUB=dune build example/zenoh-api/sub.exe
 BUILD_API_EXAMPLE_PUB=dune build example/zenoh-api/pub.exe
 BUILD_ROUNDTRIP_PING=dune build example/roundtrip/roundtrip_ping.exe
 BUILD_ROUNDTRIP_PONG=dune build example/roundtrip/roundtrip_pong.exe
+BUILD_THROUGHPUT_SUB=dune build example/throughput/throughput_sub.exe
+BUILD_THROUGHPUT_PUB=dune build example/throughput/throughput_pub.exe
 CLEAN= dune clean
 TEST=dune runtest -j1 --no-buffer
 DOC=dune build @doc
@@ -20,6 +22,8 @@ all:
 		${BUILD_API_EXAMPLE_PUB}
 		${BUILD_ROUNDTRIP_PING}
 		${BUILD_ROUNDTRIP_PONG}
+		${BUILD_THROUGHPUT_SUB}
+		${BUILD_THROUGHPUT_PUB}
 		
 test:
 		${TEST}
