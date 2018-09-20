@@ -129,7 +129,7 @@ module TcpTransport = struct
       let module E = Transport.Event in
       let sid = Inf.id sctx.info in   
       let socket = sctx.sock in   
-      let ssid = I.show sid in       
+      let ssid = I.to_string sid in       
       let rbuf = sctx.inbuf in
     
       let rec serve_session () =  

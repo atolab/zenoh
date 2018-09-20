@@ -2,15 +2,10 @@ open Apero
 open Apero_net
 open Frame
 
-module ZId = Id
 
 module Transport = struct
 
-  module Id = ZId.Make ( 
-    struct 
-      include Int32 
-      (* let show = Int32.to_string *)
-    end)
+  module Id = NetService.Id 
 
   module  Info = struct
     type kind = Packet| Stream  
@@ -25,11 +20,7 @@ module Transport = struct
   end
 
   module Session = struct 
-    module Id = ZId.Make ( 
-      struct 
-        include Int64
-        (* let show = Int64.to_string *)
-      end)
+    module Id = NetService.Id
     module Info = struct 
       type t = { id : Id.t; src : Locator.t; dest : Locator.t; transport_info : Info.t }
 

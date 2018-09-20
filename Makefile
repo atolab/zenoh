@@ -1,7 +1,7 @@
 .PHONY: all clean test doc
 
 BUILD_LIB=dune build
-BUILD_BROKER=dune build src/zenoh-broker/zenohd.exe
+BUILD_BROKER=dune build src/zenoh-broker/zenohd.exe src/zenoh-broker/zenohb.exe
 BUILD_CLIENT=dune build src/zenoh-broker/zenohc.exe
 BUILD_API_EXAMPLE_SUB=dune build example/zenoh-api/sub.exe
 BUILD_API_EXAMPLE_PUB=dune build example/zenoh-api/pub.exe

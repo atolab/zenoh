@@ -543,3 +543,40 @@ let encode_frame frame buf = Result.fold_m (fun m b -> encode_msg  m b) buf fram
 
 let encode_frame f =  
   fold_m encode_msg (Frame.to_list f) *)
+
+
+let ztcp_read_frame sock buf () =
+  let open Lwt.Infix in 
+  let lbuf = IOBuf.create 4 in 
+  let%lwt len = Net.read_vle sock lbuf >|= Vle.to_int in          
+  let rbuf = Result.get_or_else 
+    (IOBuf.set_limit len buf)
+     @@ fun _ -> IOBuf.create len
+  in
+  
+  let%lwt _ = Net.read sock rbuf in 
+  
+  match decode_frame rbuf with 
+  | Ok (frame, _) -> Lwt.return frame
+  | Error e -> Lwt.fail @@ Exception e
+
+
+
+let ztcp_write_frame sock buf frame =   
+
+  let wbuf = IOBuf.clear buf in 
+  let ms = Frame.to_list frame in
+  
+  match Result.fold_m (fun m buf -> encode_msg m buf ) ms wbuf with
+  | Ok wbuf -> 
+      (let lbuf = IOBuf.create 4 in 
+      let wbuf = IOBuf.flip wbuf in 
+      match encode_vle (Vle.of_int @@ IOBuf.limit wbuf) lbuf with 
+      | Ok lbuf -> Net.send_vec sock [IOBuf.flip lbuf; wbuf]
+      | Error e -> Lwt.fail @@ Exception e)
+  | Error e -> Lwt.fail @@ Exception e 
+  
+  let ztcp_write_frame_alloc sock frame =
+  (* We shoud compute the size and allocate accordingly *)
+  let buf = IOBuf.create 65536 in 
+  ztcp_write_frame sock buf frame

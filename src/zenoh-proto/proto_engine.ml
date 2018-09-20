@@ -211,13 +211,13 @@ module ProtocolEngine = struct
   let get_tx_push pe sid =  (Option.get @@ SIDMap.find_opt sid pe.smap).tx_push
     
   let add_session pe (sid : SID.t) tx_push mask =    
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (SID.show sid)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (SID.to_string sid)) in
     let s = Session.create sid tx_push mask in     
     let smap = SIDMap.add sid s pe.smap in 
     Lwt.return {pe with smap}
 
   let remove_session pe sid =    
-    let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (SID.show sid)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (SID.to_string sid)) in
     let smap = SIDMap.remove sid pe.smap in
     let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
     Lwt.return {pe with rmap; smap}
@@ -253,7 +253,7 @@ module ProtocolEngine = struct
 
   let update_resource_mapping (pe:t) name session rid updater = 
     let open Session in
-    Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (SID.show session.sid) (Vle.to_int rid));
+    Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (SID.to_string session.sid) (Vle.to_int rid));
     let (pe, local_id) = match name with 
     | URI _ -> next_mapping pe
     | ID id -> (pe, id) in
