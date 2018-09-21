@@ -4,7 +4,9 @@ open Iobuf
 open Message
 open Locator
 open Lwt
-open Proto_engine
+open R_name
+
+module VleMap = Map.Make(Vle)
 
 type listener = IOBuf.t -> string -> unit Lwt.t
 
