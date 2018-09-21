@@ -199,8 +199,6 @@ module ZEngine (MVar : MVar) = struct
         locators = ls; 
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
-        (* evt_sink; *)
-        (* evt_sink_push; *)
         peers;
         router = Router.create send_nodes;
         next_mapping = 0L; }
@@ -297,6 +295,8 @@ module ZEngine (MVar : MVar) = struct
     let process_hello pe sex msg  =
       let sid = TxSession.id sex in 
       let%lwt pe = add_session pe sex (Hello.mask msg) in 
+      let open Lwt.Infix in 
+      let _ = TxSession.when_closed sex >>= fun _ -> remove_session pe sex in
       match Vle.logand (Hello.mask msg) (Vle.of_char ScoutFlags.scoutBroker) <> 0L with 
       | false -> (Lwt.return (pe, []))
       | true -> (
@@ -741,7 +741,7 @@ module ZEngine (MVar : MVar) = struct
             ) res.matches in 
           Lwt.return (pe, [])
   
-    let handle_message mvar_e (sex : TxSession.t) msg = 
+   let handle_message mvar_e (sex : TxSession.t) msg = 
       let%lwt _ = Logs_lwt.debug (fun m -> m  "Received message: %s" (Message.to_string msg)) in
       MVar.guarded mvar_e
         @@ fun pe -> 
