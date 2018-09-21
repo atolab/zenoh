@@ -15,9 +15,9 @@ let svc_id = 0x01
 let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator
 
 let pid  = IOBuf.flip @@ 
-           Result.get @@ IOBuf.put_string (Printf.sprintf "%08d" (Unix.getpid ())) @@
-           Result.get @@ IOBuf.put_string hostid @@
-           (IOBuf.create 16) 
+  Result.get @@ IOBuf.put_string (Printf.sprintf "%08d" (Unix.getpid ())) @@
+  Result.get @@ IOBuf.put_string hostid @@
+  (IOBuf.create 16) 
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -52,30 +52,26 @@ let to_string peers =
 
 module ZEngine = ZEngine(MVar_lwt)
 let run_broker () = 
-    let open ZEngine in 
-    let tx = ZTcpTransport.make config in 
-    let engine = ProtocolEngine.create pid lease Locators.empty [] in 
-    let mve = MVar_lwt.create engine in 
-    let dispatcher_svc sex  =     
-        let rbuf = IOBuf.create buf_size in 
-        let wbuf = IOBuf.create buf_size in
-        let socket = (TxSession.socket sex) in
-        let zreader = ztcp_read_frame socket in 
-        let zwriter = ztcp_write_frame socket  in        
-        let open Lwt.Infix in 
-        fun () ->
-          let rbuf = IOBuf.clear rbuf in              
-          let wbuf = IOBuf.clear wbuf in                        
-          zreader rbuf () 
-          >>= fun frame -> 
-            let msgs = Frame.to_list frame in 
-            Lwt_list.iter_p (fun m ->                  
-                match%lwt  (ProtocolEngine.handle_message mve sex m) with 
-                | [] -> Lwt.return_unit
-                | ms -> zwriter wbuf @@ (Frame.create ms) >>= fun _ -> Lwt.return_unit)
-                msgs 
-    in 
-    ZTcpTransport.start tx dispatcher_svc
+  let open ZEngine in 
+  let tx = ZTcpTransport.make config in 
+  let engine = ProtocolEngine.create pid lease Locators.empty [] in     
+  let dispatcher_svc sex  =     
+    let rbuf = IOBuf.create buf_size in 
+    let wbuf = IOBuf.create buf_size in
+    let socket = (TxSession.socket sex) in
+    let zreader = ztcp_read_frame socket in 
+    let zwriter = ztcp_write_frame socket  in        
+    let open Lwt.Infix in 
+    fun () ->
+      let rbuf = IOBuf.clear rbuf in              
+      let wbuf = IOBuf.clear wbuf in                        
+      zreader rbuf () 
+      >>= fun frame ->
+        match%lwt ProtocolEngine.handle_message engine sex (Frame.to_list frame)  with 
+        | [] -> Lwt.return_unit
+        | ms -> zwriter wbuf @@ (Frame.create ms) >>= fun _ -> Lwt.return_unit            
+  in 
+  ZTcpTransport.start tx dispatcher_svc
 
 (* 
 let run_broker tcpport peers = 
@@ -96,9 +92,9 @@ let run (*tcpport peers*) _ _ style_renderer level =
   setup_log style_renderer level;   
   Lwt_main.run @@ run_broker ()
 
-   
+
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   let _ = Term.(eval (const run $ tcpport $ peers $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "broker")) in  ()
-  
+
