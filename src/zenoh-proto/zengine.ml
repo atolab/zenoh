@@ -339,7 +339,6 @@ module ZEngine (MVar : MVar) = struct
                | None -> {id = rid; session = sid; pub = true; sub = None; matched_pub = false; matched_sub=false}) in
         Lwt.return (pe, Some res)
 
-    (* TODO: Add-back router management  *)
 
     let forward_pdecl_to_session pe res zsex = 
       let open ResName in 
@@ -361,8 +360,6 @@ module ZEngine (MVar : MVar) = struct
       (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)  
       let open Lwt.Infix in      
       (pe, Mcodec.ztcp_write_frame_alloc (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) >|= fun _ -> ())
-
-    (* TODO: Add-back router management  *)
 
     let forward_pdecl_to_parents pe res = 
       let open Router in
@@ -805,28 +802,5 @@ module ZEngine (MVar : MVar) = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
       connect_peers pe 
 
-
-  (* 
-       let start pe tx = 
-       let rec loop pe =      
-        let open Lwt.Infix in 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Protocol Engine Events") in
-        (match%lwt Lwt_stream.get pe.evt_sink with 
-         | Some(Event.SessionMessage (f, sid, Some push)) -> 
-           let%lwt _ = Logs_lwt.debug (fun m -> m "Processing SessionMessage") in
-           let msgs = Frame.to_list f in
-           List.fold_left (fun pe msg -> 
-               pe >>= (fun pe -> process pe sid msg push)) (Lwt.return pe) msgs
-         |Some _ -> 
-           let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Some other Event...") in
-           Lwt.return pe
-         | None -> 
-           let%lwt _ = Logs_lwt.debug (fun m -> m "Processing None!!!") in
-           Lwt.return pe)  
-        >>= loop
-       in 
-       let%lwt _ = Logs_lwt.debug (fun m -> m "Starting Protocol Engine") in
-       Lwt.ignore_result @@ connect_peers pe.peers tx;
-       loop pe *)
   end
 end
