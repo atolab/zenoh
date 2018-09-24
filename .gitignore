@@ -13,6 +13,10 @@ tmp
 # ocamlbuild working directory
 _build/
 
+#performance files
+dat
+*.dat
+
 
 
 # ocamlbuild targets

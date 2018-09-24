@@ -12,7 +12,7 @@ let max_connections = 1000
 let buf_size = 64 * 1024
 let svc_id = 0x01
 
-let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator
+(* let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator *)
 
 let pid  = IOBuf.flip @@ 
   Result.get @@ IOBuf.put_string (Printf.sprintf "%08d" (Unix.getpid ())) @@
@@ -51,16 +51,25 @@ let to_string peers =
   |> String.concat "," 
 
 module ZEngine = ZEngine(MVar_lwt)
-let run_broker () = 
-  let open ZEngine in 
+let run_broker tcpport peers = 
+  let open ZEngine in   
+  let peers = String.split_on_char ',' peers 
+  |> List.filter (fun s -> not (String.equal s ""))
+  |> List.map (fun s -> Option.get @@ Locator.of_string s) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "tcpport : %d" tcpport) in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "peers : %s" (to_string peers)) in
+  let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
+
+  let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
-  let engine = ProtocolEngine.create pid lease Locators.empty [] in     
+  let tx_connector = ZTcpTransport.establish_session tx in 
+  let engine = ProtocolEngine.create pid lease Locators.empty peers tx_connector in     
   let dispatcher_svc sex  =     
     let rbuf = IOBuf.create buf_size in 
     let wbuf = IOBuf.create buf_size in
     let socket = (TxSession.socket sex) in
     let zreader = ztcp_read_frame socket in 
-    let zwriter = ztcp_write_frame socket  in        
+    let zwriter = ztcp_write_frame socket  in            
     let open Lwt.Infix in 
     fun () ->
       let rbuf = IOBuf.clear rbuf in              
@@ -71,30 +80,16 @@ let run_broker () =
         | [] -> Lwt.return_unit
         | ms -> zwriter wbuf @@ (Frame.create ms) >>= fun _ -> Lwt.return_unit            
   in 
-  ZTcpTransport.start tx dispatcher_svc
-
-(* 
-let run_broker tcpport peers = 
-  let peers = String.split_on_char ',' peers 
-  |> List.filter (fun s -> not (String.equal s ""))
-  |> List.map (fun s -> Option.get @@ Locator.of_string s) in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "tcpport : %d" tcpport) in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "peers : %s" (to_string peers)) in
-  let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
-  let%lwt tx = makeTcpTransport [locator] in  
-  let module TxTcp = (val tx : Transport.S) in   
-  let e = ProtocolEngine.create pid lease (Locators.of_list [Locator.TcpLocator locator]) peers in
-  let _ = TxTcp.start (ProtocolEngine.event_push e) in
-  ProtocolEngine.start e tx
-*)
-
-let run (*tcpport peers*) _ _ style_renderer level = 
-  setup_log style_renderer level;   
-  Lwt_main.run @@ run_broker ()
+  Lwt.join [ZTcpTransport.start tx dispatcher_svc; ProtocolEngine.start engine]
 
 
+
+let run tcpport peers style_renderer level = 
+  setup_log style_renderer level; 
+  Lwt_main.run @@ run_broker tcpport peers
+   
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ tcpport $ peers $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "broker")) in  ()
-
+  let _ = Term.(eval (const run $ tcpport $ peers $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  
