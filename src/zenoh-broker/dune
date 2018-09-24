@@ -1,13 +1,13 @@
 (executable
   (name       zenohd)
-  (modules    zenohd zconfig_t)
-  (libraries  str lwt lwt.unix zenoh_proto apero-core apero-net atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
+  (modules    zenohd)
+  (libraries  str lwt lwt.unix zenoh_proto zenoh_tx_inet apero-core apero-net atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
   (preprocess (pps lwt_ppx ppx_deriving.show ppx_deriving.ord)))
 
 (executable
-  (name       zenohb)
-  (modules    zenohb)
-  (libraries  str lwt lwt.unix zenoh_proto zenoh_tx_inet apero-core apero-net atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
+  (name       zenohdp)
+  (modules    zenohdp)
+  (libraries  str lwt lwt.unix zenoh_proto apero-core apero-net atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner)
   (preprocess (pps lwt_ppx ppx_deriving.show ppx_deriving.ord)))
 
 (executable
