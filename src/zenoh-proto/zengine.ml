@@ -27,6 +27,17 @@ module ZEngine (MVar : MVar) = struct
       last_value : IOBuf.t option;
     }
 
+    let report_mapping m = 
+      Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s" 
+        (Id.show m.session) (Vle.to_int m.id)
+        (match m.pub with true -> "YES" | false -> "NO")
+        (match m.sub with None -> "NO" | Some true -> "PULL" | Some false -> "PUSH")
+
+    let report res = 
+      Printf.sprintf "Resource name %s\n  mappings:\n" (ResName.to_string res.name) |> fun s ->
+      List.fold_left (fun s m -> s ^ "    " ^ report_mapping m ^ "\n") s res.mappings ^ 
+      "  matches:\n" |> fun s -> List.fold_left (fun s mr -> s ^ "    " ^ (ResName.to_string mr) ^ "\n") s res.matches
+
     let with_mapping res mapping = 
       {res with mappings = mapping :: List.filter (fun m -> not (Id.equal m.session mapping.session)) res.mappings}
 
@@ -127,7 +138,8 @@ module ZEngine (MVar : MVar) = struct
 
     type t = engine_state MVar.t
 
-    
+    let report_resources e = 
+      List.fold_left (fun s (_, r) -> s ^ Resource.report r ^ "\n") "" (ResMap.bindings e.rmap)
 
     let next_mapping pe = 
       let next = pe.next_mapping in
@@ -517,7 +529,7 @@ module ZEngine (MVar : MVar) = struct
         let%lwt _ = Logs_lwt.debug (fun m -> m "PDecl for resource: %Ld" (Message.PublisherDecl.rid pd)) in
         process_pdecl pe tsex pd
       | SubscriberDecl sd ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in      
+        let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
         process_sdecl pe tsex sd
       | CommitDecl cd -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Commit SDecl ") in
