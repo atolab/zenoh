@@ -1,19 +1,10 @@
 open Spn_tree
-open Sexplib.Std
 open Transport
 
-module IntLBRange : LowBoundedRange with type t = int = struct
-  type t = int [@@deriving sexp]
-  let compare = Pervasives.compare
-  let min = 0
-end
-
-module type Configuration = Spn_tree.Configuration with type nid_t = string and type prio_t = int and type dist_t = int
-
 module Make(Conf : Configuration) = struct
-  module TreeSet = Make_tree_set(struct type t = string [@@deriving sexp] end)(IntLBRange)(IntLBRange)(Conf)
-  open TreeSet.Tree
-  open TreeSet.Tree.Node
+
+  module TreeSet = Spn_tree.Set.Configure(Conf)
+  open Spn_tree.Node
   open Pervasives
 
   type peer = 
@@ -25,11 +16,11 @@ module Make(Conf : Configuration) = struct
 
   type t =
     {
-      tree_set : TreeSet.t;
+      tree_set : Spn_tree.Set.t;
       peers : peer list;
-      send_to : peer list -> TreeSet.Tree.Node.t list -> unit
+      send_to : peer list -> Node.t list -> unit
     }
-  type node_t = TreeSet.Tree.Node.t
+  type node_t = Node.t
 
   let create sender =
     {

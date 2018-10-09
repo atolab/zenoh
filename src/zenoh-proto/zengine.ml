@@ -107,7 +107,7 @@ module ZEngine (MVar : MVar) = struct
 
   let hostid = Printf.sprintf "%08X" @@ hash @@ Unix.gethostname ()
 
-  module Config = struct
+  (* module Config = struct
     type nid_t = string
     type prio_t = int
     type dist_t = int
@@ -118,7 +118,7 @@ module ZEngine (MVar : MVar) = struct
     let max_trees = 1
   end
 
-  module Router = ZRouter.Make(Config)
+  module Router = ZRouter.Make(Config) *)
 
   module ProtocolEngine = struct
 
@@ -131,7 +131,7 @@ module ZEngine (MVar : MVar) = struct
       smap : Session.t SIDMap.t;
       rmap : Resource.t ResMap.t;      
       peers : Locator.t list;
-      router : Router.t;
+      router : ZRouter.t;
       next_mapping : Vle.t;
       tx_connector : tx_session_connector
     }
@@ -153,11 +153,11 @@ module ZEngine (MVar : MVar) = struct
           let sdata = Message.with_marker               
               (StreamData(StreamData.create (true, true) 0L 0L None (IOBuf.from_bytes (Lwt_bytes.of_bytes b))))
               (RSpace (RSpace.create 1L)) in           
-          Lwt.ignore_result @@ Mcodec.ztcp_write_frame_alloc (TxSession.socket Router.(peer.tsex)) (Frame.create [sdata]) ) _nodes
+          Lwt.ignore_result @@ Mcodec.ztcp_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
-    let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) (tx_connector: tx_session_connector) = 
+    let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
       MVar.create @@ { 
         pid; 
         lease; 
@@ -165,7 +165,7 @@ module ZEngine (MVar : MVar) = struct
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
         peers;
-        router = Router.create send_nodes;
+        router = ZRouter.create send_nodes (hostid ^ Printf.sprintf "%08d" (Unix.getpid ())) strength 2 0;
         next_mapping = 0L; 
         tx_connector}
 
@@ -288,7 +288,7 @@ module ZEngine (MVar : MVar) = struct
       MVar.guarded engine 
       @@ fun pe ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-      let pe' = {pe with router = Router.new_node pe.router {pid = pid_to_string @@ Message.Open.pid msg; tsex}} in
+      let pe' = {pe with router = ZRouter.new_node pe.router {pid = pid_to_string @@ Message.Open.pid msg; tsex}} in
       MVar.return [make_accept pe' (Message.Open.pid msg)] pe'
 
     let process_open engine tsex msg  =
@@ -309,7 +309,7 @@ module ZEngine (MVar : MVar) = struct
       MVar.guarded engine
       @@ fun pe ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
-      let pe' = {pe with router = Router.new_node pe.router {pid = pid_to_string @@ Message.Accept.apid msg; tsex}} in
+      let pe' = {pe with router = ZRouter.new_node pe.router {pid = pid_to_string @@ Message.Accept.apid msg; tsex}} in
       MVar.return [] pe'
 
     let process_accept engine tsex msg =
@@ -373,10 +373,11 @@ module ZEngine (MVar : MVar) = struct
       let open Lwt.Infix in      
       (pe, Mcodec.ztcp_write_frame_alloc (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) >|= fun _ -> ())
 
-    let forward_pdecl_to_parents pe res = 
-      let open Router in
-      let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
-                     |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+    let forward_pdecl_to_parents (pe:engine_state) res = 
+      let open ZRouter in
+      let module TreeSet = (val pe.router.tree_mod : Spn_tree.Set.S) in
+      let (pe, ps) = TreeSet.parents pe.router.tree_set
+                     |> List.map (fun (node:Spn_tree.Node.t) -> 
                          (List.find (fun x -> x.pid = node.node_id) pe.router.peers).tsex)
                      |> List.fold_left (fun x tsex -> 
                          let (pe, ps) = x in
@@ -439,9 +440,10 @@ module ZEngine (MVar : MVar) = struct
 
 
     let forward_sdecl_to_parents pe res =      
-      let open Router in
-      let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
-                     |> List.map (fun (node:Router.TreeSet.Tree.Node.t) -> 
+      let open ZRouter in
+      let module TreeSet = (val pe.router.tree_mod : Spn_tree.Set.S) in
+      let (pe, ps) = TreeSet.parents pe.router.tree_set
+                     |> List.map (fun (node:Spn_tree.Node.t) -> 
                          (List.find (fun x -> x.pid = node.node_id) pe.router.peers).tsex )
                      |> List.fold_left (fun x tsex -> 
                          let (pe, ps) = x in
@@ -697,8 +699,8 @@ module ZEngine (MVar : MVar) = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m "Received tree state on %s\n" (Id.show session.sid)) in
       let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ Message.StreamData.payload msg in 
       let node = Marshal.from_bytes b 0 in
-      let pe = {pe with router = Router.update pe.router node} in
-      Router.print pe.router; 
+      let pe = {pe with router = ZRouter.update pe.router node} in
+      ZRouter.print pe.router; 
       Lwt.return (pe, []) 
 
     let process_stream_data engine tsex msg =

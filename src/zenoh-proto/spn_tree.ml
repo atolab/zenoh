@@ -2,27 +2,15 @@ open Sexplib.Std
 open Printf
 
 
-module type Sexpable = sig
-  type t [@@deriving sexp]
-end
-
-module type LowBoundedRange = sig
-  type t [@@deriving sexp]
-  val compare : t -> t -> int
-  val min : t
-end
-
-module Make_node
-      (NodeId : Sexpable)
-      (Priority : LowBoundedRange)
-      (Distance : LowBoundedRange) = struct
+module Node = struct
+  type id = string [@@deriving sexp]
 
   type t = {
-    node_id  : NodeId.t;
+    node_id  : id;
     tree_nb  : int;
-    priority : Priority.t;
-    distance : Distance.t;
-    parent   : NodeId.t option;
+    priority : (int * id);
+    distance : int;
+    parent   : id option;
     rank     : int
   }  [@@deriving sexp]
 
@@ -30,23 +18,36 @@ module Make_node
     let c1 = compare t1.rank t2.rank in
     if c1 <> 0 then c1 else 
     begin
-      let c2 = Priority.compare t1.priority t2.priority in
-      if c2 <> 0 then c2 else Distance.compare t2.distance t1.distance
+      let c2 = compare t1.priority t2.priority in
+      if c2 <> 0 then c2 else compare t2.distance t1.distance
     end
 end
 
-module Make_tree
-      (NodeId : Sexpable)
-      (Priority : LowBoundedRange)
-      (Distance : LowBoundedRange) = struct
+type t = {
+  local : Node.t;
+  peers : Node.t list;
+}
+type tree=t
 
-  module Node = Make_node(NodeId)(Priority)(Distance)
+module type S = sig
+  val update : t -> Node.t -> t
+  val delete_node : t -> Node.id -> t
+  val is_stable : t -> bool
+  val get_parent : t -> Node.t option
+  val get_childs : t -> Node.t list
+  val get_broken_links : t -> Node.t list
+  val print : t -> unit
+end
+
+module type Configuration = sig
+  val local_id : Node.id
+  val local_prio : int
+  val max_dist : int
+  val max_trees : int
+end
+
+module Configure(Conf : Configuration) : S = struct
   open Node
-
-  type t = {
-    local : Node.t;
-    peers : Node.t list;
-  }
 
   let update tree node =
     let open Node in
@@ -122,105 +123,101 @@ module Make_tree
     List.iter (fun peer -> printf "      Broken link : %s\n%!" (Sexplib.Sexp.to_string (Node.sexp_of_t peer))) (get_broken_links tree)
 end
 
-module type Configuration = sig
-  type nid_t
-  type prio_t
-  type dist_t
-  val local_id : nid_t
-  val local_prio : prio_t
-  val max_dist : dist_t
-  val max_trees : int
-end
+module Set = struct
+  
+  type t = tree list
 
-module Make_tree_set
-      (NodeId : Sexpable)
-      (Priority : LowBoundedRange)
-      (Distance : LowBoundedRange)
-      (Conf : Configuration with
-      type nid_t = NodeId.t and
-      type prio_t = Priority.t and
-      type dist_t = Distance.t) = struct
+  module type S = sig
+    val create : t
+    val is_stable : t -> bool
+    val parents : t -> Node.t list
+    val min_dist : t -> int
+    val next_tree : 'a list -> int
+    val update_tree_set : t -> Node.t -> t
+    val delete_node : t -> Node.id -> t
+    val print : t -> unit
+  end
 
-  module Tree = Make_tree(NodeId)(Priority)(Distance)
-  open Tree
+  module Configure(Conf : Configuration) : S = struct
+    module Tree = Configure(Conf)
 
-  type t = Tree.t list
+    let create =
+      [{
+        local = 
+        {
+          node_id  = Conf.local_id;
+          tree_nb  = 0;
+          priority = (Conf.local_prio, Conf.local_id);
+          distance = 0;
+          parent   = None;
+          rank     = 0 
+        };
+        peers = []
+      }]
 
-  let create =
-    [{
-      local = 
-      {
-        node_id  = Conf.local_id;
-        tree_nb  = 0;
-        priority = Conf.local_prio;
-        distance = Distance.min;
-        parent   = None;
-        rank     = 0 
-      };
-      peers = []
-    }]
+    let is_stable tree_set =
+      List.for_all (fun x -> Tree.is_stable x) tree_set
 
-  let is_stable tree_set =
-    List.for_all (fun x -> Tree.is_stable x) tree_set
+    let parents tree_set = 
+      List.map (fun tree -> Tree.get_parent tree) tree_set 
+      |> Common.Option.flatten 
+      |> Common.Option.get
+      |> List.sort_uniq (compare) 
 
-  let parents tree_set = 
-    List.map (fun tree -> Tree.get_parent tree) tree_set 
-    |> Common.Option.flatten 
-    |> Common.Option.get
-    |> List.sort_uniq (Tree.Node.compare) 
+    let min_dist tree_set =
+      (List.fold_left (fun a b -> if a.local.distance < b.local.distance then a else b) (List.hd tree_set) tree_set).local.distance
 
-  let min_dist tree_set =
-    (List.fold_left (fun a b -> if a.local.distance < b.local.distance then a else b) (List.hd tree_set) tree_set).local.distance
+    let next_tree tree_set =
+      List.length tree_set
 
-  let next_tree tree_set =
-    List.length tree_set
-
-  let update_tree_set tree_set (node:Tree.Node.t) =
-    let tree_set = match List.exists (fun tree -> tree.local.tree_nb = node.tree_nb) tree_set with
-    | true -> tree_set
-    | false ->
-      {
-        local =
-          {
-            node_id  = Conf.local_id;
-            tree_nb  = node.tree_nb;
-            distance = Distance.min;
-            parent   = None;
-            rank     = 0;
-            priority = match (min_dist tree_set > Conf.max_dist) with
-            | true -> Conf.local_prio
-            | false -> Priority.min
-          };
-        peers = [];
-      } :: tree_set in
-    let tree_set =
-      List.map (fun tree -> 
-        if tree.local.tree_nb = node.tree_nb then Tree.update tree node else tree)
-        tree_set in
-    let tree_set = match is_stable tree_set && List.length tree_set < Conf.max_trees with
-    | false -> tree_set
-    | true -> match min_dist tree_set > Conf.max_dist with
-      | false -> tree_set
-      | true ->
+    let update_tree_set tree_set node =
+      let open Node in
+      let tree_set = match List.exists (fun tree -> tree.local.tree_nb = node.tree_nb) tree_set with
+      | true -> tree_set
+      | false ->
         {
           local =
             {
               node_id  = Conf.local_id;
-              tree_nb  = next_tree tree_set;
-              distance = Distance.min;
+              tree_nb  = node.tree_nb;
+              distance = 0;
               parent   = None;
               rank     = 0;
-              priority = Conf.local_prio
+              priority = match (min_dist tree_set > Conf.max_dist) with
+              | true -> (Conf.local_prio, Conf.local_id)
+              | false -> (0, Conf.local_id) (*TODO *)
             };
           peers = [];
         } :: tree_set in
-    tree_set
+      let tree_set =
+        List.map (fun tree -> 
+          if tree.local.tree_nb = node.tree_nb then Tree.update tree node else tree)
+          tree_set in
+      let tree_set = match is_stable tree_set && List.length tree_set < Conf.max_trees with
+      | false -> tree_set
+      | true -> match min_dist tree_set > Conf.max_dist with
+        | false -> tree_set
+        | true ->
+          {
+            local =
+              {
+                node_id  = Conf.local_id;
+                tree_nb  = next_tree tree_set;
+                distance = 0;
+                parent   = None;
+                rank     = 0;
+                priority = (Conf.local_prio, Conf.local_id)
+              };
+            peers = [];
+          } :: tree_set in
+      tree_set
 
-  let delete_node tree_set node =
-    List.map (fun x -> Tree.delete_node x node) tree_set
+    let delete_node tree_set node =
+      List.map (fun x -> Tree.delete_node x node) tree_set
 
-  let print tree_set =
-    tree_set
-    |> List.sort (fun a b -> compare a.local.tree_nb b.local.tree_nb)
-    |> List.iter (fun tree -> printf "Tree nb %i:\n%!" tree.local.tree_nb; print tree)
+    let print tree_set =
+      tree_set
+      |> List.sort (fun a b -> compare a.local.tree_nb b.local.tree_nb)
+      |> List.iter (fun tree -> printf "Tree nb %i:\n%!" tree.local.tree_nb; Tree.print tree)
+  end
 end
