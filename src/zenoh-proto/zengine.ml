@@ -157,6 +157,16 @@ module ZEngine (MVar : MVar) = struct
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
+    let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
+
+    let make_scout = Message.Scout (Message.Scout.create (Vle.of_char Message.ScoutFlags.scoutBroker) [])
+
+    let make_hello pe = Message.Hello (Message.Hello.create (Vle.of_char Message.ScoutFlags.scoutBroker) pe.locators [])
+
+    let make_open pe = Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [])
+
+    let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.lease [])
+
     let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
       MVar.create @@ { 
         pid; 
@@ -169,21 +179,57 @@ module ZEngine (MVar : MVar) = struct
         next_mapping = 0L; 
         tx_connector}
 
+    let rec connect_peer peer connector max_retries = 
+      let open Frame in 
+      Lwt.catch 
+        (fun () ->
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Connecting to peer %s" (Locator.to_string peer)) in 
+          let%lwt tx_sex = connector peer in
+          let sock = TxSession.socket tx_sex in 
+          let frame = Frame.create [make_scout] in 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Sending scout to peer %s" (Locator.to_string peer)) in 
+          Mcodec.ztcp_write_frame_alloc sock frame )
+        (fun _ -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
+          let%lwt _ = Lwt_unix.sleep 1.0 in 
+          if max_retries > 0 then connect_peer peer connector (max_retries -1)
+          else 
+            begin
+              let _ = Logs_lwt.warn (fun m -> m "Permanently Failed to connect to %s" (Locator.to_string peer))  in
+              Lwt.fail_with "Unable to connect to peer"
+            end)
 
-    let remove_session pe tsex =    
+    let connect_peers pe =        
+      let open Lwt.Infix in 
+       Lwt_list.iter_p (fun p -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Trying to establish connection to %s" (Locator.to_string p)) in 
+        (connect_peer p  pe.tx_connector 10) >|= fun _ -> ()) pe.peers
+
+    let start engine = 
+      let%lwt pe = MVar.read engine in  
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
+      connect_peers pe 
+
+    let remove_session pe tsex peer =    
       let sid = TxSession.id tsex in 
       let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (Id.to_string sid)) in
       let smap = SIDMap.remove sid pe.smap in
       let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
+
+      let%lwt _ = (match Locator.of_string peer with 
+      | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
+                    then connect_peer loc pe.tx_connector 10
+                    else Lwt.return 0
+      | None -> Lwt.return 0) in
+
       Lwt.return {pe with rmap; smap}
 
 
-    let guarded_remove_session engine tsex =
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session because of a connection drop %s" (Id.show  @@ TxSession.id tsex)) in 
+    let guarded_remove_session engine tsex peer =
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.show  @@ TxSession.id tsex) peer) in 
       MVar.guarded engine 
       @@ fun pe -> 
-      let%lwt pe = remove_session pe tsex in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaned up session because of a connection drop %s" (Id.show  @@ TxSession.id tsex)) in 
+      let%lwt pe = remove_session pe tsex peer in
       MVar.return pe pe 
 
     let add_session engine tsex mask = 
@@ -192,8 +238,15 @@ module ZEngine (MVar : MVar) = struct
       let sid = TxSession.id tsex in    
       let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (Id.to_string sid)) in
       let s = Session.create (tsex:TxSession.t) mask in    
-      let smap = SIDMap.add (TxSession.id tsex) s pe.smap in         
-      let _ = Lwt.bind (TxSession.when_closed tsex)  (fun _ -> guarded_remove_session engine tsex) in
+      let smap = SIDMap.add (TxSession.id tsex) s pe.smap in   
+      let%lwt peer = 
+      Lwt.catch 
+        (fun () -> 
+          match (Lwt_unix.getpeername (TxSession.socket tsex)) with 
+          | Lwt_unix.ADDR_UNIX u -> Lwt.return u 
+          | Lwt_unix.ADDR_INET (a, p) -> Lwt.return @@ "tcp/" ^ (Unix.string_of_inet_addr a) ^ ":" ^ (string_of_int p))
+        (fun _ -> Lwt.return "UNKNOWN") in
+      let _ = Lwt.bind (TxSession.when_closed tsex)  (fun _ -> guarded_remove_session engine tsex peer) in
       let pe' = {pe with smap} in
       MVar.return pe' pe'
 
@@ -256,16 +309,6 @@ module ZEngine (MVar : MVar) = struct
                | None -> {id = rid; session = session.sid; pub = false; sub = None; matched_pub = false; matched_sub=false}) in 
         Lwt.return pe
 
-    let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
-
-    let make_scout = Message.Scout (Message.Scout.create (Vle.of_char Message.ScoutFlags.scoutBroker) [])
-
-    let make_hello pe = Message.Hello (Message.Hello.create (Vle.of_char Message.ScoutFlags.scoutBroker) pe.locators [])
-
-    let make_open pe = Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [])
-
-    let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.lease [])
-
 
     let process_scout engine tsex msg =
       let open Lwt.Infix in
@@ -274,10 +317,8 @@ module ZEngine (MVar : MVar) = struct
 
 
     let process_hello engine tsex msg  =
-      let open Lwt.Infix in 
       let sid = TxSession.id tsex in       
-      let%lwt pe' = add_session engine tsex (Message.Hello.mask msg) in 
-      let _ = TxSession.when_closed tsex >>= fun _ -> guarded_remove_session engine tsex in            
+      let%lwt pe' = add_session engine tsex (Message.Hello.mask msg) in           
       match Vle.logand (Message.Hello.mask msg) (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with 
       | false -> Lwt.return  []
       | true -> (
@@ -782,39 +823,6 @@ module ZEngine (MVar : MVar) = struct
         | Message.KeepAlive _ -> Lwt.return []
         | _ -> Lwt.return []
       in Lwt_list.map_p dispatch msgs >|= List.flatten 
-
-
-      let rec connect_peer peer connector max_retries = 
-        let open Frame in 
-        Lwt.catch 
-          (fun () ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Connecting to peer %s" (Locator.to_string peer)) in 
-            let%lwt tx_sex = connector peer in
-            let sock = TxSession.socket tx_sex in 
-            let frame = Frame.create [make_scout] in 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Sending scout to peer %s" (Locator.to_string peer)) in 
-            Mcodec.ztcp_write_frame_alloc sock frame )
-          (fun _ -> 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
-            let%lwt _ = Lwt_unix.sleep 2.0 in 
-            if max_retries > 0 then connect_peer peer connector (max_retries -1)
-            else 
-              begin
-                let _ = Logs_lwt.warn (fun m -> m "Permanently Failed to connect to %s" (Locator.to_string peer))  in
-                Lwt.fail_with "Unable to connect to peer"
-              end)
-       
-
-    let connect_peers pe =        
-      let open Lwt.Infix in 
-       Lwt_list.iter_p (fun p -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Trying to establish connection to %s" (Locator.to_string p)) in 
-        (connect_peer p  pe.tx_connector 10) >|= fun _ -> ()) pe.peers
-
-    let start engine = 
-      let%lwt pe = MVar.read engine in  
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
-      connect_peers pe 
 
   end
 end
