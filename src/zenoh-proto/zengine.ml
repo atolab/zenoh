@@ -215,6 +215,16 @@ module ZEngine (MVar : MVar) = struct
       let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (Id.to_string sid)) in
       let smap = SIDMap.remove sid pe.smap in
       let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
+      
+      let optpeer = List.find_opt (fun (x:ZRouter.peer) -> TxSession.id x.tsex = TxSession.id tsex) pe.router.peers in
+      let router = match optpeer with
+      | Some peer ->
+        Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m  "Delete node \n");
+        ZRouter.delete_node pe.router peer.pid
+      | None ->
+        Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m  "Cannot find tree  node for session %s \n" (Id.to_string sid));
+        pe.router in
+      ZRouter.print router;
 
       let%lwt _ = (match Locator.of_string peer with 
       | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
@@ -222,7 +232,7 @@ module ZEngine (MVar : MVar) = struct
                     else Lwt.return 0
       | None -> Lwt.return 0) in
 
-      Lwt.return {pe with rmap; smap}
+      Lwt.return {pe with rmap; smap; router}
 
 
     let guarded_remove_session engine tsex peer =

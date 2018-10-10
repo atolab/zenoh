@@ -73,6 +73,7 @@ open Spn_tree.Node
   let delete_node router node_id =
     let module TreeSet = (val router.tree_mod: Spn_tree.Set.S) in
     let new_set = TreeSet.delete_node router.tree_set node_id in
+    let new_peers = List.filter (fun peer -> peer.pid <> node_id) router.peers in
     new_set
     |> List.filter (fun tree ->
           let old_item = List.find_opt (fun oldtree -> 
@@ -80,9 +81,8 @@ open Spn_tree.Node
               router.tree_set in
           match old_item with
           | None -> false
-          | Some item -> tree.local = item.local)
+          | Some item -> tree.local != item.local)
     |> List.map (fun tree -> tree.local)
-    |>router.send_to router.peers;
-    let new_peers = List.filter (fun peer -> peer.pid <> node_id) router.peers in
+    |> router.send_to new_peers;
     {router with tree_set = new_set; peers = new_peers;}
 

@@ -49,25 +49,32 @@ end
 module Configure(Conf : Configuration) : S = struct
   open Node
 
+  let rec best_peer peers = match peers with
+    | [] -> invalid_arg "empty list"
+    | x :: [] -> x
+    | x :: remain ->
+      let max_rem = best_peer remain in
+      if compare x max_rem > 0 then x else max_rem
+
   let update tree node =
     let open Node in
-    {
-      local =
-        if compare node tree.local > 0 then
-        {
-          node_id  = tree.local.node_id;
-          tree_nb  = node.tree_nb;
-          priority = node.priority;
-          distance = node.distance;
-          parent   = Some node.node_id;
-          rank     = node.rank
-        }
-        else tree.local;
-      peers =
-        match List.find_opt (fun peer -> peer.node_id = node.node_id) tree.peers with
-        | None -> node :: tree.peers
-        | Some _ -> List.map (fun peer -> if peer.node_id = node.node_id then node else peer) tree.peers
-    }
+    let peers =
+      match List.find_opt (fun peer -> peer.node_id = node.node_id) tree.peers with
+      | None -> node :: tree.peers
+      | Some _ -> List.map (fun peer -> if peer.node_id = node.node_id then node else peer) tree.peers in
+    let self = {
+        node_id  = Conf.local_id;
+        tree_nb  = tree.local.tree_nb;
+        priority = (Conf.local_prio, Conf.local_id);
+        distance = 0;
+        parent   = None;
+        rank     = 0
+      } in
+    let best = best_peer (self::peers) in
+    let local = if best.node_id = Conf.local_id
+    then self
+    else {best with node_id = Conf.local_id; parent = Some best.node_id;} in
+    {local; peers}
 
   let delete_node tree node =
     let new_peers = List.filter (fun peer -> (peer.node_id <> node)) tree.peers in
@@ -77,11 +84,8 @@ module Configure(Conf : Configuration) : S = struct
         | None -> tree.local
         | Some id -> if id = node then 
           begin
-            let rec max_list l = match l with
-            | [] -> invalid_arg "empty list"
-            | x :: [] -> x
-            | x :: remain -> max x (max_list remain) in
-              max_list new_peers
+            let new_parent = best_peer new_peers in
+            {new_parent with node_id = tree.local.node_id; parent = Some new_parent.node_id;}
           end 
           else tree.local;
           (* TODO : more to do if dead parent was also root *)
