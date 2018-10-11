@@ -94,8 +94,8 @@ let send_message sock msg =
   let len = IOBuf.limit wbuf in
   let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
-  let%lwt _ = Net.send sock lbuf in
-  Net.send sock wbuf
+  let%lwt _ = Net.write_all sock lbuf in
+  Net.write_all sock wbuf
 
 
 let process_incoming_message msg resolver t = 
@@ -140,7 +140,7 @@ let process_incoming_message msg resolver t =
 let get_message_length sock buf =
   let rec extract_length buf v bc =
     let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
-    match%lwt Net.recv sock buf with
+    match%lwt Net.read_all sock buf with
     | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
     | _ ->
       let (b, buf) = Result.get (IOBuf.get_char buf) in
@@ -155,9 +155,9 @@ let rec run_decode_loop resolver t =
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
     let%lwt len = get_message_length t.sock rbuf in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let%lwt _ = Lwt_bytes.recv t.sock (IOBuf.to_bytes rbuf) 0 len [] in
     let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
     let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
+    let%lwt _ = Net.read_all t.sock rbuf in
     let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
     let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
     let%lwt _ = process_incoming_message msg resolver t in
