@@ -68,7 +68,7 @@ module Configure(Conf : Configuration) : S = struct
         priority = (Conf.local_prio, Conf.local_id);
         distance = 0;
         parent   = None;
-        rank     = 0
+        rank     = tree.local.rank;
       } in
     let best = best_peer (self::peers) in
     let local = if best.node_id = Conf.local_id
@@ -76,20 +76,36 @@ module Configure(Conf : Configuration) : S = struct
     else {best with node_id = Conf.local_id; parent = Some best.node_id;} in
     {local; peers}
 
-  let delete_node tree node =
-    let new_peers = List.filter (fun peer -> (peer.node_id <> node)) tree.peers in
-    {
-      peers = new_peers;
-      local = match tree.local.parent with
-        | None -> tree.local
-        | Some id -> if id = node then 
-          begin
-            let new_parent = best_peer new_peers in
-            {new_parent with node_id = tree.local.node_id; parent = Some new_parent.node_id;}
-          end 
-          else tree.local;
-          (* TODO : more to do if dead parent was also root *)
-    }
+  let delete_node tree nodeid =
+    match List.find_opt (fun peer -> (peer.node_id = nodeid)) tree.peers with
+    | None -> tree
+    | Some node ->
+      let peers = List.filter (fun peer -> (peer.node_id <> nodeid)) tree.peers in
+      match node.parent with 
+      | Some _ ->
+        let self = {
+            node_id  = Conf.local_id;
+            tree_nb  = tree.local.tree_nb;
+            priority = (Conf.local_prio, Conf.local_id);
+            distance = 0;
+            parent   = None;
+            rank     = tree.local.rank;
+          } in
+        let best = best_peer (self::peers) in
+        let local = if best.node_id = Conf.local_id
+        then self
+        else {best with node_id = Conf.local_id; parent = Some best.node_id;} in
+        {local; peers}
+      | None ->
+        let self = {
+            node_id  = Conf.local_id;
+            tree_nb  = tree.local.tree_nb;
+            priority = (Conf.local_prio, Conf.local_id);
+            distance = 0;
+            parent   = None;
+            rank     = tree.local.rank + 1;
+          } in
+        {local=self; peers}
 
   let is_stable tree =
     List.for_all (fun peer -> peer.priority = tree.local.priority) tree.peers
@@ -186,7 +202,7 @@ module Set = struct
               tree_nb  = node.tree_nb;
               distance = 0;
               parent   = None;
-              rank     = 0;
+              rank     = node.rank;
               priority = match (min_dist tree_set > Conf.max_dist) with
               | true -> (Conf.local_prio, Conf.local_id)
               | false -> (0, Conf.local_id) (*TODO *)
