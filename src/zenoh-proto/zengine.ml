@@ -730,7 +730,7 @@ module ZEngine (MVar : MVar) = struct
       | (pe, Some res) -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
                                        (Id.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
-        Lwt.ignore_result @@ forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg);
+        let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg) in
         Lwt.return (pe, [])
 
     let process_user_writedata pe session msg =      
@@ -739,10 +739,10 @@ module ZEngine (MVar : MVar) = struct
       let name = ResName.URI(Message.WriteData.resource msg) in
       match store_data pe name (Message.WriteData.payload msg) with 
       | (pe, None) -> 
-        Lwt.ignore_result @@ forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) (Message.WriteData.payload msg);
+        let%lwt _ = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) (Message.WriteData.payload msg) in
         Lwt.return (pe, [])
       | (pe, Some res) -> 
-        Lwt.ignore_result @@ forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.WriteData.payload msg);
+        let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.WriteData.payload msg) in
         Lwt.return (pe, [])
 
     let process_broker_data pe session msg = 
