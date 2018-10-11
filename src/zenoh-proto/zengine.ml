@@ -226,11 +226,11 @@ module ZEngine (MVar : MVar) = struct
         pe.router in
       ZRouter.print router;
 
-      let%lwt _ = (match Locator.of_string peer with 
+      Lwt.ignore_result @@ (match Locator.of_string peer with 
       | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
                     then connect_peer loc pe.tx_connector 10
                     else Lwt.return 0
-      | None -> Lwt.return 0) in
+      | None -> Lwt.return 0);
 
       Lwt.return {pe with rmap; smap; router}
 
