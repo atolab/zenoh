@@ -104,20 +104,20 @@ let process_incoming_message msg resolver t =
   | Message.StreamData dmsg ->
     let%lwt state = Lwt_mvar.take t.state in
     let%lwt _ = Lwt_mvar.put t.state state in 
-    match VleMap.find_opt (StreamData.id dmsg) state.resmap with
+    let%lwt _ = match VleMap.find_opt (StreamData.id dmsg) state.resmap with
     | Some res -> 
       (* TODO make sure that payload is a copy *)
       (* TODO make payload a readonly buffer *)
       let buf = StreamData.payload dmsg in
-      List.iter (fun resid -> 
+      Lwt_list.iter_s (fun resid -> 
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
-          List.iter (fun sub -> 
-            Lwt.ignore_result @@ sub.listener buf res.name
+          Lwt_list.iter_s (fun sub -> 
+            sub.listener buf res.name
           ) res.subs
-        | None -> () 
+        | None -> Lwt.return_unit 
       ) res.matches
-    | None -> () ; ;
+    | None -> Lwt.return_unit in
     return_true
   | Message.WriteData dmsg ->
     let%lwt state = Lwt_mvar.take t.state in
@@ -125,13 +125,13 @@ let process_incoming_message msg resolver t =
     (* TODO make sure that payload is a copy *)
     (* TODO make payload a readonly buffer *)
     let buf = WriteData.payload dmsg in
-    VleMap.iter (fun _ res -> 
+    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
       match URI.uri_match res.name (WriteData.resource dmsg) with 
       | true -> 
-          List.iter (fun sub -> 
-            Lwt.ignore_result @@ sub.listener buf (WriteData.resource dmsg)
+          Lwt_list.iter_s (fun sub ->
+            sub.listener buf (WriteData.resource dmsg)
           ) res.subs
-      | false -> ()) state.resmap;
+      | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
   | msg ->
       Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
