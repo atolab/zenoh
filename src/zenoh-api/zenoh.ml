@@ -150,28 +150,29 @@ let get_message_length sock buf =
   in extract_length buf 0 0
 
   
-let rec run_decode_loop resolver t =  
+let rec run_decode_loop resolver t = 
+  let%lwt len = get_message_length t.sock rbuf in
+  let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
+  let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
+  let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
+  let%lwt _ = Net.read_all t.sock rbuf in
+  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
+  let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+  let%lwt _ = process_incoming_message msg resolver t in
+  run_decode_loop resolver t
+  
+let safe_run_decode_loop resolver t =  
   try%lwt
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
-    let%lwt len = get_message_length t.sock rbuf in
-    let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
-    let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
-    let%lwt _ = Net.read_all t.sock rbuf in
-    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
-    let%lwt _ = process_incoming_message msg resolver t in
     run_decode_loop resolver t
   with
-  | _ ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Connection close by peer") in
+  | x ->
+    let%lwt _ = Logs_lwt.warn (fun m -> m "Exception in decode loop : %s" (Printexc.to_string x)) in
     try%lwt
       let%lwt _ = Lwt_unix.close t.sock in
-      fail @@ Exception (`ClosedSession (`Msg "Connection  closed by peer"))
+      fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
     with
     | _ ->  
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
-      fail @@ Exception (`ClosedSession `NoMsg)
+      fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
   
 let (>>) a b = a >>= fun x -> x |> fun _ -> b  
 
@@ -186,7 +187,7 @@ let zopen peer =
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let (promise, resolver) = Lwt.task () in
   let con = connect sock saddr in 
-  let _ = con >>= fun _ -> run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
+  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
 
