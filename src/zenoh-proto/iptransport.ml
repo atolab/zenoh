@@ -141,7 +141,7 @@ module TcpTransport = struct
           Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") 
           >>= serve_session                  
         | Error e -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Received invalid frame  closing session %s" ssid) in
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Received invalid frame. Closing session %s" ssid) in
           let%lwt _ = close_session socket in
           Lwt.return (Exception e)  
       in serve_session ()     
