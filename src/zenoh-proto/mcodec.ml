@@ -562,7 +562,7 @@ let ztcp_read_frame sock buf () =
 
 
 
-let ztcp_write_frame sock buf frame =   
+let ztcp_write_frame sock frame buf =   
 
   let wbuf = IOBuf.clear buf in 
   let ms = Frame.to_list frame in
@@ -579,4 +579,6 @@ let ztcp_write_frame sock buf frame =
   let ztcp_write_frame_alloc sock frame =
   (* We shoud compute the size and allocate accordingly *)
   let buf = IOBuf.create 65536 in 
-  ztcp_write_frame sock buf frame
+  ztcp_write_frame sock frame buf
+
+  let ztcp_write_frame_pooled sock frame pool = Lwt_pool.use pool @@ ztcp_write_frame sock frame

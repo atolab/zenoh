@@ -149,7 +149,6 @@ let get_message_length sock buf =
       | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
   in extract_length buf 0 0
 
-  
 let rec run_decode_loop resolver t = 
   let%lwt len = get_message_length t.sock rbuf in
   let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
@@ -171,7 +170,7 @@ let safe_run_decode_loop resolver t =
       let%lwt _ = Lwt_unix.close t.sock in
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
     with
-    | _ ->  
+    | _ -> 
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
   
 let (>>) a b = a >>= fun x -> x |> fun _ -> b  
@@ -190,7 +189,6 @@ let zopen peer =
   let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
-
 
 let publish resname z = 
   let%lwt state = Lwt_mvar.take z.state in
