@@ -9,13 +9,15 @@ type state = {starttime:float; count:int;}
 let state = MVar_lwt.create {starttime=0.0; count=0}
 
 let listener _ _ = 
-  let%lwt s = MVar_lwt.take state in
-  let now = Unix.gettimeofday() in 
-  let s = match s.starttime with 
-  | 0.0 -> {starttime = now; count = 1}
-  | time when now < (time +. 1.0) -> {s with count = s.count + 1;}
-  | _ -> Printf.printf "%d\n%!" (s.count + 1);{starttime=now; count=0} in
-  MVar_lwt.put state s
+  Lwt.ignore_result @@ (
+    let%lwt s = MVar_lwt.take state in
+    let now = Unix.gettimeofday() in 
+    let s = match s.starttime with 
+    | 0.0 -> {starttime = now; count = 1}
+    | time when now < (time +. 1.0) -> {s with count = s.count + 1;}
+    | _ -> Printf.printf "%d\n%!" (s.count + 1);{starttime=now; count=0} in
+    MVar_lwt.put state s);
+  Lwt.return_unit
 
 let run peers = 
   Lwt_main.run 
