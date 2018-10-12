@@ -151,7 +151,7 @@ let get_message_length sock buf =
 
   
 let rec run_decode_loop resolver t =  
-  try%lwt
+  (* try%lwt *)
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
     let%lwt len = get_message_length t.sock rbuf in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
@@ -162,16 +162,17 @@ let rec run_decode_loop resolver t =
     let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
     let%lwt _ = process_incoming_message msg resolver t in
     run_decode_loop resolver t
-  with
+
+  (* with
   | _ ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Connection close by peer") in
+    let%lwt _ = Logs_lwt.warn (fun m -> m "Connection close by peer") in
     try%lwt
       let%lwt _ = Lwt_unix.close t.sock in
       fail @@ Exception (`ClosedSession (`Msg "Connection  closed by peer"))
     with
     | _ ->  
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
-      fail @@ Exception (`ClosedSession `NoMsg)
+      let%lwt _ = Logs_lwt.warn (fun m -> m "[Session Closed]\n") in
+      fail @@ Exception (`ClosedSession `NoMsg) *)
   
 let (>>) a b = a >>= fun x -> x |> fun _ -> b  
 
