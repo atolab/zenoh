@@ -133,7 +133,9 @@ module ZEngine (MVar : MVar) = struct
       peers : Locator.t list;
       router : ZRouter.t;
       next_mapping : Vle.t;
-      tx_connector : tx_session_connector
+      tx_connector : tx_session_connector;
+      buffer_pool : IOBuf.t Lwt_pool.t
+
     }
 
     type t = engine_state MVar.t
@@ -166,8 +168,8 @@ module ZEngine (MVar : MVar) = struct
     let make_open pe = Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [])
 
     let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.lease [])
-
-    let create (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
+    
+    let create ?(bufn = 32) ?(buflen=65536) (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
       MVar.create @@ { 
         pid; 
         lease; 
@@ -177,7 +179,8 @@ module ZEngine (MVar : MVar) = struct
         peers;
         router = ZRouter.create send_nodes (hostid ^ Printf.sprintf "%08d" (Unix.getpid ())) strength 2 0;
         next_mapping = 0L; 
-        tx_connector}
+        tx_connector;
+        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ IOBuf.create buflen) }
 
     let rec connect_peer peer connector max_retries = 
       let open Frame in 
@@ -422,7 +425,7 @@ module ZEngine (MVar : MVar) = struct
       let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
       (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)  
       let open Lwt.Infix in      
-      (pe, Mcodec.ztcp_write_frame_alloc (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) >|= fun _ -> ())
+      (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
     let forward_pdecl_to_parents (pe:engine_state) res = 
       let open ZRouter in
@@ -487,7 +490,7 @@ module ZEngine (MVar : MVar) = struct
       let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
       (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
       let open Lwt.Infix in 
-      (pe, Mcodec.ztcp_write_frame_alloc (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) >|= fun _ -> ())
+      (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
 
     let forward_sdecl_to_parents pe res =      
@@ -552,7 +555,7 @@ module ZEngine (MVar : MVar) = struct
                   let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
                   Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
                   (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)                                    
-                  let r = Mcodec.ztcp_write_frame_alloc (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) in 
+                  let r = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool in 
                   let open Lwt.Infix in 
                   (pe, (r >>= fun _ -> Lwt.return_unit) :: ps)
               ) (pe, ps) mres.mappings
@@ -662,7 +665,7 @@ module ZEngine (MVar : MVar) = struct
 
         let sock = TxSession.socket s.tx_sex in 
         let open Lwt.Infix in 
-        (Mcodec.ztcp_write_frame_alloc sock @@ Frame.Frame.create [msg]) >>= fun _ -> Lwt.return_unit
+        (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [msg]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 
     let rspace msg =       

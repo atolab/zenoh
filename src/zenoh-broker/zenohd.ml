@@ -45,6 +45,7 @@ let setup_log style_renderer level =
 let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
 let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
 let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength")
+let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers")
 
 let to_string peers = 
   peers
@@ -52,7 +53,7 @@ let to_string peers =
   |> String.concat "," 
 
 module ZEngine = ZEngine(MVar_lwt)
-let run_broker tcpport peers strength = 
+let run_broker tcpport peers strength bufn = 
   let open ZEngine in   
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
@@ -64,7 +65,7 @@ let run_broker tcpport peers strength =
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
-  let engine = ProtocolEngine.create pid lease Locators.empty peers strength tx_connector in     
+  let engine = ProtocolEngine.create ~bufn pid lease Locators.empty peers strength tx_connector in     
   let dispatcher_svc sex  =     
     let rbuf = IOBuf.create buf_size in 
     let wbuf = IOBuf.create buf_size in
@@ -85,12 +86,12 @@ let run_broker tcpport peers strength =
 
 
 
-let run tcpport peers strength style_renderer level = 
+let run tcpport peers strength bufn style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ run_broker tcpport peers strength
+  Lwt_main.run @@ run_broker tcpport peers strength bufn
    
 let () =
   Printexc.record_backtrace true;
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ tcpport $ peers $ strength $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  let _ = Term.(eval (const run $ tcpport $ peers $ strength $ bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   
