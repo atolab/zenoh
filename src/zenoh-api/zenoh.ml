@@ -1,6 +1,4 @@
 open Apero
-open Common
-open Iobuf
 open Message
 open Locator
 open Lwt

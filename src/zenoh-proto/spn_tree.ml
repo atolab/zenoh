@@ -180,8 +180,8 @@ module Set = struct
 
     let parents tree_set = 
       List.map (fun tree -> Tree.get_parent tree) tree_set 
-      |> Common.Option.flatten 
-      |> Common.Option.get
+      |> Apero.Option.flatten 
+      |> Apero.Option.get
       |> List.sort_uniq (compare) 
 
     let min_dist tree_set =
