@@ -196,22 +196,21 @@ module ZEngine (MVar : MVar) = struct
           let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
           let%lwt _ = Lwt_unix.sleep 1.0 in 
           if max_retries > 0 then connect_peer peer connector (max_retries -1)
-          else 
-            begin
-              let _ = Logs_lwt.warn (fun m -> m "Permanently Failed to connect to %s" (Locator.to_string peer))  in
-              Lwt.fail_with "Unable to connect to peer"
-            end)
+          else Lwt.fail_with ("Permanently Failed to connect to " ^ (Locator.to_string peer)))
 
     let connect_peers pe =        
       let open Lwt.Infix in 
        Lwt_list.iter_p (fun p -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Trying to establish connection to %s" (Locator.to_string p)) in 
-        (connect_peer p  pe.tx_connector 10) >|= fun _ -> ()) pe.peers
+        Lwt.catch
+          (fun _ -> (connect_peer p  pe.tx_connector 10) >|= ignore )
+          (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return_unit)
+        ) pe.peers
 
     let start engine = 
       let%lwt pe = MVar.read engine in  
       let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
-      connect_peers pe 
+      connect_peers pe
 
     let remove_session pe tsex peer =    
       let sid = TxSession.id tsex in 
@@ -229,11 +228,13 @@ module ZEngine (MVar : MVar) = struct
         pe.router in
       ZRouter.print router;
 
-      Lwt.ignore_result @@ (match Locator.of_string peer with 
-      | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
-                    then connect_peer loc pe.tx_connector 10
-                    else Lwt.return 0
-      | None -> Lwt.return 0);
+      Lwt.ignore_result @@ Lwt.catch
+        (fun _ -> match Locator.of_string peer with 
+          | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
+                        then connect_peer loc pe.tx_connector 10
+                        else Lwt.return 0
+          | None -> Lwt.return 0)
+        (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return 0);
 
       Lwt.return {pe with rmap; smap; router}
 
