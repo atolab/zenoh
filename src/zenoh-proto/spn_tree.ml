@@ -148,9 +148,10 @@ module Set = struct
   type t = tree list
 
   module type S = sig
+    include S
     val create : t
     val is_stable : t -> bool
-    val parents : t -> Node.t list
+    val get_tree : t -> int -> tree option
     val min_dist : t -> int
     val next_tree : 'a list -> int
     val update_tree_set : t -> Node.t -> t
@@ -160,6 +161,8 @@ module Set = struct
 
   module Configure(Conf : Configuration) : S = struct
     module Tree = Configure(Conf)
+
+    include Tree
 
     let create =
       [{
@@ -178,11 +181,8 @@ module Set = struct
     let is_stable tree_set =
       List.for_all (fun x -> Tree.is_stable x) tree_set
 
-    let parents tree_set = 
-      List.map (fun tree -> Tree.get_parent tree) tree_set 
-      |> Apero.Option.flatten 
-      |> Apero.Option.get
-      |> List.sort_uniq (compare) 
+    let get_tree tree_set tid = 
+      List.find_opt (fun tree -> tree.local.tree_nb = tid) tree_set
 
     let min_dist tree_set =
       (List.fold_left (fun a b -> if a.local.distance < b.local.distance then a else b) (List.hd tree_set) tree_set).local.distance

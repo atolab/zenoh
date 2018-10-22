@@ -329,7 +329,7 @@ module ProtocolEngine = struct
 
   let forward_pdecl_to_parents pe res = 
     let open Router in
-    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    let (pe, ps) = [(Option.get (Router.TreeSet.get_parent (Option.get (Router.TreeSet.get_tree pe.router.tree_set 0))))]
     |> List.map (fun (node:Spn_tree.Node.t) -> 
       (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
     |> List.fold_left (fun x sid -> 
@@ -388,7 +388,7 @@ module ProtocolEngine = struct
 
   let forward_sdecl_to_parents pe res = 
     let open Router in
-    let (pe, ps) = Router.TreeSet.parents pe.router.tree_set
+    let (pe, ps) = [(Option.get (Router.TreeSet.get_parent (Option.get (Router.TreeSet.get_tree pe.router.tree_set 0))))]
     |> List.map (fun (node:Spn_tree.Node.t) -> 
       (List.find (fun x -> x.pid = node.node_id) pe.router.peers).sid )
     |> List.fold_left (fun x sid -> 

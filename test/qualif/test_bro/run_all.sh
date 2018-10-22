@@ -7,6 +7,8 @@ echo "====== START bro tests"
 ./test_bro_2b_3/test_bro_2b_3.sh && \
 ./test_bro_2b_4/test_bro_2b_4.sh && \
 ./test_bro_2b_5/test_bro_2b_5.sh && \
+./test_bro_2b_6/test_bro_2b_6.sh && \
+./test_bro_2b_7/test_bro_2b_7.sh && \
 ./test_bro_14b_1/test_bro_14b_1.sh && \
 ./test_bro_14b_2/test_bro_14b_2.sh && \
 ./test_bro_14b_3/test_bro_14b_3.sh && \

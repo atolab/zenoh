@@ -203,7 +203,7 @@ module ZEngine (MVar : MVar) = struct
        Lwt_list.iter_p (fun p -> 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Trying to establish connection to %s" (Locator.to_string p)) in 
         Lwt.catch
-          (fun _ -> (connect_peer p  pe.tx_connector 10) >|= ignore )
+          (fun _ -> (connect_peer p  pe.tx_connector 1000) >|= ignore )
           (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return_unit)
         ) pe.peers
 
@@ -231,7 +231,7 @@ module ZEngine (MVar : MVar) = struct
       Lwt.ignore_result @@ Lwt.catch
         (fun _ -> match Locator.of_string peer with 
           | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
-                        then connect_peer loc pe.tx_connector 10
+                        then connect_peer loc pe.tx_connector 1000
                         else Lwt.return 0
           | None -> Lwt.return 0)
         (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return 0);
@@ -387,89 +387,6 @@ module ZEngine (MVar : MVar) = struct
       Lwt.return (pe, [Message.Declaration.ResultDecl (Message.ResultDecl.create (Message.CommitDecl.commit_id cd) (char_of_int 0) None)])
 
 
-    (* ======================== PUB DECL =========================== *)
-
-    let register_publication pe tsex pd =
-      let sid = (TxSession.id tsex) in 
-      let session = SIDMap.find_opt sid  pe.smap in 
-      match session with 
-      | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received PublicationDecl on unknown session %s: Ignore it!" 
-                                              (Id.to_string sid)) in Lwt.return (pe, None)
-      | Some session -> 
-        let rid = Message.PublisherDecl.rid pd in 
-        let resname = match VleMap.find_opt rid session.rmap with 
-          | Some name -> name
-          | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
-            (fun m -> match m with 
-               | Some m -> {m with pub=true;} 
-               | None -> {id = rid; session = sid; pub = true; sub = None; matched_pub = false; matched_sub=false}) in
-        Lwt.return (pe, Some res)
-
-
-    let forward_pdecl_to_session pe res zsex = 
-      let open ResName in 
-      let open Resource in       
-      let oc = Session.out_channel zsex in
-      let (pe, ds) = match res.name with 
-        | ID id -> (
-            let pubdecl = Message.Declaration.PublisherDecl (Message.PublisherDecl.create id []) in
-            (pe, [pubdecl]))
-        | URI uri -> 
-          let resdecl = Message.Declaration.ResourceDecl (Message.ResourceDecl.create res.local_id uri []) in
-          let pubdecl = Message.Declaration.PublisherDecl (Message.PublisherDecl.create res.local_id []) in
-          let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
-              (fun m -> match m with 
-                 | Some mapping -> mapping
-                 | None -> {id = res.local_id; session = zsex.sid; pub = false; sub = None; matched_pub = false; matched_sub=false}) in 
-          (pe, [resdecl; pubdecl]) in
-      let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
-      (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)  
-      let open Lwt.Infix in      
-      (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
-
-    let forward_pdecl_to_parents (pe:engine_state) res = 
-      let open ZRouter in
-      let module TreeSet = (val pe.router.tree_mod : Spn_tree.Set.S) in
-      let (pe, ps) = TreeSet.parents pe.router.tree_set
-                     |> List.map (fun (node:Spn_tree.Node.t) -> 
-                         (List.find (fun x -> x.pid = node.node_id) pe.router.peers).tsex)
-                     |> List.fold_left (fun x tsex -> 
-                         let (pe, ps) = x in
-                         let s = Option.get @@ SIDMap.find_opt (TxSession.id tsex) pe.smap in
-                         let (pe, p) = forward_pdecl_to_session pe res s in 
-                         (pe, p :: ps)
-                       ) (pe, []) in 
-      let%lwt _ = Lwt.join ps in
-      Lwt.return pe
-
-    let match_pdecl pe pr id tsex =
-      let open Resource in 
-      let sid = TxSession.id tsex in 
-      let pm = List.find (fun m -> m.session = sid) pr.mappings in
-      match pm.matched_pub with 
-      | true -> Lwt.return (pe, [])
-      | false -> 
-        match ResMap.exists 
-                (fun _ sr ->  res_match pr sr && List.exists 
-                                (fun m -> m.sub != None && m.session != sid) sr.mappings) pe.rmap with
-        | false -> Lwt.return (pe, [])
-        | true -> 
-          let pm = {pm with matched_pub = true} in
-          let pr = with_mapping pr pm in
-          let rmap = ResMap.add pr.name pr pe.rmap in
-          let pe = {pe with rmap} in
-          Lwt.return (pe, [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create id Message.SubscriptionMode.push_mode [])])
-
-    let process_pdecl pe tsex pd =      
-      let%lwt (pe, pr) = register_publication pe tsex pd in
-      match pr with 
-      | None -> Lwt.return (pe, [])
-      | Some pr -> 
-        let%lwt pe = forward_pdecl_to_parents pe pr in
-        let id = Message.PublisherDecl.rid pd in
-        match_pdecl pe pr id tsex
-
     (* ======================== SUB DECL =========================== *)
 
     let forward_sdecl_to_session pe res zsex =       
@@ -493,18 +410,25 @@ module ZEngine (MVar : MVar) = struct
       let open Lwt.Infix in 
       (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
-
-    let forward_sdecl_to_parents pe res =      
+    let forward_sdecl pe res tsex =      
       let open ZRouter in
       let module TreeSet = (val pe.router.tree_mod : Spn_tree.Set.S) in
-      let (pe, ps) = TreeSet.parents pe.router.tree_set
+      let tree0 = Option.get (TreeSet.get_tree pe.router.tree_set 0) in
+      let (pe, ps) = (match TreeSet.get_parent tree0 with 
+                       | None -> TreeSet.get_childs tree0 
+                       | Some parent -> parent :: TreeSet.get_childs tree0 )
                      |> List.map (fun (node:Spn_tree.Node.t) -> 
                          (List.find (fun x -> x.pid = node.node_id) pe.router.peers).tsex )
-                     |> List.fold_left (fun x tsex -> 
-                         let (pe, ps) = x in
-                         let s = Option.get @@ SIDMap.find_opt (TxSession.id tsex) pe.smap in
-                         let (pe, p) = forward_sdecl_to_session pe res s in 
-                         (pe, p :: ps)
+                     |> List.fold_left (fun x stsex -> 
+                          if(tsex != stsex)
+                          then 
+                            begin
+                              let (pe, ps) = x in
+                              let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                              let (pe, p) = forward_sdecl_to_session pe res s in 
+                              (pe, p :: ps)
+                            end
+                          else x
                        ) (pe, []) in 
       let%lwt _ = Lwt.join ps in
       Lwt.return pe
@@ -532,45 +456,12 @@ module ZEngine (MVar : MVar) = struct
                | None -> {id = rid; session = sid; pub = false; sub = Some pull; matched_pub = false; matched_sub=false}) in
         Lwt.return (pe, Some res)
 
-    let notify_pub_matching_res pe tsex res =      
-      let sid = TxSession.id tsex in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Pub Matching Subs") in 
-      let (pe, ps) = List.fold_left (fun x name -> 
-          match ResMap.find_opt name pe.rmap with 
-          | None -> x
-          | Some mres -> 
-            let (pe, ps) = x in 
-            List.fold_left (fun x m -> 
-                let open Resource in                 
-                match (m.pub && not m.matched_pub && m.session != sid) with 
-                | false -> x
-                | true -> let (pe, ps) = x in
-                  let m = {m with matched_pub = true} in
-                  let pres = Resource.with_mapping mres m in
-                  let rmap = ResMap.add pres.name pres pe.rmap in
-                  let pe = {pe with rmap} in
-
-                  let session = SIDMap.find m.session pe.smap in
-                  let oc = Session.out_channel session in
-                  let ds = [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create m.id Message.SubscriptionMode.push_mode [])] in
-                  let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
-                  Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
-                  (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)                                    
-                  let r = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool in 
-                  let open Lwt.Infix in 
-                  (pe, (r >>= fun _ -> Lwt.return_unit) :: ps)
-              ) (pe, ps) mres.mappings
-        ) (pe, []) Resource.(res.matches) in
-      let%lwt _ = Lwt.join ps in
-      Lwt.return pe
-
     let process_sdecl pe tsex sd =      
       let%lwt (pe, res) = register_subscription pe tsex sd in
       match res with 
       | None -> Lwt.return (pe, [])
       | Some res -> 
-        let%lwt pe = forward_sdecl_to_parents pe res in
-        let%lwt _ = notify_pub_matching_res pe tsex res in
+        let%lwt pe = forward_sdecl pe res tsex in
         Lwt.return (pe, [])
 
     (* ======================== ======== =========================== *)
@@ -584,7 +475,7 @@ module ZEngine (MVar : MVar) = struct
         Lwt.return (pe, [])
       | PublisherDecl pd ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "PDecl for resource: %Ld" (Message.PublisherDecl.rid pd)) in
-        process_pdecl pe tsex pd
+        Lwt.return (pe, [])
       | SubscriberDecl sd ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
         process_sdecl pe tsex sd

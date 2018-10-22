@@ -6,7 +6,8 @@ echo "====== START c2b tests"
 ./test_c2b_2/test_c2b_2.sh && \
 ./test_c2b_3/test_c2b_3.sh && \
 ./test_c2b_4/test_c2b_4.sh && \
-./test_c2b_5/test_c2b_5.sh 
+./test_c2b_5/test_c2b_5.sh && \
+./test_c2b_6/test_c2b_6.sh 
 
 if [ $? -eq 0 ]
 then

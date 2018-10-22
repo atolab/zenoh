@@ -48,6 +48,8 @@ module Command = struct
     | h::tl when h = "dsub" -> CmdSArgs (h, tl)
     | h::tl when h = "pub" -> CmdSArgs (h, tl)
     | h::tl when h = "pubn" -> CmdSArgs (h, tl)
+    | h::tl when h = "write" -> CmdSArgs (h, tl)
+    | h::tl when h = "writen" -> CmdSArgs (h, tl)
     | h::tl when h = "dres" -> CmdSArgs (h, tl)
     | a::tl  -> CmdIArgs (a, tl |> (List.map (int_of_string)))
 
@@ -134,20 +136,38 @@ let send_stream_data sock rid data =
   let msg = Message.StreamData (StreamData.create (false,false) sn rid None buf) in
   send_message sock msg
   
-  let rec send_stream_data_n sock rid n p data = 
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Sending periodic sample...]") in
-    if n = 0 then Lwt.return 0
-    else 
-      begin
-        let%lwt _ = (send_stream_data sock rid data) in
-        let%lwt _ =  Lwt_unix.sleep p in
-        send_stream_data_n sock rid (n-1) p data
-      end
+let rec send_stream_data_n sock rid n p data = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[Sending periodic sample...]") in
+  if n = 0 then Lwt.return 0
+  else 
+    begin
+      let%lwt _ = (send_stream_data sock rid data) in
+      let%lwt _ =  Lwt_unix.sleep p in
+      send_stream_data_n sock rid (n-1) p data
+    end
 
- let send_pull sock rid =
-   let sn = Conduit.next_usn default_conduit in   
-   let msg = Message.Pull (Pull.create (true, false) sn (Vle.of_int rid) None) in
-   send_message sock msg
+let send_write_data sock rname data =
+  let open Result.Infix in  
+  let sn = Conduit.next_usn default_conduit in   
+  let buf = Result.get (encode_string data (IOBuf.clear dbuf)
+  >>> IOBuf.flip) in
+  let msg = Message.WriteData (WriteData.create (false,false) sn rname buf) in
+  send_message sock msg
+  
+let rec send_write_data_n sock rname n p data = 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "[Sending periodic sample...]") in
+  if n = 0 then Lwt.return 0
+  else 
+    begin
+      let%lwt _ = (send_write_data sock rname data) in
+      let%lwt _ =  Lwt_unix.sleep p in
+      send_write_data_n sock rname (n-1) p data
+    end
+
+let send_pull sock rid =
+  let sn = Conduit.next_usn default_conduit in   
+  let msg = Message.Pull (Pull.create (true, false) sn (Vle.of_int rid) None) in
+  send_message sock msg
 
 let produce_message sock cmd =
   match cmd with
@@ -188,6 +208,18 @@ let produce_message sock cmd =
         let data = (List.nth xs 3) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Staring pub loop with %d %f %s" n p data) in
         send_stream_data_n sock rid n p data
+      | "write" ->
+        let rname = List.hd xs in
+        let data = List.hd @@ List.tl @@ xs in
+        send_write_data sock rname data
+      | "writen" ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "writen....") in
+        let rname = List.hd xs in
+        let n = int_of_string (List.nth xs 1) in
+        let p = float_of_string (List.nth xs 2) in
+        let data = (List.nth xs 3) in
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Staring write loop with %d %f %s" n p data) in
+        send_write_data_n sock rname n p data
       | "dres" ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "dres....") in
         let rid = Vle.of_string (List.hd xs) in
