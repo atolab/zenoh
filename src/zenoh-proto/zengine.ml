@@ -27,6 +27,8 @@ module ZEngine (MVar : MVar) = struct
       last_value : IOBuf.t option;
     }
 
+    
+
     let report_mapping m = 
       Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s" 
         (Id.show m.session) (Vle.to_int m.id)
@@ -101,7 +103,7 @@ module ZEngine (MVar : MVar) = struct
     let id s = TxSession.id s.tx_sex    
   end
   
-  let hostid = Printf.sprintf "%08X" @@ Hashtbl.hash @@ Unix.gethostname ()
+  let hostid =  Uuidm.to_string @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())
 
   (* module Config = struct
     type nid_t = string
@@ -173,7 +175,7 @@ module ZEngine (MVar : MVar) = struct
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
         peers;
-        router = ZRouter.create send_nodes (hostid ^ Printf.sprintf "%08d" (Unix.getpid ())) strength 2 0;
+        router = ZRouter.create send_nodes hostid strength 2 0;
         next_mapping = 0L; 
         tx_connector;
         buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ IOBuf.create buflen) }
