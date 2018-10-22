@@ -6,19 +6,16 @@ filename="${basename%.*}"
 outdir=${filename}_`date +"%y-%m-%d_%H-%M"`
 mkdir $outdir
 
-. ./../../common/proc_mgr.sh
+. proc_mgr.sh
+. graph_tools.sh
 
 echo "-------- START test $filename"
 
-while read line
-do
-  eval "$line"
-  sleep 1
-done <<< "$(./../../common/srvcmds.sh ../../common/graph3)"
+run_brokers ../../../common/graph3 $outdir
 
 sleep 1
 
-runproc zenohc_sub1 zenohc.exe -p tcp/127.0.0.1:8022
+runproc zenohc_sub1 $outdir zenohc.exe -p tcp/127.0.0.1:8022
 sub1=$?
 
 echo "open" > ${proc_in[$sub1]}
@@ -27,7 +24,7 @@ echo "dsub 10" > ${proc_in[$sub1]}
 
 sleep 1 
 
-runproc zenohc_sub2 zenohc.exe -p tcp/127.0.0.1:8049
+runproc zenohc_sub2 $outdir zenohc.exe -p tcp/127.0.0.1:8049
 sub2=$?
 
 echo "open" > ${proc_in[$sub2]}
@@ -36,7 +33,7 @@ echo "dsub 10" > ${proc_in[$sub2]}
 
 sleep 1 
 
-runproc zenohc_sub3 zenohc.exe -p tcp/127.0.0.1:8026
+runproc zenohc_sub3 $outdir zenohc.exe -p tcp/127.0.0.1:8026
 sub3=$?
 
 echo "open" > ${proc_in[$sub3]}
@@ -45,7 +42,7 @@ echo "dsub 10" > ${proc_in[$sub3]}
 
 sleep 1 
 
-runproc zenohc_sub4 zenohc.exe -p tcp/127.0.0.1:8020
+runproc zenohc_sub4 $outdir zenohc.exe -p tcp/127.0.0.1:8020
 sub4=$?
 
 echo "open" > ${proc_in[$sub4]}
@@ -54,7 +51,7 @@ echo "dsub 10" > ${proc_in[$sub4]}
 
 sleep 1 
 
-runproc zenohc_pub1 zenohc.exe -p tcp/127.0.0.1:8050
+runproc zenohc_pub1 $outdir zenohc.exe -p tcp/127.0.0.1:8050
 pub1=$?
 
 echo "open" > ${proc_in[$pub1]}
@@ -63,7 +60,7 @@ echo "dpub 5" > ${proc_in[$pub1]}
 
 sleep 1
 
-runproc zenohc_pub2 zenohc.exe -p tcp/127.0.0.1:8004
+runproc zenohc_pub2 $outdir zenohc.exe -p tcp/127.0.0.1:8004
 pub2=$?
 
 echo "open" > ${proc_in[$pub2]}
@@ -72,7 +69,7 @@ echo "dpub 5" > ${proc_in[$pub2]}
 
 sleep 1
 
-runproc zenohc_pub3 zenohc.exe -p tcp/127.0.0.1:8044
+runproc zenohc_pub3 $outdir zenohc.exe -p tcp/127.0.0.1:8044
 pub3=$?
 
 echo "open" > ${proc_in[$pub3]}

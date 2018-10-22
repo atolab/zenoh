@@ -6,19 +6,16 @@ filename="${basename%.*}"
 outdir=${filename}_`date +"%y-%m-%d_%H-%M"`
 mkdir $outdir
 
-. ./../../common/proc_mgr.sh
+. proc_mgr.sh
+. graph_tools.sh
 
 echo "-------- START test $filename"
 
-while read line
-do
-  eval "$line"
-  sleep 1
-done <<< "$(./../../common/srvcmds.sh ../../common/graph2)"
+run_brokers ../../../common/graph2 $outdir
 
 sleep 1
 
-runproc zenohc_sub zenohc.exe -p tcp/127.0.0.1:8005
+runproc zenohc_sub $outdir zenohc.exe -p tcp/127.0.0.1:8005
 sub=$?
 
 echo "open" > ${proc_in[$sub]}
@@ -27,7 +24,7 @@ echo "dsub 10" > ${proc_in[$sub]}
 
 sleep 1 
 
-runproc zenohc_pub zenohc.exe -p tcp/127.0.0.1:8014
+runproc zenohc_pub $outdir zenohc.exe -p tcp/127.0.0.1:8014
 pub=$?
 
 echo "open" > ${proc_in[$pub]}

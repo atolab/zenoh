@@ -16,4 +16,7 @@ RDIR="$( dirname "$SOURCE" )"
 DIR="$( cd -P "$( dirname "$SOURCE" )" && cd ../.. &&  pwd )"
 
 export PATH=${DIR}/_build/default/src/zenoh-broker/:$PATH
-export ZENOD_VERBOSITY=debug
+export PATH=${DIR}/test/common/:$PATH
+
+source proc_mgr.sh
+source graph_tools.sh
