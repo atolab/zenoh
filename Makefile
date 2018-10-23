@@ -3,7 +3,7 @@
 DUNE_BUILD=dune build
 DUNE_RELEASE=dune build --profile release 
 
-BROKER=src/zenoh-broker/zenohd.exe src/zenoh-broker/zenohdp.exe
+BROKER=src/zenoh-broker/zenohd.exe
 CLIENT=src/zenoh-broker/zenohc.exe
 API_EXAMPLE_SUB=example/zenoh-api/sub.exe
 API_EXAMPLE_PUB=example/zenoh-api/pub.exe
