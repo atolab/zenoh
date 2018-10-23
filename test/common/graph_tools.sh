@@ -18,33 +18,41 @@ getnodes()
 
 broker_cmd()
 {
-    peers=""
-    for j in `cat $1 | grep -e "$2 *\-\-" | sed "s% *\([0-9]*\) *-- *\([0-9]*\)[^0-9].*%\2%g"`
-    do 
-    if [[ $peers == "" ]] 
-      then 
-        peers="tcp/127.0.0.1:$j"
-      else
-        peers="$peers,tcp/127.0.0.1:$j"
-      fi
-    done
-    #printf "%-100s > %s\n" "zenohd.exe -t $i -p $peers" "\$outdir/zenohd_$i.log 2>&1"
+  graph=$1
+  node=$2
+  port=$node
+  peers=""
+  for peer in `cat $graph | grep -e "$node *\-\-" | sed "s% *\([0-9]*\) *-- *\([0-9]*\)[^0-9].*%\2%g"`
+  do 
     if [[ $peers == "" ]] 
     then 
-      echo "zenohd.exe -t $2"
+      peers="tcp/127.0.0.1:$peer"
     else
-      echo "zenohd.exe -t $2 -p $peers"
+      peers="$peers,tcp/127.0.0.1:$peer"
     fi
+  done
+  #printf "%-100s > %s\n" "zenohd.exe -t $i -p $peers" "\$outdir/zenohd_$i.log 2>&1"
+  if [[ $peers == "" ]] 
+  then 
+    echo "zenohd.exe -t $port -s $node"
+  else
+    echo "zenohd.exe -t $port -s $node -p $peers"
+  fi
 }
 
 run_brokers()
 {
-  defaultfolder=run_$1_`date +"%y-%m-%d_%H-%M"`
-  for i in `getnodes $1 | sort -r -u`
+  graph=$1
+  graphname=$(basename $1)
+  defaultfolder=run_${graphname}_`date +"%y-%m-%d_%H-%M"`
+  folder=${2:-$defaultfolder}
+  delay=${3:-0}
+  
+  for i in `getnodes $graph | sort -r -u`
   do
-    runproc zenohd-$i ${2:-$defaultfolder} `broker_cmd $1 $i`
+    runproc zenohd-$i $folder `broker_cmd $graph $i`
     eval "BKR_${i}=$?"
-    sleep ${2:-0}
+    sleep $delay
   done
 }
 
@@ -161,6 +169,6 @@ monitor()
   while true
   do 
     sleep ${4:-0}
-    gengraph $1 tmp live
+    gengraph $1 $2 live
   done
 }
