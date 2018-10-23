@@ -6,8 +6,7 @@ filename="${basename%.*}"
 outdir=${filename}_`date +"%y-%m-%d_%H-%M"`
 mkdir $outdir
 
-. proc_mgr.sh
-. graph_tools.sh
+. init.sh
 
 echo "-------- START test $filename"
 

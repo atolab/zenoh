@@ -20,3 +20,4 @@ export PATH=${DIR}/test/common/:$PATH
 
 source proc_mgr.sh
 source graph_tools.sh
+source demo_tools.sh

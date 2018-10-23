@@ -19,7 +19,9 @@ runproc()
   eval "exec $lastproc<>${proc_in[$lastproc]}"
   ${proc_cmd[$lastproc]} < ${proc_in[$lastproc]} > ${proc_log[$lastproc]} 2>&1 &
   proc_pid[$lastproc]=$!
-  printf "run %-20s > %s (%s)\n" "$name" "${proc_log[$lastproc]}" "${proc_pid[$lastproc]}"
+  printf "run %3i %-20s > %s (%s)\n" "$lastproc" "$name" "${proc_log[$lastproc]}" "${proc_pid[$lastproc]}"
+  usname=`echo "$name" | sed "s%-%_%g" | sed "s% %_%g"`
+  eval "$usname=$lastproc"
   return $lastproc
 }
 

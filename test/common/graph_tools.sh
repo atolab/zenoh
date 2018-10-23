@@ -15,6 +15,11 @@ getnodes()
   #cat $1 | grep "\-\-" | sed "s%--%%g" | sed "s%{%%g" | sed "s%}%%g" | sed "s%\([^;]*\);.*%\1%g" | tr -s ' ' '\n' | sed '/^\s*$/d' | sort -u 
 }
 
+get_pid_from_data()
+{
+  echo $1 | cut -d'[' -f4 | cut -d']' -f1
+}
+
 
 broker_cmd()
 {
@@ -40,45 +45,19 @@ broker_cmd()
   fi
 }
 
-run_brokers()
+get_sessions()
 {
-  graph=$1
-  graphname=$(basename $1)
-  defaultfolder=run_${graphname}_`date +"%y-%m-%d_%H-%M"`
-  folder=${2:-$defaultfolder}
-  delay=${3:-0}
-
-  mkdir $folder
-  
-  for i in `getnodes $graph | sort -r -u`
-  do
-    runproc zenohd-$i $folder `broker_cmd $graph $i`
-    eval "BKR_${i}=$?"
-    sleep $delay
-  done
+  cat $1 | grep "Received tree state on" | cut -d' ' -f6 | sort -u
 }
 
-remap_ids()
+get_pid_from_port()
 {
-  for i in `ls $1/*.log`;
-  do
-    cp $i $i.map
-  done
+  cat $2/zenohd-$1.log | grep Local | head -n 1 | sed "s%.*node_id \([^)]*\)).*%\1%g"
+}
 
-  for i in `ls $1/*.log`;
-  do
-    PORT=`basename $i | cut -d '-' -f2 | cut -d '.' -f1`;
-    IDS=`cat $i | grep "   Local : " | sed "s%.*node_id \([^)]*\)).*%\1%g" | sort -u`
-    #echo "$i : $IDS => $PORT";
-  
-    for j in `ls $1/*.log`;
-    do 
-      for ID in $IDS;
-      do
-        sed -e "s%$ID%$PORT%g" -i "" $j.map;
-      done
-    done
-  done
+get_pid_from_sid()
+{
+  cat $1 | grep "Received tree state on $2" | cut -d'(' -f2  | cut -d')' -f1 | sort -u
 }
 
 gengraph()
@@ -88,8 +67,6 @@ gengraph()
   folder=$2
   suffix=$3
   output=$folder/$graphname-$suffix-trees
-
-  remap_ids $folder
 
   colors[0]="red"
   colors[1]="blue"
@@ -102,18 +79,21 @@ gengraph()
   echo "digraph G {" > $output
 
   # copy all nodes
-  cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" >> $output
+  for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
+  do 
+    echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"]" >> $output
+  done
 
   for i in $(getnodes $graph)
   do
-    status=`cat $folder/zenohd-$i.log.map | grep "Local\|kill" | tail -n 1`
+    status=`cat $folder/zenohd-$i.log | grep "Local\|kill" | tail -n 1`
     if [[ $status == *"kill"* ]]
     then 
-      echo "  $i [style=dotted]" >> $output
+      echo "  \"$(get_pid_from_port $i $folder)\" [style=dotted]" >> $output
     else 
       for j in 0 1 2 3 4 5
       do 
-        status=`cat $folder/zenohd-$i.log.map | grep "Local" | grep "tree_nb $j" | tail -n 1`
+        status=`cat $folder/zenohd-$i.log | grep "Local" | grep "tree_nb $j" | tail -n 1`
         if [[ ! $status == "" ]]
         then 
           nodeid=$(get_nodeid "$status")
@@ -121,7 +101,7 @@ gengraph()
           
           if [[ $parent == "" ]]
           then 
-            echo "  $nodeid [fillcolor=${colors[$j]}, style=filled]" >> $output
+            echo "  \"$nodeid\" [fillcolor=${colors[$j]}, style=filled]" >> $output
           fi
         fi
       done
@@ -130,17 +110,24 @@ gengraph()
 
   echo "  subgraph Base {" >> $output
   echo "    edge [dir=none; style=dashed]" >> $output
-  cat $graph | grep "\-\-" | sed "s%--%->%g" >> $output
+  cat $graph | grep "\-\-" | while read pair
+  do 
+    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
+    dst=`echo $pair | cut -d'-' -f3 | cut -d'[' -f1 | tr -d '[:space:]'`
+    echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
+  done
+  
   echo "  }" >> $output
+
+
 
   for j in 0 1 2 3 4 5
   do 
-    
     echo "  subgraph Tree$j {" >> $output
     echo "      edge [color=${colors[$j]}]" >> $output
     for i in $(getnodes $graph)
     do
-      cat $folder/zenohd-$i.log.map | grep "Local\|kill" | grep "tree_nb $j\|kill" | tail -n 1 | while read status
+      cat $folder/zenohd-$i.log | grep "Local\|kill" | grep "tree_nb $j\|kill" | tail -n 1 | while read status
       do 
         if [[ ! $status == *"kill"* ]]
         then 
@@ -148,7 +135,7 @@ gengraph()
           parent=$(get_parent "$status")
           if [[ $parent != "" ]]
           then 
-            echo "      $nodeid -> $parent" >> $output
+            echo "      \"$nodeid\" -> \"$parent\"" >> $output
           fi
         fi
       done 
@@ -162,11 +149,71 @@ gengraph()
   echo "generated $folder/$graphname-$suffix-trees.png"
 }
 
+genflowgraph()
+{
+  graph=$1
+  graphname=$(basename $graph)
+  folder=$2
+  suffix=$3
+  output=$folder/$graphname-$suffix-flow
+
+  colors[0]="red"
+  colors[1]="blue"
+  colors[2]="green"
+  colors[3]="magenta"
+  colors[4]="cyan"
+  colors[5]="yellow"
+
+
+  echo "digraph G {" > $output
+
+  # copy all nodes
+  for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
+  do 
+    echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"]" >> $output
+  done
+
+  echo "  subgraph Base {" >> $output
+  echo "    edge [dir=none; style=dashed]" >> $output
+  cat $graph | grep "\-\-" | while read pair
+  do 
+    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
+    dst=`echo $pair | cut -d'-' -f3 | cut -d'[' -f1 | tr -d '[:space:]'`
+    echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
+  done
+  
+  echo "  }" >> $output
+
+  for j in red green blue
+  do 
+    
+    echo "  subgraph $j {" >> $output
+    echo "      edge [color=$j]" >> $output
+    for node in $(getnodes $graph)
+    do
+      dst=$(get_pid_from_port $node $folder)
+      for k in `cat $folder/zenohd-$node.log | grep "Handling" | grep "$j" | cut -d'[' -f4 | cut -d']' -f1 | sort -u`
+      do 
+        if [ "$k" != "UNKNOWN" ]
+        then
+          echo "      \"$k\" -> \"$dst\"" >> $output
+        fi
+      done
+    done
+    echo "  }" >> $output
+      
+  done
+  echo "}" >> $output
+
+  neato -Tpng $output -o $folder/$graphname-$suffix-flow.png
+  echo "generated $folder/$graphname-$suffix-flow.png"
+}
+
 monitor()
 {
   gengraph $1 $2 live
 
-  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/tmp/$(basename $1)-live-trees.png
+  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-trees.png
 
   while true
   do 
