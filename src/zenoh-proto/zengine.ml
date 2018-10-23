@@ -606,14 +606,25 @@ module ZEngine (MVar : MVar) = struct
       | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
                                                     (ResName.to_string name) (Id.show session.sid)) in Lwt.return (pe, [])
       | (pe, Some res) -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Stream Data Message for resource: [%s:%Ld] (%s)" 
-                                       (Id.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+        let%lwt _ = Logs_lwt.warn (fun m -> 
+                                    let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+                                        TxSession.id peer.tsex = session.sid) pe.router.peers with 
+                                    | Some peer -> peer.pid
+                                    | None -> "UNKNOWN" in
+                                    m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
+                                     nid (Id.show session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
         let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg) in
         Lwt.return (pe, [])
 
     let process_user_writedata pe session msg =      
       let open Session in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Handling WriteData Message for resource: (%s)" (Message.WriteData.resource msg)) in
+      let%lwt _ = Logs_lwt.warn (fun m -> 
+                                    let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+                                        TxSession.id peer.tsex = session.sid) pe.router.peers with 
+                                    | Some peer -> peer.pid
+                                    | None -> "UNKNOWN" in
+                                    m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
+                                    nid (Id.show session.sid) (Message.WriteData.resource msg)) in
       let name = ResName.URI(Message.WriteData.resource msg) in
       match store_data pe name (Message.WriteData.payload msg) with 
       | (pe, None) -> 
@@ -626,7 +637,7 @@ module ZEngine (MVar : MVar) = struct
     let process_broker_data pe session msg = 
       let open Session in      
       let%lwt _ = Logs_lwt.debug (fun m -> m "Received tree state on %s\n" (Id.show session.sid)) in
-      let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ Message.StreamData.payload msg in 
+      let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ Message.StreamData.payload msg in
       let node = Marshal.from_bytes b 0 in
       let pe = {pe with router = ZRouter.update pe.router node} in
       ZRouter.print pe.router; 
