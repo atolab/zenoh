@@ -102,21 +102,6 @@ module ZEngine (MVar : MVar) = struct
     let tx_sex s = s.tx_sex
     let id s = TxSession.id s.tx_sex    
   end
-  
-  let hostid =  Uuidm.to_string @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())
-
-  (* module Config = struct
-    type nid_t = string
-    type prio_t = int
-    type dist_t = int
-
-    let local_id = hostid ^ Printf.sprintf "%08d" (Unix.getpid ())
-    let local_prio = Unix.getpid ()
-    let max_dist = 2
-    let max_trees = 1
-  end
-
-  module Router = ZRouter.Make(Config) *)
 
   module ProtocolEngine = struct
 
@@ -157,7 +142,7 @@ module ZEngine (MVar : MVar) = struct
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
-    let pid_to_string pid = fst @@ Result.get (IOBuf.get_string (IOBuf.available pid) pid)
+    let pid_to_string = IOBuf.hexdump
 
     let make_scout = Message.Scout (Message.Scout.create (Vle.of_char Message.ScoutFlags.scoutBroker) [])
 
@@ -175,7 +160,7 @@ module ZEngine (MVar : MVar) = struct
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
         peers;
-        router = ZRouter.create send_nodes hostid strength 2 0;
+        router = ZRouter.create send_nodes (IOBuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
         buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ IOBuf.create buflen) }
@@ -341,7 +326,7 @@ module ZEngine (MVar : MVar) = struct
       MVar.guarded engine 
       @@ fun pe ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-      let pe' = {pe with router = ZRouter.new_node pe.router {pid = pid_to_string @@ Message.Open.pid msg; tsex}} in
+      let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Open.pid msg; tsex}} in
       MVar.return [make_accept pe' (Message.Open.pid msg)] pe'
 
     let process_open engine tsex msg  =
@@ -362,7 +347,7 @@ module ZEngine (MVar : MVar) = struct
       MVar.guarded engine
       @@ fun pe ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
-      let pe' = {pe with router = ZRouter.new_node pe.router {pid = pid_to_string @@ Message.Accept.apid msg; tsex}} in
+      let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Accept.apid msg; tsex}} in
       MVar.return [] pe'
 
     let process_accept engine tsex msg =

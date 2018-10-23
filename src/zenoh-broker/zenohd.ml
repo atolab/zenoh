@@ -12,18 +12,12 @@ let max_connections = 1000
 let buf_size = 64 * 1024
 let svc_id = 0x01
 
-(* let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator *)
-
 let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Printf.sprintf "%08d" (Unix.getpid ())) @@
-  Result.get @@ IOBuf.put_string hostid @@
-  (IOBuf.create 16) 
+  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
+  (IOBuf.create 32) 
 
 let lease = 0L
 let version = Char.chr 0x01
-
-
-
 
 let reporter ppf =
   let report _ level ~over k msgf =
