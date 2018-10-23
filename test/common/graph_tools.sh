@@ -47,6 +47,8 @@ run_brokers()
   defaultfolder=run_${graphname}_`date +"%y-%m-%d_%H-%M"`
   folder=${2:-$defaultfolder}
   delay=${3:-0}
+
+  mkdir $folder
   
   for i in `getnodes $graph | sort -r -u`
   do
