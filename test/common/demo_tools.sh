@@ -30,7 +30,7 @@ sub()
 
 pub()
 {
-  printf "open\nwriten $1 $2 1 $3\ndsub $1\n" 
+  printf "open\nwriten $1 $2 1 $3\n" 
 }
 
 monitorflow()
