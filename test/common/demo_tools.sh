@@ -33,15 +33,32 @@ pub()
   printf "open\nwriten $1 $2 1 $3\n" 
 }
 
+
+monitortrees()
+{
+  gentreesgraph $1 $2 live
+
+  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-trees.png
+
+  while true
+  do 
+    sleep ${4:-0}
+    gentreesgraph $1 $2 live
+  done
+}
+
 monitorflow()
 {
-  genflowgraph $1 $2 live
+  frame=1
+
+  genflowgraph $1 $2 live "frame $frame"
 
   "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-flow.png
 
   while true
   do 
     sleep ${4:-0}
-    genflowgraph $1 $2 live
+    frame=$(($frame+1))
+    genflowgraph $1 $2 live "frame $frame"
   done
 }

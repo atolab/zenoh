@@ -14,7 +14,7 @@ run_brokers $1 $folder
 
 sleep 2
 
-gengraph $1 $folder
+gentreesgraph $1 $folder
 
 cleanall
 

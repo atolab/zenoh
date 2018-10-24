@@ -60,7 +60,7 @@ get_pid_from_sid()
   cat $1 | grep "Received tree state on $2" | cut -d'(' -f2  | cut -d')' -f1 | sort -u
 }
 
-gengraph()
+gentreesgraph()
 {
   graph=$1
   graphname=$(basename $graph)
@@ -155,6 +155,7 @@ genflowgraph()
   graphname=$(basename $graph)
   folder=$2
   suffix=$3
+  label=$4
   output=$folder/$graphname-$suffix-flow
 
   colors[0]="red"
@@ -166,6 +167,8 @@ genflowgraph()
 
 
   echo "digraph G {" > $output
+
+  echo "  label=\"$label\"" >> $output
 
   # copy all nodes
   for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
@@ -184,6 +187,9 @@ genflowgraph()
   
   echo "  }" >> $output
 
+  now=`date +'%s'`
+  limit=`expr $now - 1`
+
   for j in red green blue
   do 
     
@@ -192,11 +198,18 @@ genflowgraph()
     for node in $(getnodes $graph)
     do
       dst=$(get_pid_from_port $node $folder)
-      for k in `cat $folder/zenohd-$node.log | grep "Handling" | grep "$j" | cut -d'[' -f4 | cut -d']' -f1 | sort -u`
+      cat $folder/zenohd-$node.log | grep "Handling" | grep "$j" | while read h 
       do 
-        if [ "$k" != "UNKNOWN" ]
+        ts=`echo "$h" | cut -d'[' -f2 | cut -d'.' -f1`
+        if [ $ts -ge $limit ]
         then
-          echo "      \"$k\" -> \"$dst\"" >> $output
+          echo "$h"
+        fi
+      done | cut -d'[' -f4 | cut -d']' -f1 | sort -u | while read src 
+      do 
+        if [ "$src" != "UNKNOWN" ]
+        then
+          echo "      \"$src\" -> \"$dst\"" >> $output
         fi
       done
     done
@@ -207,17 +220,4 @@ genflowgraph()
 
   neato -Tpng $output -o $folder/$graphname-$suffix-flow.png
   echo "generated $folder/$graphname-$suffix-flow.png"
-}
-
-monitor()
-{
-  gengraph $1 $2 live
-
-  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-trees.png
-
-  while true
-  do 
-    sleep ${4:-0}
-    gengraph $1 $2 live
-  done
 }
