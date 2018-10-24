@@ -618,7 +618,7 @@ module ZEngine (MVar : MVar) = struct
 
     let process_user_writedata pe session msg =      
       let open Session in 
-      let%lwt _ = Logs_lwt.warn (fun m -> 
+      let%lwt _ = Logs_lwt.debug (fun m -> 
                                     let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
                                         TxSession.id peer.tsex = session.sid) pe.router.peers with 
                                     | Some peer -> peer.pid
