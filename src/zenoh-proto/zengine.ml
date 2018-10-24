@@ -606,7 +606,7 @@ module ZEngine (MVar : MVar) = struct
       | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
                                                     (ResName.to_string name) (Id.show session.sid)) in Lwt.return (pe, [])
       | (pe, Some res) -> 
-        let%lwt _ = Logs_lwt.warn (fun m -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> 
                                     let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
                                         TxSession.id peer.tsex = session.sid) pe.router.peers with 
                                     | Some peer -> peer.pid
