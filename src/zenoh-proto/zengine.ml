@@ -148,7 +148,10 @@ module ZEngine (MVar : MVar) = struct
 
     let make_hello pe = Message.Hello (Message.Hello.create (Vle.of_char Message.ScoutFlags.scoutBroker) pe.locators [])
 
-    let make_open pe = Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [])
+    let make_open pe = 
+      let buf = IOBuf.create 16 in 
+      let buf = Result.get @@ IOBuf.put_string "broker" buf in
+      Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [Zproperty.ZProperty.make Vle.zero buf])
 
     let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.lease [])
     
@@ -297,8 +300,9 @@ module ZEngine (MVar : MVar) = struct
       let open Resource in 
       let subs = List.filter (fun map -> map.sub != None) res.mappings in 
       let (pe, ps) = (match subs with 
-        | [] -> SIDMap.fold (fun _ session (pe, ps) -> 
+        | [] -> 
           Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no subs" (ResName.to_string res.name));
+          SIDMap.fold (fun _ session (pe, ps) -> 
           let (pe, p) = forget_sdecl_to_session pe res session in 
           (pe, p::ps)) pe.smap (pe, [])
         | sub :: [] -> 
@@ -332,8 +336,9 @@ module ZEngine (MVar : MVar) = struct
                   end
                 else x
               ) (pe, []) in 
-          let (pe, p) = forget_sdecl_to_session pe res subsex in
-          let (pe, ps) = (pe, p::ps) in
+          let (pe, ps) = match Vle.logand (subsex.mask) (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with
+          | false -> (pe, ps)
+          | true -> let (pe, p) = forget_sdecl_to_session pe res subsex in (pe, p::ps) in 
           TreeSet.get_broken_links tree0 
             |> List.map (fun (node:Spn_tree.Node.t) -> 
                 (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
@@ -514,7 +519,7 @@ module ZEngine (MVar : MVar) = struct
       MVar.guarded engine 
       @@ fun pe ->      
       let sid = TxSession.id tsex in    
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s: \n" (Id.to_string sid)) in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s mask:%i\n" (Id.to_string sid) (Vle.to_int mask)) in
       let s = Session.create (tsex:TxSession.t) mask in    
       let smap = SIDMap.add (TxSession.id tsex) s pe.smap in   
       let%lwt peer = 
@@ -529,14 +534,12 @@ module ZEngine (MVar : MVar) = struct
       MVar.return pe' pe'
 
 
-    let process_scout engine tsex msg =
+    let process_scout engine _ _ = 
       let open Lwt.Infix in
-      add_session engine tsex (Message.Scout.mask msg) 
-      >>= fun pe' -> Lwt.return [make_hello pe']
-
+       MVar.read engine >>= fun pe -> Lwt.return [make_hello pe]
 
     let process_hello engine tsex msg  =
-      let sid = TxSession.id tsex in       
+      let sid = TxSession.id tsex in 
       let%lwt pe' = add_session engine tsex (Message.Hello.mask msg) in           
       match Vle.logand (Message.Hello.mask msg) (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with 
       | false -> Lwt.return  []
@@ -557,9 +560,15 @@ module ZEngine (MVar : MVar) = struct
       MVar.read engine >>= fun pe -> 
       match SIDMap.find_opt (TxSession.id tsex) pe.smap with
       | None -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-        let%lwt pe' = add_session engine tsex Vle.zero in 
-        Lwt.return [make_accept pe' (Message.Open.pid msg)] 
+        (match List.exists (fun (key, _) -> key = Vle.zero) (Message.Open.properties msg) with 
+        | false -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+          let%lwt pe' = add_session engine tsex Vle.zero in 
+          Lwt.return [make_accept pe' (Message.Open.pid msg)] 
+        | true -> 
+          let%lwt pe' = add_session engine tsex (Vle.of_char Message.ScoutFlags.scoutBroker) in 
+          MVar.guarded engine (fun _ -> MVar.return () pe') >>= 
+          fun _ -> process_broker_open engine tsex msg)
       | Some session -> match Vle.logand session.mask (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with 
         | false -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
@@ -666,7 +675,7 @@ module ZEngine (MVar : MVar) = struct
 
     let process_synch _ _ msg =
       let asn = Message.Synch.sn msg in
-      Lwt.return [Message.AckNack (Message.AckNack.create asn None)]
+      Lwt.return [Message.with_markers (Message.AckNack (Message.AckNack.create asn None)) (Message.markers (Message.Synch msg))]
 
     let process_ack_nack _ _ _ = Lwt.return []
 
