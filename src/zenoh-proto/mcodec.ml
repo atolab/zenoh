@@ -387,7 +387,7 @@ let decode_compact_id header buf =
 let decode_conduit header buf = 
   Logs.debug (fun m -> m "Reading Conduit") ;
   decode_compact_id header buf 
-  >>= fun (id, buf) -> return (Marker (ConduitMarker (ConduitMarker.create id)), buf)
+  >>= fun (id, buf) -> return (Marker (ConduitMarker (ConduitMarker.create (Vle.add id Vle.one))), buf)
 
 let encode_conduit m buf = 
   let open ConduitMarker in

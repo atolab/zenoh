@@ -365,10 +365,10 @@ module ConduitMarker = struct
 
   let create id = 
     match Vle.to_int id with 
-      | 0 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); body={id=None}}
-      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
-      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
-      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 1 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 2 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 3 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
+      | 4 -> {header=char_of_int ((int_of_char MessageId.conduitId) lor (int_of_char Flags.hFlag) lor (int_of_char Flags.lFlag) lor (int_of_char Flags.zFlag)); body={id=None}}
       | _ -> {header=MessageId.conduitId; body={id=Some id}}
 
   let id m = 
@@ -376,7 +376,7 @@ module ConduitMarker = struct
     | false -> Option.get m.body.id
     | true ->
       let flags = (int_of_char (Flags.flags m.header)) lsr Flags.mid_len in 
-      Vle.of_int @@ (flags land 0x3)
+      Vle.add (Vle.of_int @@ (flags land 0x3)) Vle.one
 end
 
 module Frag = struct
