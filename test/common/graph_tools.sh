@@ -66,6 +66,7 @@ gentreesgraph()
   graphname=$(basename $graph)
   folder=$2
   suffix=$3
+  label=$4
   output=$folder/$graphname-$suffix-trees
 
   colors[0]="red"
@@ -77,6 +78,10 @@ gentreesgraph()
 
 
   echo "digraph G {" > $output
+  echo "  fontname=\"Andale Mono\"" >> $output
+  echo "  label=\"$label\"" >> $output
+  echo "  nodesep=0.15" >> $output
+  echo "  node [penwidth=2 shape=box style=rounded fontname=\"Andale Mono\"]" >> $output
 
   # copy all nodes
   for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
@@ -101,30 +106,17 @@ gentreesgraph()
           
           if [[ $parent == "" ]]
           then 
-            echo "  \"$nodeid\" [fillcolor=${colors[$j]}, style=filled]" >> $output
+            echo "  \"$nodeid\" [fillcolor=${colors[$j]} penwidth=2 shape=box style=\"rounded,filled\" fontname=\"Andale Mono\"]" >> $output
           fi
         fi
       done
     fi
-  done
-
-  echo "  subgraph Base {" >> $output
-  echo "    edge [dir=none; style=dashed]" >> $output
-  cat $graph | grep "\-\-" | while read pair
-  do 
-    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
-    dst=`echo $pair | cut -d'-' -f3 | cut -d'[' -f1 | tr -d '[:space:]'`
-    echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
-  done
-  
-  echo "  }" >> $output
-
-
+  done 
 
   for j in 0 1 2 3 4 5
   do 
     echo "  subgraph Tree$j {" >> $output
-    echo "      edge [color=${colors[$j]}]" >> $output
+    echo "      edge [color=${colors[$j]}  penwidth=2]" >> $output
     for i in $(getnodes $graph)
     do
       cat $folder/zenohd-$i.log | grep "Local\|kill" | grep "tree_nb $j\|kill" | tail -n 1 | while read status
@@ -143,6 +135,23 @@ gentreesgraph()
     echo "  }" >> $output
       
   done
+
+  echo "  subgraph Base {" >> $output
+  echo "    edge [dir=none; style=dashed]" >> $output
+  cat $graph | grep "\-\-" | while read pair
+  do 
+    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
+    dst=`echo $pair | cut -d'-' -f3 | cut -d';' -f1 | cut -d'[' -f1 | tr -d '[:space:]'`
+    existingedges=`cat $output | grep "$(get_pid_from_port $src $folder)" | grep "$(get_pid_from_port $dst $folder)" | wc -l`
+    if [ $existingedges -le 0 ]
+    then 
+      echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
+    fi
+  done
+  
+  echo "  }" >> $output
+
+
   echo "}" >> $output
 
   neato -Tpng $output -o $folder/$graphname-$suffix-trees.png
@@ -168,24 +177,24 @@ genflowgraph()
 
   echo "digraph G {" > $output
 
+  echo "  fontname=\"Andale Mono\"" >> $output
   echo "  label=\"$label\"" >> $output
+  echo "  nodesep=0.15" >> $output
+  echo "  node [penwidth=2 shape=box style=rounded fontname=\"Andale Mono\"]" >> $output
+  
 
   # copy all nodes
-  for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
+  for node in $(getnodes $graph)
   do 
-    echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"]" >> $output
+    #status=`cat $folder/zenohd-$node.log | grep "Local\|kill" | tail -n 1`
+    status=`tail -n 50 $folder/zenohd-$node.log | grep "Local\|kill" | tail -n 1`
+    if [[ $status == *"kill"* ]]
+    then 
+      echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"; style=dotted]" >> $output
+    else
+      echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"]" >> $output
+    fi
   done
-
-  echo "  subgraph Base {" >> $output
-  echo "    edge [dir=none; style=dashed]" >> $output
-  cat $graph | grep "\-\-" | while read pair
-  do 
-    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
-    dst=`echo $pair | cut -d'-' -f3 | cut -d'[' -f1 | tr -d '[:space:]'`
-    echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
-  done
-  
-  echo "  }" >> $output
 
   now=`date +'%s'`
   limit=`expr $now - 1`
@@ -194,11 +203,12 @@ genflowgraph()
   do 
     
     echo "  subgraph $j {" >> $output
-    echo "      edge [color=$j]" >> $output
+    echo "      edge [color=$j penwidth=2]" >> $output
     for node in $(getnodes $graph)
     do
       dst=$(get_pid_from_port $node $folder)
-      cat $folder/zenohd-$node.log | grep "Handling" | grep "$j" | while read h 
+      #cat $folder/zenohd-$node.log | grep "Handling" | grep "$j" | while read h 
+      tail -n 50 $folder/zenohd-$node.log | grep "Handling" | grep "$j" | while read h 
       do 
         ts=`echo "$h" | cut -d'[' -f2 | cut -d'.' -f1`
         if [ $ts -ge $limit ]
@@ -216,6 +226,21 @@ genflowgraph()
     echo "  }" >> $output
       
   done
+
+  echo "  subgraph Base {" >> $output
+  echo "    edge [dir=none; style=dashed]" >> $output
+  cat $graph | grep "\-\-" | while read pair
+  do 
+    src=`echo $pair | cut -d'-' -f1 | tr -d '[:space:]'`
+    dst=`echo $pair | cut -d'-' -f3 | cut -d';' -f1 | cut -d'[' -f1 | tr -d '[:space:]'`
+    existingedges=`cat $output | grep "$(get_pid_from_port $src $folder)" | grep "$(get_pid_from_port $dst $folder)" | wc -l`
+    if [ $existingedges -le 0 ]
+    then 
+      echo "    \"$(get_pid_from_port $src $folder)\" -> \"$(get_pid_from_port $dst $folder)\"" >> $output
+    fi
+  done
+  echo "  }" >> $output
+
   echo "}" >> $output
 
   neato -Tpng $output -o $folder/$graphname-$suffix-flow.png

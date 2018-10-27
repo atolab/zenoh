@@ -25,7 +25,7 @@ run_client()
 
 sub()
 {
-  printf "open\ndres $1 $2\ndsub 1\n" 
+  printf "open\ndres $1 $2\ndsub $1\n" 
 }
 
 pub()
@@ -36,14 +36,17 @@ pub()
 
 monitortrees()
 {
-  gentreesgraph $1 $2 live
+  frame=1
 
-  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-trees.png
+  gentreesgraph $1 $2 live "frame $frame"
+
+  "${3:-code}" -n $2/$(basename $1)-live-trees.png
 
   while true
   do 
     sleep ${4:-0}
-    gentreesgraph $1 $2 live
+    frame=$(($frame+1))
+    gentreesgraph $1 $2 live "frame $frame"
   done
 }
 
@@ -53,7 +56,7 @@ monitorflow()
 
   genflowgraph $1 $2 live "frame $frame"
 
-  "${3:-code}" -n /Users/olivier/workspaces/zenoh/test/tree/$2/$(basename $1)-live-flow.png
+  "${3:-code}" -n $2/$(basename $1)-live-flow.png
 
   while true
   do 
