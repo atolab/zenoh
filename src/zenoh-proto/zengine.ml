@@ -259,6 +259,51 @@ module ZEngine (MVar : MVar) = struct
                | None -> {id = rid; session = session.sid; pub = false; sub = None; matched_pub = false; matched_sub=false}) in 
         Lwt.return pe
 
+    (* ======================== PUB DECL =========================== *)
+
+    let match_pdecl pe pr id tsex =
+      let open Resource in 
+      let sid = TxSession.id tsex in 
+      let pm = List.find (fun m -> m.session = sid) pr.mappings in
+      match pm.matched_pub with 
+      | true -> Lwt.return (pe, [])
+      | false -> 
+        match ResMap.exists 
+                (fun _ sr ->  res_match pr sr && List.exists 
+                                (fun m -> m.sub != None && m.session != sid) sr.mappings) pe.rmap with
+        | false -> Lwt.return (pe, [])
+        | true -> 
+          let pm = {pm with matched_pub = true} in
+          let pr = with_mapping pr pm in
+          let rmap = ResMap.add pr.name pr pe.rmap in
+          let pe = {pe with rmap} in
+          Lwt.return (pe, [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create id Message.SubscriptionMode.push_mode [])])
+
+    let register_publication pe tsex pd =
+      let sid = (TxSession.id tsex) in 
+      let session = SIDMap.find_opt sid  pe.smap in 
+      match session with 
+      | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received PublicationDecl on unknown session %s: Ignore it!" 
+                                              (Id.to_string sid)) in Lwt.return (pe, None)
+      | Some session -> 
+        let rid = Message.PublisherDecl.rid pd in 
+        let resname = match VleMap.find_opt rid session.rmap with 
+          | Some name -> name
+          | None -> ID(rid) in
+        let (pe, res) = update_resource_mapping pe resname session rid 
+            (fun m -> match m with 
+               | Some m -> {m with pub=true;} 
+               | None -> {id = rid; session = sid; pub = true; sub = None; matched_pub = false; matched_sub=false}) in
+        Lwt.return (pe, Some res)
+
+    let process_pdecl pe tsex pd =      
+      let%lwt (pe, pr) = register_publication pe tsex pd in
+      match pr with 
+      | None -> Lwt.return (pe, [])
+      | Some pr -> 
+        let id = Message.PublisherDecl.rid pd in
+        match_pdecl pe pr id tsex
+
     (* ======================== SUB DECL =========================== *)
 
     let forward_sdecl_to_session pe res zsex =       
@@ -387,6 +432,7 @@ module ZEngine (MVar : MVar) = struct
       Lwt.Infix.(
       Lwt.catch(fun () -> Lwt.join ps >>= fun () -> Lwt.return pe)
                (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
+    
     let register_subscription pe tsex sd =
       let sid = TxSession.id tsex in 
       let session = SIDMap.find_opt sid pe.smap in 
@@ -447,7 +493,38 @@ module ZEngine (MVar : MVar) = struct
           match mapping with 
           | None -> None
           | Some mapping -> mapping.sub
-      
+
+    let notify_pub_matching_res pe tsex res =      
+      let sid = TxSession.id tsex in 
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Pub Matching Subs") in 
+      let (pe, ps) = List.fold_left (fun x name -> 
+          match ResMap.find_opt name pe.rmap with 
+          | None -> x
+          | Some mres -> 
+            let (pe, ps) = x in 
+            List.fold_left (fun x m -> 
+                let open Resource in                 
+                match (m.pub && not m.matched_pub && m.session != sid) with 
+                | false -> x
+                | true -> let (pe, ps) = x in
+                  let m = {m with matched_pub = true} in
+                  let pres = Resource.with_mapping mres m in
+                  let rmap = ResMap.add pres.name pres pe.rmap in
+                  let pe = {pe with rmap} in
+
+                  let session = SIDMap.find m.session pe.smap in
+                  let oc = Session.out_channel session in
+                  let ds = [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create m.id Message.SubscriptionMode.push_mode [])] in
+                  let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+                  Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
+                  (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)                                    
+                  let r = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool in 
+                  let open Lwt.Infix in 
+                  (pe, (r >>= fun _ -> Lwt.return_unit) :: ps)
+              ) (pe, ps) mres.mappings
+        ) (pe, []) Resource.(res.matches) in
+      let%lwt _ = Lwt.join ps in
+      Lwt.return pe
 
     let process_sdecl pe tsex sd = 
       if sub_state pe tsex (Message.SubscriberDecl.rid sd) = None 
@@ -458,6 +535,7 @@ module ZEngine (MVar : MVar) = struct
           | None -> Lwt.return (pe, [])
           | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
+            let%lwt _ = notify_pub_matching_res pe tsex res in
             Lwt.return (pe, [])
         end
       else Lwt.return (pe, [])
@@ -612,7 +690,7 @@ module ZEngine (MVar : MVar) = struct
         Lwt.return (pe, [])
       | PublisherDecl pd ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "PDecl for resource: %Ld" (Message.PublisherDecl.rid pd)) in
-        Lwt.return (pe, [])
+        process_pdecl pe tsex pd
       | SubscriberDecl sd ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
         process_sdecl pe tsex sd
