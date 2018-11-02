@@ -1,0 +1,6 @@
+(library
+  (name            zenoh_tx_inet)
+  (public_name     zenoh-tx-inet)
+  (wrapped         false)
+  (libraries       apero-core apero-net zenoh-proto lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord str)
+  (preprocess      (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

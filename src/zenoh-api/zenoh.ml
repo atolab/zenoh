@@ -1,10 +1,10 @@
 open Apero
-open Common
-open Iobuf
 open Message
 open Locator
 open Lwt
-open Proto_engine
+open R_name
+
+module VleMap = Map.Make(Vle)
 
 type listener = IOBuf.t -> string -> unit Lwt.t
 
@@ -92,8 +92,8 @@ let send_message sock msg =
   let len = IOBuf.limit wbuf in
   let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
   
-  let%lwt _ = Net.send sock lbuf in
-  Net.send sock wbuf
+  let%lwt _ = Net.write_all sock lbuf in
+  Net.write_all sock wbuf
 
 
 let process_incoming_message msg resolver t = 
@@ -102,20 +102,20 @@ let process_incoming_message msg resolver t =
   | Message.StreamData dmsg ->
     let%lwt state = Lwt_mvar.take t.state in
     let%lwt _ = Lwt_mvar.put t.state state in 
-    match VleMap.find_opt (StreamData.id dmsg) state.resmap with
+    let%lwt _ = match VleMap.find_opt (StreamData.id dmsg) state.resmap with
     | Some res -> 
       (* TODO make sure that payload is a copy *)
       (* TODO make payload a readonly buffer *)
       let buf = StreamData.payload dmsg in
-      List.iter (fun resid -> 
+      Lwt_list.iter_s (fun resid -> 
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
-          List.iter (fun sub -> 
-            Lwt.ignore_result @@ sub.listener buf res.name
+          Lwt_list.iter_s (fun sub -> 
+            sub.listener buf res.name
           ) res.subs
-        | None -> () 
+        | None -> Lwt.return_unit 
       ) res.matches
-    | None -> () ; ;
+    | None -> Lwt.return_unit in
     return_true
   | Message.WriteData dmsg ->
     let%lwt state = Lwt_mvar.take t.state in
@@ -123,13 +123,13 @@ let process_incoming_message msg resolver t =
     (* TODO make sure that payload is a copy *)
     (* TODO make payload a readonly buffer *)
     let buf = WriteData.payload dmsg in
-    VleMap.iter (fun _ res -> 
+    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
       match URI.uri_match res.name (WriteData.resource dmsg) with 
       | true -> 
-          List.iter (fun sub -> 
-            Lwt.ignore_result @@ sub.listener buf (WriteData.resource dmsg)
+          Lwt_list.iter_s (fun sub ->
+            sub.listener buf (WriteData.resource dmsg)
           ) res.subs
-      | false -> ()) state.resmap;
+      | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
   | msg ->
       Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
@@ -138,7 +138,7 @@ let process_incoming_message msg resolver t =
 let get_message_length sock buf =
   let rec extract_length buf v bc =
     let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
-    match%lwt Net.recv sock buf with
+    match%lwt Net.read_all sock buf with
     | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
     | _ ->
       let (b, buf) = Result.get (IOBuf.get_char buf) in
@@ -147,29 +147,29 @@ let get_message_length sock buf =
       | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
   in extract_length buf 0 0
 
+let rec run_decode_loop resolver t = 
+  let%lwt len = get_message_length t.sock rbuf in
+  let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
+  let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
+  let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
+  let%lwt _ = Net.read_all t.sock rbuf in
+  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
+  let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+  let%lwt _ = process_incoming_message msg resolver t in
+  run_decode_loop resolver t
   
-let rec run_decode_loop resolver t =  
+let safe_run_decode_loop resolver t =  
   try%lwt
-    let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
-    let%lwt len = get_message_length t.sock rbuf in
-    let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let%lwt _ = Lwt_bytes.recv t.sock (IOBuf.to_bytes rbuf) 0 len [] in
-    let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
-    let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
-    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
-    let%lwt _ = process_incoming_message msg resolver t in
     run_decode_loop resolver t
   with
-  | _ ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m "Connection close by peer") in
+  | x ->
+    let%lwt _ = Logs_lwt.warn (fun m -> m "Exception in decode loop : %s" (Printexc.to_string x)) in
     try%lwt
       let%lwt _ = Lwt_unix.close t.sock in
-      fail @@ Exception (`ClosedSession (`Msg "Connection  closed by peer"))
+      fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
     with
-    | _ ->  
-      let%lwt _ = Logs_lwt.debug (fun m -> m "[Session Closed]\n") in
-      fail @@ Exception (`ClosedSession `NoMsg)
+    | _ -> 
+      fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
   
 let (>>) a b = a >>= fun x -> x |> fun _ -> b  
 
@@ -184,10 +184,9 @@ let zopen peer =
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let (promise, resolver) = Lwt.task () in
   let con = connect sock saddr in 
-  let _ = con >>= fun _ -> run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
+  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
-
 
 let publish resname z = 
   let%lwt state = Lwt_mvar.take z.state in

@@ -3,17 +3,18 @@ basename=`basename $0`
 filename="${basename%.*}"
 outdir=${filename}_`date +"%y-%m-%d_%H-%M"`
 mkdir $outdir
+export ZENOD_VERBOSITY=debug
 
-. ../../common/proc_mgr.sh
+. proc_mgr.sh
 
 echo "-------- START test $filename"
 
-runproc zenohd zenohd.exe
+runproc zenohd $outdir zenohd.exe
 zenohd=$?
 
 sleep 1
 
-runproc zenohc_sub1 zenohc.exe
+runproc zenohc_sub1 $outdir zenohc.exe
 sub1=$?
 
 echo "open" > ${proc_in[$sub1]}
@@ -22,7 +23,7 @@ echo "dsub 10"> ${proc_in[$sub1]}
 
 sleep 1
 
-runproc zenohc_sub2 zenohc.exe
+runproc zenohc_sub2 $outdir zenohc.exe
 sub2=$?
  
 echo "open" > ${proc_in[$sub2]}
@@ -30,7 +31,7 @@ echo "dsub 10"> ${proc_in[$sub2]}
 
 sleep 1
 
-runproc zenohc_pub1 zenohc.exe
+runproc zenohc_pub1 $outdir zenohc.exe
 pub1=$?
 
 echo "open" > ${proc_in[$pub1]}
@@ -40,7 +41,7 @@ echo "pub 10 MSG_RES1" > ${proc_in[$pub1]}
 
 sleep 1
 
-runproc zenohc_pub2 zenohc.exe
+runproc zenohc_pub2 $outdir zenohc.exe
 pub2=$?
 
 echo "open" > ${proc_in[$pub2]}

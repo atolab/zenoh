@@ -1,26 +1,42 @@
 .PHONY: all clean test doc
 
-BUILD_LIB=dune build
-BUILD_BROKER=dune build src/zenoh-broker/zenohd.exe
-BUILD_CLIENT=dune build src/zenoh-broker/zenohc.exe
-BUILD_API_EXAMPLE_SUB=dune build example/zenoh-api/sub.exe
-BUILD_API_EXAMPLE_PUB=dune build example/zenoh-api/pub.exe
-BUILD_ROUNDTRIP_PING=dune build example/roundtrip/roundtrip_ping.exe
-BUILD_ROUNDTRIP_PONG=dune build example/roundtrip/roundtrip_pong.exe
+DUNE_BUILD=dune build
+DUNE_RELEASE=dune build --profile release 
+
+BROKER=src/zenoh-broker/zenohd.exe
+CLIENT=src/zenoh-broker/zenohc.exe
+API_EXAMPLE_SUB=example/zenoh-api/sub.exe
+API_EXAMPLE_PUB=example/zenoh-api/pub.exe
+ROUNDTRIP_PING=example/roundtrip/roundtrip_ping.exe
+ROUNDTRIP_PONG=example/roundtrip/roundtrip_pong.exe
+THROUGHPUT_SUB=example/throughput/throughput_sub.exe
+THROUGHPUT_PUB=example/throughput/throughput_pub.exe
 CLEAN= dune clean
 TEST=dune runtest -j1 --no-buffer
 DOC=dune build @doc
 INSTALL=dune install
 
 all:
-		${BUILD_LIB}
-		${BUILD_BROKER}
-		${BUILD_CLIENT}
-		${BUILD_API_EXAMPLE_SUB}
-		${BUILD_API_EXAMPLE_PUB}
-		${BUILD_ROUNDTRIP_PING}
-		${BUILD_ROUNDTRIP_PONG}
-		
+		${DUNE_BUILD} 
+		${DUNE_BUILD} ${BROKER}
+		${DUNE_BUILD} ${CLIENT}
+		${DUNE_BUILD} ${API_EXAMPLE_SUB}
+		${DUNE_BUILD} ${API_EXAMPLE_PUB}
+		${DUNE_BUILD} ${ROUNDTRIP_PING}
+		${DUNE_BUILD} ${ROUNDTRIP_PONG}
+		${DUNE_BUILD} ${THROUGHPUT_SUB}
+		${DUNE_BUILD} ${THROUGHPUT_PUB}
+
+release:
+		${DUNE_RELEASE} 
+		${DUNE_RELEASE} ${BROKER}
+		${DUNE_RELEASE} ${CLIENT}
+		${DUNE_RELEASE} ${API_EXAMPLE_SUB}
+		${DUNE_RELEASE} ${API_EXAMPLE_PUB}
+		${DUNE_RELEASE} ${ROUNDTRIP_PING}
+		${DUNE_RELEASE} ${ROUNDTRIP_PONG}
+		${DUNE_RELEASE} ${THROUGHPUT_SUB}
+		${DUNE_RELEASE} ${THROUGHPUT_PUB}		
 test:
 		${TEST}
 

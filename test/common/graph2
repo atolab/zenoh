@@ -1,0 +1,45 @@
+graph mesh {
+  8013
+  8014
+  8012
+  8011
+  8010
+  8009
+  8008
+  8007
+  8006
+  8005
+  8004
+  8003
+  8002
+  8001
+
+  8010 -- 8009 [style="dashed"];
+  8010 -- 8011 [style="dashed"];
+  8010 -- 8008 [style="dashed"];
+  8009 -- 8011 [style="dashed"];
+  8009 -- 8007 [style="dashed"];
+  8009 -- 8014 [style="dashed"];
+  8011 -- 8008 [style="dashed"];
+  8011 -- 8014 [style="dashed"];
+  8011 -- 8006 [style="dashed"];
+  8008 -- 8006 [style="dashed"];
+  8007 -- 8014 [style="dashed"];
+  8007 -- 8005 [style="dashed"];
+  8007 -- 8013 [style="dashed"];
+  8014 -- 8013 [style="dashed"];
+  8014 -- 8012 [style="dashed"];
+  8006 -- 8012 [style="dashed"];
+  8006 -- 8004 [style="dashed"];
+  8005 -- 8013 [style="dashed"];
+  8005 -- 8003 [style="dashed"];
+  8013 -- 8012 [style="dashed"];
+  8013 -- 8003 [style="dashed"];
+  8013 -- 8002 [style="dashed"];
+  8012 -- 8004 [style="dashed"];
+  8012 -- 8002 [style="dashed"];
+  8012 -- 8001 [style="dashed"];
+  8004 -- 8001 [style="dashed"];
+  8003 -- 8002 [style="dashed"];
+  8002 -- 8001 [style="dashed"];
+}

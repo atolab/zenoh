@@ -129,7 +129,7 @@ module TcpTransport = struct
       let module E = Transport.Event in
       let sid = Inf.id sctx.info in   
       let socket = sctx.sock in   
-      let ssid = I.show sid in       
+      let ssid = I.to_string sid in       
       let rbuf = sctx.inbuf in
     
       let rec serve_session () =  
@@ -141,7 +141,7 @@ module TcpTransport = struct
           Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") 
           >>= serve_session                  
         | Error e -> 
-          let%lwt _ = Logs_lwt.debug (fun m -> m "Received invalid frame  closing session %s" ssid) in
+          let%lwt _ = Logs_lwt.warn (fun m -> m "Received invalid frame. Closing session %s" ssid) in
           let%lwt _ = close_session socket in
           Lwt.return (Exception e)  
       in serve_session ()     

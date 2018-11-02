@@ -1,4 +1,4 @@
-open Zenoh_api
+open Zenoh
 open Apero
 open Cmdliner
 
@@ -27,6 +27,8 @@ let run peers nb size =
       Lwt.return (Lwt.return_unit, {wr_time=now; count=state.count + 1; rt_times=(now -. state.wr_time) :: state.rt_times}) in
 
     let%lwt _ = subscribe "/roundtrip/pong" (fun d s -> MVar_lwt.guarded state (listener d s)) z in
+
+    Unix.sleep 2; (* Avoid "declare & shoot" issue. TODO : remove when fixed *)
 
     Lwt.ignore_result @@ stream (IOBuf.create size) pub;
 

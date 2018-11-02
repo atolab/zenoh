@@ -1,4 +1,4 @@
-open Zenoh_api
+open Zenoh
 open Cmdliner
 
 let peers = Arg.(value & opt string "tcp/127.0.0.1:7447" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")

@@ -1,11 +1,9 @@
 open Frame
 open Locator
 
-module ZId = Id
-
 module Transport : sig 
 
-  module Id : ZId.S
+  module Id : Apero.Id.S
 
   module  Info : sig 
       type kind = Packet| Stream  
@@ -21,7 +19,7 @@ module Transport : sig
   
   module Session : sig 
     
-    module Id : ZId.S
+    module Id : Apero.Id.S
 
     module Info : sig  
       type t

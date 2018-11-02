@@ -18,29 +18,29 @@ runproc zenohc_sub $outdir zenohc.exe
 sub=$?
 
 echo "open" > ${proc_in[$sub]}
+echo "dres 10 //test/res1" > ${proc_in[$sub]}
 echo "dsub 10" > ${proc_in[$sub]}
 
-sleep 1
+sleep 1 
 
 runproc zenohc_pub $outdir zenohc.exe
 pub=$?
 
 echo "open" > ${proc_in[$pub]}
-echo "dpub 10" > ${proc_in[$pub]}
-echo "pub 10 MSG" > ${proc_in[$pub]}
+echo "write //test/res1 MSG" > ${proc_in[$pub]}
 
-sleep 1
+sleep 1 
 
 cleanall
 
 if [ `cat ${proc_log[$sub]} | grep MSG | wc -l` -gt 0 ]
-then
+then 
   echo "[OK]"
   echo "-------- END test $filename"
   echo ""
   exit 0
 else
-  echo "[ERROR] zenohc_sub didn't receive MSG"
+  echo "[ERROR] sub didn't receive MSG"
   echo "-------- END test $filename"
   echo ""
   exit -1
