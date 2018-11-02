@@ -84,7 +84,7 @@ gentreesgraph()
   echo "  node [penwidth=2 shape=box style=rounded fontname=\"Andale Mono\"]" >> $output
 
   # copy all nodes
-  for node in `cat $graph | grep -v "{" | grep -v "}" | grep -v "\-\-" | cut -d'[' -f1`
+  for node in $(getnodes $graph)
   do 
     echo "  \"$(get_pid_from_port $node $folder)\" [label = \"$node\"]" >> $output
   done
