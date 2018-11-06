@@ -369,6 +369,14 @@ module Make (MVar : MVar) = struct
         end
         else Lwt.return (pe, [])
 
+    let process_stodecl pe tsex sd = 
+       let open Message in
+       let subdecl = SubscriberDecl.create (StorageDecl.rid sd) (SubscriptionMode.push_mode) (StorageDecl.properties sd) in
+       let%lwt (pe, srep) = process_sdecl pe tsex subdecl in
+       let pubdecl = PublisherDecl.create (StorageDecl.rid sd) (StorageDecl.properties sd) in
+       let%lwt (pe, prep) = process_pdecl pe tsex pubdecl in 
+       Lwt.return (pe, List.append srep prep)
+
     (* ======================== ======== =========================== *)
 
         let make_result pe _ cd =
@@ -388,6 +396,9 @@ module Make (MVar : MVar) = struct
         | SubscriberDecl sd ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
             process_sdecl pe tsex sd
+        | StorageDecl sd ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "StoDecl for resource: %Ld"  (Message.StorageDecl.rid sd)) in
+            process_stodecl pe tsex sd
         | ForgetSubscriberDecl fsd ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
             process_fsdecl pe tsex fsd
