@@ -125,6 +125,7 @@ let decode_declaration buf =
       | r when r = DeclarationId.forgetPublisherDeclId -> decode_forget_pub_decl  buf
       | r when r = DeclarationId.forgetSubscriberDeclId -> decode_forget_sub_decl  buf 
       | r when r = DeclarationId.forgetSelectionDeclId -> decode_forget_sel_decl buf 
+      | s when s = DeclarationId.storageDeclId -> decode_storage_decl header buf
       | _ -> fail `NotImplemented
     ) 
 
@@ -144,6 +145,7 @@ let encode_declaration (d: Declaration.t) buf=
   | ForgetPublisherDecl fpd -> encode_forget_pub_decl fpd buf 
   | ForgetSubscriberDecl fsd -> encode_forget_sub_decl fsd buf 
   | ForgetSelectionDecl fsd -> encode_forget_sel_decl fsd buf 
+  | StorageDecl sd -> encode_storage_decl sd buf 
 
 
 let decode_declarations buf = 
