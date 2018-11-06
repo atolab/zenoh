@@ -127,6 +127,11 @@ let send_declare_sub sock id mode =
   let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
+let send_declare_sto sock id =
+  let res_id = Vle.of_int id in
+  let decls = Declarations.singleton @@ StorageDecl (StorageDecl.create res_id [])  in
+  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  in send_message sock msg
 
 let send_stream_data sock rid data =
   let open Result.Infix in  
@@ -183,6 +188,7 @@ let produce_message sock cmd =
   | Command.CmdIArgs (msg, xs) -> (
       match msg with
       | "dpub" -> send_declare_pub sock (List.hd xs)
+      | "dsto" -> send_declare_sto sock (List.hd xs)
       | "pull" -> send_pull sock (List.hd xs)
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
