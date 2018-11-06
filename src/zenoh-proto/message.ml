@@ -96,6 +96,7 @@ module DeclarationId = struct
   let forgetPublisherDeclId = char_of_int 0x09
   let forgetSubscriberDeclId = char_of_int 0x0a
   let forgetSelectionDeclId = char_of_int 0x0b
+  let storageDeclId = char_of_int 0x0c
 end
 
 module SubscriptionModeId = struct
@@ -199,8 +200,8 @@ module PublisherDecl = struct
       | [] -> DeclarationId.publisherDeclId
       | _ -> char_of_int ((int_of_char DeclarationId.publisherDeclId) lor (int_of_char Flags.pFlag))
     in {header=header; body={rid=rid; properties=properties}}
-  let rid resourceDecl = resourceDecl.body.rid
-  let properties resourceDecl = resourceDecl.body.properties
+  let rid publisherDecl = publisherDecl.body.rid
+  let properties publisherDecl = publisherDecl.body.properties
 end
 
 module SubscriberDecl = struct
@@ -331,6 +332,22 @@ module ForgetSelectionDecl = struct
   let sid decl = decl.body.sid
 end
 
+module StorageDecl = struct
+  type body = {
+    rid : Vle.t;
+    properties : ZProperty.t list;
+  }
+  type t = body block
+
+  let create rid properties =
+    let header = match properties with
+      | [] -> DeclarationId.storageDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.storageDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; body={rid=rid; properties=properties}}
+  let rid storageDecl = storageDecl.body.rid
+  let properties storageDecl = storageDecl.body.properties
+end
+
 module Declaration = struct
   type t =
     | ResourceDecl of ResourceDecl.t
@@ -344,6 +361,7 @@ module Declaration = struct
     | ForgetPublisherDecl of ForgetPublisherDecl.t
     | ForgetSubscriberDecl of ForgetSubscriberDecl.t
     | ForgetSelectionDecl of ForgetSelectionDecl.t
+    | StorageDecl of StorageDecl.t
 end
 
 module Declarations = struct
