@@ -95,6 +95,7 @@ sig
   val forgetSubscriberDeclId : char
   val forgetSelectionDeclId : char
   val storageDeclId : char
+  val forgetStorageDeclId : char
 end
 
 module SubscriptionModeId :
@@ -262,6 +263,14 @@ sig
   val properties : t -> ZProperty.t list
 end
 
+module ForgetStorageDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> t
+  val id : t -> Vle.t
+end
+
 module Declaration :
 sig
   type t =
@@ -277,6 +286,7 @@ sig
       | ForgetSubscriberDecl of ForgetSubscriberDecl.t
       | ForgetSelectionDecl of ForgetSelectionDecl.t
       | StorageDecl of StorageDecl.t
+      | ForgetStorageDecl of ForgetStorageDecl.t
 end
 
 module Declarations : sig
