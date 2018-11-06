@@ -97,6 +97,7 @@ module DeclarationId = struct
   let forgetSubscriberDeclId = char_of_int 0x0a
   let forgetSelectionDeclId = char_of_int 0x0b
   let storageDeclId = char_of_int 0x0c
+  let forgetStorageDeclId = char_of_int 0x0d
 end
 
 module SubscriptionModeId = struct
@@ -348,6 +349,16 @@ module StorageDecl = struct
   let properties storageDecl = storageDecl.body.properties
 end
 
+module ForgetStorageDecl = struct
+  type body = {
+    id : Vle.t;
+  }
+  type t = body block
+
+  let create id = {header=DeclarationId.forgetStorageDeclId; body={id=id}}
+  let id decl = decl.body.id
+end
+
 module Declaration = struct
   type t =
     | ResourceDecl of ResourceDecl.t
@@ -362,6 +373,7 @@ module Declaration = struct
     | ForgetSubscriberDecl of ForgetSubscriberDecl.t
     | ForgetSelectionDecl of ForgetSelectionDecl.t
     | StorageDecl of StorageDecl.t
+    | ForgetStorageDecl of ForgetStorageDecl.t
 end
 
 module Declarations = struct
