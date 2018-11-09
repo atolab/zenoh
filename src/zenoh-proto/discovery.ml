@@ -159,8 +159,9 @@ module Make (MVar : MVar) = struct
         | [] -> 
             Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no subs" (ResName.to_string res.name));
             SIDMap.fold (fun _ session (pe, ps) -> 
-            let (pe, p) = forget_sdecl_to_session pe res session in 
-            (pe, p::ps)) pe.smap (pe, [])
+                match Session.is_broker session with 
+                | true -> let (pe, p) = forget_sdecl_to_session pe res session in (pe, p::ps)
+                | false -> (pe, ps)) pe.smap (pe, [])
         | sub :: [] -> 
             (match SIDMap.find_opt sub.session pe.smap with 
             | None -> (pe, [])
@@ -192,7 +193,7 @@ module Make (MVar : MVar) = struct
                     end
                 else x
                 ) (pe, []) in 
-            let (pe, ps) = match Vle.logand (subsex.mask) (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with
+            let (pe, ps) = match Session.is_broker subsex with
             | false -> (pe, ps)
             | true -> let (pe, p) = forget_sdecl_to_session pe res subsex in (pe, p::ps) in 
             TreeSet.get_broken_links tree0 
@@ -244,10 +245,76 @@ module Make (MVar : MVar) = struct
         Lwt.catch(fun () -> Lwt.join ps >>= fun () -> Lwt.return pe)
                 (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
 
-
     let forward_all_sdecl pe = 
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_sdecl pe res pe.router; true) pe.rmap in ()
 
+    let notify_pub pe ?sub:(sub=None) res m = 
+        let open Resource in
+        let sub = match sub with 
+        | None -> ResMap.exists (fun _ res -> 
+            List.exists (fun map -> map.sub != None && map.session != m.session) res.mappings) pe.rmap
+        | Some sub -> sub in
+        match (sub, m.matched_pub) with 
+        | (true, true) -> (pe, [])
+        | (true, false) -> 
+            let m = {m with matched_pub = true} in
+            let pres = Resource.with_mapping res m in
+            let rmap = ResMap.add pres.name pres pe.rmap in
+            let pe = {pe with rmap} in
+
+            let session = SIDMap.find m.session pe.smap in
+            let oc = Session.out_channel session in
+            let ds = [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create m.id Message.SubscriptionMode.push_mode [])] in
+            let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+            Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
+            (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *) 
+            let open Lwt.Infix in
+            let p = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+              >>= fun _ -> Lwt.return_unit in 
+            (pe, [p])
+        | (false, true) -> 
+            let m = {m with matched_pub = false} in
+            let pres = Resource.with_mapping res m in
+            let rmap = ResMap.add pres.name pres pe.rmap in
+            let pe = {pe with rmap} in
+
+            let session = SIDMap.find m.session pe.smap in
+            let oc = Session.out_channel session in
+            let ds = [Message.Declaration.ForgetSubscriberDecl (Message.ForgetSubscriberDecl.create m.id)] in
+            let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+            Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending ForgetSubscriberDecl to session %s" (Id.to_string session.sid));
+            (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *) 
+            let open Lwt.Infix in
+            let p = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+              >>= fun _ -> Lwt.return_unit in 
+            (pe, [p])
+        | (false, false) -> (pe, [])
+
+    let notify_pub_matching_res pe ?sub:(sub=None) tsex res = 
+        let open Resource in 
+        let sid = TxSession.id tsex in 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Publishers matching resource %s" (ResName.to_string res.name)) in 
+        let (pe, ps) = List.fold_left (fun (pe, ps) name -> 
+            match ResMap.find_opt name pe.rmap with 
+            | None -> (pe, ps)
+            | Some mres ->  List.fold_left (fun (pe, ps) m -> 
+                    match (m.pub && m.session != sid) with 
+                    | false -> (pe, ps)
+                    | true -> let (pe, p) = notify_pub pe ~sub:sub mres m in (pe, List.append p ps)) 
+                (pe, ps) mres.mappings
+        ) (pe, []) Resource.(res.matches) in
+        let%lwt _ = Lwt.join ps in
+        Lwt.return pe
+
+    let notify_all_pubs pe = 
+        let open Resource in
+        let (pe, ps) = ResMap.fold (fun _ res (pe, ps) -> 
+            List.fold_left (fun (pe, ps) m -> 
+                match m.pub with 
+                | true -> let (pe, p) = notify_pub pe res m in (pe, List.append p ps)
+                | false -> (pe, ps)) (pe, ps) res.mappings) pe.rmap (pe, []) in 
+        let%lwt _ = Lwt.join ps in
+        Lwt.return pe
 
     let register_subscription pe tsex sd =
         let sid = TxSession.id tsex in 
@@ -310,38 +377,6 @@ module Make (MVar : MVar) = struct
             | None -> None
             | Some mapping -> mapping.sub
 
-    let notify_pub_matching_res pe tsex res =      
-        let sid = TxSession.id tsex in 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Pub Matching Subs") in 
-        let (pe, ps) = List.fold_left (fun x name -> 
-            match ResMap.find_opt name pe.rmap with 
-            | None -> x
-            | Some mres -> 
-            let (pe, ps) = x in 
-            List.fold_left (fun x m -> 
-                let open Resource in                 
-                match (m.pub && not m.matched_pub && m.session != sid) with 
-                | false -> x
-                | true -> let (pe, ps) = x in
-                    let m = {m with matched_pub = true} in
-                    let pres = Resource.with_mapping mres m in
-                    let rmap = ResMap.add pres.name pres pe.rmap in
-                    let pe = {pe with rmap} in
-
-                    let session = SIDMap.find m.session pe.smap in
-                    let oc = Session.out_channel session in
-                    let ds = [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create m.id Message.SubscriptionMode.push_mode [])] in
-                    let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
-                    Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
-                    (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)                                    
-                    let r = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool in 
-                    let open Lwt.Infix in 
-                    (pe, (r >>= fun _ -> Lwt.return_unit) :: ps)
-                ) (pe, ps) mres.mappings
-        ) (pe, []) Resource.(res.matches) in
-        let%lwt _ = Lwt.join ps in
-        Lwt.return pe
-
     let process_sdecl pe tsex sd = 
         if sub_state pe tsex (Message.SubscriberDecl.rid sd) = None 
         then 
@@ -351,7 +386,7 @@ module Make (MVar : MVar) = struct
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
-            let%lwt _ = notify_pub_matching_res pe tsex res in
+            let%lwt _ = notify_pub_matching_res pe tsex res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
@@ -365,6 +400,7 @@ module Make (MVar : MVar) = struct
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
+            let%lwt pe = notify_pub_matching_res pe tsex res in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])

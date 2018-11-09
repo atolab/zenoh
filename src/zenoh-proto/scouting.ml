@@ -63,8 +63,9 @@ module Make (MVar : MVar) = struct
         Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m  "Cannot find tree  node for session %s \n" (Id.to_string sid));
         pe.router in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
-        let pe = {pe with router} in
+        let pe = {pe with rmap; smap; router} in
         forward_all_sdecl pe;
+        let%lwt pe = notify_all_pubs pe in
         Lwt.ignore_result @@ Lwt.catch
         (fun _ -> match Locator.of_string peer with 
             | Some loc -> if List.exists (fun l -> l = loc) pe.peers 
@@ -72,8 +73,7 @@ module Make (MVar : MVar) = struct
                         else Lwt.return 0
             | None -> Lwt.return 0)
         (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return 0);
-
-        Lwt.return {pe with rmap; smap; router}
+        Lwt.return pe
 
 
     let guarded_remove_session engine tsex peer =
