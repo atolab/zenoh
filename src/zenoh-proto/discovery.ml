@@ -112,8 +112,8 @@ module Make (MVar : MVar) = struct
         match pr with 
         | None -> Lwt.return (pe, [])
         | Some pr -> 
-        let id = Message.PublisherDecl.rid pd in
-        match_pdecl pe pr id tsex
+            let id = Message.PublisherDecl.rid pd in
+            match_pdecl pe pr id tsex
 
     (* ======================== SUB DECL =========================== *)
 
@@ -386,7 +386,7 @@ module Make (MVar : MVar) = struct
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
-            let%lwt _ = notify_pub_matching_res pe tsex res ~sub:(Some true) in
+            let%lwt pe = notify_pub_matching_res pe tsex res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
@@ -407,11 +407,11 @@ module Make (MVar : MVar) = struct
 
     (* ======================== ======== =========================== *)
 
-        let make_result pe _ cd =
+    let make_result pe _ cd =
         let%lwt _ =  Logs_lwt.debug (fun m -> m  "Crafting Declaration Result") in
         Lwt.return (pe, [Message.Declaration.ResultDecl (Message.ResultDecl.create (Message.CommitDecl.commit_id cd) (char_of_int 0) None)])
 
-        let process_declaration pe tsex d =
+    let process_declaration pe tsex d =
         let open Message.Declaration in
         match d with
         | ResourceDecl rd ->
@@ -434,7 +434,7 @@ module Make (MVar : MVar) = struct
             let%lwt _ = Logs_lwt.debug (fun m -> m "Unknown / Unhandled Declaration...."  ) in       
             Lwt.return (pe, [])
 
-        let process_declarations engine tsex ds =  
+    let process_declarations engine tsex ds =  
         let open Message.Declaration in
         (* Must process ResourceDecls first *)
         MVar.guarded engine 
@@ -450,7 +450,7 @@ module Make (MVar : MVar) = struct
                                 Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) 
         in MVar.return ms pe
 
-        let process_declare engine tsex msg =         
+    let process_declare engine tsex msg =         
         let%lwt pe = MVar.read engine in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
         let sid = TxSession.id tsex in 

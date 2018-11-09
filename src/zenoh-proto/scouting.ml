@@ -55,14 +55,12 @@ module Make (MVar : MVar) = struct
         let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
         
         let optpeer = List.find_opt (fun (x:ZRouter.peer) -> TxSession.id x.tsex = TxSession.id tsex) pe.router.peers in
-        let router = match optpeer with
+        let%lwt router = match optpeer with
         | Some peer ->
-        Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m  "Delete node \n");
-        ZRouter.delete_node pe.router peer.pid
-        | None ->
-        Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m  "Cannot find tree  node for session %s \n" (Id.to_string sid));
-        pe.router in
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
+            let%lwt _ = Logs_lwt.debug (fun m -> m "Delete node %s" peer.pid) in
+            let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
+            Lwt.return @@ ZRouter.delete_node pe.router peer.pid
+        | None -> Lwt.return pe.router in
         let pe = {pe with rmap; smap; router} in
         forward_all_sdecl pe;
         let%lwt pe = notify_all_pubs pe in

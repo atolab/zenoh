@@ -21,10 +21,12 @@ type t = {
 
 
 let report_mapping m = 
-    Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s" 
+    Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s MPUB:%-4s MSUB:%-4s" 
     (Id.show m.session) (Vle.to_int m.id)
     (match m.pub with true -> "YES" | false -> "NO")
     (match m.sub with None -> "NO" | Some true -> "PULL" | Some false -> "PUSH")
+    (match m.matched_pub with true -> "YES" | false -> "NO")
+    (match m.matched_sub with true -> "YES" | false -> "NO")
 
 let report res = 
     Printf.sprintf "Resource name %s\n  mappings:\n" (ResName.to_string res.name) |> fun s ->
