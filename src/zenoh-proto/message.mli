@@ -466,6 +466,19 @@ sig
   val bech_last_sn : t -> Vle.t
 end
 
+module Query :
+sig
+  type body
+  type t = body marked block
+  val create : IOBuf.t -> Vle.t -> string -> string -> Vle.t -> Vle.t option -> t
+  val pid : t -> IOBuf.t
+  val qid : t -> Vle.t
+  val resource : t -> string
+  val predicate : t -> string
+  val quorum : t -> Vle.t
+  val max_samples : t -> Vle.t option
+end
+
 module Pull :
 sig
   type body
@@ -501,6 +514,7 @@ type t =
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
+  | Query of Query.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 

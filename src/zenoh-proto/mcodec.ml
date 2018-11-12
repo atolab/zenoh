@@ -335,11 +335,38 @@ let encode_migrate m buf =
   >>= encode_vle  @@ bech_last_sn m 
 
 
-let decode_pull_max_samples header buf = 
+let decode_max_samples header buf = 
   if Flags.(hasFlag header nFlag) then
     decode_vle buf
     >>= (fun (max_samples, buf) -> return (Some max_samples, buf))
   else return (None, buf)
+
+let make_query pid qid resource predicate quorum max_samples = 
+  Message (Query (Query.create pid qid resource predicate quorum max_samples))
+
+let decode_query header =
+  read6_spec
+    (Logs.debug (fun m -> m "Reading Query"))
+    decode_bytes
+    decode_vle
+    decode_string
+    decode_string
+    decode_vle
+    (decode_max_samples header)
+    make_query
+
+let encode_query m buf =
+  let open Query in  
+  Logs.debug (fun m -> m "Writing Query");
+  IOBuf.put_char (header m) buf 
+  >>= encode_bytes @@ pid m
+  >>= encode_vle @@ qid m
+  >>= encode_string @@ resource m
+  >>= encode_string @@ predicate m
+  >>= encode_vle @@ quorum m
+  >>= match max_samples m with
+  | None -> return 
+  | Some max -> encode_vle max
 
 let make_pull header sn id max_samples = 
   let (s, f) = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.fFlag)) in
@@ -350,7 +377,7 @@ let decode_pull header =
     (Logs.debug (fun m -> m "Reading Pull"))
     decode_vle
     decode_vle
-    (decode_pull_max_samples header)
+    (decode_max_samples header)
     (make_pull header)
 
 let encode_pull m buf =
@@ -457,6 +484,7 @@ let decode_element buf =
       | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
       | id when id = MessageId.keepAliveId -> (decode_keep_alive header buf)
       | id when id = MessageId.migrateId -> (decode_migrate header buf)
+      | id when id = MessageId.queryId -> (decode_query header buf)
       | id when id = MessageId.pullId -> (decode_pull header buf)
       | id when id = MessageId.pingPongId -> (decode_ping_pong header buf)
       | id when id = MessageId.conduitId -> (decode_conduit header buf)
@@ -497,6 +525,7 @@ let encode_msg_element msg =
   | AckNack m -> encode_ack_nack m
   | KeepAlive m -> encode_keep_alive  m
   | Migrate m -> encode_migrate  m
+  | Query m -> encode_query m
   | Pull m -> encode_pull m
   | PingPong m -> encode_ping_pong m
 

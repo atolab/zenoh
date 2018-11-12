@@ -817,6 +817,33 @@ module Migrate = struct
   let bech_last_sn m = m.body.mbody.bech_last_sn
 end
 
+module Query = struct
+  type body = {
+    pid : IOBuf.t;
+    qid : Vle.t;
+    resource : string;
+    predicate : string;
+    quorum : Vle.t;
+    max_samples : Vle.t option;
+  }
+  type t = body marked block
+
+  let create pid qid resource predicate quorum max_samples =
+    let header  = 
+      let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
+      let mid = int_of_char MessageId.queryId in
+      char_of_int @@ nflag lor mid in
+    { header; body={markers=Markers.empty; mbody={pid; qid; resource; predicate; quorum; max_samples;}}}
+
+  let pid q = q.body.mbody.pid
+  let qid q = q.body.mbody.qid
+  let resource q = q.body.mbody.resource
+  let predicate q = q.body.mbody.predicate
+  let quorum q = q.body.mbody.quorum
+  let max_samples q = q.body.mbody.max_samples
+  
+end
+
 module Pull = struct
   type body = {
     sn : Vle.t;
@@ -872,6 +899,7 @@ type t =
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
+  | Query of Query.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 
@@ -888,6 +916,7 @@ let markers = function
   | AckNack a ->  markers a
   | KeepAlive a ->  markers a
   | Migrate m ->  markers m
+  | Query q ->  markers q
   | Pull p ->  markers p
   | PingPong p ->  markers p
 
@@ -904,6 +933,7 @@ let with_marker msg marker = match msg with
   | AckNack a ->  AckNack (with_marker a marker)
   | KeepAlive a ->  KeepAlive (with_marker a marker)
   | Migrate m ->  Migrate (with_marker m marker)
+  | Query q ->  Query (with_marker q marker)
   | Pull p ->  Pull (with_marker p marker)
   | PingPong p ->  PingPong (with_marker p marker)
 
@@ -920,6 +950,7 @@ let with_markers msg markers = match msg with
   | AckNack a ->  AckNack (with_markers a markers)
   | KeepAlive a ->  KeepAlive (with_markers a markers)
   | Migrate m ->  Migrate (with_markers m markers)
+  | Query q ->  Query (with_markers q markers)
   | Pull p ->  Pull (with_markers p markers)
   | PingPong p ->  PingPong (with_markers p markers)
   
@@ -936,6 +967,7 @@ let remove_markers = function
   | AckNack a ->  AckNack (remove_markers a)
   | KeepAlive a ->  KeepAlive (remove_markers a)
   | Migrate m ->  Migrate (remove_markers m)
+  | Query q ->  Query (remove_markers q)
   | Pull p ->  Pull (remove_markers p)
   | PingPong p ->  PingPong (remove_markers p)
 
@@ -952,6 +984,7 @@ let to_string = function (** This should actually call the to_string on individu
   | AckNack _ -> "AckNack"
   | KeepAlive _ -> "KeepAlive"
   | Migrate _ -> "Migrate"
+  | Query _ -> "Query"
   | Pull _ -> "Pull"
   | PingPong _ -> "PingPong"
 
