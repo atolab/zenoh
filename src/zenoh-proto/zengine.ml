@@ -10,6 +10,7 @@ module ZEngine (MVar : MVar) = struct
   module Scouting = Scouting.Make(MVar) open Scouting
   module Discovery = Discovery.Make(MVar) open Discovery
   module Routing = Routing.Make(MVar) open Routing
+  module Querying = Querying.Make(MVar) open Querying
 
   module ProtocolEngine = struct
 
@@ -66,6 +67,7 @@ module ZEngine (MVar : MVar) = struct
         | Message.AckNack msg -> process_ack_nack engine tsex msg
         | Message.StreamData msg -> process_stream_data engine tsex msg
         | Message.WriteData msg -> process_write_data engine tsex msg
+        | Message.Query msg -> process_query engine tsex msg
         | Message.Pull msg -> process_pull engine tsex msg
         | Message.KeepAlive _ -> Lwt.return []
         | _ -> Lwt.return []
