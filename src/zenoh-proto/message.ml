@@ -44,6 +44,8 @@ module MessageId = struct
   let sdeltaDataId = char_of_int 0x15
   let bdeltaDataId = char_of_int 0x16
   let wdeltaDataId = char_of_int 0x17
+
+  let replyId = char_of_int 0x19
 end
 
 module Flags = struct
@@ -829,7 +831,7 @@ module Query = struct
   type t = body marked block
 
   let create pid qid resource predicate quorum max_samples =
-    let header  = 
+    let header = 
       let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
       let mid = int_of_char MessageId.queryId in
       char_of_int @@ nflag lor mid in
@@ -841,7 +843,32 @@ module Query = struct
   let predicate q = q.body.mbody.predicate
   let quorum q = q.body.mbody.quorum
   let max_samples q = q.body.mbody.max_samples
-  
+end
+
+module Reply = struct
+  type body = {
+    qpid : IOBuf.t;
+    qid : Vle.t;
+    value : (IOBuf.t * Vle.t * string * IOBuf.t) option;
+  }
+  type t = body marked block
+
+  let create qpid qid value =
+  (* (stoid, rsn, resource, payload) *)
+    let header = 
+      let fFlag = match value with | None -> 0 | _ -> int_of_char Flags.fFlag in
+      let mid = int_of_char MessageId.replyId in
+      char_of_int @@ fFlag lor mid in
+    { header; body={markers=Markers.empty; mbody={qpid; qid; value;}}}
+
+  let qpid q = q.body.mbody.qpid
+  let qid q = q.body.mbody.qid
+  let final q = q.body.mbody.value = None
+  let value q = q.body.mbody.value
+  let stoid q = match q.body.mbody.value with | None -> None | Some (stoid, _, _, _) -> Some stoid
+  let rsn q = match q.body.mbody.value with | None -> None | Some (_, rsn, _, _) -> Some rsn
+  let resource q = match q.body.mbody.value with | None -> None | Some (_, _, resource, _) -> Some resource
+  let payload q = match q.body.mbody.value with | None -> None | Some (_, _, _, payload) -> Some payload
 end
 
 module Pull = struct
@@ -900,6 +927,7 @@ type t =
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
   | Query of Query.t
+  | Reply of Reply.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 
@@ -917,6 +945,7 @@ let markers = function
   | KeepAlive a ->  markers a
   | Migrate m ->  markers m
   | Query q ->  markers q
+  | Reply r ->  markers r
   | Pull p ->  markers p
   | PingPong p ->  markers p
 
@@ -934,6 +963,7 @@ let with_marker msg marker = match msg with
   | KeepAlive a ->  KeepAlive (with_marker a marker)
   | Migrate m ->  Migrate (with_marker m marker)
   | Query q ->  Query (with_marker q marker)
+  | Reply r ->  Reply (with_marker r marker)
   | Pull p ->  Pull (with_marker p marker)
   | PingPong p ->  PingPong (with_marker p marker)
 
@@ -951,6 +981,7 @@ let with_markers msg markers = match msg with
   | KeepAlive a ->  KeepAlive (with_markers a markers)
   | Migrate m ->  Migrate (with_markers m markers)
   | Query q ->  Query (with_markers q markers)
+  | Reply r ->  Reply (with_markers r markers)
   | Pull p ->  Pull (with_markers p markers)
   | PingPong p ->  PingPong (with_markers p markers)
   
@@ -968,6 +999,7 @@ let remove_markers = function
   | KeepAlive a ->  KeepAlive (remove_markers a)
   | Migrate m ->  Migrate (remove_markers m)
   | Query q ->  Query (remove_markers q)
+  | Reply r ->  Reply (remove_markers r)
   | Pull p ->  Pull (remove_markers p)
   | PingPong p ->  PingPong (remove_markers p)
 
@@ -985,6 +1017,7 @@ let to_string = function (** This should actually call the to_string on individu
   | KeepAlive _ -> "KeepAlive"
   | Migrate _ -> "Migrate"
   | Query _ -> "Query"
+  | Reply _ -> "Reply"
   | Pull _ -> "Pull"
   | PingPong _ -> "PingPong"
 

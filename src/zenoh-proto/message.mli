@@ -44,6 +44,7 @@ sig
   val sdeltaDataId : char
   val bdeltaDataId : char
   val wdeltaDataId : char
+  val replyId : char
 end
 
 module Flags :
@@ -479,6 +480,21 @@ sig
   val max_samples : t -> Vle.t option
 end
 
+module Reply :
+sig
+  type body
+  type t = body marked block
+  val create : IOBuf.t -> Vle.t -> (IOBuf.t * Vle.t * string * IOBuf.t) option -> t
+  val qpid : t -> IOBuf.t
+  val qid : t -> Vle.t
+  val final : t -> bool
+  val value : t -> (IOBuf.t * Vle.t * string * IOBuf.t) option
+  val stoid : t -> IOBuf.t option
+  val rsn : t -> Vle.t option
+  val resource : t -> string option
+  val payload : t -> IOBuf.t option
+end
+
 module Pull :
 sig
   type body
@@ -515,6 +531,7 @@ type t =
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
   | Query of Query.t
+  | Reply of Reply.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 

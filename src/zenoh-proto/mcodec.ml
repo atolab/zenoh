@@ -368,6 +368,45 @@ let encode_query m buf =
   | None -> return 
   | Some max -> encode_vle max
 
+let make_reply qpid qid value = 
+  Message (Reply (Reply.create qpid qid value))
+
+let decode_reply_value header buf = 
+  if Flags.(hasFlag header fFlag) then
+    read4_spec
+      (Logs.debug (fun m -> m "  Reading Reply value"))
+      decode_bytes
+      decode_vle
+      decode_string
+      decode_bytes
+      (fun stoid rsn resource payload -> Some (stoid, rsn, resource, payload)) buf
+  else return (None, buf)
+
+let decode_reply header =
+  read3_spec
+    (Logs.debug (fun m -> m "Reading Reply"))
+    decode_bytes
+    decode_vle
+    (decode_reply_value header)
+    make_reply
+
+let encode_reply_value v buf =
+  match v with 
+  | None -> return buf
+  | Some (stoid, rsn, resource, payload) -> 
+    encode_bytes stoid buf
+    >>= encode_vle @@ rsn
+    >>= encode_string @@ resource
+    >>= encode_bytes @@ payload
+
+let encode_reply m buf =
+  let open Reply in  
+  Logs.debug (fun m -> m "Writing Reply");
+  IOBuf.put_char (header m) buf 
+  >>= encode_bytes @@ qpid m
+  >>= encode_vle @@ qid m
+  >>= encode_reply_value @@ value m
+
 let make_pull header sn id max_samples = 
   let (s, f) = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.fFlag)) in
   Message (Pull (Pull.create (s, f) sn id max_samples))
@@ -485,6 +524,7 @@ let decode_element buf =
       | id when id = MessageId.keepAliveId -> (decode_keep_alive header buf)
       | id when id = MessageId.migrateId -> (decode_migrate header buf)
       | id when id = MessageId.queryId -> (decode_query header buf)
+      | id when id = MessageId.replyId -> (decode_reply header buf)
       | id when id = MessageId.pullId -> (decode_pull header buf)
       | id when id = MessageId.pingPongId -> (decode_ping_pong header buf)
       | id when id = MessageId.conduitId -> (decode_conduit header buf)
@@ -526,6 +566,7 @@ let encode_msg_element msg =
   | KeepAlive m -> encode_keep_alive  m
   | Migrate m -> encode_migrate  m
   | Query m -> encode_query m
+  | Reply m -> encode_reply m
   | Pull m -> encode_pull m
   | PingPong m -> encode_ping_pong m
 
