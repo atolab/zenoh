@@ -35,6 +35,7 @@ module ZEngine (MVar : MVar) = struct
         locators = ls; 
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
+        qmap = QIDMap.empty;
         peers;
         router = ZRouter.create send_nodes (IOBuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
@@ -68,6 +69,7 @@ module ZEngine (MVar : MVar) = struct
         | Message.StreamData msg -> process_stream_data engine tsex msg
         | Message.WriteData msg -> process_write_data engine tsex msg
         | Message.Query msg -> process_query engine tsex msg
+        | Message.Reply msg -> process_reply engine tsex msg
         | Message.Pull msg -> process_pull engine tsex msg
         | Message.KeepAlive _ -> Lwt.return []
         | _ -> Lwt.return []
