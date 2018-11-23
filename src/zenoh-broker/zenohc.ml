@@ -131,7 +131,7 @@ let send_declare_sub sock id mode =
 let send_declare_sto sock id =
   let res_id = Vle.of_int id in
   let decls = Declarations.singleton @@ StorageDecl (StorageDecl.create res_id [])  in
-  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 let send_stream_data sock rid data =
