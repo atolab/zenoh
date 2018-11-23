@@ -1,7 +1,7 @@
 include Locator
 include Message
 include Frame
-include Conduit
+include ZConduit
 include Transport
 include Iptransport
 include Zengine

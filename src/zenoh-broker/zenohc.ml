@@ -36,7 +36,7 @@ let lease = 0L
 let version = Char.chr 0x01
 
 
-let default_conduit = Conduit.make 0
+let default_conduit = ZConduit.make 0
 
 module Command = struct
   type t = Cmd of string | CmdIArgs of string * int list | CmdSArgs of string * string list | NoCmd
@@ -111,26 +111,26 @@ let send_close sock =
 let send_declare_res sock id uri = 
   let res_id = id in
   let decls = Declarations.singleton @@ ResourceDecl (ResourceDecl.create res_id uri [])  in
-  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 let send_declare_pub sock id =
   let pub_id = Vle.of_int id in
   let decls = Declarations.singleton @@ PublisherDecl (PublisherDecl.create pub_id [])  in
-  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 let send_declare_sub sock id mode =
   let sub_id = Vle.of_int id in
   let mode = if mode = "pull" then SubscriptionMode.pull_mode else SubscriptionMode.push_mode in
   let decls = Declarations.singleton @@ SubscriberDecl (SubscriberDecl.create sub_id mode [])  in
-  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
 
 let send_stream_data sock rid data =
   let open Result.Infix in  
-  let sn = Conduit.next_usn default_conduit in   
+  let sn = ZConduit.next_usn default_conduit in   
   let buf = Result.get (encode_string data (IOBuf.clear dbuf)
   >>> IOBuf.flip) in
   let msg = Message.StreamData (StreamData.create (false,false) sn rid None buf) in
@@ -148,7 +148,7 @@ let rec send_stream_data_n sock rid n p data =
 
 let send_write_data sock rname data =
   let open Result.Infix in  
-  let sn = Conduit.next_usn default_conduit in   
+  let sn = ZConduit.next_usn default_conduit in   
   let buf = Result.get (encode_string data (IOBuf.clear dbuf)
   >>> IOBuf.flip) in
   let msg = Message.WriteData (WriteData.create (false,false) sn rname buf) in
@@ -165,7 +165,7 @@ let rec send_write_data_n sock rname n p data =
     end
 
 let send_pull sock rid =
-  let sn = Conduit.next_usn default_conduit in   
+  let sn = ZConduit.next_usn default_conduit in   
   let msg = Message.Pull (Pull.create (true, false) sn (Vle.of_int rid) None) in
   send_message sock msg
 
