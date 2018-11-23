@@ -19,14 +19,14 @@ let storagevar = Lwt_mvar.create (StrMap.empty)
 
 let listener sto data src = 
   let (str, _) = Result.get @@ decode_string data in
-  Printf.printf "STORAGE LISTENER [%-8s] RECIEVED DATA FROM [%-8s] : %s\n%!" sto src str;
+  Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sto src str;
   let%lwt storage = Lwt_mvar.take storagevar in
   let storage = StrMap.add src data storage in
   let%lwt _ = Lwt_mvar.put storagevar storage in
   Lwt.return_unit
 
 let qhandler sto resname predicate = 
-  Printf.printf "STORAGE HANDLER [%-8s] RECIEVED QUERY : %s?%s\n%!" sto resname predicate;
+  Printf.printf "STORAGE QHANDLER [%-8s] RECIEVED QUERY : %s?%s\n%!" sto resname predicate;
   let%lwt storage = Lwt_mvar.take storagevar in
   storage
   |> StrMap.filter (fun storesname _ -> uri_match storesname resname) 

@@ -65,12 +65,24 @@ module Make (MVar : MVar) = struct
         let open Lwt.Infix in 
         (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
     
-    let process_reply engine _(*tsex*) r = 
+    let process_reply engine tsex r = 
+      let open Lwt.Infix in
       MVar.guarded engine @@ fun pe -> 
         let qid = (Message.Reply.qpid r, Message.Reply.qid r) in 
-        let%lwt _ = match QIDMap.find_opt qid pe.qmap with 
-        | None -> Logs_lwt.debug (fun m -> m  "Received reply for unknown query. Ingore it!") 
-        | Some qs -> forward_reply_to_session pe r qs.srcFace in
+        let%lwt pe = match QIDMap.find_opt qid pe.qmap with 
+        | None -> Logs_lwt.debug (fun m -> m  "Received reply for unknown query. Ingore it!") >>= fun _ -> Lwt.return pe
+        | Some qs -> 
+          (match Message.Reply.value r with 
+          | Some _ -> forward_reply_to_session pe r qs.srcFace >>= fun _ -> Lwt.return pe
+          | None -> 
+            let fwdFaces = List.filter (fun face -> 
+              match SIDMap.find_opt face pe.smap with 
+              | Some s -> s.tx_sex != tsex
+              | None -> true) qs.fwdFaces in 
+            let%lwt qmap = match fwdFaces with 
+            | [] -> forward_reply_to_session pe r qs.srcFace >>= fun _ -> Lwt.return @@ QIDMap.remove qid pe.qmap
+            | _ -> Lwt.return @@ QIDMap.add qid {qs with fwdFaces} pe.qmap in 
+            Lwt.return {pe with qmap} ) in
         Lwt.return (Lwt.return [], pe)
 
 end

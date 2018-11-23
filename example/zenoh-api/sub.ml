@@ -3,7 +3,7 @@ open Apero
 
 let listener sub data src = 
   let (str, _) = Result.get @@ decode_string data in
-  Printf.printf "LISTENER [%-8s] RECIEVED FROM [%-8s] : %s\n%!" sub src str;
+  Printf.printf "LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sub src str;
   Lwt.return_unit
 
 let run = 

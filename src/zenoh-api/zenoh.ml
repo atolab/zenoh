@@ -6,16 +6,21 @@ open R_name
 
 module VleMap = Map.Make(Vle)
 
-type listener = IOBuf.t -> string -> unit Lwt.t
-type qhandler = string -> string -> (string * IOBuf.t) list Lwt.t
+type sublistener = IOBuf.t -> string -> unit Lwt.t
+type queryreply = 
+  | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
+  | StorageFinal of {stoid:IOBuf.t; rsn:int}
+  | ReplyFinal 
+type rephandler = queryreply -> unit Lwt.t
+type quehandler = string -> string -> (string * IOBuf.t) list Lwt.t
 
-type insub = {subid:int; resid:Vle.t; listener:listener}
+type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
-type insto = {stoid:int; resname:string; listener:listener; qhandler:qhandler}
+type insto = {stoid:int; resname:string; listener:sublistener; qhandler:quehandler}
 
 type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list; stos : insto list;}
 
-type query = {qid: Vle.t; listener:listener;}
+type query = {qid: Vle.t; listener:rephandler;}
 
 let with_match res mrid = 
   {res with matches = mrid :: List.filter (fun r -> r != mrid) res.matches}
@@ -111,6 +116,7 @@ let send_message sock msg =
 
 
 let process_incoming_message msg resolver t = 
+  let open Lwt.Infix in
   match msg with
   | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true
   | Message.StreamData dmsg ->
@@ -152,7 +158,6 @@ let process_incoming_message msg resolver t =
       | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
   | Message.Query qmsg -> 
-    let open Lwt.Infix in
     let%lwt state = Lwt_mvar.take t.state in
     let%lwt _ = Lwt_mvar.put t.state state in 
     let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
@@ -165,8 +170,10 @@ let process_incoming_message msg resolver t =
               >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
           ) Vle.zero res.stos
           >>= fun rsn -> 
-            send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
-            >>= fun _ -> return_unit
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
+          >>= fun _ -> 
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None))
+          >>= fun _ -> return_unit
       | false -> return_unit) (VleMap.bindings state.resmap) in
     return_true    
   | Message.Reply rmsg -> 
@@ -178,12 +185,12 @@ let process_incoming_message msg resolver t =
       match VleMap.find_opt (Reply.qid rmsg) state.qrymap with 
       | None -> return_true 
       | Some query -> 
-        (match (Message.Reply.payload rmsg) with 
-        | None -> return_true
-        | Some payload -> 
+        (match (Message.Reply.value rmsg) with 
+        | None -> query.listener ReplyFinal >>= fun _ -> return_true
+        | Some (stoid, rsn, resname, payload) -> 
           (match IOBuf.available payload with 
-          | 0 -> return_true
-          | _ -> let%lwt _ = query.listener payload (Option.get (Message.Reply.resource rmsg)) in return_true )))
+          | 0 -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})) >>= fun _ -> return_true
+          | _ -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})) >>= fun _ -> return_true)))
   | msg ->
     Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
     return_true
