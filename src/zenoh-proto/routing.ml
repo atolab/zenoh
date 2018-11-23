@@ -50,7 +50,7 @@ module Make (MVar : MVar) = struct
           | None -> (sss, pss)
           | Some r -> 
             List.fold_left (fun (ss, ps) m ->
-                match m.sub = Some false && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+                match (m.sub = Some false || m.sto = true) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
                 | true -> 
                   let p = forward_data_to_mapping pe srcres.name r m.session m.id reliable payload in
                   (m.session :: ss , p :: ps)
@@ -66,7 +66,7 @@ module Make (MVar : MVar) = struct
           | false -> (sss, pss)
           | true -> 
             List.fold_left (fun (ss, ps) m ->
-                match m.sub = Some false && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+                match (m.sub = Some false || m.sto = true) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
                 | true -> 
                   let p = forward_data_to_mapping pe srcresname res m.session m.id reliable payload in
                   (m.session :: ss , p :: ps)
@@ -158,7 +158,7 @@ module Make (MVar : MVar) = struct
       let node = Marshal.from_bytes b 0 in
       let pe = {pe with router = ZRouter.update pe.router node} in
       let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
-      forward_all_sdecl pe;
+      forward_all_decls pe;
       Lwt.return (pe, []) 
 
     let process_stream_data engine tsex msg =

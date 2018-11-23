@@ -62,7 +62,7 @@ module Make (MVar : MVar) = struct
             Lwt.return @@ ZRouter.delete_node pe.router peer.pid
         | None -> Lwt.return pe.router in
         let pe = {pe with rmap; smap; router} in
-        forward_all_sdecl pe;
+        forward_all_decls pe;
         let%lwt pe = notify_all_pubs pe in
         Lwt.ignore_result @@ Lwt.catch
         (fun _ -> match Locator.of_string peer with 
@@ -118,7 +118,7 @@ module Make (MVar : MVar) = struct
         @@ fun pe ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Open.pid msg; tsex}} in
-        forward_all_sdecl pe;
+        forward_all_decls pe;
         MVar.return [make_accept pe' (Message.Open.pid msg)] pe'
 
     let process_open engine tsex msg  =
@@ -146,7 +146,7 @@ module Make (MVar : MVar) = struct
         @@ fun pe ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Accept.apid msg; tsex}} in
-        forward_all_sdecl pe;
+        forward_all_decls pe;
         MVar.return [] pe'
 
     let process_accept engine tsex msg =

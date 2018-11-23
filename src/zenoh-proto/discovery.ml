@@ -67,7 +67,7 @@ module Make (MVar : MVar) = struct
         let (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
             (fun m -> match m with 
                 | Some mapping -> mapping
-                | None -> {id = rid; session = session.sid; pub = false; sub = None; matched_pub = false; matched_sub=false}) in 
+                | None -> {id = rid; session = session.sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
         Lwt.return pe
 
     (* ======================== PUB DECL =========================== *)
@@ -104,7 +104,7 @@ module Make (MVar : MVar) = struct
         let (pe, res) = update_resource_mapping pe resname session rid 
             (fun m -> match m with 
                 | Some m -> {m with pub=true;} 
-                | None -> {id = rid; session = sid; pub = true; sub = None; matched_pub = false; matched_sub=false}) in
+                | None -> {id = rid; session = sid; pub = true; sub = None; sto=false; matched_pub = false; matched_sub=false}) in
         Lwt.return (pe, Some res)
 
     let process_pdecl pe tsex pd =      
@@ -131,7 +131,7 @@ module Make (MVar : MVar) = struct
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> {id = res.local_id; session = (TxSession.id zsex.tx_sex); pub = false; sub = None; matched_pub = false; matched_sub=false}) in 
+                    | None -> {id = res.local_id; session = (TxSession.id zsex.tx_sex); pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
             (pe, [resdecl; subdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
@@ -168,11 +168,11 @@ module Make (MVar : MVar) = struct
             | Some subsex ->
             let tsex = Session.tx_sex subsex in
             Lwt.ignore_result @@ Logs_lwt.debug (fun m -> 
-            let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-                TxSession.id peer.tsex = subsex.sid) pe.router.peers with 
-            | Some peer -> peer.pid
-            | None -> "UNKNOWN" in
-            m "Resource %s : 1 sub (%s) (%s)" (ResName.to_string res.name) (Id.show sub.session) nid);
+                let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+                    TxSession.id peer.tsex = subsex.sid) pe.router.peers with 
+                | Some peer -> peer.pid
+                | None -> "UNKNOWN" in
+                m "Resource %s : 1 sub (%s) (%s)" (ResName.to_string res.name) (Id.show sub.session) nid);
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -252,7 +252,7 @@ module Make (MVar : MVar) = struct
         let open Resource in
         let sub = match sub with 
         | None -> ResMap.exists (fun _ res -> 
-            List.exists (fun map -> map.sub != None && map.session != m.session) res.mappings) pe.rmap
+            List.exists (fun map -> (map.sub != None || map.sto != false) && map.session != m.session) res.mappings) pe.rmap
         | Some sub -> sub in
         match (sub, m.matched_pub) with 
         | (true, true) -> (pe, [])
@@ -336,7 +336,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=Some pull;} 
-                | None -> {id = rid; session = sid; pub = false; sub = Some pull; matched_pub = false; matched_sub=false}) in
+                | None -> {id = rid; session = sid; pub = false; sub = Some pull; sto = false; matched_pub = false; matched_sub=false}) in
         Lwt.return (pe, Some res)
 
     let unregister_subscription pe tsex fsd =
@@ -354,7 +354,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=None;} 
-                | None -> {id = rid; session = sid; pub = false; sub = None; matched_pub = false; matched_sub=false}) in
+                | None -> {id = rid; session = sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
 
@@ -405,7 +405,194 @@ module Make (MVar : MVar) = struct
         end
         else Lwt.return (pe, [])
 
+    (* ======================== STO DECL =========================== *)
+
+    let forward_stodecl_to_session pe res zsex =       
+        let module M = Message in
+        let open Resource in 
+        let oc = Session.out_channel zsex in
+        let (pe, ds) = match res.name with 
+        | ID id -> (
+            let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id []) in
+            (pe, [stodecl]))
+        | URI uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id uri []) in
+            let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id []) in
+            let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
+                (fun m -> match m with 
+                    | Some mapping -> mapping
+                    | None -> {id = res.local_id; session = (TxSession.id zsex.tx_sex); pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
+            (pe, [resdecl; stodecl]) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
+        let open Lwt.Infix in 
+        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+
+    let forget_stodecl_to_session pe res zsex =       
+        let module M = Message in
+        let open Resource in 
+        let oc = Session.out_channel zsex in
+        let fstodecl = match res.name with 
+        | ID id -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create id)
+        | URI _ -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fstodecl]) in
+        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
+        let open Lwt.Infix in 
+        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+
+    let forward_stodecl pe res router =  
+        let open ZRouter in
+        let open Resource in 
+        let stos = List.filter (fun map -> map.sto != false) res.mappings in 
+        let (pe, ps) = (match stos with 
+        | [] -> 
+            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no stos" (ResName.to_string res.name));
+            SIDMap.fold (fun _ session (pe, ps) -> 
+                match Session.is_broker session with 
+                | true -> let (pe, p) = forget_stodecl_to_session pe res session in (pe, p::ps)
+                | false -> (pe, ps)) pe.smap (pe, [])
+        | sto :: [] -> 
+            (match SIDMap.find_opt sto.session pe.smap with 
+            | None -> (pe, [])
+            | Some stosex ->
+            let tsex = Session.tx_sex stosex in
+            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> 
+                let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+                    TxSession.id peer.tsex = stosex.sid) pe.router.peers with 
+                | Some peer -> peer.pid
+                | None -> "UNKNOWN" in
+                m "Resource %s : 1 sto (%s) (%s)" (ResName.to_string res.name) (Id.show sto.session) nid);
+            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let (pe, ps) = (match TreeSet.get_parent tree0 with 
+            | None -> TreeSet.get_childs tree0 
+            | Some parent -> parent :: TreeSet.get_childs tree0 )
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                if(tsex != stsex)
+                then 
+                    begin
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let (pe, p) = forward_stodecl_to_session pe res s in 
+                    (pe, p :: ps)
+                    end
+                else x
+                ) (pe, []) in 
+            let (pe, ps) = match Session.is_broker stosex with
+            | false -> (pe, ps)
+            | true -> let (pe, p) = forget_stodecl_to_session pe res stosex in (pe, p::ps) in 
+            TreeSet.get_broken_links tree0 
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                if(tsex != stsex)
+                then 
+                    begin
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let (pe, p) = forget_stodecl_to_session pe res s in 
+                    (pe, p :: ps)
+                    end
+                else x
+                ) (pe, ps))
+        | _ -> 
+            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : 2+ stos" (ResName.to_string res.name));
+            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let (pe, ps) = (match TreeSet.get_parent tree0 with 
+            | None -> TreeSet.get_childs tree0 
+            | Some parent -> parent :: TreeSet.get_childs tree0 )
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let (pe, p) = forward_stodecl_to_session pe res s in 
+                    (pe, p :: ps)
+                ) (pe, []) in 
+            TreeSet.get_broken_links tree0 
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let (pe, p) = forget_stodecl_to_session pe res s in 
+                    (pe, p :: ps)
+                ) (pe, ps))
+        in 
+        Lwt.Infix.(
+        Lwt.catch(fun () -> Lwt.join ps >>= fun () -> Lwt.return pe)
+                (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
+
+    let register_storage pe tsex sd =
+        let sid = TxSession.id tsex in 
+        let session = SIDMap.find_opt sid pe.smap in 
+        match session with 
+        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StorageDecl on unknown session %s: Ignore it!" 
+                                                (Id.to_string sid)) in Lwt.return (pe, None)
+        | Some session -> 
+        let rid = Message.StorageDecl.rid sd in 
+        let resname = match VleMap.find_opt rid session.rmap with 
+            | Some name -> name
+            | None -> ID(rid) in
+        let (pe, res) = update_resource_mapping pe resname session rid 
+            (fun m -> 
+                match m with 
+                | Some m -> {m with sto = true;} 
+                | None -> {id = rid; session = sid; pub = false; sub = None; sto = true; matched_pub = false; matched_sub=false}) in
+        Lwt.return (pe, Some res)
+
+    let forward_all_stodecl pe = 
+        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
+
+    let sto_state pe tsex rid = 
+        let sid = TxSession.id tsex in 
+        let session = SIDMap.find_opt sid pe.smap in 
+        match session with 
+        | None -> false
+        | Some session -> 
+        let resname = match VleMap.find_opt rid session.rmap with 
+            | Some name -> name
+            | None -> ID(rid) in
+        let optres = ResMap.find_opt resname pe.rmap in 
+        match optres with 
+        | None -> false
+        | Some res ->
+            let open Resource in
+            let mapping = List.find_opt (fun m -> m.session = sid) res.mappings in 
+            match mapping with 
+            | None -> false
+            | Some mapping -> mapping.sto
+    
+    let process_stodecl pe tsex sd = 
+        if sto_state pe tsex (Message.StorageDecl.rid sd) = false
+        then 
+        begin
+            let%lwt (pe, res) = register_storage pe tsex sd in
+            match res with 
+            | None -> Lwt.return (pe, [])
+            | Some res -> 
+            let%lwt pe = forward_stodecl pe res pe.router in
+            let%lwt pe = notify_pub_matching_res pe tsex res ~sub:(Some true) in
+            Lwt.return (pe, [])
+        end
+        else Lwt.return (pe, [])
+
     (* ======================== ======== =========================== *)
+
+    let forward_all_decls pe = 
+        forward_all_sdecl pe;
+        forward_all_stodecl pe
 
     let make_result pe _ cd =
         let%lwt _ =  Logs_lwt.debug (fun m -> m  "Crafting Declaration Result") in
@@ -424,6 +611,9 @@ module Make (MVar : MVar) = struct
         | SubscriberDecl sd ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
             process_sdecl pe tsex sd
+        | StorageDecl sd ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "StoDecl for resource: %Ld"  (Message.StorageDecl.rid sd)) in
+            process_stodecl pe tsex sd
         | ForgetSubscriberDecl fsd ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
             process_fsdecl pe tsex fsd

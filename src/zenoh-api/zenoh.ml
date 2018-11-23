@@ -6,12 +6,21 @@ open R_name
 
 module VleMap = Map.Make(Vle)
 
-type listener = IOBuf.t -> string -> unit Lwt.t
+type sublistener = IOBuf.t -> string -> unit Lwt.t
+type queryreply = 
+  | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
+  | StorageFinal of {stoid:IOBuf.t; rsn:int}
+  | ReplyFinal 
+type rephandler = queryreply -> unit Lwt.t
+type quehandler = string -> string -> (string * IOBuf.t) list Lwt.t
 
+type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
-type insub = {subid:int; resid:Vle.t; listener:listener}
+type insto = {stoid:int; resname:string; listener:sublistener; qhandler:quehandler}
 
-type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list}
+type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list; stos : insto list;}
+
+type query = {qid: Vle.t; listener:rephandler;}
 
 let with_match res mrid = 
   {res with matches = mrid :: List.filter (fun r -> r != mrid) res.matches}
@@ -24,20 +33,29 @@ let with_sub sub res =
 
 let remove_sub subid res = 
   {res with subs = List.filter (fun s -> s.subid != subid) res.subs}
+
+let with_sto sto res = 
+  {res with stos = sto :: List.filter (fun s -> s != sto) res.stos}
+
+let remove_sto stoid res = 
+  {res with stos = List.filter (fun s -> s.stoid != stoid) res.stos}
   
 
 type state = {
   next_sn : Vle.t;
   next_pubsub_id : int;
   next_res_id : Vle.t;
+  next_qry_id : Vle.t;
   resmap : resource VleMap.t;
+  qrymap : query VleMap.t;
 }
 
-let create_state = {next_sn=1L; next_pubsub_id=0; next_res_id=0L; resmap=VleMap.empty}
+let create_state = {next_sn=1L; next_pubsub_id=0; next_res_id=0L; next_qry_id=0L; resmap=VleMap.empty; qrymap=VleMap.empty}
 
 let get_next_sn state = (state.next_sn, {state with next_sn=Vle.add state.next_sn 1L})
-let get_next_pubsub_id state = (state.next_pubsub_id, {state with next_pubsub_id=(state.next_pubsub_id + 1)})
+let get_next_entity_id state = (state.next_pubsub_id, {state with next_pubsub_id=(state.next_pubsub_id + 1)})
 let get_next_res_id state = (state.next_res_id, {state with next_res_id=Vle.add state.next_res_id 1L})
+let get_next_qry_id state = (state.next_qry_id, {state with next_qry_id=Vle.add state.next_qry_id 1L})
 
 type t = {
   sock : Lwt_unix.file_descr;
@@ -46,6 +64,7 @@ type t = {
 
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
+type sto = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
@@ -72,7 +91,7 @@ let match_resource rmap mres =
 
 let add_resource resname state = 
   let (rid, state) = get_next_res_id state in 
-  let res =  {rid; name=resname; matches=[rid]; subs=[]} in
+  let res =  {rid; name=resname; matches=[rid]; subs=[]; stos=[]} in
   let (resmap, res) = match_resource state.resmap res in
   let resmap = VleMap.add rid res resmap in 
   (res, {state with resmap})
@@ -97,6 +116,7 @@ let send_message sock msg =
 
 
 let process_incoming_message msg resolver t = 
+  let open Lwt.Infix in
   match msg with
   | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true
   | Message.StreamData dmsg ->
@@ -110,9 +130,12 @@ let process_incoming_message msg resolver t =
       Lwt_list.iter_s (fun resid -> 
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
-          Lwt_list.iter_s (fun sub -> 
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
             sub.listener buf res.name
-          ) res.subs
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            sto.listener buf res.name
+          ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
     | None -> Lwt.return_unit in
@@ -126,14 +149,51 @@ let process_incoming_message msg resolver t =
     let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
       match URI.uri_match res.name (WriteData.resource dmsg) with 
       | true -> 
-          Lwt_list.iter_s (fun sub ->
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
             sub.listener buf (WriteData.resource dmsg)
-          ) res.subs
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            sto.listener buf (WriteData.resource dmsg)
+          ) res.stos
       | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
+  | Message.Query qmsg -> 
+    let%lwt state = Lwt_mvar.take t.state in
+    let%lwt _ = Lwt_mvar.put t.state state in 
+    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
+      match URI.uri_match res.name (Query.resource qmsg) with 
+      | true -> 
+          Lwt_list.fold_left_s (fun rsn (sto:insto) ->
+            sto.qhandler (Query.resource qmsg) (Query.predicate qmsg)
+            >>= Lwt_list.fold_left_s (fun rsn (resname, payload) -> 
+              send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, resname, payload))))
+              >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
+          ) Vle.zero res.stos
+          >>= fun rsn -> 
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
+          >>= fun _ -> 
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None))
+          >>= fun _ -> return_unit
+      | false -> return_unit) (VleMap.bindings state.resmap) in
+    return_true    
+  | Message.Reply rmsg -> 
+    (match String.equal (IOBuf.hexdump (Reply.qpid rmsg)) (IOBuf.hexdump pid) with 
+    | false -> return_true
+    | true -> 
+      let%lwt state = Lwt_mvar.take t.state in
+      let%lwt _ = Lwt_mvar.put t.state state in 
+      match VleMap.find_opt (Reply.qid rmsg) state.qrymap with 
+      | None -> return_true 
+      | Some query -> 
+        (match (Message.Reply.value rmsg) with 
+        | None -> query.listener ReplyFinal >>= fun _ -> return_true
+        | Some (stoid, rsn, resname, payload) -> 
+          (match IOBuf.available payload with 
+          | 0 -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})) >>= fun _ -> return_true
+          | _ -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})) >>= fun _ -> return_true)))
   | msg ->
-      Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
-      return_true
+    Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
+    return_true
 
 let get_message_length sock buf =
   let rec extract_length buf v bc =
@@ -191,7 +251,7 @@ let zopen peer =
 let publish resname z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
-  let (pubid, state) = get_next_pubsub_id state in
+  let (pubid, state) = get_next_entity_id state in
 
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
@@ -211,7 +271,7 @@ let write buf resname z =
   >> Lwt.return_unit
 
 
-let stream buf pub = 
+let stream buf (pub:pub) = 
   let%lwt state = Lwt_mvar.take pub.z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = Lwt_mvar.put pub.z.state state in
@@ -219,7 +279,7 @@ let stream buf pub =
   >> Lwt.return_unit
 
 
-let unpublish pub z = 
+let unpublish (pub:pub) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
@@ -235,7 +295,7 @@ let pull_mode = SubscriptionMode.pull_mode
 let subscribe resname listener ?(mode=push_mode) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
-  let (subid, state) = get_next_pubsub_id state in
+  let (subid, state) = get_next_entity_id state in
   let insub = {subid; resid=res.rid; listener} in
   let res = with_sub insub res in
   let resmap = VleMap.add res.rid res state.resmap in 
@@ -248,7 +308,8 @@ let subscribe resname listener ?(mode=push_mode) z =
   ])) in 
 
   let%lwt _ = Lwt_mvar.put z.state state in
-  Lwt.return {z=z; id=subid; resid=res.rid}
+  let sub : sub = {z=z; id=subid; resid=res.rid} in
+  Lwt.return sub
 
 
 let pull (sub:sub) = 
@@ -273,4 +334,45 @@ let unsubscribe (sub:sub) z =
   ])) in 
   Lwt_mvar.put z.state state 
 
-  
+
+let store resname listener qhandler z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let (res, state) = add_resource resname state in
+  let (stoid, state) = get_next_entity_id state in
+  let insto = {stoid; resname; listener; qhandler} in
+  let res = with_sto insto res in
+  let resmap = VleMap.add res.rid res state.resmap in 
+  let state = {state with resmap} in
+
+  let (sn, state) = get_next_sn state in
+  let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ResourceDecl(ResourceDecl.create res.rid res.name []);
+    StorageDecl(StorageDecl.create res.rid [])
+  ])) in 
+
+  let%lwt _ = Lwt_mvar.put z.state state in
+  Lwt.return {z=z; id=stoid; resid=res.rid}
+
+
+let query resname predicate listener ?(quorum=(-1)) ?(max_samples=(-1)) z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let (qryid, state) = get_next_qry_id state in
+  let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
+  let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate (Vle.of_int quorum) (Some (Vle.of_int max_samples)))) in 
+  let state = {state with qrymap} in
+  Lwt_mvar.put z.state state 
+
+
+let unstore (sto:sto) z = 
+  let%lwt state = Lwt_mvar.take z.state in
+  let state = match VleMap.find_opt sto.resid state.resmap with 
+  | None -> state 
+  | Some res -> 
+    let res = remove_sto sto.id res in 
+    let resmap = VleMap.add res.rid res state.resmap in 
+    {state with resmap} in
+  let (sn, state) = get_next_sn state in
+  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ForgetStorageDecl(ForgetStorageDecl.create sto.resid)
+  ])) in 
+  Lwt_mvar.put z.state state 

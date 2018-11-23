@@ -7,6 +7,7 @@ type mapping = {
     session : Id.t;
     pub : bool;
     sub : bool option;
+    sto : bool;
     matched_pub : bool;
     matched_sub : bool;
 }

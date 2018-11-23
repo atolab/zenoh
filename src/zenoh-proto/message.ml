@@ -44,6 +44,8 @@ module MessageId = struct
   let sdeltaDataId = char_of_int 0x15
   let bdeltaDataId = char_of_int 0x16
   let wdeltaDataId = char_of_int 0x17
+
+  let replyId = char_of_int 0x19
 end
 
 module Flags = struct
@@ -96,6 +98,8 @@ module DeclarationId = struct
   let forgetPublisherDeclId = char_of_int 0x09
   let forgetSubscriberDeclId = char_of_int 0x0a
   let forgetSelectionDeclId = char_of_int 0x0b
+  let storageDeclId = char_of_int 0x0c
+  let forgetStorageDeclId = char_of_int 0x0d
 end
 
 module SubscriptionModeId = struct
@@ -199,8 +203,8 @@ module PublisherDecl = struct
       | [] -> DeclarationId.publisherDeclId
       | _ -> char_of_int ((int_of_char DeclarationId.publisherDeclId) lor (int_of_char Flags.pFlag))
     in {header=header; body={rid=rid; properties=properties}}
-  let rid resourceDecl = resourceDecl.body.rid
-  let properties resourceDecl = resourceDecl.body.properties
+  let rid publisherDecl = publisherDecl.body.rid
+  let properties publisherDecl = publisherDecl.body.properties
 end
 
 module SubscriberDecl = struct
@@ -331,6 +335,32 @@ module ForgetSelectionDecl = struct
   let sid decl = decl.body.sid
 end
 
+module StorageDecl = struct
+  type body = {
+    rid : Vle.t;
+    properties : ZProperty.t list;
+  }
+  type t = body block
+
+  let create rid properties =
+    let header = match properties with
+      | [] -> DeclarationId.storageDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.storageDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; body={rid=rid; properties=properties}}
+  let rid storageDecl = storageDecl.body.rid
+  let properties storageDecl = storageDecl.body.properties
+end
+
+module ForgetStorageDecl = struct
+  type body = {
+    id : Vle.t;
+  }
+  type t = body block
+
+  let create id = {header=DeclarationId.forgetStorageDeclId; body={id=id}}
+  let id decl = decl.body.id
+end
+
 module Declaration = struct
   type t =
     | ResourceDecl of ResourceDecl.t
@@ -344,6 +374,8 @@ module Declaration = struct
     | ForgetPublisherDecl of ForgetPublisherDecl.t
     | ForgetSubscriberDecl of ForgetSubscriberDecl.t
     | ForgetSelectionDecl of ForgetSelectionDecl.t
+    | StorageDecl of StorageDecl.t
+    | ForgetStorageDecl of ForgetStorageDecl.t
 end
 
 module Declarations = struct
@@ -787,6 +819,58 @@ module Migrate = struct
   let bech_last_sn m = m.body.mbody.bech_last_sn
 end
 
+module Query = struct
+  type body = {
+    pid : IOBuf.t;
+    qid : Vle.t;
+    resource : string;
+    predicate : string;
+    quorum : Vle.t;
+    max_samples : Vle.t option;
+  }
+  type t = body marked block
+
+  let create pid qid resource predicate quorum max_samples =
+    let header = 
+      let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
+      let mid = int_of_char MessageId.queryId in
+      char_of_int @@ nflag lor mid in
+    { header; body={markers=Markers.empty; mbody={pid; qid; resource; predicate; quorum; max_samples;}}}
+
+  let pid q = q.body.mbody.pid
+  let qid q = q.body.mbody.qid
+  let resource q = q.body.mbody.resource
+  let predicate q = q.body.mbody.predicate
+  let quorum q = q.body.mbody.quorum
+  let max_samples q = q.body.mbody.max_samples
+end
+
+module Reply = struct
+  type body = {
+    qpid : IOBuf.t;
+    qid : Vle.t;
+    value : (IOBuf.t * Vle.t * string * IOBuf.t) option;
+  }
+  type t = body marked block
+
+  let create qpid qid value =
+  (* (stoid, rsn, resource, payload) *)
+    let header = 
+      let fFlag = match value with | None -> 0 | _ -> int_of_char Flags.fFlag in
+      let mid = int_of_char MessageId.replyId in
+      char_of_int @@ fFlag lor mid in
+    { header; body={markers=Markers.empty; mbody={qpid; qid; value;}}}
+
+  let qpid q = q.body.mbody.qpid
+  let qid q = q.body.mbody.qid
+  let final q = q.body.mbody.value = None
+  let value q = q.body.mbody.value
+  let stoid q = match q.body.mbody.value with | None -> None | Some (stoid, _, _, _) -> Some stoid
+  let rsn q = match q.body.mbody.value with | None -> None | Some (_, rsn, _, _) -> Some rsn
+  let resource q = match q.body.mbody.value with | None -> None | Some (_, _, resource, _) -> Some resource
+  let payload q = match q.body.mbody.value with | None -> None | Some (_, _, _, payload) -> Some payload
+end
+
 module Pull = struct
   type body = {
     sn : Vle.t;
@@ -842,6 +926,8 @@ type t =
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
+  | Query of Query.t
+  | Reply of Reply.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 
@@ -858,6 +944,8 @@ let markers = function
   | AckNack a ->  markers a
   | KeepAlive a ->  markers a
   | Migrate m ->  markers m
+  | Query q ->  markers q
+  | Reply r ->  markers r
   | Pull p ->  markers p
   | PingPong p ->  markers p
 
@@ -874,6 +962,8 @@ let with_marker msg marker = match msg with
   | AckNack a ->  AckNack (with_marker a marker)
   | KeepAlive a ->  KeepAlive (with_marker a marker)
   | Migrate m ->  Migrate (with_marker m marker)
+  | Query q ->  Query (with_marker q marker)
+  | Reply r ->  Reply (with_marker r marker)
   | Pull p ->  Pull (with_marker p marker)
   | PingPong p ->  PingPong (with_marker p marker)
 
@@ -890,6 +980,8 @@ let with_markers msg markers = match msg with
   | AckNack a ->  AckNack (with_markers a markers)
   | KeepAlive a ->  KeepAlive (with_markers a markers)
   | Migrate m ->  Migrate (with_markers m markers)
+  | Query q ->  Query (with_markers q markers)
+  | Reply r ->  Reply (with_markers r markers)
   | Pull p ->  Pull (with_markers p markers)
   | PingPong p ->  PingPong (with_markers p markers)
   
@@ -906,6 +998,8 @@ let remove_markers = function
   | AckNack a ->  AckNack (remove_markers a)
   | KeepAlive a ->  KeepAlive (remove_markers a)
   | Migrate m ->  Migrate (remove_markers m)
+  | Query q ->  Query (remove_markers q)
+  | Reply r ->  Reply (remove_markers r)
   | Pull p ->  Pull (remove_markers p)
   | PingPong p ->  PingPong (remove_markers p)
 
@@ -922,6 +1016,8 @@ let to_string = function (** This should actually call the to_string on individu
   | AckNack _ -> "AckNack"
   | KeepAlive _ -> "KeepAlive"
   | Migrate _ -> "Migrate"
+  | Query _ -> "Query"
+  | Reply _ -> "Reply"
   | Pull _ -> "Pull"
   | PingPong _ -> "PingPong"
 

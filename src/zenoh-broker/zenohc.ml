@@ -51,6 +51,7 @@ module Command = struct
     | h::tl when h = "write" -> CmdSArgs (h, tl)
     | h::tl when h = "writen" -> CmdSArgs (h, tl)
     | h::tl when h = "dres" -> CmdSArgs (h, tl)
+    | h::tl when h = "query" -> CmdSArgs (h, tl)
     | a::tl  -> CmdIArgs (a, tl |> (List.map (int_of_string)))
 
 end
@@ -127,6 +128,11 @@ let send_declare_sub sock id mode =
   let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
+let send_declare_sto sock id =
+  let res_id = Vle.of_int id in
+  let decls = Declarations.singleton @@ StorageDecl (StorageDecl.create res_id [])  in
+  let msg = Message.Declare (Declare.create (true, true) (Conduit.next_rsn default_conduit) decls)
+  in send_message sock msg
 
 let send_stream_data sock rid data =
   let open Result.Infix in  
@@ -164,6 +170,10 @@ let rec send_write_data_n sock rname n p data =
       send_write_data_n sock rname (n-1) p data
     end
 
+let send_query sock qid rname predicate quorum max_samples =
+  let msg = Message.Query (Query.create pid qid rname predicate quorum max_samples) in
+  send_message sock msg
+
 let send_pull sock rid =
   let sn = ZConduit.next_usn default_conduit in   
   let msg = Message.Pull (Pull.create (true, false) sn (Vle.of_int rid) None) in
@@ -183,6 +193,7 @@ let produce_message sock cmd =
   | Command.CmdIArgs (msg, xs) -> (
       match msg with
       | "dpub" -> send_declare_pub sock (List.hd xs)
+      | "dsto" -> send_declare_sto sock (List.hd xs)
       | "pull" -> send_pull sock (List.hd xs)
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
@@ -225,6 +236,13 @@ let produce_message sock cmd =
         let rid = Vle.of_string (List.hd xs) in
         let uri = List.nth xs 1 in
         send_declare_res sock rid uri
+      | "query" ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m "query....") in
+        let qid = Vle.of_string (List.hd xs) in
+        let rname = List.nth xs 1 in
+        let predicate = List.nth xs 2 in
+        let quorum = Vle.of_string (List.nth xs 3) in
+        send_query sock qid rname predicate quorum None
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
         return 0)

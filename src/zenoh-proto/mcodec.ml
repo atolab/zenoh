@@ -125,6 +125,8 @@ let decode_declaration buf =
       | r when r = DeclarationId.forgetPublisherDeclId -> decode_forget_pub_decl  buf
       | r when r = DeclarationId.forgetSubscriberDeclId -> decode_forget_sub_decl  buf 
       | r when r = DeclarationId.forgetSelectionDeclId -> decode_forget_sel_decl buf 
+      | s when s = DeclarationId.storageDeclId -> decode_storage_decl header buf
+      | f when f = DeclarationId.forgetStorageDeclId -> decode_forget_storage_decl buf
       | _ -> fail `NotImplemented
     ) 
 
@@ -144,6 +146,8 @@ let encode_declaration (d: Declaration.t) buf=
   | ForgetPublisherDecl fpd -> encode_forget_pub_decl fpd buf 
   | ForgetSubscriberDecl fsd -> encode_forget_sub_decl fsd buf 
   | ForgetSelectionDecl fsd -> encode_forget_sel_decl fsd buf 
+  | StorageDecl sd -> encode_storage_decl sd buf 
+  | ForgetStorageDecl fsd -> encode_forget_storage_decl fsd buf 
 
 
 let decode_declarations buf = 
@@ -331,11 +335,77 @@ let encode_migrate m buf =
   >>= encode_vle  @@ bech_last_sn m 
 
 
-let decode_pull_max_samples header buf = 
+let decode_max_samples header buf = 
   if Flags.(hasFlag header nFlag) then
     decode_vle buf
     >>= (fun (max_samples, buf) -> return (Some max_samples, buf))
   else return (None, buf)
+
+let make_query pid qid resource predicate quorum max_samples = 
+  Message (Query (Query.create pid qid resource predicate quorum max_samples))
+
+let decode_query header =
+  read6_spec
+    (Logs.debug (fun m -> m "Reading Query"))
+    decode_bytes
+    decode_vle
+    decode_string
+    decode_string
+    decode_vle
+    (decode_max_samples header)
+    make_query
+
+let encode_query m buf =
+  let open Query in  
+  Logs.debug (fun m -> m "Writing Query");
+  IOBuf.put_char (header m) buf 
+  >>= encode_bytes @@ pid m
+  >>= encode_vle @@ qid m
+  >>= encode_string @@ resource m
+  >>= encode_string @@ predicate m
+  >>= encode_vle @@ quorum m
+  >>= match max_samples m with
+  | None -> return 
+  | Some max -> encode_vle max
+
+let make_reply qpid qid value = 
+  Message (Reply (Reply.create qpid qid value))
+
+let decode_reply_value header buf = 
+  if Flags.(hasFlag header fFlag) then
+    read4_spec
+      (Logs.debug (fun m -> m "  Reading Reply value"))
+      decode_bytes
+      decode_vle
+      decode_string
+      decode_bytes
+      (fun stoid rsn resource payload -> Some (stoid, rsn, resource, payload)) buf
+  else return (None, buf)
+
+let decode_reply header =
+  read3_spec
+    (Logs.debug (fun m -> m "Reading Reply"))
+    decode_bytes
+    decode_vle
+    (decode_reply_value header)
+    make_reply
+
+let encode_reply_value v buf =
+  match v with 
+  | None -> return buf
+  | Some (stoid, rsn, resource, payload) -> 
+    encode_bytes stoid buf
+    >>= encode_vle @@ rsn
+    >>= encode_string @@ resource
+    >>= encode_bytes @@ payload
+
+let encode_reply m buf =
+  let open Reply in  
+  Logs.debug (fun m -> m "Writing Reply");
+  IOBuf.put_char (header m) buf 
+  >>= encode_bytes @@ qpid m
+  >>= encode_vle @@ qid m
+  >>= encode_reply_value @@ value m
 
 let make_pull header sn id max_samples = 
   let (s, f) = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.fFlag)) in
@@ -346,7 +416,7 @@ let decode_pull header =
     (Logs.debug (fun m -> m "Reading Pull"))
     decode_vle
     decode_vle
-    (decode_pull_max_samples header)
+    (decode_max_samples header)
     (make_pull header)
 
 let encode_pull m buf =
@@ -453,6 +523,8 @@ let decode_element buf =
       | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
       | id when id = MessageId.keepAliveId -> (decode_keep_alive header buf)
       | id when id = MessageId.migrateId -> (decode_migrate header buf)
+      | id when id = MessageId.queryId -> (decode_query header buf)
+      | id when id = MessageId.replyId -> (decode_reply header buf)
       | id when id = MessageId.pullId -> (decode_pull header buf)
       | id when id = MessageId.pingPongId -> (decode_ping_pong header buf)
       | id when id = MessageId.conduitId -> (decode_conduit header buf)
@@ -493,6 +565,8 @@ let encode_msg_element msg =
   | AckNack m -> encode_ack_nack m
   | KeepAlive m -> encode_keep_alive  m
   | Migrate m -> encode_migrate  m
+  | Query m -> encode_query m
+  | Reply m -> encode_reply m
   | Pull m -> encode_pull m
   | PingPong m -> encode_ping_pong m
 

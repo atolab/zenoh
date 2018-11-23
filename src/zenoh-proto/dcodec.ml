@@ -248,3 +248,34 @@ let encode_forget_sel_decl fsd buf =
   Logs.debug (fun m -> m "Writing ForgetSelection Declaration" );   
   IOBuf.put_char (header fsd) buf 
   >>= encode_vle (sid fsd) 
+
+let make_storage_decl rid ps = Declaration.StorageDecl (StorageDecl.create rid ps)
+
+let decode_storage_decl header = 
+  read2_spec 
+  (Logs.debug (fun m -> m "Reading StorageDeclaration"))
+  decode_vle
+  (decode_properties header)
+  make_storage_decl
+
+let encode_storage_decl d buf =
+  let open StorageDecl in
+  Logs.debug (fun m -> m "Writing StorageDeclaration") ;
+  let id = (rid d) in
+  Logs.debug (fun m -> m  "Writing StorageDeclarationv for rid = %Ld" id) ;
+  IOBuf.put_char (header d) buf
+  >>= encode_vle id 
+  >>= encode_properties (properties d)
+
+
+let decode_forget_storage_decl buf =
+  Logs.debug (fun m -> m "Reading ForgetStorage Declaration");
+   decode_vle buf
+   >>= (fun (id, buf) -> 
+    return (Declaration.ForgetStorageDecl (ForgetStorageDecl.create id), buf))
+  
+let encode_forget_storage_decl fsd buf =
+  let open ForgetStorageDecl in
+  Logs.debug (fun m -> m "Writing ForgetStorage Declaration");
+  IOBuf.put_char (header fsd) buf 
+  >>= encode_vle (id fsd)

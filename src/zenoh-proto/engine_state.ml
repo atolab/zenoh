@@ -2,8 +2,10 @@ open Apero
 open Apero_net
 open NetService
 open R_name
+open Query
 
 module SIDMap = Map.Make(NetService.Id)
+module QIDMap = Map.Make(Qid)
 
 type tx_session_connector = Locator.t -> TxSession.t Lwt.t 
 
@@ -12,7 +14,8 @@ type engine_state = {
     lease : Vle.t;
     locators : Locators.t;
     smap : Session.t SIDMap.t;
-    rmap : Resource.t ResMap.t;      
+    rmap : Resource.t ResMap.t;
+    qmap : Query.t QIDMap.t;
     peers : Locator.t list;
     router : ZRouter.t;
     next_mapping : Vle.t;

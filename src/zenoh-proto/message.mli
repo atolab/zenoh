@@ -44,6 +44,7 @@ sig
   val sdeltaDataId : char
   val bdeltaDataId : char
   val wdeltaDataId : char
+  val replyId : char
 end
 
 module Flags :
@@ -94,6 +95,8 @@ sig
   val forgetPublisherDeclId : char
   val forgetSubscriberDeclId : char
   val forgetSelectionDeclId : char
+  val storageDeclId : char
+  val forgetStorageDeclId : char
 end
 
 module SubscriptionModeId :
@@ -252,6 +255,23 @@ sig
   val sid : t -> Vle.t
 end
 
+module StorageDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> ZProperty.t list -> t
+  val rid : t -> Vle.t
+  val properties : t -> ZProperty.t list
+end
+
+module ForgetStorageDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> t
+  val id : t -> Vle.t
+end
+
 module Declaration :
 sig
   type t =
@@ -266,6 +286,8 @@ sig
       | ForgetPublisherDecl of ForgetPublisherDecl.t
       | ForgetSubscriberDecl of ForgetSubscriberDecl.t
       | ForgetSelectionDecl of ForgetSelectionDecl.t
+      | StorageDecl of StorageDecl.t
+      | ForgetStorageDecl of ForgetStorageDecl.t
 end
 
 module Declarations : sig
@@ -445,6 +467,34 @@ sig
   val bech_last_sn : t -> Vle.t
 end
 
+module Query :
+sig
+  type body
+  type t = body marked block
+  val create : IOBuf.t -> Vle.t -> string -> string -> Vle.t -> Vle.t option -> t
+  val pid : t -> IOBuf.t
+  val qid : t -> Vle.t
+  val resource : t -> string
+  val predicate : t -> string
+  val quorum : t -> Vle.t
+  val max_samples : t -> Vle.t option
+end
+
+module Reply :
+sig
+  type body
+  type t = body marked block
+  val create : IOBuf.t -> Vle.t -> (IOBuf.t * Vle.t * string * IOBuf.t) option -> t
+  val qpid : t -> IOBuf.t
+  val qid : t -> Vle.t
+  val final : t -> bool
+  val value : t -> (IOBuf.t * Vle.t * string * IOBuf.t) option
+  val stoid : t -> IOBuf.t option
+  val rsn : t -> Vle.t option
+  val resource : t -> string option
+  val payload : t -> IOBuf.t option
+end
+
 module Pull :
 sig
   type body
@@ -480,6 +530,8 @@ type t =
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
   | Migrate of Migrate.t
+  | Query of Query.t
+  | Reply of Reply.t
   | Pull of Pull.t
   | PingPong of PingPong.t
 
