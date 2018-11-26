@@ -73,7 +73,9 @@ let wbuf = IOBuf.create 8192
 let rbuf = IOBuf.create 8192
 
 
-let pid  = IOBuf.flip @@ Result.get @@ IOBuf.put_string "zenoha" (IOBuf.create 16) 
+let pid  = IOBuf.flip @@ 
+  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
+  (IOBuf.create 32) 
 
 let lease = 0L
 let version = Char.chr 0x01
