@@ -552,6 +552,25 @@ module Make (MVar : MVar) = struct
                 | None -> {id = rid; session = sid; pub = false; sub = None; sto = true; matched_pub = false; matched_sub=false}) in
         Lwt.return (pe, Some res)
 
+    let unregister_storage pe tsex fsd =
+        let sid = TxSession.id tsex in 
+        let session = SIDMap.find_opt sid pe.smap in 
+        match session with 
+        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ForgetStorageDecl on unknown session %s: Ignore it!" 
+                                                (Id.to_string sid)) in Lwt.return (pe, None)
+        | Some session -> 
+        let rid = Message.ForgetStorageDecl.id fsd in 
+        let resname = match VleMap.find_opt rid session.rmap with 
+            | Some name -> name
+            | None -> ID(rid) in
+        let (pe, res) = update_resource_mapping pe resname session rid 
+            (fun m -> 
+                match m with 
+                | Some m -> {m with sto = false;} 
+                | None -> {id = rid; session = sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in
+                (* TODO do not create a mapping in this case *)
+        Lwt.return (pe, Some res)
+
     let forward_all_stodecl pe = 
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
 
@@ -588,6 +607,20 @@ module Make (MVar : MVar) = struct
         end
         else Lwt.return (pe, [])
 
+    let process_fstodecl pe tsex fsd = 
+        if sto_state pe tsex (Message.ForgetStorageDecl.id fsd) = true
+        then 
+        begin
+            let%lwt (pe, res) = unregister_storage pe tsex fsd in
+            match res with 
+            | None -> Lwt.return (pe, [])
+            | Some res -> 
+            let%lwt pe = forward_stodecl pe res pe.router in
+            let%lwt pe = notify_pub_matching_res pe tsex res in
+            Lwt.return (pe, [])
+        end
+        else Lwt.return (pe, [])
+
     (* ======================== ======== =========================== *)
 
     let forward_all_decls pe = 
@@ -617,6 +650,9 @@ module Make (MVar : MVar) = struct
         | ForgetSubscriberDecl fsd ->
             let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
             process_fsdecl pe tsex fsd
+        | ForgetStorageDecl fsd ->
+            let%lwt _ = Logs_lwt.debug (fun m -> m "FStoDecl for resource: %Ld"  (Message.ForgetStorageDecl.id fsd)) in
+            process_fstodecl pe tsex fsd
         | CommitDecl cd -> 
             let%lwt _ = Logs_lwt.debug (fun m -> m "Commit SDecl ") in
             make_result pe tsex cd

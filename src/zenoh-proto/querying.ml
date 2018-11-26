@@ -13,7 +13,15 @@ module Make (MVar : MVar) = struct
         let sock = TxSession.socket s.tx_sex in 
         let open Lwt.Infix in 
         (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Query(q)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
-
+    
+    let forward_reply_to_session pe r sid =
+      match SIDMap.find_opt sid pe.smap with
+      | None -> let%lwt _ = Logs_lwt.debug (fun m -> m  "Unable to forward reply to unknown session %s" (Id.show sid)) in Lwt.return_unit
+      | Some s ->
+        let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding reply to session %s" (Id.show s.sid)) in
+        let sock = TxSession.socket s.tx_sex in 
+        let open Lwt.Infix in 
+        (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
     let forward_query pe sid q = 
       let open Resource in 
@@ -40,6 +48,7 @@ module Make (MVar : MVar) = struct
     let process_query engine tsex q = 
       MVar.guarded engine @@ fun pe -> 
         let open Session in 
+        let open Lwt.Infix in
         let sid = TxSession.id tsex in
         let session = SIDMap.find_opt sid pe.smap in 
         let%lwt pe = match session with 
@@ -53,17 +62,10 @@ module Make (MVar : MVar) = struct
                                           m "Handling Query Message. nid[%s] sid[%s] res[%s]" 
                                           nid (Id.show session.sid) (Message.Query.resource q)) in
           let%lwt ss = forward_query pe session.sid q in
-          Lwt.return @@ store_query pe session.sid ss q in
+          match ss with 
+          | [] -> forward_reply_to_session pe (Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) None) session.sid >>= fun _ -> Lwt.return pe
+          | ss -> Lwt.return @@ store_query pe session.sid ss q in
         Lwt.return (Lwt.return [], pe)
-    
-    let forward_reply_to_session pe r sid =
-      match SIDMap.find_opt sid pe.smap with
-      | None -> let%lwt _ = Logs_lwt.debug (fun m -> m  "Unable to forward reply to unknown session %s" (Id.show sid)) in Lwt.return_unit
-      | Some s ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding reply to session %s" (Id.show s.sid)) in
-        let sock = TxSession.socket s.tx_sex in 
-        let open Lwt.Infix in 
-        (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
     
     let process_reply engine tsex r = 
       let open Lwt.Infix in
