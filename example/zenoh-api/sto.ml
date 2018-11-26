@@ -28,6 +28,7 @@ let listener sto data src =
 let qhandler sto resname predicate = 
   Printf.printf "STORAGE QHANDLER [%-8s] RECIEVED QUERY : %s?%s\n%!" sto resname predicate;
   let%lwt storage = Lwt_mvar.take storagevar in
+  let%lwt _ = Lwt_mvar.put storagevar storage in
   storage
   |> StrMap.filter (fun storesname _ -> uri_match storesname resname) 
   |> StrMap.bindings 
