@@ -60,7 +60,7 @@ module Make (MVar : MVar) = struct
         let sid = TxSession.id tsex in 
         let session = SIDMap.find_opt sid pe.smap in 
         match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (Id.show sid)) in Lwt.return pe
+        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (Id.to_string sid)) in Lwt.return pe
         | Some session -> 
         let rid = Message.ResourceDecl.rid rd in 
         let uri = Message.ResourceDecl.resource rd in 
@@ -172,7 +172,7 @@ module Make (MVar : MVar) = struct
                     TxSession.id peer.tsex = subsex.sid) pe.router.peers with 
                 | Some peer -> peer.pid
                 | None -> "UNKNOWN" in
-                m "Resource %s : 1 sub (%s) (%s)" (ResName.to_string res.name) (Id.show sub.session) nid);
+                m "Resource %s : 1 sub (%s) (%s)" (ResName.to_string res.name) (Id.to_string sub.session) nid);
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -461,7 +461,7 @@ module Make (MVar : MVar) = struct
                     TxSession.id peer.tsex = stosex.sid) pe.router.peers with 
                 | Some peer -> peer.pid
                 | None -> "UNKNOWN" in
-                m "Resource %s : 1 sto (%s) (%s)" (ResName.to_string res.name) (Id.show sto.session) nid);
+                m "Resource %s : 1 sto (%s) (%s)" (ResName.to_string res.name) (Id.to_string sto.session) nid);
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 

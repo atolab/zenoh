@@ -204,7 +204,7 @@ module TcpTransport = struct
         let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
         let sm = SessionMap.add sid sctx self.smap in
         self.smap <- sm ;        (* fixme : race condition*)  
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted connection with session-id = %s" (Transport.Session.Id.show sid)) in 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted connection with session-id = %s" (Transport.Session.Id.to_string sid)) in 
         let (sch, p) = Lwt_stream.create_bounded C.channel_bound in
         let spush : Transport.Event.push  = fun e -> p#push e in
         let _ = handle_session sctx push spush in       
@@ -241,7 +241,7 @@ module TcpTransport = struct
           let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
           let sm = SessionMap.add sid sctx self.smap in
           self.smap <- sm ;      (* fixme : race condition*)  
-          Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Openned cennection with session-id = %s" (Transport.Session.Id.show sid));
+          Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Openned cennection with session-id = %s" (Transport.Session.Id.to_string sid));
           let (sch, p) = Lwt_stream.create_bounded C.channel_bound in
           let spush : Transport.Event.push  = fun e -> p#push e in
           let _ = handle_session sctx (Option.get self.push) spush in       

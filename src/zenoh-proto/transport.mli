@@ -3,7 +3,7 @@ open Locator
 
 module Transport : sig 
 
-  module Id : Apero.Id.S
+  module Id : Apero.NumId.S
 
   module  Info : sig 
       type kind = Packet| Stream  
@@ -19,7 +19,7 @@ module Transport : sig
   
   module Session : sig 
     
-    module Id : Apero.Id.S
+    module Id : Apero.NumId.S
 
     module Info : sig  
       type t

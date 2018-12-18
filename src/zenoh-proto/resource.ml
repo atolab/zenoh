@@ -23,7 +23,7 @@ type t = {
 
 let report_mapping m = 
     Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s MPUB:%-4s MSUB:%-4s" 
-    (Id.show m.session) (Vle.to_int m.id)
+    (Id.to_string m.session) (Vle.to_int m.id)
     (match m.pub with true -> "YES" | false -> "NO")
     (match m.sub with None -> "NO" | Some true -> "PULL" | Some false -> "PUSH")
     (match m.matched_pub with true -> "YES" | false -> "NO")

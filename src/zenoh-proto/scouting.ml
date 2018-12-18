@@ -75,7 +75,7 @@ module Make (MVar : MVar) = struct
 
 
     let guarded_remove_session engine tsex peer =
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.show  @@ TxSession.id tsex) peer) in 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.to_string  @@ TxSession.id tsex) peer) in 
         MVar.guarded engine 
         @@ fun pe -> 
         let%lwt pe = remove_session pe tsex peer in
@@ -110,7 +110,7 @@ module Make (MVar : MVar) = struct
         match Vle.logand (Message.Hello.mask msg) (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with 
         | false -> Lwt.return  []
         | true -> (
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Try to open ZENOH session with broker on transport session: %s\n" (Id.show sid)) in
+            let%lwt _ = Logs_lwt.debug (fun m -> m "Try to open ZENOH session with broker on transport session: %s\n" (Id.to_string sid)) in
             Lwt.return [make_open pe'])
 
     let process_broker_open engine tsex msg = 
