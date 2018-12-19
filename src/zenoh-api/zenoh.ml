@@ -11,16 +11,16 @@ type queryreply =
   | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
   | StorageFinal of {stoid:IOBuf.t; rsn:int}
   | ReplyFinal 
-type rephandler = queryreply -> unit Lwt.t
-type quehandler = string -> string -> (string * IOBuf.t) list Lwt.t
+type reply_handler = queryreply -> unit Lwt.t
+type query_handler = string -> string -> (string * IOBuf.t) list Lwt.t
 
 type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
-type insto = {stoid:int; resname:string; listener:sublistener; qhandler:quehandler}
+type insto = {stoid:int; resname:string; listener:sublistener; qhandler:query_handler}
 
 type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list; stos : insto list;}
 
-type query = {qid: Vle.t; listener:rephandler;}
+type query = {qid: Vle.t; listener:reply_handler;}
 
 let with_match res mrid = 
   {res with matches = mrid :: List.filter (fun r -> r != mrid) res.matches}
@@ -64,7 +64,7 @@ type t = {
 
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
-type sto = {z:t; id:int; resid:Vle.t;}
+type storage = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
@@ -337,7 +337,7 @@ let unsubscribe (sub:sub) z =
   Lwt_mvar.put z.state state 
 
 
-let store resname listener qhandler z = 
+let storage resname listener qhandler z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
   let (stoid, state) = get_next_entity_id state in
@@ -365,7 +365,7 @@ let query resname predicate listener ?(quorum=(-1)) ?(max_samples=(-1)) z =
   Lwt_mvar.put z.state state 
 
 
-let unstore (sto:sto) z = 
+let unstore (sto:storage) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let state = match VleMap.find_opt sto.resid state.resmap with 
   | None -> state 

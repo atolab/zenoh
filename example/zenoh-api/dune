@@ -11,13 +11,13 @@
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
-  (name       sto)
-  (modules    sto)
+  (name       storage)
+  (modules    storage)
   (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
-  (name       que)
-  (modules    que)
+  (name       query)
+  (modules    query)
   (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

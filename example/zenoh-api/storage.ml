@@ -17,16 +17,16 @@ module StrMap = Map.Make(String)
 
 let storagevar = Lwt_mvar.create (StrMap.empty)
 
-let listener sto data src = 
+let listener spath data src = 
   let (str, _) = Result.get @@ decode_string data in
-  Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sto src str;
+  Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" spath src str;
   let%lwt storage = Lwt_mvar.take storagevar in
   let storage = StrMap.add src data storage in
   let%lwt _ = Lwt_mvar.put storagevar storage in
   Lwt.return_unit
 
-let qhandler sto resname predicate = 
-  Printf.printf "STORAGE QHANDLER [%-8s] RECIEVED QUERY : %s?%s\n%!" sto resname predicate;
+let qhandler spath resname predicate = 
+  Printf.printf "STORAGE QHANDLER [%-8s] RECIEVED QUERY : %s?%s\n%!" spath resname predicate;
   let%lwt storage = Lwt_mvar.take storagevar in
   let%lwt _ = Lwt_mvar.put storagevar storage in
   storage
@@ -36,7 +36,7 @@ let qhandler sto resname predicate =
 
 let run = 
   let%lwt z = zopen "tcp/127.0.0.1:7447" in 
-  let%lwt _ = store "/home**" (listener "/home**") (qhandler "/home**") z in 
+  let%lwt _ = storage "/home**" (listener "/home**") (qhandler "/home**") z in 
   let%lwt _ = Lwt_unix.sleep 3000.0 in 
   Lwt.return_unit
 
