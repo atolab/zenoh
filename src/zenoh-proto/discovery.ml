@@ -56,7 +56,6 @@ module Make (MVar : MVar) = struct
         ({pe with smap}, res)
 
     let declare_resource pe tsex rd =
-
         let sid = TxSession.id tsex in 
         let session = SIDMap.find_opt sid pe.smap in 
         match session with 
@@ -67,7 +66,7 @@ module Make (MVar : MVar) = struct
         let (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
             (fun m -> match m with 
                 | Some mapping -> mapping
-                | None -> {id = rid; session = session.sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
+                | None -> Resource.create_mapping rid session.sid) in 
         Lwt.return pe
 
     (* ======================== PUB DECL =========================== *)
@@ -104,7 +103,7 @@ module Make (MVar : MVar) = struct
         let (pe, res) = update_resource_mapping pe resname session rid 
             (fun m -> match m with 
                 | Some m -> {m with pub=true;} 
-                | None -> {id = rid; session = sid; pub = true; sub = None; sto=false; matched_pub = false; matched_sub=false}) in
+                | None -> {(Resource.create_mapping rid sid) with pub = true;}) in
         Lwt.return (pe, Some res)
 
     let process_pdecl pe tsex pd =      
@@ -131,7 +130,7 @@ module Make (MVar : MVar) = struct
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> {id = res.local_id; session = (TxSession.id zsex.tx_sex); pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
+                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
             (pe, [resdecl; subdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
@@ -336,7 +335,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=Some pull;} 
-                | None -> {id = rid; session = sid; pub = false; sub = Some pull; sto = false; matched_pub = false; matched_sub=false}) in
+                | None -> {(Resource.create_mapping rid sid) with sub = Some pull;}) in
         Lwt.return (pe, Some res)
 
     let unregister_subscription pe tsex fsd =
@@ -354,7 +353,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=None;} 
-                | None -> {id = rid; session = sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in
+                | None -> Resource.create_mapping rid sid) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
 
@@ -421,7 +420,7 @@ module Make (MVar : MVar) = struct
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> {id = res.local_id; session = (TxSession.id zsex.tx_sex); pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in 
+                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
             (pe, [resdecl; stodecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
@@ -549,7 +548,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sto = true;} 
-                | None -> {id = rid; session = sid; pub = false; sub = None; sto = true; matched_pub = false; matched_sub=false}) in
+                | None -> {(Resource.create_mapping rid sid) with sto = true;}) in
         Lwt.return (pe, Some res)
 
     let unregister_storage pe tsex fsd =
@@ -567,7 +566,7 @@ module Make (MVar : MVar) = struct
             (fun m -> 
                 match m with 
                 | Some m -> {m with sto = false;} 
-                | None -> {id = rid; session = sid; pub = false; sub = None; sto = false; matched_pub = false; matched_sub=false}) in
+                | None -> Resource.create_mapping rid sid) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
 

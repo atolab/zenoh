@@ -20,6 +20,16 @@ type t = {
     last_value : IOBuf.t option;
 }
 
+let create_mapping id session = 
+    {
+        id;
+        session;
+        pub = false;
+        sub = None;
+        sto = false;
+        matched_pub = false;
+        matched_sub = false;
+    }
 
 let report_mapping m = 
     Printf.sprintf "SID:%2s RID:%2d PUB:%-4s SUB:%-4s MPUB:%-4s MSUB:%-4s" 
