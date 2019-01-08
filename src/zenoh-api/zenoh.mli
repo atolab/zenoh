@@ -15,6 +15,8 @@ type t
 
 val zopen : string -> t Lwt.t
 
+val info : t -> Apero.properties
+
 val publish : string -> t -> pub Lwt.t
 
 val unpublish : pub -> t -> unit Lwt.t

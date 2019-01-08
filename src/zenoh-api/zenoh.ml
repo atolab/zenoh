@@ -250,6 +250,13 @@ let zopen peer =
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
 
+let info z =
+  let peer = match Unix.getpeername @@ Lwt_unix.unix_file_descr z.sock with
+    | ADDR_UNIX a -> "unix:"^a
+    | ADDR_INET (a,p) -> Printf.sprintf "%s:%d" (Unix.string_of_inet_addr a) p
+  in
+  Apero.Properties.singleton "peer" peer
+
 let publish resname z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
