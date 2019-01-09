@@ -27,7 +27,7 @@ module Make (MVar : MVar) = struct
       let open Resource in 
       let open Lwt.Infix in 
       let (ss, ps) = ResMap.fold (fun _ res (sss, pss) -> 
-          match ResName.name_match (ResName.URI(Message.Query.resource q)) res.name with 
+          match ResName.name_match (ResName.Path(PathExpr.of_string @@ Message.Query.resource q)) res.name with 
           | false -> (sss, pss)
           | true -> 
             List.fold_left (fun (ss, ps) m ->

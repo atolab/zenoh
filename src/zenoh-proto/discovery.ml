@@ -14,7 +14,7 @@ module Make (MVar : MVar) = struct
     let match_resource rmap mres = 
         let open Resource in
         match mres.name with 
-        | URI _ -> (
+        | Path _ -> (
             ResMap.fold (fun _ res x -> 
                 let (rmap, mres) = x in
                 match res_match mres res with 
@@ -45,7 +45,7 @@ module Make (MVar : MVar) = struct
         let sid = Session.id session in 
         Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (Id.to_string sid) (Vle.to_int rid));
         let (pe, local_id) = match name with 
-        | URI _ -> next_mapping pe
+        | Path _ -> next_mapping pe
         | ID id -> (pe, id) in
         let(pe, res) = update_resource pe name 
             (fun r -> match r with 
@@ -63,7 +63,7 @@ module Make (MVar : MVar) = struct
         | Some session -> 
         let rid = Message.ResourceDecl.rid rd in 
         let uri = Message.ResourceDecl.resource rd in 
-        let (pe, _) = update_resource_mapping pe (URI(uri)) session rid 
+        let (pe, _) = update_resource_mapping pe (Path(PathExpr.of_string uri)) session rid 
             (fun m -> match m with 
                 | Some mapping -> mapping
                 | None -> Resource.create_mapping rid session.sid) in 
@@ -124,8 +124,8 @@ module Make (MVar : MVar) = struct
         | ID id -> (
             let subdecl = M.Declaration.SubscriberDecl M.(SubscriberDecl.create id SubscriptionMode.push_mode []) in
             (pe, [subdecl]))
-        | URI uri -> 
-            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id uri []) in
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
             let subdecl = M.Declaration.SubscriberDecl (M.SubscriberDecl.create res.local_id M.SubscriptionMode.push_mode []) in
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
@@ -143,7 +143,7 @@ module Make (MVar : MVar) = struct
         let oc = Session.out_channel zsex in
         let fsubdecl = match res.name with 
         | ID id -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create id)
-        | URI _ -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create res.local_id) in
+        | Path _ -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create res.local_id) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fsubdecl]) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
@@ -414,8 +414,8 @@ module Make (MVar : MVar) = struct
         | ID id -> (
             let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id []) in
             (pe, [stodecl]))
-        | URI uri -> 
-            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id uri []) in
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
             let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id []) in
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
@@ -433,7 +433,7 @@ module Make (MVar : MVar) = struct
         let oc = Session.out_channel zsex in
         let fstodecl = match res.name with 
         | ID id -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create id)
-        | URI _ -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
+        | Path _ -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fstodecl]) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 

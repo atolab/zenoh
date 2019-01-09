@@ -2,7 +2,6 @@ open Apero
 open Message
 open Locator
 open Lwt
-open R_name
 
 module VleMap = Map.Make(Vle)
 
@@ -16,9 +15,9 @@ type query_handler = string -> string -> (string * IOBuf.t) list Lwt.t
 
 type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
-type insto = {stoid:int; resname:string; listener:sublistener; qhandler:query_handler}
+type insto = {stoid:int; resname:PathExpr.t; listener:sublistener; qhandler:query_handler}
 
-type resource = {rid: Vle.t; name: string; matches: Vle.t list; subs: insub list; stos : insto list;}
+type resource = {rid: Vle.t; name: PathExpr.t; matches: Vle.t list; subs: insub list; stos : insto list;}
 
 type query = {qid: Vle.t; listener:reply_handler;}
 
@@ -84,7 +83,7 @@ let version = Char.chr 0x01
 let match_resource rmap mres = 
   VleMap.fold (fun _ res x -> 
     let (rmap, mres) = x in
-    match URI.uri_match mres.name res.name with 
+    match PathExpr.intersect mres.name res.name with 
     | true -> 
       let mres = with_match mres res.rid in 
       let rmap = VleMap.add res.rid (with_match res mres.rid) rmap in 
@@ -133,23 +132,24 @@ let process_incoming_message msg resolver t =
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            sub.listener buf res.name
+            sub.listener buf (PathExpr.to_string res.name)
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            sto.listener buf res.name
+            sto.listener buf (PathExpr.to_string res.name)
           ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
     | None -> Lwt.return_unit in
     return_true
   | Message.WriteData dmsg ->
+    let datapath = PathExpr.of_string @@ WriteData.resource dmsg in
     let%lwt state = Lwt_mvar.take t.state in
     let%lwt _ = Lwt_mvar.put t.state state in 
     (* TODO make sure that payload is a copy *)
     (* TODO make payload a readonly buffer *)
     let buf = WriteData.payload dmsg in
     let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
-      match URI.uri_match res.name (WriteData.resource dmsg) with 
+      match PathExpr.intersect res.name datapath with 
       | true -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
             sub.listener buf (WriteData.resource dmsg)
@@ -160,10 +160,11 @@ let process_incoming_message msg resolver t =
       | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
   | Message.Query qmsg -> 
+    let querypath = PathExpr.of_string @@ Query.resource qmsg in
     let%lwt state = Lwt_mvar.take t.state in
     let%lwt _ = Lwt_mvar.put t.state state in 
     let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
-      match URI.uri_match res.name (Query.resource qmsg) with 
+      match PathExpr.intersect res.name querypath with 
       | true -> 
           Lwt_list.fold_left_s (fun rsn (sto:insto) ->
             sto.qhandler (Query.resource qmsg) (Query.predicate qmsg)
@@ -258,13 +259,14 @@ let info z =
   Apero.Properties.singleton "peer" peer
 
 let publish resname z = 
+  let resname = PathExpr.of_string resname in
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
   let (pubid, state) = get_next_entity_id state in
 
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
-    ResourceDecl(ResourceDecl.create res.rid res.name []);
+    ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     PublisherDecl(PublisherDecl.create res.rid [])
   ])) in 
 
@@ -302,6 +304,7 @@ let pull_mode = SubscriptionMode.pull_mode
 
 
 let subscribe resname listener ?(mode=push_mode) z = 
+  let resname = PathExpr.of_string resname in
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
   let (subid, state) = get_next_entity_id state in
@@ -312,7 +315,7 @@ let subscribe resname listener ?(mode=push_mode) z =
 
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
-    ResourceDecl(ResourceDecl.create res.rid res.name []);
+    ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     SubscriberDecl(SubscriberDecl.create res.rid mode [])
   ])) in 
 
@@ -345,6 +348,7 @@ let unsubscribe (sub:sub) z =
 
 
 let storage resname listener qhandler z = 
+  let resname = PathExpr.of_string resname in
   let%lwt state = Lwt_mvar.take z.state in
   let (res, state) = add_resource resname state in
   let (stoid, state) = get_next_entity_id state in
@@ -355,7 +359,7 @@ let storage resname listener qhandler z =
 
   let (sn, state) = get_next_sn state in
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
-    ResourceDecl(ResourceDecl.create res.rid res.name []);
+    ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     StorageDecl(StorageDecl.create res.rid [])
   ])) in 
 

@@ -34,9 +34,9 @@ module Make (MVar : MVar) = struct
         let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
         let msg = match srcresname with 
           | ID id -> Message.StreamData(Message.StreamData.create (true, reliable) fsn id None payload)
-          | URI uri -> match srcresname = dstres.name with 
+          | Path uri -> match srcresname = dstres.name with 
             | true -> Message.StreamData(Message.StreamData.create (true, reliable) fsn dstmapid None payload)
-            | false -> WriteData(Message.WriteData.create (true, reliable) fsn uri payload) 
+            | false -> WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload) 
         in
 
         let sock = TxSession.socket s.tx_sex in 
@@ -94,7 +94,7 @@ module Make (MVar : MVar) = struct
                                     | Some peer -> peer.pid
                                     | None -> "UNKNOWN" in
                                     m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
-                                     nid (Id.to_string session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+                                     nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
         let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg) in
         Lwt.return (pe, [])
 
@@ -107,7 +107,7 @@ module Make (MVar : MVar) = struct
                                     | None -> "UNKNOWN" in
                                     m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
                                     nid (Id.to_string session.sid) (Message.WriteData.resource msg)) in
-      let name = ResName.URI(Message.WriteData.resource msg) in
+      let name = ResName.Path(PathExpr.of_string @@ Message.WriteData.resource msg) in
       match store_data pe name (Message.WriteData.payload msg) with 
       | (pe, None) -> 
         let%lwt _ = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) (Message.WriteData.payload msg) in
@@ -135,7 +135,7 @@ module Make (MVar : MVar) = struct
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return []
         | Some res -> 
           let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Pull Message for resource: [%s:%Ld] (%s)" 
-                                         (Id.to_string session.sid) rid (match res.name with URI u -> u | ID _ -> "UNNAMED")) in
+                                         (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
           let%lwt _ = Lwt_list.iter_p (fun mresname -> 
               let mres = ResMap.find mresname pe.rmap in
               match mres.last_value with 

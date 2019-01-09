@@ -15,7 +15,7 @@ let handler = function
 
 let run = 
   let%lwt z = zopen "tcp/127.0.0.1:7447" in 
-  let%lwt _ = query "/home1**" "" handler z in 
+  let%lwt _ = query "/home1/**" "" handler z in 
   let%lwt _ = Lwt_unix.sleep 3000.0 in 
   Lwt.return_unit
 
