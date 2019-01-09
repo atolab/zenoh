@@ -40,9 +40,6 @@ zenohc.exe -p tcp/127.0.0.1:7448 < $outdir/zenohc_pub.in > $outdir/zenohc_pub.lo
 zenohcpubpid=$!
 
 echo "open" > $outdir/zenohc_pub.in
-
-sleep 1
-
 echo "write //test/res1 MSG" > $outdir/zenohc_pub.in
 
 sleep 1

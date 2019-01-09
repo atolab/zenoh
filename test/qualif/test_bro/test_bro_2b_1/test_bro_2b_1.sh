@@ -42,9 +42,6 @@ zenohcpubpid=$!
 echo "open" > $outdir/zenohc_pub.in
 echo "dres 5 //test/res1" > $outdir/zenohc_pub.in
 echo "dpub 5" > $outdir/zenohc_pub.in
-
-sleep 1
-
 echo "pub 5 MSG" > $outdir/zenohc_pub.in
 
 sleep 1

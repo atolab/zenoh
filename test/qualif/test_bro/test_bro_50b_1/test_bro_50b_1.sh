@@ -29,9 +29,6 @@ pub=$?
 echo "open" > ${proc_in[$pub]}
 echo "dres 5 //test/res1" > ${proc_in[$pub]}
 echo "dpub 5" > ${proc_in[$pub]}
-
-sleep 1
-
 echo "pub 5 MSG" > ${proc_in[$pub]}
 
 sleep 1

@@ -40,9 +40,6 @@ zenohc.exe < $outdir/zenohc_pub.in > $outdir/zenohc_pub.log 2>&1 &
 zenohcpubpid=$!
 
 echo "open" > $outdir/zenohc_pub.in
-
-sleep 1
-
 echo "write //test/res1 MSG" > $outdir/zenohc_pub.in
 
 sleep 1
