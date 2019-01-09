@@ -225,7 +225,7 @@ let safe_run_decode_loop resolver t =
     run_decode_loop resolver t
   with
   | x ->
-    let%lwt _ = Logs_lwt.warn (fun m -> m "Exception in decode loop : %s" (Printexc.to_string x)) in
+    let%lwt _ = Logs_lwt.warn (fun m -> m "Exception in decode loop : %s\n%s" (Printexc.to_string x) (Printexc.get_backtrace ()) ) in
     try%lwt
       let%lwt _ = Lwt_unix.close t.sock in
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
