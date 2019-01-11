@@ -3,7 +3,7 @@ maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
 authors:      ["Angelo Corsaro" "Olivier Hecart"]
 homepage:     "https://zenoh.io"
 bug-reports:  "https://github.com/atolab/zenoh/issues/"
-dev-repo:     "https://github.com/atolab/zenoh.git"
+dev-repo:     "git://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
 version:"0.2.0"
@@ -20,13 +20,11 @@ install: [
 ]
 
 depends: [
-  "dune"  
+  "ocaml" {>= "4.03.0" }
+  "dune"
   "lwt" {>= "4.0.1"}
-  "lwt.unix"
-  "lwt.preemptive"
   "apero-core" {>= "0.4.0"}
   "apero-net" {>= "0.4.0"}
-  "zeno-proto"
+  "zenoh-proto"
 ]
 
-available: [ocaml-version >= "4.03.0"]

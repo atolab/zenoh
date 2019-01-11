@@ -10,19 +10,16 @@ version:"0.2.0"
 license: "Apache-2.0"
 
 build: [
- ["jbuilder" "subst"] {pinned}
- ["jbuilder" "build" "-p" name "-j" jobs]
+ ["dune" "subst"] {pinned}
+ ["dune" "-p" name "-j" jobs]
 ]
 
 depends: [
-  "jbuilder"
-  "zenoh-pervasives" {>= "0.1.0"}
+  "ocaml" {>= "4.03.0" }
+  "dune"
   "zenoh-proto" {>= "0.1.0"}
   "lwt" {>= "4.0.1"}
-  "lwt.unix"
-  "lwt.preemptive"
   "apero-core" {>= "0.4.0"}
   "apero-net" {>= "0.4.0"}
 ]
 
-available: [ocaml-version >= "4.03.0"]
