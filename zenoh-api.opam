@@ -1,5 +1,4 @@
 opam-version: "2.0"
-version: "0.1.0"
 maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
 authors:      ["Angelo Corsaro" "Olivier Hecart"]
 homepage:     "https://zenoh.io"
@@ -7,6 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
+version:"0.2.0"
 license: "Apache-2.0"
 
 build: [
@@ -21,11 +21,11 @@ install: [
 
 depends: [
   "dune"  
-  "lwt" {<= "4.0.1"}
+  "lwt" {>= "4.0.1"}
   "lwt.unix"
   "lwt.preemptive"
-  "apero-core" {>= "0.3.0"}
-  "apero-net" {>= "0.3.0"}
+  "apero-core" {>= "0.4.0"}
+  "apero-net" {>= "0.4.0"}
   "zeno-proto"
 ]
 
