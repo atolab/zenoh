@@ -26,6 +26,6 @@ depends: [
   "apero-core" {>= "0.3.0"}
   "apero-net" {>= "0.3.0"}
   "zenoh-proto"
-  "zenoh-api
+  "zenoh-api"
 ]
 
