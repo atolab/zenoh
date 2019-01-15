@@ -55,32 +55,26 @@ module Make (MVar : MVar) = struct
         let smap = SIDMap.add session.sid session pe.smap in
         ({pe with smap}, res)
 
-    let declare_resource pe tsex rd =
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ResourceDecl on unknown session %s: Ignore it!" (Id.to_string sid)) in Lwt.return pe
-        | Some session -> 
+    let declare_resource pe s rd =
         let rid = Message.ResourceDecl.rid rd in 
         let uri = Message.ResourceDecl.resource rd in 
-        let (pe, _) = update_resource_mapping pe (Path(PathExpr.of_string uri)) session rid 
+        let (pe, _) = update_resource_mapping pe (Path(PathExpr.of_string uri)) s rid 
             (fun m -> match m with 
                 | Some mapping -> mapping
-                | None -> Resource.create_mapping rid session.sid) in 
+                | None -> Resource.create_mapping rid s.sid) in 
         Lwt.return pe
 
     (* ======================== PUB DECL =========================== *)
 
-    let match_pdecl pe pr id tsex =
+    let match_pdecl pe pr id (s:Session.t) =
         let open Resource in 
-        let sid = TxSession.id tsex in 
-        let pm = List.find (fun m -> m.session = sid) pr.mappings in
+        let pm = List.find (fun m -> m.session = s.sid) pr.mappings in
         match pm.matched_pub with 
         | true -> Lwt.return (pe, [])
         | false -> 
         match ResMap.exists 
                 (fun _ sr ->  res_match pr sr && List.exists 
-                                (fun m -> m.sub != None && m.session != sid) sr.mappings) pe.rmap with
+                                (fun m -> m.sub != None && m.session != s.sid) sr.mappings) pe.rmap with
         | false -> Lwt.return (pe, [])
         | true -> 
             let pm = {pm with matched_pub = true} in
@@ -89,30 +83,24 @@ module Make (MVar : MVar) = struct
             let pe = {pe with rmap} in
             Lwt.return (pe, [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create id Message.SubscriptionMode.push_mode [])])
 
-    let register_publication pe tsex pd =
-        let sid = (TxSession.id tsex) in 
-        let session = SIDMap.find_opt sid  pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received PublicationDecl on unknown session %s: Ignore it!" 
-                                                (Id.to_string sid)) in Lwt.return (pe, None)
-        | Some session -> 
+    let register_publication pe (s:Session.t) pd =
         let rid = Message.PublisherDecl.rid pd in 
-        let resname = match VleMap.find_opt rid session.rmap with 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
+        let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> match m with 
                 | Some m -> {m with pub=true;} 
-                | None -> {(Resource.create_mapping rid sid) with pub = true;}) in
+                | None -> {(Resource.create_mapping rid s.sid) with pub = true;}) in
         Lwt.return (pe, Some res)
 
-    let process_pdecl pe tsex pd =      
-        let%lwt (pe, pr) = register_publication pe tsex pd in
+    let process_pdecl pe s pd =      
+        let%lwt (pe, pr) = register_publication pe s pd in
         match pr with 
         | None -> Lwt.return (pe, [])
         | Some pr -> 
             let id = Message.PublisherDecl.rid pd in
-            match_pdecl pe pr id tsex
+            match_pdecl pe pr id s
 
     (* ======================== SUB DECL =========================== *)
 
@@ -289,15 +277,14 @@ module Make (MVar : MVar) = struct
             (pe, [p])
         | (false, false) -> (pe, [])
 
-    let notify_pub_matching_res pe ?sub:(sub=None) tsex res = 
+    let notify_pub_matching_res pe ?sub:(sub=None) (s:Session.t) res = 
         let open Resource in 
-        let sid = TxSession.id tsex in 
         let%lwt _ = Logs_lwt.debug (fun m -> m "Notifing Publishers matching resource %s" (ResName.to_string res.name)) in 
         let (pe, ps) = List.fold_left (fun (pe, ps) name -> 
             match ResMap.find_opt name pe.rmap with 
             | None -> (pe, ps)
             | Some mres ->  List.fold_left (fun (pe, ps) m -> 
-                    match (m.pub && m.session != sid) with 
+                    match (m.pub && m.session != s.sid) with 
                     | false -> (pe, ps)
                     | true -> let (pe, p) = notify_pub pe ~sub:sub mres m in (pe, List.append p ps)) 
                 (pe, ps) mres.mappings
@@ -315,55 +302,38 @@ module Make (MVar : MVar) = struct
         let%lwt _ = Lwt.join ps in
         Lwt.return pe
 
-    let register_subscription pe tsex sd =
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received SubscriberDecl on unknown session %s: Ignore it!" 
-                                                (Id.to_string sid)) in Lwt.return (pe, None)
-        | Some session -> 
+    let register_subscription pe (s:Session.t) sd =
         let rid = Message.SubscriberDecl.rid sd in 
         let pull = match Message.SubscriberDecl.mode sd with 
             | Message.SubscriptionMode.PullMode -> true
             | Message.SubscriptionMode.PushMode -> false 
             | Message.SubscriptionMode.PeriodicPullMode _ -> true
             | Message.SubscriptionMode.PeriodicPushMode _ -> false in
-        let resname = match VleMap.find_opt rid session.rmap with 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
+        let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=Some pull;} 
-                | None -> {(Resource.create_mapping rid sid) with sub = Some pull;}) in
+                | None -> {(Resource.create_mapping rid s.sid) with sub = Some pull;}) in
         Lwt.return (pe, Some res)
 
-    let unregister_subscription pe tsex fsd =
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ForgetSubscriberDecl on unknown session %s: Ignore it!" 
-                                                (Id.to_string sid)) in Lwt.return (pe, None)
-        | Some session -> 
+    let unregister_subscription pe (s:Session.t) fsd =
         let rid = Message.ForgetSubscriberDecl.id fsd in 
-        let resname = match VleMap.find_opt rid session.rmap with 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
+        let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
                 | Some m -> {m with sub=None;} 
-                | None -> Resource.create_mapping rid sid) in
+                | None -> Resource.create_mapping rid s.sid) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
 
-    let sub_state pe tsex rid = 
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> None
-        | Some session -> 
-        let resname = match VleMap.find_opt rid session.rmap with 
+    let sub_state pe (s:Session.t) rid = 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
         let optres = ResMap.find_opt resname pe.rmap in 
@@ -371,35 +341,35 @@ module Make (MVar : MVar) = struct
         | None -> None
         | Some res ->
             let open Resource in
-            let mapping = List.find_opt (fun m -> m.session = sid) res.mappings in 
+            let mapping = List.find_opt (fun m -> m.session = s.sid) res.mappings in 
             match mapping with 
             | None -> None
             | Some mapping -> mapping.sub
 
-    let process_sdecl pe tsex sd = 
-        if sub_state pe tsex (Message.SubscriberDecl.rid sd) = None 
+    let process_sdecl pe s sd = 
+        if sub_state pe s (Message.SubscriberDecl.rid sd) = None 
         then 
         begin
-            let%lwt (pe, res) = register_subscription pe tsex sd in
+            let%lwt (pe, res) = register_subscription pe s sd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
-            let%lwt pe = notify_pub_matching_res pe tsex res ~sub:(Some true) in
+            let%lwt pe = notify_pub_matching_res pe s res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
 
-    let process_fsdecl pe tsex fsd = 
-        if sub_state pe tsex (Message.ForgetSubscriberDecl.id fsd) != None 
+    let process_fsdecl pe s fsd = 
+        if sub_state pe s (Message.ForgetSubscriberDecl.id fsd) != None 
         then 
         begin
-            let%lwt (pe, res) = unregister_subscription pe tsex fsd in
+            let%lwt (pe, res) = unregister_subscription pe s fsd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_sdecl pe res pe.router in
-            let%lwt pe = notify_pub_matching_res pe tsex res in
+            let%lwt pe = notify_pub_matching_res pe s res in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
@@ -533,53 +503,36 @@ module Make (MVar : MVar) = struct
         Lwt.catch(fun () -> Lwt.join ps >>= fun () -> Lwt.return pe)
                 (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
 
-    let register_storage pe tsex sd =
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StorageDecl on unknown session %s: Ignore it!" 
-                                                (Id.to_string sid)) in Lwt.return (pe, None)
-        | Some session -> 
+    let register_storage pe (s:Session.t) sd =
         let rid = Message.StorageDecl.rid sd in 
-        let resname = match VleMap.find_opt rid session.rmap with 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
+        let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
                 | Some m -> {m with sto = true;} 
-                | None -> {(Resource.create_mapping rid sid) with sto = true;}) in
+                | None -> {(Resource.create_mapping rid s.sid) with sto = true;}) in
         Lwt.return (pe, Some res)
 
-    let unregister_storage pe tsex fsd =
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received ForgetStorageDecl on unknown session %s: Ignore it!" 
-                                                (Id.to_string sid)) in Lwt.return (pe, None)
-        | Some session -> 
+    let unregister_storage pe (s:Session.t) fsd =
         let rid = Message.ForgetStorageDecl.id fsd in 
-        let resname = match VleMap.find_opt rid session.rmap with 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
-        let (pe, res) = update_resource_mapping pe resname session rid 
+        let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
                 | Some m -> {m with sto = false;} 
-                | None -> Resource.create_mapping rid sid) in
+                | None -> Resource.create_mapping rid s.sid) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
 
     let forward_all_stodecl pe = 
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
 
-    let sto_state pe tsex rid = 
-        let sid = TxSession.id tsex in 
-        let session = SIDMap.find_opt sid pe.smap in 
-        match session with 
-        | None -> false
-        | Some session -> 
-        let resname = match VleMap.find_opt rid session.rmap with 
+    let sto_state pe (s:Session.t) rid = 
+        let resname = match VleMap.find_opt rid s.rmap with 
             | Some name -> name
             | None -> ID(rid) in
         let optres = ResMap.find_opt resname pe.rmap in 
@@ -587,35 +540,35 @@ module Make (MVar : MVar) = struct
         | None -> false
         | Some res ->
             let open Resource in
-            let mapping = List.find_opt (fun m -> m.session = sid) res.mappings in 
+            let mapping = List.find_opt (fun m -> m.session = s.sid) res.mappings in 
             match mapping with 
             | None -> false
             | Some mapping -> mapping.sto
     
-    let process_stodecl pe tsex sd = 
-        if sto_state pe tsex (Message.StorageDecl.rid sd) = false
+    let process_stodecl pe s sd = 
+        if sto_state pe s (Message.StorageDecl.rid sd) = false
         then 
         begin
-            let%lwt (pe, res) = register_storage pe tsex sd in
+            let%lwt (pe, res) = register_storage pe s sd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_stodecl pe res pe.router in
-            let%lwt pe = notify_pub_matching_res pe tsex res ~sub:(Some true) in
+            let%lwt pe = notify_pub_matching_res pe s res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
 
-    let process_fstodecl pe tsex fsd = 
-        if sto_state pe tsex (Message.ForgetStorageDecl.id fsd) = true
+    let process_fstodecl pe s fsd = 
+        if sto_state pe s (Message.ForgetStorageDecl.id fsd) = true
         then 
         begin
-            let%lwt (pe, res) = unregister_storage pe tsex fsd in
+            let%lwt (pe, res) = unregister_storage pe s fsd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
             let%lwt pe = forward_stodecl pe res pe.router in
-            let%lwt pe = notify_pub_matching_res pe tsex res in
+            let%lwt pe = notify_pub_matching_res pe s res in
             Lwt.return (pe, [])
         end
         else Lwt.return (pe, [])
@@ -630,36 +583,40 @@ module Make (MVar : MVar) = struct
         let%lwt _ =  Logs_lwt.debug (fun m -> m  "Crafting Declaration Result") in
         Lwt.return (pe, [Message.Declaration.ResultDecl (Message.ResultDecl.create (Message.CommitDecl.commit_id cd) (char_of_int 0) None)])
 
-    let process_declaration pe tsex d =
+    let process_declaration pe sid d =
         let open Message.Declaration in
-        match d with
-        | ResourceDecl rd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "RDecl for resource: %Ld %s"  (Message.ResourceDecl.rid rd) (Message.ResourceDecl.resource rd) ) in
-            let%lwt pe = declare_resource pe tsex rd in
-            Lwt.return (pe, [])
-        | PublisherDecl pd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "PDecl for resource: %Ld" (Message.PublisherDecl.rid pd)) in
-            process_pdecl pe tsex pd
-        | SubscriberDecl sd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
-            process_sdecl pe tsex sd
-        | StorageDecl sd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "StoDecl for resource: %Ld"  (Message.StorageDecl.rid sd)) in
-            process_stodecl pe tsex sd
-        | ForgetSubscriberDecl fsd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
-            process_fsdecl pe tsex fsd
-        | ForgetStorageDecl fsd ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "FStoDecl for resource: %Ld"  (Message.ForgetStorageDecl.id fsd)) in
-            process_fstodecl pe tsex fsd
-        | CommitDecl cd -> 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Commit SDecl ") in
-            make_result pe tsex cd
-        | _ ->
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Unknown / Unhandled Declaration...."  ) in       
-            Lwt.return (pe, [])
+        match SIDMap.find_opt sid pe.smap with 
+        | Some s ->
+            (match d with
+            | ResourceDecl rd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "RDecl for resource: %Ld %s"  (Message.ResourceDecl.rid rd) (Message.ResourceDecl.resource rd) ) in
+                let%lwt pe = declare_resource pe s rd in
+                Lwt.return (pe, [])
+            | PublisherDecl pd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "PDecl for resource: %Ld" (Message.PublisherDecl.rid pd)) in
+                process_pdecl pe s pd
+            | SubscriberDecl sd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "SDecl for resource: %Ld"  (Message.SubscriberDecl.rid sd)) in
+                process_sdecl pe s sd
+            | StorageDecl sd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "StoDecl for resource: %Ld"  (Message.StorageDecl.rid sd)) in
+                process_stodecl pe s sd
+            | ForgetSubscriberDecl fsd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
+                process_fsdecl pe s fsd
+            | ForgetStorageDecl fsd ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "FStoDecl for resource: %Ld"  (Message.ForgetStorageDecl.id fsd)) in
+                process_fstodecl pe s fsd
+            | CommitDecl cd -> 
+                let%lwt _ = Logs_lwt.debug (fun m -> m "Commit SDecl ") in
+                make_result pe s cd
+            | _ ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "Unknown / Unhandled Declaration...."  ) in       
+                Lwt.return (pe, []))
+        | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received declaration on unknown session %s. Ignore it! \n" (Id.to_string sid)) in Lwt.return (pe, [])
 
-    let process_declarations engine tsex ds =  
+
+    let process_declarations engine sid ds =  
         let open Message.Declaration in
         (* Must process ResourceDecls first *)
         MVar.guarded engine 
@@ -671,7 +628,7 @@ module Make (MVar : MVar) = struct
             | (_, _) -> 0) ds
                             |> List.fold_left (fun x d -> 
                                 let%lwt (pe, ds) = x in
-                                let%lwt (pe, decl) = process_declaration pe tsex d in 
+                                let%lwt (pe, decl) = process_declaration pe sid d in 
                                 Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) 
         in MVar.return ms pe
 
@@ -688,7 +645,7 @@ module Make (MVar : MVar) = struct
             if sn >= csn then
             begin
                 InChannel.update_rsn ic sn  ;
-                let%lwt ds = process_declarations engine tsex (Message.Declare.declarations msg) in
+                let%lwt ds = process_declarations engine sid (Message.Declare.declarations msg) in
                 match ds with 
                 | [] ->
                 let%lwt _ = Logs_lwt.debug (fun m -> m  "Acking Declare with sn: %Ld" sn) in 
@@ -703,5 +660,5 @@ module Make (MVar : MVar) = struct
                 let%lwt _ = Logs_lwt.debug (fun m -> m "Received out of oder message") in
                 Lwt.return  []
             end
-        | None -> Lwt.return [] 
+        | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it! \n" (Id.to_string sid)) in Lwt.return [] 
 end
