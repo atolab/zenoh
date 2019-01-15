@@ -11,6 +11,10 @@ module Make (MVar : MVar) = struct
         let next = pe.next_mapping in
         ({pe with next_mapping = Vle.add next 1L}, next)
 
+    let res_name (s:Session.t) rid = match VleMap.find_opt rid s.rmap with 
+        | Some name -> name
+        | None -> ID(rid)
+
     let match_resource rmap mres = 
         let open Resource in
         match mres.name with 
@@ -85,9 +89,7 @@ module Make (MVar : MVar) = struct
 
     let register_publication pe (s:Session.t) pd =
         let rid = Message.PublisherDecl.rid pd in 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> match m with 
                 | Some m -> {m with pub=true;} 
@@ -309,9 +311,7 @@ module Make (MVar : MVar) = struct
             | Message.SubscriptionMode.PushMode -> false 
             | Message.SubscriptionMode.PeriodicPullMode _ -> true
             | Message.SubscriptionMode.PeriodicPushMode _ -> false in
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
@@ -321,9 +321,7 @@ module Make (MVar : MVar) = struct
 
     let unregister_subscription pe (s:Session.t) fsd =
         let rid = Message.ForgetSubscriberDecl.id fsd in 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
@@ -333,9 +331,7 @@ module Make (MVar : MVar) = struct
         Lwt.return (pe, Some res)
 
     let sub_state pe (s:Session.t) rid = 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let optres = ResMap.find_opt resname pe.rmap in 
         match optres with 
         | None -> None
@@ -407,7 +403,7 @@ module Make (MVar : MVar) = struct
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fstodecl]) in
         (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
     let forward_stodecl pe res router =  
         let open ZRouter in
@@ -505,9 +501,7 @@ module Make (MVar : MVar) = struct
 
     let register_storage pe (s:Session.t) sd =
         let rid = Message.StorageDecl.rid sd in 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
@@ -517,9 +511,7 @@ module Make (MVar : MVar) = struct
 
     let unregister_storage pe (s:Session.t) fsd =
         let rid = Message.ForgetStorageDecl.id fsd in 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
@@ -532,9 +524,7 @@ module Make (MVar : MVar) = struct
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
 
     let sto_state pe (s:Session.t) rid = 
-        let resname = match VleMap.find_opt rid s.rmap with 
-            | Some name -> name
-            | None -> ID(rid) in
+        let resname = res_name s rid in
         let optres = ResMap.find_opt resname pe.rmap in 
         match optres with 
         | None -> false
