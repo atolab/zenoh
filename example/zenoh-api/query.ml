@@ -1,6 +1,10 @@
 open Zenoh
 open Apero
 
+let peer = match Array.length Sys.argv with 
+  | 1 -> "tcp/127.0.0.1:7447"
+  | _ -> Sys.argv.(1)
+
 let handler = function
   | StorageData rep ->
     let (str, _) = Result.get @@ decode_string rep.data in
@@ -14,7 +18,7 @@ let handler = function
     Lwt.return_unit
 
 let run = 
-  let%lwt z = zopen "tcp/127.0.0.1:7447" in 
+  let%lwt z = zopen peer in 
   let%lwt _ = query "/home1/**" "" handler z in 
   let%lwt _ = Lwt_unix.sleep 3000.0 in 
   Lwt.return_unit

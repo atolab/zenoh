@@ -2,9 +2,12 @@ open Zenoh
 open Apero
 open Result.Infix
 
+let peer = match Array.length Sys.argv with 
+  | 1 -> "tcp/127.0.0.1:7447"
+  | _ -> Sys.argv.(1)
 
 let run = 
-  let%lwt z = zopen "tcp/127.0.0.1:7447" in 
+  let%lwt z = zopen peer in 
   let%lwt home1pub = publish "/home1" z in 
   let%lwt res1pub = publish "/res1" z in 
   let buf = Result.get (encode_string "HOME1_MSG1" (IOBuf.clear (IOBuf.create 1024)) >>> IOBuf.flip) in

@@ -5,6 +5,10 @@ module StrMap = Map.Make(String)
 
 let storagevar = Lwt_mvar.create (StrMap.empty)
 
+let peer = match Array.length Sys.argv with 
+  | 1 -> "tcp/127.0.0.1:7447"
+  | _ -> Sys.argv.(1)
+
 let listener spath data src = 
   let (str, _) = Result.get @@ decode_string data in
   Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" spath src str;
@@ -23,7 +27,7 @@ let qhandler spath resname predicate =
   |> Lwt.return
 
 let run = 
-  let%lwt z = zopen "tcp/127.0.0.1:7447" in 
+  let%lwt z = zopen peer in 
   let%lwt _ = storage "/home*/**" (listener "/home*/**") (qhandler "/home*/**") z in 
   let%lwt _ = Lwt_unix.sleep 3000.0 in 
   Lwt.return_unit
