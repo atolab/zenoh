@@ -13,6 +13,7 @@ end *)
 
 module PropertyId :
 sig
+  val storageDist : Vle.t
   val maxConduits : Vle.t
   val snLen : Vle.t
   val reliability : Vle.t

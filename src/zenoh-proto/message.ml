@@ -4,6 +4,7 @@ open Zproperty
 (* module ZProperty = Property.Make (Vle) (IOBuf) *)
 
 module PropertyId = struct
+  let storageDist = 1L
   let maxConduits = 2L
   let snLen = 4L
   let reliability = 6L

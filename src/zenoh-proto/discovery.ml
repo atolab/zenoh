@@ -241,7 +241,7 @@ module Make (MVar : MVar) = struct
         let open Resource in
         let sub = match sub with 
         | None -> ResMap.exists (fun _ res -> 
-            List.exists (fun map -> (map.sub != None || map.sto != false) && map.session != m.session) res.mappings) pe.rmap
+            List.exists (fun map -> (map.sub != None || map.sto != None) && map.session != m.session) res.mappings) pe.rmap
         | Some sub -> sub in
         match (sub, m.matched_pub) with 
         | (true, true) -> (pe, [])
@@ -372,17 +372,31 @@ module Make (MVar : MVar) = struct
 
     (* ======================== STO DECL =========================== *)
 
-    let forward_stodecl_to_session pe res zsex =       
+    let sto_state pe (s:Session.t) rid = 
+        let resname = res_name s rid in
+        let optres = ResMap.find_opt resname pe.rmap in 
+        match optres with 
+        | None -> None
+        | Some res ->
+            let open Resource in
+            let mapping = List.find_opt (fun m -> m.session = s.sid) res.mappings in 
+            match mapping with 
+            | None -> None
+            | Some mapping -> mapping.sto 
+
+    let vle_to_buf v = IOBuf.create 32 |> Apero.encode_vle v |> Result.get |> IOBuf.flip
+
+    let forward_stodecl_to_session pe res zsex dist =       
         let module M = Message in
         let open Resource in 
         let oc = Session.out_channel zsex in
         let (pe, ds) = match res.name with 
         | ID id -> (
-            let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id []) in
+            let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id [Zproperty.ZProperty.make Message.PropertyId.storageDist (vle_to_buf (Vle.of_int dist))]) in
             (pe, [stodecl]))
         | Path uri -> 
             let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
-            let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id []) in
+            let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id [Zproperty.ZProperty.make Message.PropertyId.storageDist (vle_to_buf (Vle.of_int dist))]) in
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
@@ -393,7 +407,7 @@ module Make (MVar : MVar) = struct
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
-    let forget_stodecl_to_session pe res zsex =       
+    let forget_stodecl_to_session pe res zsex =
         let module M = Message in
         let open Resource in 
         let oc = Session.out_channel zsex in
@@ -405,10 +419,10 @@ module Make (MVar : MVar) = struct
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
-    let forward_stodecl pe res router =  
+    let forward_stodecl pe res router =
         let open ZRouter in
         let open Resource in 
-        let stos = List.filter (fun map -> map.sto != false) res.mappings in 
+        let stos = List.filter (fun map -> map.sto != None) res.mappings in 
         let (pe, ps) = (match stos with 
         | [] -> 
             Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no stos" (ResName.to_string res.name));
@@ -442,7 +456,7 @@ module Make (MVar : MVar) = struct
                     begin
                     let (pe, ps) = x in
                     let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
-                    let (pe, p) = forward_stodecl_to_session pe res s in 
+                    let (pe, p) = forward_stodecl_to_session pe res s (Option.get sto.sto) in 
                     (pe, p :: ps)
                     end
                 else x
@@ -468,6 +482,7 @@ module Make (MVar : MVar) = struct
                 ) (pe, ps))
         | _ -> 
             Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : 2+ stos" (ResName.to_string res.name));
+            let dist = List.fold_left (fun accu map -> min accu (Option.get map.sto)) (Option.get (List.hd stos).sto) stos in
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -480,7 +495,7 @@ module Make (MVar : MVar) = struct
             |> List.fold_left (fun x stsex -> 
                     let (pe, ps) = x in
                     let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
-                    let (pe, p) = forward_stodecl_to_session pe res s in 
+                    let (pe, p) = forward_stodecl_to_session pe res s dist in 
                     (pe, p :: ps)
                 ) (pe, []) in 
             TreeSet.get_broken_links tree0 
@@ -501,12 +516,15 @@ module Make (MVar : MVar) = struct
 
     let register_storage pe (s:Session.t) sd =
         let rid = Message.StorageDecl.rid sd in 
+        let dist = match List.find_opt (fun prop -> Vle.to_int @@ Zproperty.ZProperty.key prop = (Vle.to_int Message.PropertyId.storageDist)) (Message.StorageDecl.properties sd) with 
+            | Some prop -> (Zproperty.ZProperty.value prop |> Apero.decode_vle |> Result.get |> fst |> Vle.to_int) + 1
+            | None -> 1 in
         let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
-                | Some m -> {m with sto = true;} 
-                | None -> {(Resource.create_mapping rid s.sid) with sto = true;}) in
+                | Some m -> {m with sto = Some dist} 
+                | None -> {(Resource.create_mapping rid s.sid) with sto = Some dist;}) in
         Lwt.return (pe, Some res)
 
     let unregister_storage pe (s:Session.t) fsd =
@@ -515,7 +533,7 @@ module Make (MVar : MVar) = struct
         let (pe, res) = update_resource_mapping pe resname s rid 
             (fun m -> 
                 match m with 
-                | Some m -> {m with sto = false;} 
+                | Some m -> {m with sto = None;} 
                 | None -> Resource.create_mapping rid s.sid) in
                 (* TODO do not create a mapping in this case *)
         Lwt.return (pe, Some res)
@@ -523,23 +541,12 @@ module Make (MVar : MVar) = struct
     let forward_all_stodecl pe = 
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
 
-    let sto_state pe (s:Session.t) rid = 
-        let resname = res_name s rid in
-        let optres = ResMap.find_opt resname pe.rmap in 
-        match optres with 
-        | None -> false
-        | Some res ->
-            let open Resource in
-            let mapping = List.find_opt (fun m -> m.session = s.sid) res.mappings in 
-            match mapping with 
-            | None -> false
-            | Some mapping -> mapping.sto
-    
     let process_stodecl pe s sd = 
-        if sto_state pe s (Message.StorageDecl.rid sd) = false
-        then 
+        let oldstate = sto_state pe s (Message.StorageDecl.rid sd) in
+        let%lwt (pe, res) = register_storage pe s sd in
+        let newstate = sto_state pe s (Message.StorageDecl.rid sd) in
+        if oldstate <> newstate then 
         begin
-            let%lwt (pe, res) = register_storage pe s sd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
@@ -550,10 +557,11 @@ module Make (MVar : MVar) = struct
         else Lwt.return (pe, [])
 
     let process_fstodecl pe s fsd = 
-        if sto_state pe s (Message.ForgetStorageDecl.id fsd) = true
-        then 
+        let oldstate = sto_state pe s (Message.ForgetStorageDecl.id fsd) in
+        let%lwt (pe, res) = unregister_storage pe s fsd in
+        let newstate = sto_state pe s (Message.ForgetStorageDecl.id fsd) in
+        if oldstate <> newstate then 
         begin
-            let%lwt (pe, res) = unregister_storage pe s fsd in
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 

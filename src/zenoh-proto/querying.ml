@@ -31,7 +31,7 @@ module Make (MVar : MVar) = struct
           | false -> (sss, pss)
           | true -> 
             List.fold_left (fun (ss, ps) m ->
-                match m.sto = true && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+                match m.sto != None && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
                 | true -> 
                   let p = forward_query_to_session pe q m.session in
                   (m.session :: ss , p :: ps)
