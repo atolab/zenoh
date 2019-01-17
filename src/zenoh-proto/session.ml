@@ -41,4 +41,4 @@ let in_channel s = s.ic
 let out_channel s = s.oc
 let tx_sex s = s.tx_sex
 let id s = TxSession.id s.tx_sex
-let is_broker s = Vle.logand s.mask (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L
+let is_broker s = Message.ScoutFlags.hasFlag s.mask Message.ScoutFlags.scoutBroker

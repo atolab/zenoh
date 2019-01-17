@@ -71,10 +71,12 @@ module Flags = struct
 end
 
 module ScoutFlags = struct
-  let scoutBroker = char_of_int 0x01
-  let scoutDurability = char_of_int 0x02
-  let scoutPeer = char_of_int 0x04
-  let scoutClient = char_of_int 0x08
+  let scoutBroker = 1L
+  let scoutDurability = 2L
+  let scoutPeer = 4L
+  let scoutClient = 8L
+
+  let hasFlag m f = Vle.logand m f <> 0L
 end
 
 module DeclarationId = struct

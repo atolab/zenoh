@@ -58,10 +58,12 @@ end
 
 module ScoutFlags :
 sig
-  val scoutBroker : char
-  val scoutDurability : char
-  val scoutPeer : char
-  val scoutClient : char
+  val scoutBroker : Vle.t
+  val scoutDurability : Vle.t
+  val scoutPeer : Vle.t
+  val scoutClient : Vle.t
+
+  val hasFlag : Vle.t -> Vle.t -> bool
 end
 
 module DeclarationId :

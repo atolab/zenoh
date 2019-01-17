@@ -18,9 +18,9 @@ let find_opt pid = List.find_opt (fun p -> Vle.to_int @@ key p = (Vle.to_int pid
 module NodeMask = struct 
   let make mask = make 
     PropertyId.nodeMask 
-    (IOBuf.create 32 |> IOBuf.put_char mask |> Result.get |> IOBuf.flip)
+    (IOBuf.create 32 |> Apero.encode_vle mask |> Result.get |> IOBuf.flip)
   
-  let mask p = value p |> IOBuf.get_char |> Result.get |> fst 
+  let mask p = value p |> Apero.decode_vle |> Result.get |> fst 
 
   let find_opt = find_opt PropertyId.nodeMask
 end 
