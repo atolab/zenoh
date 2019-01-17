@@ -15,9 +15,7 @@ module Make (MVar : MVar) = struct
     let make_hello pe = Message.Hello (Message.Hello.create (Vle.of_char Message.ScoutFlags.scoutBroker) pe.locators [])
 
     let make_open pe = 
-        let buf = IOBuf.create 16 in 
-        let buf = Result.get @@ IOBuf.put_string "broker" buf in
-        Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [Zproperty.ZProperty.make Vle.zero buf])
+        Message.Open (Message.Open.create (char_of_int 0) pe.pid 0L pe.locators [ZProperty.NodeMask.make Message.ScoutFlags.scoutBroker])
 
     let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.lease [])
 
@@ -126,20 +124,23 @@ module Make (MVar : MVar) = struct
         MVar.read engine >>= fun pe -> 
         match SIDMap.find_opt (TxSession.id tsex) pe.smap with
         | None -> 
-        (match List.exists (fun (key, _) -> key = Vle.zero) (Message.Open.properties msg) with 
-        | false -> 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-            let%lwt pe' = add_session engine tsex Vle.zero in 
-            Lwt.return [make_accept pe' (Message.Open.pid msg)] 
-        | true -> 
-            let%lwt pe' = add_session engine tsex (Vle.of_char Message.ScoutFlags.scoutBroker) in 
-            MVar.guarded engine (fun _ -> MVar.return () pe') >>= 
-            fun _ -> process_broker_open engine tsex msg)
+            (let is_broker = match ZProperty.NodeMask.find_opt (Message.Open.properties msg) with 
+            | None -> false 
+            | Some nodeMask -> Message.Flags.hasFlag (ZProperty.NodeMask.mask nodeMask) (Message.ScoutFlags.scoutBroker) in 
+            match is_broker with 
+            | false ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+                let%lwt pe' = add_session engine tsex Vle.zero in 
+                Lwt.return [make_accept pe' (Message.Open.pid msg)] 
+            | true -> 
+                let%lwt pe' = add_session engine tsex (Vle.of_char Message.ScoutFlags.scoutBroker) in 
+                MVar.guarded engine (fun _ -> MVar.return () pe') >>= 
+                fun _ -> process_broker_open engine tsex msg)
         | Some session -> match Vle.logand session.mask (Vle.of_char Message.ScoutFlags.scoutBroker) <> 0L with 
-        | false -> 
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-            Lwt.return ([make_accept pe (Message.Open.pid msg)])     
-        | true -> process_broker_open engine tsex msg
+            | false -> 
+                let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+                Lwt.return ([make_accept pe (Message.Open.pid msg)])     
+            | true -> process_broker_open engine tsex msg
 
     let process_accept_broker engine tsex msg = 
         MVar.guarded engine

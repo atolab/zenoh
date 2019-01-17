@@ -1,24 +1,5 @@
 open Apero
 open Locator
-open Zproperty
-
-
-(* module Property = struct
-  type t = Vle.t * IOBuf.t
-  let create id data = (id, data)
-  let id p = fst p
-  let data p = snd p
-
-end *)
-
-module PropertyId :
-sig
-  val storageDist : Vle.t
-  val maxConduits : Vle.t
-  val snLen : Vle.t
-  val reliability : Vle.t
-  val authData : Vle.t
-end
 
 module MessageId :
 sig

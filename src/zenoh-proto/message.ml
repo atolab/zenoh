@@ -1,15 +1,5 @@
 open Apero
 open Apero_net
-open Zproperty
-(* module ZProperty = Property.Make (Vle) (IOBuf) *)
-
-module PropertyId = struct
-  let storageDist = 1L
-  let maxConduits = 2L
-  let snLen = 4L
-  let reliability = 6L
-  let authData = 12L
-end
 
 module MessageId = struct
   let scoutId = char_of_int 0x01

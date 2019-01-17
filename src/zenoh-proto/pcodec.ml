@@ -1,4 +1,3 @@
-open Zproperty
 (* open Apero
 open Apero.Result
 

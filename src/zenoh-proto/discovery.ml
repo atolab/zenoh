@@ -384,19 +384,17 @@ module Make (MVar : MVar) = struct
             | None -> None
             | Some mapping -> mapping.sto 
 
-    let vle_to_buf v = IOBuf.create 32 |> Apero.encode_vle v |> Result.get |> IOBuf.flip
-
     let forward_stodecl_to_session pe res zsex dist =       
         let module M = Message in
         let open Resource in 
         let oc = Session.out_channel zsex in
         let (pe, ds) = match res.name with 
         | ID id -> (
-            let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id [Zproperty.ZProperty.make Message.PropertyId.storageDist (vle_to_buf (Vle.of_int dist))]) in
+            let stodecl = M.Declaration.StorageDecl M.(StorageDecl.create id [ZProperty.StorageDist.make (Vle.of_int dist)]) in
             (pe, [stodecl]))
         | Path uri -> 
             let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
-            let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id [Zproperty.ZProperty.make Message.PropertyId.storageDist (vle_to_buf (Vle.of_int dist))]) in
+            let stodecl = M.Declaration.StorageDecl (M.StorageDecl.create res.local_id [ZProperty.StorageDist.make (Vle.of_int dist)]) in
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
@@ -516,8 +514,8 @@ module Make (MVar : MVar) = struct
 
     let register_storage pe (s:Session.t) sd =
         let rid = Message.StorageDecl.rid sd in 
-        let dist = match List.find_opt (fun prop -> Vle.to_int @@ Zproperty.ZProperty.key prop = (Vle.to_int Message.PropertyId.storageDist)) (Message.StorageDecl.properties sd) with 
-            | Some prop -> (Zproperty.ZProperty.value prop |> Apero.decode_vle |> Result.get |> fst |> Vle.to_int) + 1
+        let dist = match ZProperty.StorageDist.find_opt (Message.StorageDecl.properties sd) with 
+            | Some prop -> (ZProperty.StorageDist.dist prop |> Vle.to_int) + 1
             | None -> 1 in
         let resname = res_name s rid in
         let (pe, res) = update_resource_mapping pe resname s rid 
