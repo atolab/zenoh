@@ -818,24 +818,22 @@ module Query = struct
     qid : Vle.t;
     resource : string;
     predicate : string;
-    quorum : Vle.t;
-    max_samples : Vle.t option;
+    properties : ZProperty.t list;
   }
   type t = body marked block
 
-  let create pid qid resource predicate quorum max_samples =
+  let create pid qid resource predicate properties =
     let header = 
-      let nflag = match max_samples with | None -> 0 | _ -> int_of_char Flags.nFlag in
+      let pFlag = match properties with | [] -> 0 | _ -> int_of_char Flags.pFlag in
       let mid = int_of_char MessageId.queryId in
-      char_of_int @@ nflag lor mid in
-    { header; body={markers=Markers.empty; mbody={pid; qid; resource; predicate; quorum; max_samples;}}}
+      char_of_int @@ pFlag lor mid in
+    { header; body={markers=Markers.empty; mbody={pid; qid; resource; predicate; properties;}}}
 
   let pid q = q.body.mbody.pid
   let qid q = q.body.mbody.qid
   let resource q = q.body.mbody.resource
   let predicate q = q.body.mbody.predicate
-  let quorum q = q.body.mbody.quorum
-  let max_samples q = q.body.mbody.max_samples
+  let properties q = q.body.mbody.properties
 end
 
 module Reply = struct

@@ -455,13 +455,12 @@ module Query :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> Vle.t -> string -> string -> Vle.t -> Vle.t option -> t
+  val create : IOBuf.t -> Vle.t -> string -> string -> ZProperty.t list -> t
   val pid : t -> IOBuf.t
   val qid : t -> Vle.t
   val resource : t -> string
   val predicate : t -> string
-  val quorum : t -> Vle.t
-  val max_samples : t -> Vle.t option
+  val properties : t -> ZProperty.t list
 end
 
 module Reply :

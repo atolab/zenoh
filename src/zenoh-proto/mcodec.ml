@@ -341,18 +341,17 @@ let decode_max_samples header buf =
     >>= (fun (max_samples, buf) -> return (Some max_samples, buf))
   else return (None, buf)
 
-let make_query pid qid resource predicate quorum max_samples = 
-  Message (Query (Query.create pid qid resource predicate quorum max_samples))
+let make_query pid qid resource predicate properties = 
+  Message (Query (Query.create pid qid resource predicate properties))
 
 let decode_query header =
-  read6_spec
+  read5_spec
     (Logs.debug (fun m -> m "Reading Query"))
     decode_bytes
     decode_vle
     decode_string
     decode_string
-    decode_vle
-    (decode_max_samples header)
+    (decode_properties header)
     make_query
 
 let encode_query m buf =
@@ -363,10 +362,7 @@ let encode_query m buf =
   >>= encode_vle @@ qid m
   >>= encode_string @@ resource m
   >>= encode_string @@ predicate m
-  >>= encode_vle @@ quorum m
-  >>= match max_samples m with
-  | None -> return 
-  | Some max -> encode_vle max
+  >>= Dcodec.encode_properties (properties m)
 
 let make_reply qpid qid value = 
   Message (Reply (Reply.create qpid qid value))

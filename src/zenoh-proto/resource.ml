@@ -66,3 +66,5 @@ let remove_match res mname =
     {res with matches = List.filter (fun r -> r != mname) res.matches}
 
 let res_match res1 res2 = ResName.name_match res1.name res2.name
+
+let get_matching l res = List.filter (fun r -> res_match r res) l

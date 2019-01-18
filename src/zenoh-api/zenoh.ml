@@ -367,11 +367,12 @@ let storage resname listener qhandler z =
   Lwt.return {z=z; id=stoid; resid=res.rid}
 
 
-let query resname predicate listener ?(quorum=(-1)) ?(max_samples=(-1)) z = 
+let query resname predicate listener ?(dest=ZProperty.QueryDest.Partial) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
-  let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate (Vle.of_int quorum) (Some (Vle.of_int max_samples)))) in 
+  let props = [ZProperty.QueryDest.make dest] in
+  let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate props)) in 
   let state = {state with qrymap} in
   Lwt_mvar.put z.state state 
 

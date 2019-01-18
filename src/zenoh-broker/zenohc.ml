@@ -172,8 +172,8 @@ let rec send_write_data_n sock rname n p data =
       send_write_data_n sock rname (n-1) p data
     end
 
-let send_query sock qid rname predicate quorum max_samples =
-  let msg = Message.Query (Query.create pid qid rname predicate quorum max_samples) in
+let send_query sock qid rname predicate =
+  let msg = Message.Query (Query.create pid qid rname predicate []) in
   send_message sock msg
 
 let send_pull sock rid =
@@ -243,8 +243,7 @@ let produce_message sock cmd =
         let qid = Vle.of_string (List.hd xs) in
         let rname = List.nth xs 1 in
         let predicate = List.nth xs 2 in
-        let quorum = Vle.of_string (List.nth xs 3) in
-        send_query sock qid rname predicate quorum None
+        send_query sock qid rname predicate 
       | _ ->
         let%lwt _ = Lwt_io.printf "[Error: The message <%s> is unkown]\n" msg in
         return 0)

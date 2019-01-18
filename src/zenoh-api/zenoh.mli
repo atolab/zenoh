@@ -37,7 +37,7 @@ val unsubscribe : sub -> t -> unit Lwt.t
 
 val storage : string -> sublistener -> query_handler -> t -> storage Lwt.t
 
-val query : string -> string -> reply_handler -> ?quorum:int -> ?max_samples:int -> t -> unit Lwt.t
+val query : string -> string -> reply_handler -> ?dest:ZProperty.QueryDest.dest -> t -> unit Lwt.t
 
 val unstore : storage -> t -> unit Lwt.t
 
