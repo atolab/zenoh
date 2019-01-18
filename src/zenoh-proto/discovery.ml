@@ -45,19 +45,29 @@ module Make (MVar : MVar) = struct
         let (pe, optres) = update_resource_opt pe name (fun ores -> Some (updater ores)) in 
         (pe, Option.get optres)
 
-    let update_resource_mapping pe name (session:Session.t) rid updater =       
-        let sid = Session.id session in 
-        Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string name) (Id.to_string sid) (Vle.to_int rid));
+    let update_resource_mapping_opt pe name (session:Session.t) rid updater =   
+        let open ResName in    
         let (pe, local_id) = match name with 
         | Path _ -> next_mapping pe
         | ID id -> (pe, id) in
-        let(pe, res) = update_resource pe name 
+        let(pe, res) = update_resource_opt pe name 
             (fun r -> match r with 
-                | Some res -> Resource.update_mapping res (TxSession.id @@ Session.tx_sex session) updater
-                | None -> {name; mappings=[updater None]; matches=[name]; local_id; last_value=None}) in
-        let session = {session with rmap=VleMap.add rid res.name session.rmap;} in      
-        let smap = SIDMap.add session.sid session pe.smap in
-        ({pe with smap}, res)
+                | Some res -> Some (Resource.update_mapping_opt res (TxSession.id @@ Session.tx_sex session) updater)
+                | None -> (match updater None with 
+                    | Some m -> Some {name; mappings=[m]; matches=[name]; local_id; last_value=None}
+                    | None -> None)) in
+        match res with 
+        | Some res -> 
+            let sid = Session.id session in 
+            Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string res.name) (Id.to_string sid) (Vle.to_int rid));
+            let session = {session with rmap=VleMap.add rid res.name session.rmap;} in      
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, Some res)
+        | None -> (pe, None)
+
+    let update_resource_mapping pe name (session:Session.t) rid updater = 
+        let (pe, optres) = update_resource_mapping_opt pe name session rid (fun ores -> Some (updater ores)) in 
+        (pe, Option.get optres)
 
     let declare_resource pe s rd =
         let rid = Message.ResourceDecl.rid rd in 
@@ -322,13 +332,12 @@ module Make (MVar : MVar) = struct
     let unregister_subscription pe (s:Session.t) fsd =
         let rid = Message.ForgetSubscriberDecl.id fsd in 
         let resname = res_name s rid in
-        let (pe, res) = update_resource_mapping pe resname s rid 
+        let (pe, res) = update_resource_mapping_opt pe resname s rid 
             (fun m -> 
                 match m with 
-                | Some m -> {m with sub=None;} 
-                | None -> Resource.create_mapping rid s.sid) in
-                (* TODO do not create a mapping in this case *)
-        Lwt.return (pe, Some res)
+                | Some m -> Some {m with sub=None;} 
+                | None -> None) in
+        Lwt.return (pe, res)
 
     let sub_state pe (s:Session.t) rid = 
         let resname = res_name s rid in
@@ -528,13 +537,12 @@ module Make (MVar : MVar) = struct
     let unregister_storage pe (s:Session.t) fsd =
         let rid = Message.ForgetStorageDecl.id fsd in 
         let resname = res_name s rid in
-        let (pe, res) = update_resource_mapping pe resname s rid 
+        let (pe, res) = update_resource_mapping_opt pe resname s rid 
             (fun m -> 
                 match m with 
-                | Some m -> {m with sto = None;} 
-                | None -> Resource.create_mapping rid s.sid) in
-                (* TODO do not create a mapping in this case *)
-        Lwt.return (pe, Some res)
+                | Some m -> Some {m with sto = None;} 
+                | None -> None) in
+        Lwt.return (pe, res)
 
     let forward_all_stodecl pe = 
         let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()

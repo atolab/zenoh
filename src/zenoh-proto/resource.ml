@@ -47,10 +47,14 @@ let report res =
 let with_mapping res mapping = 
     {res with mappings = mapping :: List.filter (fun m -> not (Id.equal m.session mapping.session)) res.mappings}
 
-let update_mapping res sid updater = 
+let update_mapping_opt res sid updater = 
     let mapping = List.find_opt (fun m -> m.session = sid) res.mappings in 
-    let mapping = updater mapping in
-    with_mapping res mapping
+    match updater mapping with 
+    | Some mapping -> with_mapping res mapping
+    | None -> res
+
+let update_mapping res sid updater = 
+    update_mapping_opt res sid (fun ores -> Some (updater ores))
 
 let remove_mapping res sid = 
     {res with mappings = List.filter (fun m -> not (Id.equal m.session sid)) res.mappings}
