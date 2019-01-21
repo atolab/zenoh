@@ -29,7 +29,7 @@ module Make (MVar : MVar) = struct
       let open Resource in 
       let open Lwt.Infix in 
       let dest = match ZProperty.QueryDest.find_opt (Message.Query.properties q) with 
-      | None -> ZProperty.QueryDest.Partial
+      | None -> Queries.Partial
       | Some prop -> ZProperty.QueryDest.dest prop in 
 
       let get_complete_faces () = 

@@ -46,7 +46,7 @@ let to_string peers =
   |> List.map (fun p -> Locator.to_string p) 
   |> String.concat "," 
 
-module ZEngine = ZEngine(MVar_lwt)
+module ZEngine = Zengine.ZEngine(MVar_lwt)
 let run_broker tcpport peers strength bufn = 
   let open ZEngine in   
   let peers = String.split_on_char ',' peers 

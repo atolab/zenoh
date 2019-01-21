@@ -36,12 +36,8 @@ module StorageDist = struct
   let find_opt = find_opt PropertyId.storageDist
 end
 
-module QueryDest = struct 
-  type dest = 
-  | Partial
-  | Complete of int
-  | All
-
+module QueryDest = struct
+  open Queries
   let make dest = make 
     PropertyId.queryDest 
     (match dest with 

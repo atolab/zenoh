@@ -367,7 +367,7 @@ let storage resname listener qhandler z =
   Lwt.return {z=z; id=stoid; resid=res.rid}
 
 
-let query resname predicate listener ?(dest=ZProperty.QueryDest.Partial) z = 
+let query resname predicate listener ?(dest=Queries.Partial) z = 
   let%lwt state = Lwt_mvar.take z.state in
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
