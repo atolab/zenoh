@@ -22,7 +22,7 @@ install: [
 depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
-  "lwt" {>= "4.0.1"}
+  "lwt" {>= "4.1.0"}
   "apero-core" {>= "0.4.0"}
   "apero-net" {>= "0.4.0"}
 ]
