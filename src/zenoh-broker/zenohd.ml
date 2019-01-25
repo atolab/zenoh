@@ -59,7 +59,7 @@ let run_broker tcpport peers strength bufn =
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
-  let engine = ProtocolEngine.create ~bufn pid lease Locators.empty peers strength tx_connector in     
+  let engine = ProtocolEngine.create ~bufn pid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength tx_connector in     
   let dispatcher_svc sex  =     
     let rbuf = IOBuf.create buf_size in 
     let wbuf = IOBuf.create buf_size in
@@ -85,7 +85,7 @@ let run tcpport peers strength bufn style_renderer level =
   Lwt_main.run @@ run_broker tcpport peers strength bufn
    
 let () =
-  Printexc.record_backtrace true;
+  Printexc.record_backtrace true; 
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   let _ = Term.(eval (const run $ tcpport $ peers $ strength $ bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   
