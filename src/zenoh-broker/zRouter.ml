@@ -13,7 +13,7 @@ open Spn_tree.Node
       tree_set : Spn_tree.Set.t;
       peers    : peer list;
       send_to  : peer list -> Spn_tree.Node.t list -> unit
-    }
+    } 
 
   let create sender id prio max_dist max_trees =
     let module Conf = struct 
@@ -29,6 +29,9 @@ open Spn_tree.Node
       peers = [];
       send_to = sender
     }
+
+  let peers_to_yojson peers = `List (List.map (fun peer -> `Assoc [ ("pid", `String peer.pid)] ) peers)
+  let to_yojson r = `Assoc [ ("peers", peers_to_yojson r.peers); ("tree_set", Spn_tree.Set.to_yojson r.tree_set)]
 
   let report router = 
     let module TreeSet = (val router.tree_mod: Spn_tree.Set.S) in

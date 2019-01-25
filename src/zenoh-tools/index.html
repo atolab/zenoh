@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" />
+    
+        <style type="text/css">
+            #commandpanel {height:5vh;}
+            #displaypanel {height:90vh;}
+            #server {float:left;}
+            #graph {
+                float:left;
+                width:   50%;
+                height: 100%;
+                border: 1px solid lightgrey;
+            }
+            #data {
+                float:left;
+                height: 100%;
+                overflow:scroll;
+                border: 1px solid lightgrey;
+            }
+            button {
+                padding-left:30px;
+                padding-right:30px;
+            }
+            .loading:before { 
+                position:relative; 
+                left: -10px; top: 7px; 
+                font-size: 1px; 
+                float:left; 
+            }
+
+        </style>
+    </head>
+<body>
+<div id="commandpanel">
+    <form id="server"><input type="text" name="address" value="http://127.0.0.1:8000" size="50"></form>
+    <button id="refresh"     onclick="refresh()"    >Refresh</button>
+    <button id="autorefresh" onclick="autorefresh()">Auto refresh</button>
+    <button id="redraw"      onclick="redraw()"     >Redraw</button>
+</div>
+<div id="displaypanel">
+    <div id="graph"></div>
+    <div id="data"></div>
+</div>
+
+<script type="text/javascript">
+    var tree_colors = ["#7777FF","#FF0000","#00FF00","#FFFF00","#00FFFF","#FF00FF"]
+
+    var nodes = new vis.DataSet();
+    var edges = new vis.DataSet();
+    var container = document.getElementById('graph');
+    var data = {
+        nodes: nodes,
+        edges: edges
+    };
+    var default_node_color = {background:"#DDDDDD", border:"#AAAAAA", highlight:{background:"#CCCCCC", border:"#555555"}}
+               
+    var options = {
+        // edges:{smooth:false},
+        nodes:{shape:"box", heightConstraint:50, widthConstraint:50, margin:10, 
+               font:{multi:"html", mono:{size:10}},
+               color:default_node_color},
+        physics:{enabled:true}
+    };
+    var network;
+
+    redraw();
+
+    function parentLinkId(from, to, tree_nb) {
+        return "" + tree_nb + "_" + from + "_" + to;
+    }
+    
+    function brokenLinkId(node1, node2) {
+        return "bk_" + (node1>node2?node1:node2) + "_" + (node1>node2?node2:node1);
+    }
+
+    function updateDataSet(set, elements) {
+        set.update(elements);
+        set.getIds().forEach(function(id) {
+            if(elements.find(function(elem){return elem.id === id}) === undefined) {
+                try{ set.remove(id); } catch(err) {}
+            }
+        });
+    }
+
+    function containsLinkBetween(edgeset, node1, node2) {
+        return edgeset.find(function (edge) {
+                return (edge.from === node1 && edge.to === node2) ||
+                    (edge.from === node2 && edge.to === node1);
+            }) !== undefined ;
+    }
+
+    function updateNodes(services) {
+        newnodes = Object.keys(services).map( function(id, idx) {
+            label = "<code>" + services[id].locators[0].split("/")[1].split(":")[0] + "</code>" + "\n" + 
+                    "<code>" + services[id].locators[0].split("/")[1].split(":")[1] + "</code>";
+            color = default_node_color;
+            services[id].router.tree_set.forEach( function (tree){
+                if (tree.local.parent == null)
+                {
+                    color=tree_colors[tree.local.tree_nb];
+                }
+            });
+            return {id: services[id].pid, label: label, color:color};
+        });
+        updateDataSet(nodes, newnodes);
+    }
+
+    function updateEdges(services) {
+        treelinks = Object.keys(services).map( function(id, idx) {
+            return services[id].router.tree_set
+                .filter( function (tree){ return tree.local.parent != null;})
+                .map( function (tree){ 
+                    color=tree_colors[tree.local.tree_nb];
+                    return {
+                        id: parentLinkId(services[id].pid, tree.local.parent, tree.local.tree_nb),
+                        from: services[id].pid, to: tree.local.parent, arrows:"to", 
+                        color:{color:color, highlight:color, hover:color}, 
+                        width:2};
+                });
+            }).flat();
+
+        brokenLinks = Object.keys(services).map( function(id, idx) {
+            return services[id].router.peers
+                .filter( function (peer){ return !containsLinkBetween(treelinks, services[id].pid, peer.pid);})
+                .map( function (peer){ 
+                    return {
+                        id: brokenLinkId(services[id].pid, peer.pid),
+                        from: services[id].pid, to: peer.pid, dashes:true};
+                });
+            }).flat();
+        
+        links = treelinks.concat(brokenLinks);
+        updateDataSet(edges, links);
+    }
+
+    function update(services) {
+        updateNodes(services);
+        updateEdges(services);
+        showDetails(services);
+    }
+
+    function refresh() {
+        $.getJSON("http://127.0.0.1:8000/_z_/services/**", update);
+    }
+
+    function autorefresh() {
+        $("#autorefresh").toggleClass("loading");
+        if($("#autorefresh").hasClass("loading"))
+        {
+            function periodicupdate(){
+                $.getJSON("http://127.0.0.1:8000/_z_/services/**", function(services) {
+                    update(services);
+                    if($("#autorefresh").hasClass("loading"))
+                    {
+                        setTimeout(periodicupdate, 500);
+                    }
+                });
+            }
+            periodicupdate();
+        }
+    }
+
+    function showDetails(services)
+    {
+        if(network && network.getSelectedNodes()[0])
+        {
+            if(services && services["/_z_/services/" + network.getSelectedNodes()[0]])
+            {
+                $("#data").JSONView(services["/_z_/services/" + network.getSelectedNodes()[0]], { collapsed: false });
+            }
+            else
+            {
+                $.getJSON("http://127.0.0.1:8000/_z_/services/" + network.getSelectedNodes()[0], function(services) {
+                    $("#data").JSONView(services["/_z_/services/" + network.getSelectedNodes()[0]], { collapsed: false });
+                });
+            }
+        }
+        else
+        {
+            $("#data").html("");
+        }
+    }
+
+    function redraw() {
+        $.getJSON("http://127.0.0.1:8000/_z_/services/**", function(services) {
+            update(services);
+            network = new vis.Network(container, data, options);
+            network.on("click", showDetails);
+            network.on("dragStart", showDetails);
+        });
+    }
+</script>
+
+</body>
+</html>

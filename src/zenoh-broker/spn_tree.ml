@@ -3,7 +3,7 @@ open Printf
 
 
 module Node = struct
-  type id = string [@@deriving sexp]
+  type id = string [@@deriving sexp, yojson]
 
   type t = {
     node_id  : id;
@@ -12,7 +12,7 @@ module Node = struct
     distance : int;
     parent   : id option;
     rank     : int
-  }  [@@deriving sexp]
+  }  [@@deriving sexp, yojson]
 
   let compare t1 t2 =
     let c1 = compare t1.rank t2.rank in
@@ -26,8 +26,8 @@ end
 type t = {
   local : Node.t;
   peers : Node.t list;
-}
-type tree=t
+} [@@deriving yojson]
+type tree=t [@@deriving yojson]
 
 module type S = sig
   val update : t -> Node.t -> t
@@ -145,7 +145,7 @@ end
 
 module Set = struct
   
-  type t = tree list
+  type t = tree list [@@deriving yojson]
 
   module type S = sig
     include S
