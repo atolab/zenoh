@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version:"0.2.0"
+version:"0.2.1"
 license: "Apache-2.0"
 
 build: [

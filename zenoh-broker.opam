@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version:"0.2.0"
+version:"0.2.1"
 license: "Apache-2.0"
 
 build: [
@@ -17,7 +17,7 @@ build: [
 depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
-  "zenoh-proto" {>= "0.1.0"}
+  "zenoh-proto" {= "0.2.1"}
   "lwt" {>= "4.1.0"}
   "apero-core" {>= "0.4.0"}
   "apero-net" {>= "0.4.0"}
