@@ -22,4 +22,9 @@ depends: [
   "apero-core" {>= "0.4.0"}
   "apero-net" {>= "0.4.0"}
 ]
+synopsis : "The zenoh broker"
+description: """
+zenoh is a high-level and extremely wire-efficient named-data protocol
+that nicely combines data streaming with distributed data quering. 
+This package provides the zenoh broker."""
 

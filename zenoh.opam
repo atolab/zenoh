@@ -29,3 +29,7 @@ depends: [
   "zenoh-api" {= "0.2.1"}
 ]
 
+synopsis : "Zenoh -- the ZEro Network Over-Head protocol"
+description: """
+zenoh is a high-level and extremely wire-efficient named-data protocol
+that nicely combines data streaming with distributed data quering."""
