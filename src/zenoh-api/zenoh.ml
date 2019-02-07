@@ -174,10 +174,9 @@ let process_incoming_message msg resolver t =
           ) Vle.zero res.stos
           >>= fun rsn -> 
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
-          >>= fun _ -> 
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None))
           >>= fun _ -> return_unit
       | false -> return_unit) (VleMap.bindings state.resmap) in
+    let%lwt _ = send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) in
     return_true    
   | Message.Reply rmsg -> 
     (match String.equal (IOBuf.hexdump (Reply.qpid rmsg)) (IOBuf.hexdump pid) with 
