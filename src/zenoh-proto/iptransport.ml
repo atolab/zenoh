@@ -164,7 +164,7 @@ module TcpTransport = struct
           (match Result.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
           | Ok buf ->            
             let%lwt lbuf = lwt_of_result (encode_vle (Vle.of_int (IOBuf.position buf)) lbuf) in
-            let%lwt _ = Net.send_vec sctx.sock [IOBuf.flip lbuf; IOBuf.flip buf] in
+            let%lwt _ = Net.send_vec_all sctx.sock [IOBuf.flip lbuf; IOBuf.flip buf] in
             Lwt.return_unit
           | Error _ -> 
             let%lwt _ = Logs_lwt.err (fun m -> m "Error while encoding frame -- this is a bug!") in           

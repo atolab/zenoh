@@ -642,7 +642,7 @@ let ztcp_write_frame sock frame buf =
       (let lbuf = IOBuf.create 4 in 
       let wbuf = IOBuf.flip wbuf in 
       match encode_vle (Vle.of_int @@ IOBuf.limit wbuf) lbuf with 
-      | Ok lbuf -> Net.send_vec sock [IOBuf.flip lbuf; wbuf]
+      | Ok lbuf -> Net.send_vec_all sock [IOBuf.flip lbuf; wbuf]
       | Error e -> Lwt.fail @@ Exception e)
   | Error e -> Lwt.fail @@ Exception e 
   
