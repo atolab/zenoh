@@ -72,9 +72,16 @@ let run_broker tcpport peers strength bufn =
       let wbuf = IOBuf.clear wbuf in                        
       zreader rbuf () 
       >>= fun frame ->
-        match%lwt ProtocolEngine.handle_message engine sex (Frame.to_list frame)  with 
+        Lwt.catch
+          (fun () -> ProtocolEngine.handle_message engine sex (Frame.to_list frame)) 
+          (fun e -> 
+            Logs_lwt.warn (fun m -> m "Error handling messages from session %s : %s" 
+              (Id.to_string (TxSession.id sex))
+              (Printexc.to_string e))
+            >>= fun _ -> Lwt.return []) 
+        >>= function
         | [] -> Lwt.return_unit
-        | ms -> zwriter (Frame.create ms) wbuf  >>= fun _ -> Lwt.return_unit            
+        | ms -> zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return_unit
   in 
   Lwt.join [ZTcpTransport.start tx dispatcher_svc; ProtocolEngine.start engine]
 
