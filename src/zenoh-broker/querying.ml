@@ -92,8 +92,8 @@ module Make (MVar : MVar) = struct
                                               TxSession.id peer.tsex = session.sid) pe.router.peers with 
                                           | Some peer -> peer.pid
                                           | None -> "UNKNOWN" in
-                                          m "Handling Query Message. nid[%s] sid[%s] res[%s]" 
-                                          nid (Id.to_string session.sid) (Message.Query.resource q)) in
+                                          m "Handling Query Message. nid[%s] sid[%s] pid[%s] qid[%d] res[%s]" 
+                                          nid (Id.to_string session.sid) (IOBuf.hexdump (Message.Query.pid q)) (Int64.to_int (Message.Query.qid q)) (Message.Query.resource q)) in
           let%lwt ss = forward_query pe session.sid q in
           match ss with 
           | [] -> forward_reply_to_session pe (Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) None) session.sid >>= fun _ -> Lwt.return pe
@@ -107,6 +107,18 @@ module Make (MVar : MVar) = struct
         let%lwt pe = match QIDMap.find_opt qid pe.qmap with 
         | None -> Logs_lwt.debug (fun m -> m  "Received reply for unknown query. Ingore it!") >>= fun _ -> Lwt.return pe
         | Some qs -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> 
+                                          let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+                                              TxSession.id peer.tsex = (TxSession.id tsex)) pe.router.peers with 
+                                          | Some peer -> peer.pid
+                                          | None -> "UNKNOWN" in
+                                          let resource = match (Message.Reply.resource r) with 
+                                          | Some res -> res
+                                          | None -> "" in
+                                          m "Handling Reply Message. nid[%s] sid[%s] qpid[%s] qid[%d] res[%s]" 
+                                          nid (Id.to_string (TxSession.id tsex)) 
+                                          (IOBuf.hexdump (Message.Reply.qpid r)) (Int64.to_int (Message.Reply.qid r))
+                                          resource) in
           (match Message.Reply.value r with 
           | Some _ -> forward_reply_to_session pe r qs.srcFace >>= fun _ -> Lwt.return pe
           | None -> 

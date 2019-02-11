@@ -109,10 +109,8 @@ let encode_close close buf =
   >>= IOBuf.put_char (reason close)   
 
 let decode_declaration buf =  
-  Logs.debug (fun m -> m "Reading Declaration");
   IOBuf.get_char buf
   >>= (fun (header, buf) -> 
-      Logs.debug (fun m -> m "Declaration Id = %d" (Header.mid header) );
       match Flags.mid header with
       | r when r = DeclarationId.resourceDeclId -> decode_res_decl header buf
       | p when p = DeclarationId.publisherDeclId -> decode_pub_decl header buf 
@@ -157,14 +155,11 @@ let decode_declarations buf =
       decode_declaration buf 
       >>= (fun (d, buf) -> loop (n-1) (d::ds) buf)
   in 
-  Logs.debug (fun m -> m "Reading Declarations");
   decode_vle buf 
   >>= (fun (len, buf) -> 
-      Logs.debug (fun m -> m "Parsing %Ld declarations" len);
       loop (Vle.to_int len) [] buf)
 
 let encode_declarations ds buf =
-  Logs.debug (fun m -> m "Writing Declarations");  
   encode_vle  (Vle.of_int @@ List.length ds) buf
   >>= (fold_m (fun d b -> encode_declaration d b) ds)
 
@@ -505,7 +500,6 @@ let encode_rspace m buf =
 let decode_element buf =
   IOBuf.get_char buf
   >>= (fun (header, buf) -> 
-      Logs.debug (fun m -> m "Received message with id: %d\n" (Header.mid header));
       match char_of_int (Header.mid (header)) with
       | id when id = MessageId.scoutId ->  (decode_scout header buf) 
       | id when id = MessageId.helloId ->  (decode_hello header buf)

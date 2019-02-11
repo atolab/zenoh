@@ -132,14 +132,11 @@ module TcpTransport = struct
       let ssid = I.to_string sid in       
       let rbuf = sctx.inbuf in
     
-      let rec serve_session () =  
-        let open Lwt.Infix in        
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Looping to serve session %s" ssid) in                      
+      let rec serve_session () =                       
         match%lwt decode_frame socket rbuf with
         | Ok frame -> 
-          List.iter (fun _ -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) (Frame.to_list frame) ;
-          Logs_lwt.debug (fun m -> m "Message Handled successfully!\n") 
-          >>= serve_session                  
+          List.iter (fun _ -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) 
+          (Frame.to_list frame) |> serve_session 
         | Error e -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Received invalid frame. Closing session %s" ssid) in
           let%lwt _ = close_session socket in
@@ -175,18 +172,10 @@ module TcpTransport = struct
       | Events _ -> Lwt.return_unit 
     
     let rec event_loop sctx stream : unit Lwt.t = 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "TcpTransport Event Loop") in
       let%lwt evt = Lwt_stream.get stream in 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Received TcpTransport Event") in
       match evt with 
-      | Some e -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Processing event") in
-        let%lwt _ = (process_event sctx e) in  event_loop sctx stream
-     
-      | None -> 
-         let%lwt _ = Logs_lwt.debug (fun m -> m "Event Source retourned None...") in
-        event_loop sctx stream
-      
+      | Some e -> let%lwt _ = (process_event sctx e) in  event_loop sctx stream
+      | None -> event_loop sctx stream
 
 
     let start (push : Transport.Event.push) =

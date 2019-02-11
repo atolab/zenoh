@@ -59,7 +59,7 @@ module Make (MVar : MVar) = struct
         match res with 
         | Some res -> 
             let sid = Session.id session in 
-            Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string res.name) (Id.to_string sid) (Vle.to_int rid));
+            Logs.info (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string res.name) (Id.to_string sid) (Vle.to_int rid));
             let session = {session with rmap=VleMap.add rid res.name session.rmap;} in      
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, Some res)
@@ -156,7 +156,6 @@ module Make (MVar : MVar) = struct
         let subs = List.filter (fun map -> map.sub != None) res.mappings in 
         let (pe, ps) = (match subs with 
         | [] -> 
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no subs" (ResName.to_string res.name));
             SIDMap.fold (fun _ session (pe, ps) -> 
                 match Session.is_broker session with 
                 | true -> let (pe, p) = forget_sdecl_to_session pe res session in (pe, p::ps)
@@ -166,12 +165,6 @@ module Make (MVar : MVar) = struct
             | None -> (pe, [])
             | Some subsex ->
             let tsex = Session.tx_sex subsex in
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> 
-                let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-                    TxSession.id peer.tsex = subsex.sid) pe.router.peers with 
-                | Some peer -> peer.pid
-                | None -> "UNKNOWN" in
-                m "Resource %s : 1 sub (%s) (%s)" (ResName.to_string res.name) (Id.to_string sub.session) nid);
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -212,7 +205,6 @@ module Make (MVar : MVar) = struct
                 else x
                 ) (pe, ps))
         | _ -> 
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : 2+ subs" (ResName.to_string res.name));
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -433,7 +425,6 @@ module Make (MVar : MVar) = struct
         let stos = List.filter (fun map -> map.sto != None) res.mappings in 
         let (pe, ps) = (match stos with 
         | [] -> 
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : no stos" (ResName.to_string res.name));
             SIDMap.fold (fun _ session (pe, ps) -> 
                 match Session.is_broker session with 
                 | true -> let (pe, p) = forget_stodecl_to_session pe res session in (pe, p::ps)
@@ -443,12 +434,6 @@ module Make (MVar : MVar) = struct
             | None -> (pe, [])
             | Some stosex ->
             let tsex = Session.tx_sex stosex in
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> 
-                let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-                    TxSession.id peer.tsex = stosex.sid) pe.router.peers with 
-                | Some peer -> peer.pid
-                | None -> "UNKNOWN" in
-                m "Resource %s : 1 sto (%s) (%s)" (ResName.to_string res.name) (Id.to_string sto.session) nid);
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
@@ -489,7 +474,6 @@ module Make (MVar : MVar) = struct
                 else x
                 ) (pe, ps))
         | _ -> 
-            Lwt.ignore_result @@ Logs_lwt.debug (fun m -> m "Resource %s : 2+ stos" (ResName.to_string res.name));
             let dist = List.fold_left (fun accu map -> min accu (Option.get map.sto)) (Option.get (List.hd stos).sto) stos in
             let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
             let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
@@ -585,7 +569,6 @@ module Make (MVar : MVar) = struct
         forward_all_stodecl pe
 
     let make_result pe _ cd =
-        let%lwt _ =  Logs_lwt.debug (fun m -> m  "Crafting Declaration Result") in
         Lwt.return (pe, [Message.Declaration.ResultDecl (Message.ResultDecl.create (Message.CommitDecl.commit_id cd) (char_of_int 0) None)])
 
     let process_declaration pe sid d =
@@ -639,7 +622,7 @@ module Make (MVar : MVar) = struct
 
     let process_declare engine tsex msg =         
         let%lwt pe = MVar.read engine in
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Declare Message") in    
         let sid = TxSession.id tsex in 
         match SIDMap.find_opt sid pe.smap with 
         | Some s ->
@@ -653,10 +636,8 @@ module Make (MVar : MVar) = struct
                 let%lwt ds = process_declarations engine sid (Message.Declare.declarations msg) in
                 match ds with 
                 | [] ->
-                let%lwt _ = Logs_lwt.debug (fun m -> m  "Acking Declare with sn: %Ld" sn) in 
                 Lwt.return [Message.AckNack (Message.AckNack.create (Vle.add sn 1L) None)]
                 | _ as ds ->
-                let%lwt _ = Logs_lwt.debug (fun m -> m "Sending Matching decalrations and ACKNACK \n") in
                 Lwt.return [Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds);
                             Message.AckNack (Message.AckNack.create (Vle.add sn 1L) None)]
             end
@@ -665,5 +646,5 @@ module Make (MVar : MVar) = struct
                 let%lwt _ = Logs_lwt.debug (fun m -> m "Received out of oder message") in
                 Lwt.return  []
             end
-        | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it! \n" (Id.to_string sid)) in Lwt.return [] 
+        | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it!" (Id.to_string sid)) in Lwt.return [] 
 end

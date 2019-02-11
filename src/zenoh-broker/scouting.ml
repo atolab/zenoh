@@ -39,7 +39,6 @@ module Make (MVar : MVar) = struct
     let connect_peers pe =        
         let open Lwt.Infix in 
         Lwt_list.iter_p (fun p -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Trying to establish connection to %s" (Locator.to_string p)) in 
         Lwt.catch
             (fun _ -> (connect_peer p  pe.tx_connector 1000) >|= ignore )
             (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return_unit)
@@ -48,7 +47,7 @@ module Make (MVar : MVar) = struct
 
     let remove_session pe tsex peer =    
         let sid = TxSession.id tsex in 
-        let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (Id.to_string sid)) in
+        let%lwt _ = Logs_lwt.info (fun m -> m  "Un-registering Session %s" (Id.to_string sid)) in
         let smap = SIDMap.remove sid pe.smap in
         let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
         
@@ -83,7 +82,7 @@ module Make (MVar : MVar) = struct
         MVar.guarded engine 
         @@ fun pe ->      
         let sid = TxSession.id tsex in    
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s mask:%i\n" (Id.to_string sid) (Vle.to_int mask)) in
+        let%lwt _ = Logs_lwt.info (fun m -> m "Registering Session %s mask:%i" (Id.to_string sid) (Vle.to_int mask)) in
         let s = Session.create (tsex:TxSession.t) mask in    
         let smap = SIDMap.add (TxSession.id tsex) s pe.smap in   
         let%lwt peer = 
@@ -108,13 +107,13 @@ module Make (MVar : MVar) = struct
         match Message.ScoutFlags.hasFlag (Message.Hello.mask msg) Message.ScoutFlags.scoutBroker with 
         | false -> Lwt.return  []
         | true -> (
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Try to open ZENOH session with broker on transport session: %s\n" (Id.to_string sid)) in
+            let%lwt _ = Logs_lwt.debug (fun m -> m "Try to open ZENOH session with broker on transport session: %s" (Id.to_string sid)) in
             Lwt.return [make_open pe'])
 
     let process_broker_open engine tsex msg = 
         MVar.guarded engine 
         @@ fun pe ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+        let%lwt _ = Logs_lwt.info (fun m -> m "Accepting Open from remote broker: %s" (pid_to_string @@ Message.Open.pid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Open.pid msg; tsex}} in
         forward_all_decls pe;
         MVar.return [make_accept pe' (Message.Open.pid msg)] pe'
@@ -129,7 +128,7 @@ module Make (MVar : MVar) = struct
             | Some nodeMask -> ZProperty.NodeMask.mask nodeMask in
             match Message.ScoutFlags.hasFlag mask (Message.ScoutFlags.scoutBroker) with 
             | false ->
-                let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+                let%lwt _ = Logs_lwt.info (fun m -> m "Accepting Open from unscouted remote peer: %s" (pid_to_string @@ Message.Open.pid msg)) in
                 let%lwt pe' = add_session engine tsex mask in 
                 Lwt.return [make_accept pe' (Message.Open.pid msg)] 
             | true -> 
@@ -138,14 +137,14 @@ module Make (MVar : MVar) = struct
                 fun _ -> process_broker_open engine tsex msg)
         | Some session -> match Vle.logand session.mask Message.ScoutFlags.scoutBroker <> 0L with 
             | false -> 
-                let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+                let%lwt _ = Logs_lwt.info (fun m -> m "Accepting Open from remote peer: %s" (pid_to_string @@ Message.Open.pid msg)) in
                 Lwt.return ([make_accept pe (Message.Open.pid msg)])     
             | true -> process_broker_open engine tsex msg
 
     let process_accept_broker engine tsex msg = 
         MVar.guarded engine
         @@ fun pe ->
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
+        let%lwt _ = Logs_lwt.info (fun m -> m "Accepted from remote broker: %s" (pid_to_string @@ Message.Accept.apid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Accept.apid msg; tsex}} in
         forward_all_decls pe;
         MVar.return [] pe'
@@ -156,11 +155,11 @@ module Make (MVar : MVar) = struct
         let sid = TxSession.id tsex in 
         match SIDMap.find_opt sid pe.smap with
         | None -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from unscouted remote peer: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
+        let%lwt _ = Logs_lwt.info (fun m -> m "Accepted from unscouted remote peer: %s" (pid_to_string @@ Message.Accept.apid msg)) in
         let%lwt _ = add_session engine tsex Vle.zero in  Lwt.return [] 
         | Some session -> match Message.ScoutFlags.hasFlag session.mask Message.ScoutFlags.scoutBroker with 
         | false -> (
-            let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote peer: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
+            let%lwt _ = Logs_lwt.info (fun m -> m "Accepted from remote peer: %s" (pid_to_string @@ Message.Accept.apid msg)) in
             Lwt.return [])      
         | true -> process_accept_broker engine tsex msg 
 
