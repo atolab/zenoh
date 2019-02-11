@@ -3,14 +3,13 @@ maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
 authors:      ["Angelo Corsaro" "Olivier Hecart"]
 homepage:     "https://zenoh.io"
 bug-reports:  "https://github.com/atolab/zenoh/issues/"
-dev-repo:     "git://github.com/atolab/zenoh.git"
+dev-repo:     "git+https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version: "0.2.1"
+version: "0.2.2"
 license: "Apache-2.0"
 
 build: [
- ["dune" "subst"] {pinned}
  ["dune" "-p" name "-j" jobs]
 ]
 
@@ -23,9 +22,9 @@ depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
   "lwt" {>= "4.1.0"}
-  "apero-core" {>= "0.4.0"}
-  "apero-net" {>= "0.4.0"}
-  "zenoh-proto" {= "0.2.1"}
+  "apero-core" {>= "0.4.2"}
+  "apero-net" {>= "0.4.2"}
+  "zenoh-proto" {= "0.2.2"}
 ]
 synopsis : "The zenoh transport framework"
 description: """
