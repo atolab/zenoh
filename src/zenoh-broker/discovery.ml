@@ -5,8 +5,6 @@ open R_name
 open Engine_state
 
 
-module Make (MVar : MVar) = struct
-
     let next_mapping pe = 
         let next = pe.next_mapping in
         ({pe with next_mapping = Vle.add next 1L}, next)
@@ -624,9 +622,9 @@ module Make (MVar : MVar) = struct
     let process_declarations engine sid ds =  
         let open Message.Declaration in
         (* Must process ResourceDecls first *)
-        MVar.guarded engine 
+        Guard.guarded engine 
         @@ fun pe -> 
-        let%lwt (pe, ms) = List.sort (fun x y -> match (x, y) with 
+            let%lwt (pe, ms) = List.sort (fun x y -> match (x, y) with 
             | (ResourceDecl _, ResourceDecl _) -> 0
             | (ResourceDecl _, _) -> -1
             | (_, ResourceDecl _) -> 1
@@ -635,10 +633,10 @@ module Make (MVar : MVar) = struct
                                 let%lwt (pe, ds) = x in
                                 let%lwt (pe, decl) = process_declaration pe sid d in 
                                 Lwt.return (pe, decl @ ds)) (Lwt.return (pe, [])) 
-        in MVar.return ms pe
+        in Guard.return ms pe
 
     let process_declare engine tsex msg =         
-        let%lwt pe = MVar.read engine in
+        let pe = Guard.get engine in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
         let sid = TxSession.id tsex in 
         match SIDMap.find_opt sid pe.smap with 
@@ -666,4 +664,3 @@ module Make (MVar : MVar) = struct
                 Lwt.return  []
             end
         | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it! \n" (Id.to_string sid)) in Lwt.return [] 
-end

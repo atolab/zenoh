@@ -58,7 +58,7 @@ let get_next_qry_id state = (state.next_qry_id, {state with next_qry_id=Vle.add 
 
 type t = {
   sock : Lwt_unix.file_descr;
-  state : state Lwt_mvar.t;
+  state : state Guard.t;
 }
 
 type sub = {z:t; id:int; resid:Vle.t;}
@@ -121,8 +121,8 @@ let process_incoming_message msg resolver t =
   match msg with
   | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true
   | Message.StreamData dmsg ->
-    let%lwt state = Lwt_mvar.take t.state in
-    let%lwt _ = Lwt_mvar.put t.state state in 
+    let state = Guard.get t.state in
+    (* let%lwt _ = Lwt_mvar.put t.state state in  *)
     let%lwt _ = match VleMap.find_opt (StreamData.id dmsg) state.resmap with
     | Some res -> 
       (* TODO make sure that payload is a copy *)
@@ -143,8 +143,7 @@ let process_incoming_message msg resolver t =
     return_true
   | Message.WriteData dmsg ->
     let datapath = PathExpr.of_string @@ WriteData.resource dmsg in
-    let%lwt state = Lwt_mvar.take t.state in
-    let%lwt _ = Lwt_mvar.put t.state state in 
+    let state = Guard.get t.state in    
     (* TODO make sure that payload is a copy *)
     (* TODO make payload a readonly buffer *)
     let buf = WriteData.payload dmsg in
@@ -161,8 +160,7 @@ let process_incoming_message msg resolver t =
       return_true
   | Message.Query qmsg -> 
     let querypath = PathExpr.of_string @@ Query.resource qmsg in
-    let%lwt state = Lwt_mvar.take t.state in
-    let%lwt _ = Lwt_mvar.put t.state state in 
+    let state = Guard.get t.state in    
     let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
       match PathExpr.intersect res.name querypath with 
       | true -> 
@@ -182,8 +180,7 @@ let process_incoming_message msg resolver t =
     (match String.equal (IOBuf.hexdump (Reply.qpid rmsg)) (IOBuf.hexdump pid) with 
     | false -> return_true
     | true -> 
-      let%lwt state = Lwt_mvar.take t.state in
-      let%lwt _ = Lwt_mvar.put t.state state in 
+      let state = Guard.get t.state in    
       match VleMap.find_opt (Reply.qid rmsg) state.qrymap with 
       | None -> return_true 
       | Some query -> 
@@ -246,7 +243,7 @@ let zopen peer =
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let (promise, resolver) = Lwt.task () in
   let con = connect sock saddr in 
-  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Lwt_mvar.create create_state} in
+  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
 
@@ -259,7 +256,7 @@ let info z =
 
 let publish resname z = 
   let resname = PathExpr.of_string resname in
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (res, state) = add_resource resname state in
   let (pubid, state) = get_next_entity_id state in
 
@@ -269,33 +266,33 @@ let publish resname z =
     PublisherDecl(PublisherDecl.create res.rid [])
   ])) in 
 
-  let%lwt _ = Lwt_mvar.put z.state state in
-  Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
+  Guard.release z.state state 
+  ; Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
 
 
 let write buf resname z = 
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
-  let%lwt _ = Lwt_mvar.put z.state state in
+  Guard.release z.state state;
   send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname buf))
   >> Lwt.return_unit
 
 
 let stream buf (pub:pub) = 
-  let%lwt state = Lwt_mvar.take pub.z.state in
+  let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
-  let%lwt _ = Lwt_mvar.put pub.z.state state in
+  Guard.release pub.z.state state;
   send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid None buf))
   >> Lwt.return_unit
 
 
 let unpublish (pub:pub) z = 
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ForgetPublisherDecl(ForgetPublisherDecl.create pub.resid)
   ])) in 
-  Lwt_mvar.put z.state state 
+  Lwt.return @@ Guard.release z.state state
 
 
 let push_mode = SubscriptionMode.push_mode
@@ -304,7 +301,7 @@ let pull_mode = SubscriptionMode.pull_mode
 
 let subscribe resname listener ?(mode=push_mode) z = 
   let resname = PathExpr.of_string resname in
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (res, state) = add_resource resname state in
   let (subid, state) = get_next_entity_id state in
   let insub = {subid; resid=res.rid; listener} in
@@ -318,21 +315,21 @@ let subscribe resname listener ?(mode=push_mode) z =
     SubscriberDecl(SubscriberDecl.create res.rid mode [])
   ])) in 
 
-  let%lwt _ = Lwt_mvar.put z.state state in
+  Guard.release z.state state ;
   let sub : sub = {z=z; id=subid; resid=res.rid} in
   Lwt.return sub
 
 
 let pull (sub:sub) = 
-  let%lwt state = Lwt_mvar.take sub.z.state in
+  let%lwt state = Guard.acquire sub.z.state in
   let (sn, state) = get_next_sn state in 
-  let%lwt _ = Lwt_mvar.put sub.z.state state in
+  Guard.release sub.z.state state;
   let%lwt _ = send_message sub.z.sock (Message.Pull(Pull.create (true, true) sn sub.resid None)) in 
   Lwt.return_unit
 
 
 let unsubscribe (sub:sub) z = 
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let state = match VleMap.find_opt sub.resid state.resmap with 
   | None -> state 
   | Some res -> 
@@ -343,12 +340,12 @@ let unsubscribe (sub:sub) z =
   let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ForgetSubscriberDecl(ForgetSubscriberDecl.create sub.resid)
   ])) in 
-  Lwt_mvar.put z.state state 
+  Lwt.return @@ Guard.release z.state state 
 
 
 let storage resname listener qhandler z = 
   let resname = PathExpr.of_string resname in
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (res, state) = add_resource resname state in
   let (stoid, state) = get_next_entity_id state in
   let insto = {stoid; resname; listener; qhandler} in
@@ -362,22 +359,23 @@ let storage resname listener qhandler z =
     StorageDecl(StorageDecl.create res.rid [])
   ])) in 
 
-  let%lwt _ = Lwt_mvar.put z.state state in
-  Lwt.return {z=z; id=stoid; resid=res.rid}
+  Guard.release z.state state ;
+  Lwt.return {z=z; id=stoid; resid=res.rid} 
+
 
 
 let query resname predicate listener ?(dest=Queries.Partial) z = 
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
   let props = [ZProperty.QueryDest.make dest] in
   let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate props)) in 
   let state = {state with qrymap} in
-  Lwt_mvar.put z.state state 
+  Lwt.return @@ Guard.release z.state state 
 
 
 let unstore (sto:storage) z = 
-  let%lwt state = Lwt_mvar.take z.state in
+  let%lwt state = Guard.acquire z.state in
   let state = match VleMap.find_opt sto.resid state.resmap with 
   | None -> state 
   | Some res -> 
@@ -388,4 +386,4 @@ let unstore (sto:storage) z =
   let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ForgetStorageDecl(ForgetStorageDecl.create sto.resid)
   ])) in 
-  Lwt_mvar.put z.state state 
+  Lwt.return @@ Guard.release z.state state 

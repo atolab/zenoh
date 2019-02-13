@@ -7,14 +7,14 @@ open Engine_state
 
 module ZEngine (MVar : MVar) = struct
  
-  module Scouting = Scouting.Make(MVar) open Scouting
-  module Discovery = Discovery.Make(MVar) open Discovery
-  module Routing = Routing.Make(MVar) open Routing
-  module Querying = Querying.Make(MVar) open Querying
+  open Scouting
+  open Discovery
+  open Routing
+  open Querying
 
   module ProtocolEngine = struct
 
-    type t = engine_state MVar.t
+    type t = engine_state Guard.t
 
     let send_nodes peer _nodes = 
       let open Message in
@@ -29,7 +29,7 @@ module ZEngine (MVar : MVar) = struct
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
     let create ?(bufn = 32) ?(buflen=65536) (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
-      MVar.create @@ { 
+      Guard.create @@ { 
         pid; 
         lease; 
         locators = ls; 
@@ -44,7 +44,7 @@ module ZEngine (MVar : MVar) = struct
 
 
     let start engine = 
-      let%lwt pe = MVar.read engine in  
+      let pe = Guard.get engine in  
       let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
       connect_peers pe
 

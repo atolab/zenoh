@@ -4,9 +4,7 @@ open NetService
 open R_name
 open Engine_state
 
-module Make (MVar : MVar) = struct
- 
-    module MDiscovery = Discovery.Make(MVar) open MDiscovery
+    open Discovery 
 
     let pid_to_string = IOBuf.hexdump
 
@@ -74,13 +72,13 @@ module Make (MVar : MVar) = struct
 
     let guarded_remove_session engine tsex peer =
         let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.to_string  @@ TxSession.id tsex) peer) in 
-        MVar.guarded engine 
+        Guard.guarded engine 
         @@ fun pe -> 
         let%lwt pe = remove_session pe tsex peer in
-        MVar.return pe pe 
+        Guard.return pe pe
 
     let add_session engine tsex mask = 
-        MVar.guarded engine 
+        Guard.guarded engine 
         @@ fun pe ->      
         let sid = TxSession.id tsex in    
         let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s mask:%i\n" (Id.to_string sid) (Vle.to_int mask)) in
@@ -95,12 +93,11 @@ module Make (MVar : MVar) = struct
         (fun _ -> Lwt.return "UNKNOWN") in
         let _ = Lwt.bind (TxSession.when_closed tsex)  (fun _ -> guarded_remove_session engine tsex peer) in
         let pe' = {pe with smap} in
-        MVar.return pe' pe'
+        Guard.return pe' pe'
 
 
     let process_scout engine _ _ = 
-        let open Lwt.Infix in
-        MVar.read engine >>= fun pe -> Lwt.return [make_hello pe]
+        Lwt.return [make_hello @@ Guard.get engine]
 
     let process_hello engine tsex msg  =
         let sid = TxSession.id tsex in 
@@ -112,16 +109,16 @@ module Make (MVar : MVar) = struct
             Lwt.return [make_open pe'])
 
     let process_broker_open engine tsex msg = 
-        MVar.guarded engine 
+        Guard.guarded engine 
         @@ fun pe ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Open.pid msg; tsex}} in
         forward_all_decls pe;
-        MVar.return [make_accept pe' (Message.Open.pid msg)] pe'
+        Guard.return [make_accept pe' (Message.Open.pid msg)] pe'
 
     let process_open engine tsex msg  =
         let open Lwt.Infix in 
-        MVar.read engine >>= fun pe -> 
+        let pe = Guard.get engine in
         match SIDMap.find_opt (TxSession.id tsex) pe.smap with
         | None -> 
             (let mask = match ZProperty.NodeMask.find_opt (Message.Open.properties msg) with 
@@ -134,7 +131,7 @@ module Make (MVar : MVar) = struct
                 Lwt.return [make_accept pe' (Message.Open.pid msg)] 
             | true -> 
                 let%lwt pe' = add_session engine tsex mask in 
-                MVar.guarded engine (fun _ -> MVar.return () pe') >>= 
+                Guard.set  pe' engine >>= 
                 fun _ -> process_broker_open engine tsex msg)
         | Some session -> match Vle.logand session.mask Message.ScoutFlags.scoutBroker <> 0L with 
             | false -> 
@@ -143,16 +140,15 @@ module Make (MVar : MVar) = struct
             | true -> process_broker_open engine tsex msg
 
     let process_accept_broker engine tsex msg = 
-        MVar.guarded engine
+        Guard.guarded engine
         @@ fun pe ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
         let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Accept.apid msg; tsex}} in
         forward_all_decls pe;
-        MVar.return [] pe'
+        Guard.return [] pe'
 
     let process_accept engine tsex msg =
-        let open Lwt.Infix in
-        MVar.read engine >>= fun pe -> 
+        let pe = Guard.get engine in
         let sid = TxSession.id tsex in 
         match SIDMap.find_opt sid pe.smap with
         | None -> 
@@ -165,8 +161,5 @@ module Make (MVar : MVar) = struct
         | true -> process_accept_broker engine tsex msg 
 
     let process_close (engine) _ = 
-        let open Lwt.Infix in 
-        MVar.read engine 
-        >>= fun pe -> Lwt.return [Message.Close (Message.Close.create pe.pid '0')]
-
-end
+        let pe = Guard.get engine in
+        Lwt.return [Message.Close (Message.Close.create pe.pid '0')]
