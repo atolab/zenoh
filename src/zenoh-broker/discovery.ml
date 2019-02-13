@@ -619,13 +619,8 @@ open Engine_state
         in Guard.return ms pe
 
     let process_declare engine tsex msg =         
-<<<<<<< HEAD
         let pe = Guard.get engine in
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Processing Declare Message\n") in    
-=======
-        let%lwt pe = MVar.read engine in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Declare Message") in    
->>>>>>> 498905e04eaaa81010b3aff31363eacc0ec51d0a
         let sid = TxSession.id tsex in 
         match SIDMap.find_opt sid pe.smap with 
         | Some s ->
@@ -649,9 +644,5 @@ open Engine_state
                 let%lwt _ = Logs_lwt.debug (fun m -> m "Received out of oder message") in
                 Lwt.return  []
             end
-<<<<<<< HEAD
+
         | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it! \n" (Id.to_string sid)) in Lwt.return [] 
-=======
-        | None -> let%lwt _ = Logs_lwt.debug (fun m -> m "Received message on unknown session %s. Ignore it!" (Id.to_string sid)) in Lwt.return [] 
-end
->>>>>>> 498905e04eaaa81010b3aff31363eacc0ec51d0a
