@@ -1,8 +1,7 @@
-open Apero
 open Apero_net 
 (* open Zenoh_proto *)
 
-module ZTcpTransport = NetServiceTcp.Make(MVar_lwt)
+module ZTcpTransport = NetServiceTcp
 module ZTcpConfig = NetServiceTcp.TcpConfig
 
 (* TODO: the functions below should be implemented to really deal
