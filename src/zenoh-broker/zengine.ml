@@ -44,8 +44,12 @@ module ZEngine (MVar : MVar) = struct
 
 
     let start engine = 
+<<<<<<< HEAD
       let pe = Guard.get engine in  
       let%lwt _ = Logs_lwt.debug (fun m -> m "Going to establish connection  to %d peers" (List.length pe.peers)) in 
+=======
+      let%lwt pe = MVar.read engine in  
+>>>>>>> 498905e04eaaa81010b3aff31363eacc0ec51d0a
       connect_peers pe
 
     let process_synch _ _ msg =
@@ -55,8 +59,7 @@ module ZEngine (MVar : MVar) = struct
     let process_ack_nack _ _ _ = Lwt.return []
 
     let handle_message engine (tsex : TxSession.t) (msgs: Message.t list)  = 
-      let open Lwt.Infix in
-      let%lwt _ = Logs_lwt.debug (fun m -> m  "Received Frame") in      
+      let open Lwt.Infix in   
       let dispatch = function
         | Message.Scout msg -> process_scout engine tsex msg 
         | Message.Hello msg -> process_hello engine tsex msg 
