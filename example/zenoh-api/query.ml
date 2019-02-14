@@ -20,11 +20,9 @@ let handler = function
 
 let run = 
   let%lwt z = zopen peer in    
-  let%lwt qs = lquery "/home1/**" "" z in   
-  List.iter (fun (k,_) -> Printf.printf "%s\n" k) qs;  
-
-  query "/home1/**" "" handler z 
-  >>= fun () -> Lwt_unix.sleep 1.0
+  let%lwt _ = query "/home1/**" "" handler z in 
+  let%lwt _ = lquery "/home1/**" "" z >|= List.iter (fun (k,_) -> Printf.printf "%s\n" k) in
+  Lwt_unix.sleep 1.0
 
 
 let () = 

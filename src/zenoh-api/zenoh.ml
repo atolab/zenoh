@@ -63,7 +63,7 @@ type t = {
 
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
-type store = {z:t; id:int; resid:Vle.t;}
+type storage = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
@@ -400,7 +400,7 @@ let lquery resname predicate ?(dest=Queries.Partial) z =
   promise
 
 
-let unstore (sto:store) z = 
+let unstore (sto:storage) z = 
   let%lwt state = Guard.acquire z.state in
   let state = match VleMap.find_opt sto.resid state.resmap with 
   | None -> state 

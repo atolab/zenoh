@@ -2,7 +2,7 @@ open Iobuf
 
 type sub
 type pub
-type store
+type storage
 type sublistener = IOBuf.t -> string -> unit Lwt.t
 type queryreply = 
   | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
@@ -35,7 +35,7 @@ val pull : sub -> unit Lwt.t
 
 val unsubscribe : sub -> t -> unit Lwt.t
 
-val store : string -> sublistener -> query_handler -> t -> store Lwt.t
+val store : string -> sublistener -> query_handler -> t -> storage Lwt.t
 
 val query : string -> string -> reply_handler -> ?dest:Queries.dest -> t -> unit Lwt.t
 
@@ -46,5 +46,5 @@ replies of the query *)
 val lquery : string -> string -> ?dest:Queries.dest -> t -> (string * IOBuf.t) list Lwt.t
 (* [lquery] consolidates the results of a query and returns them into a list of key values *)
 
-val unstore : store -> t -> unit Lwt.t
+val unstore : storage -> t -> unit Lwt.t
 (* val terminate : t -> unit  *)
