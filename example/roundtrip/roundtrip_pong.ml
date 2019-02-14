@@ -19,4 +19,5 @@ let run peers =
 
 let () = 
   Printexc.record_backtrace true;
+  Lwt_engine.set (new Lwt_engine.libev ()) ;
   let _ = Term.(eval (const run $ peers, Term.info "roundtrip_pong")) in  ()

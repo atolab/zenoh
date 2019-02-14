@@ -93,6 +93,7 @@ let run tcpport peers strength bufn style_renderer level =
    
 let () =
   Printexc.record_backtrace true;
+  Lwt_engine.set (new Lwt_engine.libev ()) ;
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   let _ = Term.(eval (const run $ tcpport $ peers $ strength $ bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   

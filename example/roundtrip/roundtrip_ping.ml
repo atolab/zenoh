@@ -41,4 +41,5 @@ let run peers nb size =
 
 let () = 
   Printexc.record_backtrace true;
+  Lwt_engine.set (new Lwt_engine.libev ()) ;
   let _ = Term.(eval (const run $ peers $ nb $ size, Term.info "roundtrip_ping")) in  ()
