@@ -28,7 +28,7 @@ let qhandler spath resname predicate =
 
 let run = 
   let%lwt z = zopen peer in 
-  let%lwt _ = storage "/home*/**" (listener "/home*/**") (qhandler "/home*/**") z in 
+  let%lwt _ = store "/home*/**" (listener "/home*/**") (qhandler "/home*/**") z in 
   let%lwt _ = Lwt_unix.sleep 3000.0 in 
   Lwt.return_unit
 

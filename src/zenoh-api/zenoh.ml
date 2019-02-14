@@ -63,7 +63,7 @@ type t = {
 
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
-type storage = {z:t; id:int; resid:Vle.t;}
+type store = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
@@ -343,7 +343,7 @@ let unsubscribe (sub:sub) z =
   Lwt.return @@ Guard.release z.state state 
 
 
-let storage resname listener qhandler z = 
+let store resname listener qhandler z = 
   let resname = PathExpr.of_string resname in
   let%lwt state = Guard.acquire z.state in
   let (res, state) = add_resource resname state in
@@ -374,7 +374,33 @@ let query resname predicate listener ?(dest=Queries.Partial) z =
   Lwt.return @@ Guard.release z.state state 
 
 
-let unstore (sto:storage) z = 
+let squery resname predicate ?(dest=Queries.Partial) z = 
+  let stream, push = Lwt_stream.create () in 
+  let reply_handler qreply = push @@ Some qreply; Lwt.return_unit in 
+  let _ = (query resname predicate reply_handler ~dest z) in 
+  stream
+
+type lquery_context = {resolver: (string*IOBuf.t) list Lwt.u; mutable qs: (string*IOBuf.t) list}
+
+let lquery resname predicate ?(dest=Queries.Partial) z =   
+  let promise,resolver = Lwt.wait () in 
+  let ctx = {resolver; qs = []} in  
+  let reply_handler qreply =     
+    match qreply with 
+    | StorageData {stoid=_; rsn=_; resname; data} -> 
+      (* TODO: Eventually we should check the timestamp *)
+      (match List.find_opt (fun (k,_) -> k = resname) ctx.qs with 
+      | Some _ -> Lwt.return_unit
+      | None  -> ctx.qs <- (resname, data)::ctx.qs; Lwt.return_unit)
+    | StorageFinal {stoid=_;rsn=_} -> Lwt.return_unit
+    | ReplyFinal ->       
+      Lwt.wakeup_later ctx.resolver ctx.qs; Lwt.return_unit
+  in
+  let _ = (query resname predicate reply_handler ~dest z) in 
+  promise
+
+
+let unstore (sto:store) z = 
   let%lwt state = Guard.acquire z.state in
   let state = match VleMap.find_opt sto.resid state.resmap with 
   | None -> state 

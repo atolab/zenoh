@@ -1,5 +1,6 @@
 open Zenoh
 open Apero
+open Lwt.Infix
 
 let peer = match Array.length Sys.argv with 
   | 1 -> "tcp/127.0.0.1:7447"
@@ -18,10 +19,13 @@ let handler = function
     Lwt.return_unit
 
 let run = 
-  let%lwt z = zopen peer in 
-  let%lwt _ = query "/home1/**" "" handler z in 
-  let%lwt _ = Lwt_unix.sleep 3000.0 in 
-  Lwt.return_unit
+  let%lwt z = zopen peer in    
+  let%lwt qs = lquery "/home1/**" "" z in   
+  List.iter (fun (k,_) -> Printf.printf "%s\n" k) qs;  
+
+  query "/home1/**" "" handler z 
+  >>= fun () -> Lwt_unix.sleep 1.0
+
 
 let () = 
   Lwt_main.run @@ run
