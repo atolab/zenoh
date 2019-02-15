@@ -132,10 +132,12 @@ let process_incoming_message msg resolver t =
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            sub.listener buf (PathExpr.to_string res.name)
+            Lwt.catch (fun () -> sub.listener buf (PathExpr.to_string res.name)) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            sto.listener buf (PathExpr.to_string res.name)
+            Lwt.catch (fun () -> sto.listener buf (PathExpr.to_string res.name))
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
@@ -151,10 +153,12 @@ let process_incoming_message msg resolver t =
       match PathExpr.intersect res.name datapath with 
       | true -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
-            sub.listener buf (WriteData.resource dmsg)
+            Lwt.catch (fun () -> sub.listener buf (WriteData.resource dmsg)) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            sto.listener buf (WriteData.resource dmsg)
+            Lwt.catch (fun () -> sto.listener buf (WriteData.resource dmsg))
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
       | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
@@ -165,7 +169,9 @@ let process_incoming_message msg resolver t =
       match PathExpr.intersect res.name querypath with 
       | true -> 
           Lwt_list.fold_left_s (fun rsn (sto:insto) ->
-            sto.qhandler (Query.resource qmsg) (Query.predicate qmsg)
+            Lwt.catch(fun () -> sto.qhandler (Query.resource qmsg) (Query.predicate qmsg)) 
+                     (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
+                     (* TODO propagate query failures *)
             >>= Lwt_list.fold_left_s (fun rsn (resname, payload) -> 
               send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, resname, payload))))
               >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
@@ -185,11 +191,15 @@ let process_incoming_message msg resolver t =
       | None -> return_true 
       | Some query -> 
         (match (Message.Reply.value rmsg) with 
-        | None -> query.listener ReplyFinal >>= fun _ -> return_true
+        | None -> Lwt.catch(fun () -> query.listener ReplyFinal) 
+                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
         | Some (stoid, rsn, resname, payload) -> 
           (match IOBuf.available payload with 
-          | 0 -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})) >>= fun _ -> return_true
-          | _ -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})) >>= fun _ -> return_true)))
+          | 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
+                          (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+          | _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})))
+                          (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+          )) >>= fun _ -> return_true )
   | msg ->
     Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
     return_true
