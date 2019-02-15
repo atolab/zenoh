@@ -11,8 +11,8 @@ module ZTcpConfig = NetServiceTcp.TcpConfig
 
 (*   
 let run_ztcp_svc buf_size reader writer (svc:ZTcpTransport.t) (engine: ProtocolEngine.t) (sex: TxSession.t) = 
-  let rbuf = IOBuf.create buf_size in 
-  let wbuf = IOBuf.create buf_size in
+  let rbuf = Abuf.create buf_size in 
+  let wbuf = Abuf.create buf_size in
   let socket = (TxSession.socket sex) in
   let zreader = reader  rbuf socket in 
   let zwriter = writer wbuf socket  in

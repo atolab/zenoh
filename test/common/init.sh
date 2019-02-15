@@ -17,6 +17,8 @@ DIR="$( cd -P "$( dirname "$SOURCE" )" && cd ../.. &&  pwd )"
 
 export PATH=${DIR}/_build/default/src/zenoh-broker/:$PATH
 export PATH=${DIR}/_build/default/src/zenoh-cat/:$PATH
+export PATH=${DIR}/_build/default/example/throughput/:$PATH
+export PATH=${DIR}/_build/default/example/roundtrip/:$PATH
 export PATH=${DIR}/test/common/:$PATH
 
 source proc_mgr.sh

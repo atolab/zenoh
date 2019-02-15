@@ -1,5 +1,4 @@
 open Zenoh
-open Apero
 open Cmdliner
 open Lwt.Infix
 
@@ -11,7 +10,8 @@ let run peers size =
   (
     let%lwt z = zopen peers in 
     let%lwt home1pub = publish "/home1" z in 
-    let buf = IOBuf.create size in
+    let buf = Abuf.create size in
+    Abuf.set_w_pos size buf;
     let rec loop () = stream buf home1pub >>= loop in 
     loop ()
   )

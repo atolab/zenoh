@@ -1,7 +1,7 @@
 
 ## Message types
 
-- Messages declared in zenoh.mli/ml shoud always use IOBuf as opposed to
+- Messages declared in zenoh.mli/ml shoud always use Abuf as opposed to
   expose Lwt_bytes
 
 - variable names should avoid using camel case.

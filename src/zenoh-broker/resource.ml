@@ -17,7 +17,7 @@ type t = {
     mappings : mapping list;
     matches : ResName.t list;
     local_id : Vle.t;
-    last_value : IOBuf.t option;
+    last_value : Abuf.t option;
 }
 
 let create_mapping id session = 

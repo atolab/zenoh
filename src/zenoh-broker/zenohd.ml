@@ -12,9 +12,10 @@ let max_connections = 1000
 let buf_size = 64 * 1024
 let svc_id = 0x01
 
-let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
-  (IOBuf.create 32) 
+let pid  = 
+  Abuf.create_bigstring 32 |> fun buf -> 
+  Abuf.write_bytes (Bytes.unsafe_of_string ((Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())))) buf; 
+  buf
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -60,16 +61,16 @@ let run_broker tcpport peers strength bufn =
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
   let engine = ProtocolEngine.create ~bufn pid lease Locators.empty peers strength tx_connector in     
-  let dispatcher_svc sex  =     
-    let rbuf = IOBuf.create ~grow:4096 buf_size in 
-    let wbuf = IOBuf.create ~grow:4096 buf_size in
+  let dispatcher_svc sex  = 
+    let rbuf = Abuf.create ~grow:4096 buf_size in 
+    let wbuf = Abuf.create ~grow:4096 buf_size in
     let socket = (TxSession.socket sex) in
     let zreader = ztcp_read_frame socket in 
     let zwriter = ztcp_write_frame socket  in            
     let open Lwt.Infix in 
     fun () ->
-      let rbuf = IOBuf.clear rbuf in              
-      let wbuf = IOBuf.clear wbuf in                        
+      Abuf.clear rbuf;
+      Abuf.clear wbuf;
       zreader rbuf () 
       >>= fun frame ->
         Lwt.catch

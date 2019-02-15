@@ -5,13 +5,13 @@ open Lwt
 
 module VleMap = Map.Make(Vle)
 
-type sublistener = IOBuf.t -> string -> unit Lwt.t
+type sublistener = Abuf.t -> string -> unit Lwt.t
 type queryreply = 
-  | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
-  | StorageFinal of {stoid:IOBuf.t; rsn:int}
+  | StorageData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t}
+  | StorageFinal of {stoid:Abuf.t; rsn:int}
   | ReplyFinal 
 type reply_handler = queryreply -> unit Lwt.t
-type query_handler = string -> string -> (string * IOBuf.t) list Lwt.t
+type query_handler = string -> string -> (string * Abuf.t) list Lwt.t
 
 type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
@@ -67,14 +67,15 @@ type storage = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
-let lbuf = IOBuf.create 16
-let wbuf = IOBuf.create 8192
-let rbuf = IOBuf.create 8192
+let lbuf = Abuf.create_bigstring 16
+let wbuf = Abuf.create_bigstring 65537
+let rbuf = Abuf.create_bigstring 65537
 
 
-let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
-  (IOBuf.create 32) 
+let pid  = 
+  Abuf.create_bigstring 32 |> fun buf -> 
+  Abuf.write_bytes (Bytes.unsafe_of_string ((Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())))) buf; 
+  buf
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -103,17 +104,12 @@ let make_open = Message.Open (Open.create version pid lease Locators.empty [])
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
 let send_message sock msg =
-  let open Result.Infix in
-  let wbuf = IOBuf.clear wbuf
-  and lbuf = IOBuf.clear lbuf in
-  
-  let wbuf = Result.get (Mcodec.encode_msg msg wbuf >>> IOBuf.flip) in
-
-  let len = IOBuf.limit wbuf in
-  let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
-  
-  let%lwt _ = Net.write_all sock lbuf in
-  Net.write_all sock wbuf
+  Abuf.clear wbuf;
+  Abuf.clear lbuf;
+  Mcodec.encode_msg msg wbuf;
+  let len = Abuf.readable_bytes wbuf in
+  encode_vle (Vle.of_int len) lbuf;
+  Net.write_all sock (Abuf.wrap [lbuf; wbuf])
 
 
 let process_incoming_message msg resolver t = 
@@ -132,11 +128,11 @@ let process_incoming_message msg resolver t =
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener buf (PathExpr.to_string res.name)) 
+            Lwt.catch (fun () -> sub.listener (Abuf.duplicate buf) (PathExpr.to_string res.name)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener buf (PathExpr.to_string res.name))
+            Lwt.catch (fun () -> sto.listener (Abuf.duplicate buf) (PathExpr.to_string res.name))
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
         | None -> Lwt.return_unit 
@@ -153,11 +149,11 @@ let process_incoming_message msg resolver t =
       match PathExpr.intersect res.name datapath with 
       | true -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
-            Lwt.catch (fun () -> sub.listener buf (WriteData.resource dmsg)) 
+            Lwt.catch (fun () -> sub.listener (Abuf.duplicate buf) (WriteData.resource dmsg)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener buf (WriteData.resource dmsg))
+            Lwt.catch (fun () -> sto.listener (Abuf.duplicate buf) (WriteData.resource dmsg))
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
       | false -> return_unit) (VleMap.bindings state.resmap) in
@@ -177,13 +173,13 @@ let process_incoming_message msg resolver t =
               >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
           ) Vle.zero res.stos
           >>= fun rsn -> 
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", Abuf.create 0))))
           >>= fun _ -> return_unit
       | false -> return_unit) (VleMap.bindings state.resmap) in
     let%lwt _ = send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) in
     return_true    
   | Message.Reply rmsg -> 
-    (match String.equal (IOBuf.hexdump (Reply.qpid rmsg)) (IOBuf.hexdump pid) with 
+    (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
     | false -> return_true
     | true -> 
       let state = Guard.get t.state in    
@@ -194,7 +190,7 @@ let process_incoming_message msg resolver t =
         | None -> Lwt.catch(fun () -> query.listener ReplyFinal) 
                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
         | Some (stoid, rsn, resname, payload) -> 
-          (match IOBuf.available payload with 
+          (match Abuf.readable_bytes payload with 
           | 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
           | _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})))
@@ -204,26 +200,13 @@ let process_incoming_message msg resolver t =
     Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
     return_true
 
-let get_message_length sock buf =
-  let rec extract_length buf v bc =
-    let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
-    match%lwt Net.read_all sock buf with
-    | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
-    | _ ->
-      let (b, buf) = Result.get (IOBuf.get_char buf) in
-      match int_of_char b with
-      | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
-      | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
-  in extract_length buf 0 0
-
 let rec run_decode_loop resolver t = 
-  let%lwt len = get_message_length t.sock rbuf in
+  let%lwt len = Net.read_vle t.sock >>= fun v -> Vle.to_int v |> Lwt.return in
   let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-  let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
-  let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
-  let%lwt _ = Net.read_all t.sock rbuf in
-  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-  let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+  Abuf.clear rbuf;
+  let%lwt _ = Net.read_all t.sock rbuf len in
+  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (Abuf.to_string rbuf)) in
+  let msg = Mcodec.decode_msg rbuf in
   let%lwt _ = process_incoming_message msg resolver t in
   run_decode_loop resolver t
   
@@ -390,7 +373,7 @@ let squery resname predicate ?(dest=Queries.Partial) z =
   let _ = (query resname predicate reply_handler ~dest z) in 
   stream
 
-type lquery_context = {resolver: (string*IOBuf.t) list Lwt.u; mutable qs: (string*IOBuf.t) list}
+type lquery_context = {resolver: (string*Abuf.t) list Lwt.u; mutable qs: (string*Abuf.t) list}
 
 let lquery resname predicate ?(dest=Queries.Partial) z =   
   let promise,resolver = Lwt.wait () in 

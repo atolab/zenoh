@@ -1,20 +1,16 @@
 open Apero
-open Apero.Result
-open Apero.Result.Infix
 open Message
 open Pcodec
 open Block
-(* open Pcodec *)
 
 
 let encode_properties = function
-  | [] -> return 
+  | [] -> fun _ -> ()
   | ps -> (encode_seq encode_property) ps 
-  
 
-let decode_properties h  buf =
-  if Flags.(hasFlag h pFlag) then ((decode_seq decode_property) buf) >>= fun (ps, buf) -> Ok (ps, buf)
-  else return ([], buf) 
+let decode_properties h buf =
+  if Flags.(hasFlag h pFlag) then ((decode_seq decode_property) buf)
+  else []
 
 
 let make_res_decl rid resource ps = Declaration.ResourceDecl (ResourceDecl.create rid resource ps)
@@ -30,10 +26,10 @@ let decode_res_decl header =
 let encode_res_decl d buf=
   let open ResourceDecl in
   Logs.debug (fun m -> m "Writing ResourceDeclaration") ;
-  IOBuf.put_char (header d) buf 
-  >>= encode_vle (rid d)
-  >>= encode_string (resource d)
-  >>= encode_properties (properties d)
+  Abuf.write_byte (header d) buf;
+  encode_vle (rid d) buf;
+  encode_string (resource d) buf;
+  encode_properties (properties d) buf
   
 let make_pub_decl rid ps = Declaration.PublisherDecl (PublisherDecl.create rid ps)
 
@@ -49,9 +45,9 @@ let encode_pub_decl d buf =
   Logs.debug (fun m -> m "Writing PubDeclaration") ;
   let id = (rid d) in
   Logs.debug (fun m -> m  "Writing PubDeclaration for rid = %Ld" id) ;
-  IOBuf.put_char (header d) buf
-  >>= encode_vle id 
-  >>= encode_properties (properties d)
+  Abuf.write_byte (header d) buf;
+  encode_vle id buf;
+  encode_properties (properties d) buf
 
 let make_temporal_properties origin period duration = TemporalProperty.create origin period duration
 
@@ -66,42 +62,33 @@ let decode_temporal_properties =
 let encode_temporal_properties stp buf =
   let open TemporalProperty in
   match stp with
-  | None -> return buf
+  | None -> ()
   | Some tp ->
     Logs.debug (fun m -> m "Writing Temporal") ;
-    encode_vle (origin tp) buf 
-    >>= encode_vle (period tp)
-    >>= encode_vle (duration tp)
+    encode_vle (origin tp) buf;
+    encode_vle (period tp) buf;
+    encode_vle (duration tp) buf
     
 let decode_sub_mode buf =
   Logs.debug (fun m -> m "Reading SubMode") ;
-  IOBuf.get_char buf 
-  >>= (function 
-      | (id, buf) when  Flags.mid id = SubscriptionModeId.pushModeId ->
-        return (SubscriptionMode.PushMode, buf)
-
-      | (id, buf) when  Flags.mid id =  SubscriptionModeId.pullModeId ->
-        return (SubscriptionMode.PullMode, buf)
-
-      | (id, buf) when  Flags.mid id =  SubscriptionModeId.periodicPushModeId ->
-        decode_temporal_properties buf
-        >>= (fun (tp, buf) -> 
-          return (SubscriptionMode.PeriodicPushMode tp, buf))
-
-      | (id, buf) when  Flags.mid id =  SubscriptionModeId.periodicPullModeId ->
-        decode_temporal_properties buf
-        >>= (fun (tp, buf) -> 
-          return (SubscriptionMode.PeriodicPullMode tp, buf))
-      
-      | _ -> fail `UnknownSubMode)
+  Abuf.read_byte buf |> function 
+  | id when Flags.mid id = SubscriptionModeId.pushModeId ->
+    SubscriptionMode.PushMode
+  | id when Flags.mid id = SubscriptionModeId.pullModeId ->
+    SubscriptionMode.PullMode
+  | id when Flags.mid id = SubscriptionModeId.periodicPushModeId ->
+    decode_temporal_properties buf |> fun tp -> 
+      SubscriptionMode.PeriodicPushMode tp
+  | id when Flags.mid id = SubscriptionModeId.periodicPullModeId ->
+    decode_temporal_properties buf |> fun tp -> 
+      SubscriptionMode.PeriodicPullMode tp
+  | _ -> raise @@ Exception(`UnknownSubMode)
   
-  
-
 let encode_sub_mode m buf =
   let open SubscriptionMode in
   Logs.debug (fun m -> m "Writing SubMode") ;  
-  IOBuf.put_char (id m) buf
-  >>= encode_temporal_properties (temporal_properties m)
+  Abuf.write_byte (id m) buf;
+  encode_temporal_properties (temporal_properties m) buf
 
 let make_sub_decl rid mode ps = Declaration.SubscriberDecl (SubscriberDecl.create rid mode ps)
 
@@ -118,10 +105,10 @@ let encode_sub_decl d buf =
   Logs.debug (fun m -> m "Writing SubDeclaration") ;
   let id = (rid d) in
   Logs.debug (fun m -> m "Writing SubDeclaration for rid = %Ld" id) ;
-  IOBuf.put_char (header d) buf
-  >>= encode_vle id
-  >>= encode_sub_mode (mode d)
-  >>= encode_properties (properties d)
+  Abuf.write_byte (header d) buf;
+  encode_vle id buf;
+  encode_sub_mode (mode d) buf;
+  encode_properties (properties d) buf
 
 
 let make_selection_decl h sid query ps = 
@@ -138,10 +125,10 @@ let decode_selection_decl header =
 let encode_selection_decl d buf =
   let open SelectionDecl in
   Logs.debug (fun m -> m "Writing SelectionDeclaration");
-  IOBuf.put_char (header d) buf
-  >>= encode_vle (sid d)
-  >>= encode_string (query d) 
-  >>= encode_properties (properties d)
+  Abuf.write_byte (header d) buf;
+  encode_vle (sid d) buf;
+  encode_string (query d) buf;
+  encode_properties (properties d) buf
   
 let make_binding_decl h oldid newid = 
   Declaration.BindingDecl (BindingDecl.create oldid newid (Flags.(hasFlag h gFlag)))
@@ -156,98 +143,91 @@ let decode_binding_decl header =
 let encode_bindind_decl d buf =
   let open BindingDecl in
   Logs.debug (fun m -> m "Writing BindingDeclaration") ;
-  IOBuf.put_char (header d) buf
-  >>= encode_vle (old_id d) 
-  >>= encode_vle (new_id d)
+  Abuf.write_byte (header d) buf;
+  encode_vle (old_id d) buf;
+  encode_vle (new_id d) buf
 
 let make_commit_decl commit_id = (Declaration.CommitDecl (CommitDecl.create commit_id))
 
 let decode_commit_decl = 
   read1_spec 
     (Logs.debug (fun m -> m "Reading Commit Declaration"))
-    IOBuf.get_char
+    Abuf.read_byte
     make_commit_decl
   
 let encode_commit_decl cd buf =
   let open CommitDecl in  
   Logs.debug (fun m -> m "Writing Commit Declaration");
-  IOBuf.put_char (header cd) buf
-  >>= IOBuf.put_char (commit_id cd)
+  Abuf.write_byte (header cd) buf;
+  Abuf.write_byte (commit_id cd) buf
   
 let decode_result_decl buf =  
   Logs.debug (fun m -> m "Reading Result Declaration");
-  IOBuf.get_char buf 
-  >>= (fun (commit_id, buf) -> 
-    IOBuf.get_char buf
-    >>= (function 
-      | (status, buf) when status = char_of_int 0 ->
-        return (Declaration.ResultDecl  (ResultDecl.create commit_id status None), buf)
-      | (status, buf) ->
-        decode_vle buf
-        >>= (fun (v, buf) ->
-          return (Declaration.ResultDecl (ResultDecl.create commit_id status (Some v)), buf))))
-    
-  
+  Abuf.read_byte buf |> fun commit_id -> 
+    Abuf.read_byte buf |> function 
+      | status when status = char_of_int 0 ->
+        Declaration.ResultDecl  (ResultDecl.create commit_id status None)
+      | status ->
+        decode_vle buf |> fun v ->
+          Declaration.ResultDecl (ResultDecl.create commit_id status (Some v))
+
 let encode_result_decl rd buf =
   let open ResultDecl in  
   Logs.debug (fun m -> m "Writing Result Declaration") ;
-  IOBuf.put_char (header rd) buf
-  >>= IOBuf.put_char (commit_id rd)
-  >>= IOBuf.put_char (status rd) 
-  >>= (fun buf -> 
-    match (id rd) with 
-    | None -> return buf 
-    | Some v -> encode_vle v buf)
+  Abuf.write_byte (header rd) buf;
+  Abuf.write_byte (commit_id rd) buf;
+  Abuf.write_byte (status rd) buf;
+  match (id rd) with 
+  | None -> ()
+  | Some v -> encode_vle v buf
+
 
 let decode_forget_res_decl buf =
   Logs.debug (fun m -> m "Reading ForgetResource Declaration");
-  decode_vle buf
-  >>= (fun (rid, buf) -> 
-    return (Declaration.ForgetResourceDecl (ForgetResourceDecl.create rid), buf))
+  decode_vle buf |> fun rid ->
+    Declaration.ForgetResourceDecl (ForgetResourceDecl.create rid)
   
 let encode_forget_res_decl frd buf =
   let open ForgetResourceDecl in
   Logs.debug (fun m -> m "Writing ForgetResource Declaration");
-  IOBuf.put_char (header frd) buf
-  >>= encode_vle (rid frd)  
+  Abuf.write_byte (header frd) buf;
+  encode_vle (rid frd) buf
+
 
 let decode_forget_pub_decl buf =
   Logs.debug (fun m -> m "Reading ForgetPublisher Declaration");
-   decode_vle buf
-   >>= (fun (id, buf) -> 
-    return (Declaration.ForgetPublisherDecl (ForgetPublisherDecl.create id), buf))
+  decode_vle buf |> fun id -> 
+    Declaration.ForgetPublisherDecl (ForgetPublisherDecl.create id)
   
 let encode_forget_pub_decl fpd buf =
   let open ForgetPublisherDecl in
   Logs.debug (fun m -> m "Writing ForgetPublisher Declaration");
-  IOBuf.put_char (header fpd) buf 
-  >>= encode_vle (id fpd)
-  
+  Abuf.write_byte (header fpd) buf;
+  encode_vle (id fpd) buf
+
+
 let decode_forget_sub_decl buf =
   Logs.debug (fun m -> m "Reading ForgetSubscriber Declaration");
-  decode_vle buf
-  >>= (fun (id, buf) -> 
-    return (Declaration.ForgetSubscriberDecl (ForgetSubscriberDecl.create id), buf))
+  decode_vle buf |> fun id -> 
+    Declaration.ForgetSubscriberDecl (ForgetSubscriberDecl.create id)
   
 let encode_forget_sub_decl fsd buf =
   let open ForgetSubscriberDecl in
   Logs.debug (fun m -> m "Writing ForgetSubscriber Declaration");
-  IOBuf.put_char (header fsd) buf
-  >>= encode_vle (id fsd)
+  Abuf.write_byte (header fsd) buf;
+  encode_vle (id fsd) buf
+
 
 let decode_forget_sel_decl buf =
   Logs.debug (fun m -> m "Reading ForgetSelection Declaration") ;
-  decode_vle buf
-  >>= (fun (sid, buf) -> 
-    return (Declaration.ForgetSelectionDecl (ForgetSelectionDecl.create sid), buf))
-    
-
+  decode_vle buf |> fun sid -> 
+    Declaration.ForgetSelectionDecl (ForgetSelectionDecl.create sid)
 
 let encode_forget_sel_decl fsd buf =
   let open ForgetSelectionDecl in
   Logs.debug (fun m -> m "Writing ForgetSelection Declaration" );   
-  IOBuf.put_char (header fsd) buf 
-  >>= encode_vle (sid fsd) 
+  Abuf.write_byte (header fsd) buf;
+  encode_vle (sid fsd) buf
 
 let make_storage_decl rid ps = Declaration.StorageDecl (StorageDecl.create rid ps)
 
@@ -263,19 +243,18 @@ let encode_storage_decl d buf =
   Logs.debug (fun m -> m "Writing StorageDeclaration") ;
   let id = (rid d) in
   Logs.debug (fun m -> m  "Writing StorageDeclarationv for rid = %Ld" id) ;
-  IOBuf.put_char (header d) buf
-  >>= encode_vle id 
-  >>= encode_properties (properties d)
+  Abuf.write_byte (header d) buf;
+  encode_vle id buf;
+  encode_properties (properties d) buf
 
 
 let decode_forget_storage_decl buf =
   Logs.debug (fun m -> m "Reading ForgetStorage Declaration");
-   decode_vle buf
-   >>= (fun (id, buf) -> 
-    return (Declaration.ForgetStorageDecl (ForgetStorageDecl.create id), buf))
+  decode_vle buf |> fun id -> 
+    Declaration.ForgetStorageDecl (ForgetStorageDecl.create id)
   
 let encode_forget_storage_decl fsd buf =
   let open ForgetStorageDecl in
   Logs.debug (fun m -> m "Writing ForgetStorage Declaration");
-  IOBuf.put_char (header fsd) buf 
-  >>= encode_vle (id fsd)
+  Abuf.write_byte (header fsd) buf;
+  encode_vle (id fsd) buf

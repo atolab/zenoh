@@ -6,7 +6,7 @@ open Engine_state
 
 open Discovery 
 
-let pid_to_string = IOBuf.hexdump
+let pid_to_string = Abuf.hexdump
 
 let make_scout = Message.Scout (Message.Scout.create Message.ScoutFlags.scoutBroker [])
 
@@ -111,7 +111,7 @@ let process_broker_open engine tsex msg =
   Guard.guarded engine 
   @@ fun pe ->
   let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-  let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Open.pid msg; tsex}} in
+  let pe' = {pe with router = ZRouter.new_node pe.router {pid = Abuf.hexdump @@ Message.Open.pid msg; tsex}} in
   forward_all_decls pe;
   Guard.return [make_accept pe' (Message.Open.pid msg)] pe'
 
@@ -142,7 +142,7 @@ let process_accept_broker engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
-  let pe' = {pe with router = ZRouter.new_node pe.router {pid = IOBuf.hexdump @@ Message.Accept.apid msg; tsex}} in
+  let pe' = {pe with router = ZRouter.new_node pe.router {pid = Abuf.hexdump @@ Message.Accept.apid msg; tsex}} in
   forward_all_decls pe;
   Guard.return [] pe'
 

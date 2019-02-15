@@ -22,13 +22,13 @@ module ZEngine (MVar : MVar) = struct
       List.iter (fun node -> 
           let b = Marshal.to_bytes node [] in
           let sdata = Message.with_marker               
-              (StreamData(StreamData.create (true, true) 0L 0L None (IOBuf.from_bytes (Lwt_bytes.of_bytes b))))
+              (StreamData(StreamData.create (true, true) 0L 0L None (Abuf.from_bytes b)))
               (RSpace (RSpace.create 1L)) in           
           Lwt.ignore_result @@ Mcodec.ztcp_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
-    let create ?(bufn = 32) ?(buflen=65536) (pid : IOBuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
+    let create ?(bufn = 32) ?(buflen=65536) (pid : Abuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
       Guard.create @@ { 
         pid; 
         lease; 
@@ -37,10 +37,10 @@ module ZEngine (MVar : MVar) = struct
         rmap = ResMap.empty; 
         qmap = QIDMap.empty;
         peers;
-        router = ZRouter.create send_nodes (IOBuf.hexdump pid) strength 2 0;
+        router = ZRouter.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
-        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ IOBuf.create buflen) }
+        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring buflen) }
 
     let start engine = 
       connect_peers (Guard.get engine)
