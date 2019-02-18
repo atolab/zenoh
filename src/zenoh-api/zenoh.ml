@@ -5,13 +5,13 @@ open Lwt
 
 module VleMap = Map.Make(Vle)
 
-type sublistener = IOBuf.t -> string -> unit Lwt.t
+type sublistener = MIOBuf.t -> string -> unit Lwt.t
 type queryreply = 
-  | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
-  | StorageFinal of {stoid:IOBuf.t; rsn:int}
+  | StorageData of {stoid:MIOBuf.t; rsn:int; resname:string; data:MIOBuf.t}
+  | StorageFinal of {stoid:MIOBuf.t; rsn:int}
   | ReplyFinal 
 type reply_handler = queryreply -> unit Lwt.t
-type query_handler = string -> string -> (string * IOBuf.t) list Lwt.t
+type query_handler = string -> string -> (string * MIOBuf.t) list Lwt.t
 
 type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
@@ -67,14 +67,17 @@ type storage = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
-let lbuf = IOBuf.create 16
-let wbuf = IOBuf.create 8192
-let rbuf = IOBuf.create 8192
+let lbuf = MIOBuf.create 16
+let wbuf = MIOBuf.create 8192
+let rbuf = MIOBuf.create 8192
 
 
-let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
-  (IOBuf.create 32) 
+let pid  = 
+  let buf = MIOBuf.create 32 in    
+  MIOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) buf;
+  MIOBuf.flip buf;
+  buf
+  
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -102,16 +105,16 @@ let add_resource resname state =
 let make_open = Message.Open (Open.create version pid lease Locators.empty [])
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
-let send_message sock msg =
-  let open Result.Infix in
-  let wbuf = IOBuf.clear wbuf
-  and lbuf = IOBuf.clear lbuf in
+let send_message sock msg =  
+  MIOBuf.clear wbuf;
+  MIOBuf.clear lbuf;
   
-  let wbuf = Result.get (Mcodec.encode_msg msg wbuf >>> IOBuf.flip) in
+  Mcodec.encode_msg msg wbuf;
+  MIOBuf.flip wbuf;
 
-  let len = IOBuf.limit wbuf in
-  let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
-  
+  let len = MIOBuf.limit wbuf in
+  fast_encode_vle (Vle.of_int len) lbuf;
+  MIOBuf.flip lbuf;  
   let%lwt _ = Net.write_all sock lbuf in
   Net.write_all sock wbuf
 
@@ -177,13 +180,13 @@ let process_incoming_message msg resolver t =
               >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
           ) Vle.zero res.stos
           >>= fun rsn -> 
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", IOBuf.create 0))))
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", MIOBuf.create 0))))
           >>= fun _ -> return_unit
       | false -> return_unit) (VleMap.bindings state.resmap) in
     let%lwt _ = send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) in
     return_true    
   | Message.Reply rmsg -> 
-    (match String.equal (IOBuf.hexdump (Reply.qpid rmsg)) (IOBuf.hexdump pid) with 
+    (match String.equal (MIOBuf.hexdump (Reply.qpid rmsg)) (MIOBuf.hexdump pid) with 
     | false -> return_true
     | true -> 
       let state = Guard.get t.state in    
@@ -194,7 +197,7 @@ let process_incoming_message msg resolver t =
         | None -> Lwt.catch(fun () -> query.listener ReplyFinal) 
                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
         | Some (stoid, rsn, resname, payload) -> 
-          (match IOBuf.available payload with 
+          (match MIOBuf.available payload with 
           | 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
           | _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=payload})))
@@ -206,11 +209,11 @@ let process_incoming_message msg resolver t =
 
 let get_message_length sock buf =
   let rec extract_length buf v bc =
-    let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
+    MIOBuf.reset_with  0 1 buf;
     match%lwt Net.read_all sock buf with
     | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
     | _ ->
-      let (b, buf) = Result.get (IOBuf.get_char buf) in
+      let b = MIOBuf.get_char buf in
       match int_of_char b with
       | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
       | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
@@ -219,11 +222,11 @@ let get_message_length sock buf =
 let rec run_decode_loop resolver t = 
   let%lwt len = get_message_length t.sock rbuf in
   let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-  let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
-  let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
+  MIOBuf.set_position 0 rbuf;
+  MIOBuf.set_limit len rbuf;
   let%lwt _ = Net.read_all t.sock rbuf in
-  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-  let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (MIOBuf.to_string rbuf)) in
+  let msg =Mcodec.decode_msg rbuf in
   let%lwt _ = process_incoming_message msg resolver t in
   run_decode_loop resolver t
   
@@ -390,7 +393,7 @@ let squery resname predicate ?(dest=Queries.Partial) z =
   let _ = (query resname predicate reply_handler ~dest z) in 
   stream
 
-type lquery_context = {resolver: (string*IOBuf.t) list Lwt.u; mutable qs: (string*IOBuf.t) list}
+type lquery_context = {resolver: (string*MIOBuf.t) list Lwt.u; mutable qs: (string*MIOBuf.t) list}
 
 let lquery resname predicate ?(dest=Queries.Partial) z =   
   let promise,resolver = Lwt.wait () in 

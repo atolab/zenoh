@@ -1,15 +1,14 @@
-open Iobuf
-
+open Apero
 type sub
 type pub
 type storage
-type sublistener = IOBuf.t -> string -> unit Lwt.t
+type sublistener = MIOBuf.t -> string -> unit Lwt.t
 type queryreply = 
-  | StorageData of {stoid:IOBuf.t; rsn:int; resname:string; data:IOBuf.t}
-  | StorageFinal of {stoid:IOBuf.t; rsn:int}
+  | StorageData of {stoid:MIOBuf.t; rsn:int; resname:string; data:MIOBuf.t}
+  | StorageFinal of {stoid:MIOBuf.t; rsn:int}
   | ReplyFinal 
 type reply_handler = queryreply -> unit Lwt.t
-type query_handler = string -> string -> (string * IOBuf.t) list Lwt.t
+type query_handler = string -> string -> (string * MIOBuf.t) list Lwt.t
 type submode
 type t
 
@@ -21,9 +20,9 @@ val publish : string -> t -> pub Lwt.t
 
 val unpublish : pub -> t -> unit Lwt.t
 
-val write : IOBuf.t -> string -> t -> unit Lwt.t
+val write : MIOBuf.t -> string -> t -> unit Lwt.t
 
-val stream : IOBuf.t -> pub -> unit Lwt.t
+val stream : MIOBuf.t -> pub -> unit Lwt.t
 
 val push_mode : submode
 
@@ -43,7 +42,7 @@ val squery : string -> string -> ?dest:Queries.dest -> t -> queryreply Lwt_strea
 (* [lquery] returns a stream that will allow to asynchronously iterate through the 
 replies of the query *)
 
-val lquery : string -> string -> ?dest:Queries.dest -> t -> (string * IOBuf.t) list Lwt.t
+val lquery : string -> string -> ?dest:Queries.dest -> t -> (string * MIOBuf.t) list Lwt.t
 (* [lquery] consolidates the results of a query and returns them into a list of key values *)
 
 val unstore : storage -> t -> unit Lwt.t

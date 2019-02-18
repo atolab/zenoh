@@ -10,7 +10,7 @@ module QIDMap = Map.Make(Qid)
 type tx_session_connector = Locator.t -> TxSession.t Lwt.t 
 
 type engine_state = {
-    pid : IOBuf.t;
+    pid : MIOBuf.t;
     lease : Vle.t;
     locators : Locators.t;
     smap : Session.t SIDMap.t;
@@ -20,7 +20,7 @@ type engine_state = {
     router : ZRouter.t;
     next_mapping : Vle.t;
     tx_connector : tx_session_connector;
-    buffer_pool : IOBuf.t Lwt_pool.t
+    buffer_pool : MIOBuf.t Lwt_pool.t
 
 }
 

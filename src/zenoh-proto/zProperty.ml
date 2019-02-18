@@ -11,7 +11,7 @@ module PropertyId = struct
   let storageDist = 3L
 end
 
-module T = Apero.KeyValueF.Make(Apero.Vle) (Apero.IOBuf)
+module T = Apero.KeyValueF.Make(Apero.Vle) (Apero.MIOBuf)
 include T
 
 let find_opt pid = List.find_opt (fun p -> Vle.to_int @@ key p = (Vle.to_int pid))
@@ -19,9 +19,11 @@ let find_opt pid = List.find_opt (fun p -> Vle.to_int @@ key p = (Vle.to_int pid
 module NodeMask = struct 
   let make mask = make 
     PropertyId.nodeMask 
-    (IOBuf.create 32 |> Apero.encode_vle mask |> Result.get |> IOBuf.flip)
+    (let buf = MIOBuf.create 32 in 
+    Apero.fast_encode_vle mask buf;
+    MIOBuf.flip buf; buf)
   
-  let mask p = value p |> Apero.decode_vle |> Result.get |> fst 
+  let mask p = value p |> Apero.fast_decode_vle 
 
   let find_opt = find_opt PropertyId.nodeMask
 end 
@@ -29,9 +31,11 @@ end
 module StorageDist = struct 
   let make dist = make 
     PropertyId.storageDist 
-    (IOBuf.create 32 |> Apero.encode_vle dist |> Result.get |> IOBuf.flip)
+    (let buf = MIOBuf.create 32 in 
+    Apero.fast_encode_vle dist buf;
+    MIOBuf.flip buf; buf)
   
-  let dist p = value p |> Apero.decode_vle |> Result.get |> fst 
+  let dist p = value p |> Apero.fast_decode_vle 
 
   let find_opt = find_opt PropertyId.storageDist
 end
@@ -40,16 +44,26 @@ module QueryDest = struct
   open Queries
   let make dest = make 
     PropertyId.queryDest 
-    (match dest with 
-      | Partial    -> IOBuf.create 32 |> Apero.encode_vle 0L |> Result.get |> IOBuf.flip
-      | Complete q -> IOBuf.create 32 |> Apero.encode_vle 1L |> Result.get |> Apero.encode_vle (Vle.of_int q) |> Result.get|> IOBuf.flip
-      | All        -> IOBuf.create 32 |> Apero.encode_vle 2L |> Result.get |> IOBuf.flip)
+    (let buf = MIOBuf.create 32 in  
+    match dest with 
+    | Partial    ->         
+      Apero.fast_encode_vle 0L buf; 
+      MIOBuf.flip buf;
+      buf
+    | Complete q -> 
+      Apero.encode_vle 1L buf;
+      Apero.encode_vle (Vle.of_int q) buf;
+      MIOBuf.flip buf; buf
+    | All -> 
+      Apero.fast_encode_vle 2L buf;
+      MIOBuf.flip buf;
+      buf)
   
   let dest p = 
     let buf = value p in 
-    let (destType, buf) = Apero.decode_vle buf |> Result.get in 
+    let destType = Apero.fast_decode_vle buf in 
     match destType with 
-    | 1L -> Complete (Apero.decode_vle buf |> Result.get |> fst |> Vle.to_int)
+    | 1L -> Complete  (Vle.to_int @@ Apero.fast_decode_vle buf)
     | 2L -> All
     | _ -> Partial
 

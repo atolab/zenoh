@@ -9,7 +9,7 @@ INSTALL=dune install
 UNINSTALL=dune uninstall
 
 BROKER=src/zenoh-broker/zenohd.exe
-CLIENT=src/zenoh-cat/zenohc.exe
+#CLIENT=src/zenoh-cat/zenohc.exe
 API_EXAMPLE_SUB=example/zenoh-api/sub.exe
 API_EXAMPLE_PUB=example/zenoh-api/pub.exe
 API_EXAMPLE_STO=example/zenoh-api/storage.exe
@@ -22,7 +22,7 @@ THROUGHPUT_PUB=example/throughput/throughput_pub.exe
 all:
 	${BUILD} 
 	${BUILD} ${BROKER}
-	${BUILD} ${CLIENT}
+#	${BUILD} ${CLIENT}
 	${BUILD} ${API_EXAMPLE_SUB}
 	${BUILD} ${API_EXAMPLE_PUB}
 	${BUILD} ${API_EXAMPLE_STO}
@@ -35,7 +35,7 @@ all:
 release:
 	${RELEASE} 
 	${RELEASE} ${BROKER}
-	${RELEASE} ${CLIENT}
+#	${RELEASE} ${CLIENT}
 	${RELEASE} ${API_EXAMPLE_SUB}
 	${RELEASE} ${API_EXAMPLE_PUB}
 	${RELEASE} ${API_EXAMPLE_STO}

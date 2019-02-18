@@ -11,7 +11,7 @@ let run peers size =
   (
     let%lwt z = zopen peers in 
     let%lwt home1pub = publish "/home1" z in 
-    let buf = IOBuf.create size in
+    let buf = MIOBuf.create size in
     let rec loop () = stream buf home1pub >>= loop in 
     loop ()
   )

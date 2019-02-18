@@ -8,11 +8,11 @@ let peer = match Array.length Sys.argv with
 
 let handler = function
   | StorageData rep ->
-    let (str, _) = Result.get @@ decode_string rep.data in
-    Printf.printf "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] RESOURCE [%-20s] : %s\n%!" (IOBuf.hexdump rep.stoid) rep.rsn rep.resname str;
+    let str = decode_string rep.data in
+    Printf.printf "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] RESOURCE [%-20s] : %s\n%!" (MIOBuf.hexdump rep.stoid) rep.rsn rep.resname str;
     Lwt.return_unit
   | StorageFinal rep -> 
-    Printf.printf "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (IOBuf.hexdump rep.stoid) rep.rsn;
+    Printf.printf "QUERY HANDLER RECIEVED FROM STORAGE [%-16s:%02i] FINAL\n%!" (MIOBuf.hexdump rep.stoid) rep.rsn;
     Lwt.return_unit
   | ReplyFinal -> 
     Printf.printf "QUERY HANDLER RECIEVED GLOBAL FINAL\n%!";

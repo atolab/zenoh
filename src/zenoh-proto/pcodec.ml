@@ -36,19 +36,13 @@ let decode_properties = (decode_seq decode_property)
 
 *)
 
- 
-open Apero.Result
-open Apero.Result.Infix
-
 let decode_property buf =
-  Apero.decode_vle buf 
-  >>= (fun (id, buf) -> 
-      Apero.decode_bytes buf 
-      >>= (fun (data, buf) -> 
-      return (ZProperty.make id data, buf)))
+  let id = Apero.fast_decode_vle buf in  
+  let data = Apero.decode_bytes buf in
+  ZProperty.make id data
   
   
 
 let encode_property (id, value) buf =  
-  Apero.encode_vle id buf
-  >>= Apero.encode_bytes value
+  Apero.fast_encode_vle id buf;
+  Apero.encode_bytes value buf

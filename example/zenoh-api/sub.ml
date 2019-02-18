@@ -6,7 +6,7 @@ let peer = match Array.length Sys.argv with
   | _ -> Sys.argv.(1)
 
 let listener sub data src = 
-  let (str, _) = Result.get @@ decode_string data in
+  let str= decode_string data in
   Printf.printf "LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sub src str;
   Lwt.return_unit
 

@@ -28,11 +28,13 @@ let setup_log style_renderer level =
 
 open Cmdliner
 
-let dbuf = IOBuf.create 1024
+let dbuf = MIOBuf.create 1024
 
-let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
-  (IOBuf.create 32) 
+let pid  = 
+  let buf = MIOBuf.create 32 in   
+  MIOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) buf;
+  MIOBuf.flip buf;
+  buf
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -58,17 +60,17 @@ module Command = struct
 
 end
 
-let lbuf = IOBuf.create 16
-let wbuf = IOBuf.create 8192
-let rbuf = IOBuf.create 8192
+let lbuf = MIOBuf.create 16
+let wbuf = MIOBuf.create 8192
+let rbuf = MIOBuf.create 8192
 
 let get_message_length sock buf =
   let rec extract_length buf v bc =
-    let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
+    MIOBuf.reset_with  0 1 buf in
     match%lwt Net.recv sock buf with
     | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
     | _ ->
-      let (b, buf) = Result.get (IOBuf.get_char buf) in
+      let (b, buf) = Result.get (MIOBuf.get_char buf) in
       match int_of_char b with
       | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
       | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)

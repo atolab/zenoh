@@ -26,9 +26,9 @@ module TcpTransport = struct
   module Make (C: TcpTransportConfig) = struct         
     type session_context = {       
       sock : Lwt_unix.file_descr; 
-      inbuf: IOBuf.t; 
-      outbuf: IOBuf.t;
-      lenbuf : IOBuf.t;
+      inbuf: MIOBuf.t; 
+      outbuf: MIOBuf.t;
+      lenbuf : MIOBuf.t;
       info: Transport.Session.Info.t }
 
     module SessionMap = Map.Make (Transport.Session.Id)
@@ -66,38 +66,27 @@ module TcpTransport = struct
 
     let decode_frame_length sock buf =
       let rec extract_length v bc buf =       
-        Result.try_get 
-          ~on:(IOBuf.reset_with 0 1 buf)
-          ~run:(fun buf ->
-            match%lwt Net.recv sock buf with
-            | 0 -> Lwt.fail @@ Exception (`ClosedSession (`Msg "Peer closed the session unexpectedly"))
-            | _ ->
-              Result.try_get 
-                ~on:(IOBuf.get_char buf)
-                ~run:(fun (b, buf) -> 
-                  match int_of_char b with
-                  | c when c <= 0x7f -> Lwt.return (v lor (c lsl (bc * 7)))
-                  | c  -> extract_length  (v lor ((c land 0x7f) lsl bc)) (bc + 1) buf)
-                ~fail_with:(fun e -> Lwt.fail @@ Exception e))            
-          ~fail_with:(fun e -> Lwt.fail @@ Exception e)        
+        MIOBuf.reset_with 0 1 buf;
+        match%lwt Net.recv sock buf with
+        | 0 -> Lwt.fail @@ Exception (`ClosedSession (`Msg "Peer closed the session unexpectedly"))
+        | _ ->              
+          let b = MIOBuf.get_char buf in                 
+          (match int_of_char b with
+          | c when c <= 0x7f -> Lwt.return (v lor (c lsl (bc * 7)))
+          | c  -> extract_length  (v lor ((c land 0x7f) lsl bc)) (bc + 1) buf)                
       in extract_length 0 0 buf 
     
     let close_session sock  = Lwt_unix.close sock
 
     let make_frame buf = 
-      let open Result.Infix in
-      let rec parse_messages msr buf =      
-        if IOBuf.available buf > 0 then                     
-          Mcodec.decode_msg buf
-          >>= (fun (m, buf) -> msr 
-            >>= (fun ms -> 
-              parse_messages (Result.ok (m::ms)) buf
-            )
-          )          
-        else msr
+      let rec parse_messages ms buf =      
+        if MIOBuf.available buf > 0 then                     
+          let m = Mcodec.decode_msg buf in 
+              parse_messages (m::ms) buf                                
+        else ms
       in 
-        let ms = parse_messages (Result.ok []) buf in 
-        Frame.create <$> ms        
+        let ms = parse_messages [] buf in 
+        Frame.create ms        
 
       
     (* NOTE: We assume that a frame is not bigger than 64K bytes. This ensures that
@@ -105,18 +94,19 @@ module TcpTransport = struct
        doing just worm-hole forwarding *)
     let decode_frame sock buf = 
       let%lwt len = decode_frame_length sock buf in
-      let buf = IOBuf.clear buf in 
-      match IOBuf.set_limit len buf with 
-        | Ok buf -> 
-          let%lwt len = Net.read sock buf in
-          if len > 0 then
-            Lwt.return @@ make_frame buf 
-          else 
-            begin
-              let%lwt _ = Logs_lwt.warn (fun m -> m "Peer closed connection") in
-              Lwt.return @@ (Result.fail (`ClosedSession (`Msg "Peer Closed Session")))
-            end 
-        | Error _ -> 
+      MIOBuf.clear buf;
+      try
+        MIOBuf.set_limit len buf;       
+        let%lwt len = Net.read sock buf in
+        if len > 0 then Lwt.return @@ make_frame buf 
+        else 
+          begin
+            let%lwt _ = Logs_lwt.warn (fun m -> m "Peer closed connection") in
+            let%lwt _ = close_session sock  in          
+            Lwt.fail @@ Exception (`ClosedSession (`Msg "Peer Closed Session"))
+          end 
+      with
+      | _ -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Received frame of %d bytes " len) in
           let%lwt _ = close_session sock  in          
           Lwt.fail @@ Exception (`InvalidFormat  (`Msg "Frame exeeds the 64K limit" ))
@@ -133,14 +123,15 @@ module TcpTransport = struct
       let rbuf = sctx.inbuf in
     
       let rec serve_session () =                       
-        match%lwt decode_frame socket rbuf with
-        | Ok frame -> 
+        try 
+          let%lwt frame =  decode_frame socket rbuf in         
           List.iter (fun _ -> let _ = push (E.SessionMessage (frame, sid, Some spush)) in ()) 
           (Frame.to_list frame) |> serve_session 
-        | Error e -> 
+        with
+        | e -> 
           let%lwt _ = Logs_lwt.warn (fun m -> m "Received invalid frame. Closing session %s" ssid) in
           let%lwt _ = close_session socket in
-          Lwt.return (Exception e)  
+          Lwt.fail e
       in serve_session ()     
 
     let string_of_locators ls = 
@@ -156,18 +147,22 @@ module TcpTransport = struct
       match evt with 
       | SessionClose _ -> Lwt.return_unit 
       | SessionMessage (f, _, _) -> 
-          let buf = IOBuf.reset sctx.outbuf in
-          let lbuf = IOBuf.reset sctx.lenbuf in
-          (match Result.fold_m Mcodec.encode_msg (Frame.to_list f) buf with 
-          | Ok buf ->            
-            let%lwt lbuf = lwt_of_result (encode_vle (Vle.of_int (IOBuf.position buf)) lbuf) in
-            let%lwt _ = Net.send_vec_all sctx.sock [IOBuf.flip lbuf; IOBuf.flip buf] in
+        (try
+          let buf = sctx.outbuf in 
+          MIOBuf.reset buf;
+          let lbuf = sctx.lenbuf in
+          MIOBuf.reset lbuf;
+          List.iter (fun m -> Mcodec.encode_msg m buf) (Frame.to_list f);
+          fast_encode_vle (Vle.of_int (MIOBuf.position buf)) lbuf;                      
+          MIOBuf.flip lbuf; 
+          MIOBuf.flip buf;
+          let%lwt _ = Net.send_vec_all sctx.sock [lbuf; buf] in
             Lwt.return_unit
-          | Error _ -> 
+        with 
+        | e -> 
             let%lwt _ = Logs_lwt.err (fun m -> m "Error while encoding frame -- this is a bug!") in           
-            Lwt.return_unit
-          )        
-
+            Lwt.fail e)
+        
       | LocatorMessage (_, _, _) -> Lwt.return_unit
       | Events _ -> Lwt.return_unit 
     
@@ -187,9 +182,9 @@ module TcpTransport = struct
         let src = Locator.TcpLocator (TcpLocator.make ep) in
         let sid = (Transport.Session.Id.next_id ()) in
         let info = Transport.Session.Info.create sid src locator self.info in
-        let inbuf = IOBuf.create C.bufsize in
-        let outbuf = IOBuf.create C.bufsize in
-        let lenbuf = IOBuf.create 4 in
+        let inbuf = MIOBuf.create C.bufsize in
+        let outbuf = MIOBuf.create C.bufsize in
+        let lenbuf = MIOBuf.create 4 in
         let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
         let sm = SessionMap.add sid sctx self.smap in
         self.smap <- sm ;        (* fixme : race condition*)  
@@ -224,9 +219,9 @@ module TcpTransport = struct
           let src = Locator.TcpLocator (TcpLocator.make ep) in
           let sid = (Transport.Session.Id.next_id ()) in
           let info = Transport.Session.Info.create sid src loc self.info in
-          let inbuf = IOBuf.create C.bufsize in
-          let outbuf = IOBuf.create C.bufsize in
-          let lenbuf = IOBuf.create 4 in
+          let inbuf = MIOBuf.create C.bufsize in
+          let outbuf = MIOBuf.create C.bufsize in
+          let lenbuf = MIOBuf.create 4 in
           let sctx = { sock; inbuf; outbuf; lenbuf; info } in 
           let sm = SessionMap.add sid sctx self.smap in
           self.smap <- sm ;      (* fixme : race condition*)  

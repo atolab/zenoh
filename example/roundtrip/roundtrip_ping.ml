@@ -22,7 +22,7 @@ let run peers nb size =
     let listener _ _ state = 
       let now = Unix.gettimeofday() in 
       (match state.count + 1 < nb with 
-      | true -> Lwt.ignore_result @@ stream (IOBuf.create size) pub
+      | true -> Lwt.ignore_result @@ stream (MIOBuf.create size) pub
       | false -> Lwt.wakeup_later resolver ());
       Lwt.return (Lwt.return_unit, {wr_time=now; count=state.count + 1; rt_times=(now -. state.wr_time) :: state.rt_times}) in
 
@@ -30,7 +30,7 @@ let run peers nb size =
 
     Unix.sleep 2; (* Avoid "declare & shoot" issue. TODO : remove when fixed *)
 
-    Lwt.ignore_result @@ stream (IOBuf.create size) pub;
+    Lwt.ignore_result @@ stream (MIOBuf.create size) pub;
 
     let%lwt _ = promise in
     let%lwt state = MVar_lwt.take state in

@@ -353,9 +353,9 @@ module Open :
 sig
   type body
   type t = body marked block
-  val create : char -> IOBuf.t -> Vle.t -> Locators.t -> ZProperty.t list -> t
+  val create : char -> MIOBuf.t -> Vle.t -> Locators.t -> ZProperty.t list -> t
   val version : t -> char
-  val pid : t -> IOBuf.t
+  val pid : t -> MIOBuf.t
   val lease : t -> Vle.t
   val locators : t -> Locators.t
   val properties : t -> ZProperty.t list
@@ -365,9 +365,9 @@ module Accept :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> IOBuf.t -> Vle.t -> ZProperty.t list -> t
-  val opid : t -> IOBuf.t
-  val apid : t -> IOBuf.t
+  val create : MIOBuf.t -> MIOBuf.t -> Vle.t -> ZProperty.t list -> t
+  val opid : t -> MIOBuf.t
+  val apid : t -> MIOBuf.t
   val lease : t -> Vle.t
   val properties : t -> ZProperty.t list
 end
@@ -376,8 +376,8 @@ module Close :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> char -> t
-  val pid : t -> IOBuf.t
+  val create : MIOBuf.t -> char -> t
+  val pid : t -> MIOBuf.t
   val reason : t -> char
 end
 
@@ -385,8 +385,8 @@ module KeepAlive :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> t
-  val pid : t -> IOBuf.t
+  val create : MIOBuf.t -> t
+  val pid : t -> MIOBuf.t
 end
 
 module Declare :
@@ -404,9 +404,9 @@ module WriteData :
 sig
   type body
   type t = body reliable marked block
-  val create : bool * bool -> Vle.t -> string -> IOBuf.t -> t
+  val create : bool * bool -> Vle.t -> string -> MIOBuf.t -> t
   val resource : t -> string
-  val payload : t -> IOBuf.t
+  val payload : t -> MIOBuf.t
   val with_sn : t -> Vle.t -> t
 end
 
@@ -414,10 +414,10 @@ module StreamData :
 sig
   type body
   type t = body reliable marked block
-  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> IOBuf.t -> t
+  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> MIOBuf.t -> t
   val id : t -> Vle.t
   val prid : t -> Vle.t option
-  val payload : t -> IOBuf.t
+  val payload : t -> MIOBuf.t
   val with_sn : t -> Vle.t -> t
   val with_id : t -> Vle.t -> t
 end
@@ -455,8 +455,8 @@ module Query :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> Vle.t -> string -> string -> ZProperty.t list -> t
-  val pid : t -> IOBuf.t
+  val create : MIOBuf.t -> Vle.t -> string -> string -> ZProperty.t list -> t
+  val pid : t -> MIOBuf.t
   val qid : t -> Vle.t
   val resource : t -> string
   val predicate : t -> string
@@ -467,15 +467,15 @@ module Reply :
 sig
   type body
   type t = body marked block
-  val create : IOBuf.t -> Vle.t -> (IOBuf.t * Vle.t * string * IOBuf.t) option -> t
-  val qpid : t -> IOBuf.t
+  val create : MIOBuf.t -> Vle.t -> (MIOBuf.t * Vle.t * string * MIOBuf.t) option -> t
+  val qpid : t -> MIOBuf.t
   val qid : t -> Vle.t
   val final : t -> bool
-  val value : t -> (IOBuf.t * Vle.t * string * IOBuf.t) option
-  val stoid : t -> IOBuf.t option
+  val value : t -> (MIOBuf.t * Vle.t * string * MIOBuf.t) option
+  val stoid : t -> MIOBuf.t option
   val rsn : t -> Vle.t option
   val resource : t -> string option
-  val payload : t -> IOBuf.t option
+  val payload : t -> MIOBuf.t option
 end
 
 module Pull :
