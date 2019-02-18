@@ -599,7 +599,7 @@ let ztcp_write_frame sock frame buf =
 
 let ztcp_write_frame_alloc sock frame =
   (* We shoud compute the size and allocate accordingly *)
-  let buf = Abuf.create ~grow:4096 65536 in 
+  let buf = Abuf.create ~grow:8192 65536 in 
   ztcp_write_frame sock frame buf
 
 let ztcp_write_frame_pooled sock frame pool = Lwt_pool.use pool @@ ztcp_write_frame sock frame

@@ -68,8 +68,8 @@ type storage = {z:t; id:int; resid:Vle.t;}
 type submode = SubscriptionMode.t
 
 let lbuf = Abuf.create_bigstring 16
-let wbuf = Abuf.create_bigstring 65537
-let rbuf = Abuf.create_bigstring 65537
+let wbuf = Abuf.create_bigstring ~grow:8192 8192
+let rbuf = Abuf.create_bigstring ~grow:8192 8192
 
 
 let pid  = 
