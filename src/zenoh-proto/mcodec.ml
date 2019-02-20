@@ -52,7 +52,7 @@ let decode_open header =
   (read5_spec 
      (Logs.debug (fun m -> m "Reading Open"))
      Abuf.read_byte
-     decode_bytes
+     decode_buf
      decode_vle
      decode_locators
      (decode_properties header)
@@ -63,7 +63,7 @@ let encode_open msg buf =
   Logs.debug (fun m -> m "Writing Open") ;
   Abuf.write_byte (header msg) buf;
   Abuf.write_byte (version msg) buf;
-  encode_bytes (pid msg) buf;
+  encode_buf (pid msg) buf;
   encode_vle (lease msg) buf;
   encode_locators (locators msg) buf;
   Dcodec.encode_properties (properties msg) buf
@@ -74,8 +74,8 @@ let make_accept opid apid lease ps = Message (Accept (Accept.create opid apid le
 let decode_accept header =
   read4_spec 
     (Logs.debug (fun m -> m"Reading Accept"))
-    decode_bytes
-    decode_bytes
+    decode_buf
+    decode_buf
     decode_vle 
     (decode_properties header)
     make_accept  
@@ -84,8 +84,8 @@ let encode_accept accept buf =
   let open Accept in
   Logs.debug (fun m -> m "Writing Accept") ;
   Abuf.write_byte (header accept) buf;
-  encode_bytes (opid accept) buf;
-  encode_bytes (apid accept) buf;
+  encode_buf (opid accept) buf;
+  encode_buf (apid accept) buf;
   encode_vle (lease accept) buf;
   Dcodec.encode_properties (properties accept) buf
 
@@ -95,7 +95,7 @@ let make_close pid reason = Message (Close (Close.create pid reason))
 let decode_close _ = 
   read2_spec
     (Logs.debug (fun m -> m "Reading Close"))
-    decode_bytes
+    decode_buf
     Abuf.read_byte
     make_close
 
@@ -103,7 +103,7 @@ let encode_close close buf =
   let open Close in
   Logs.debug (fun m -> m "Writing Close") ;
   Abuf.write_byte (header close) buf;
-  encode_bytes (pid close) buf;
+  encode_buf (pid close) buf;
   Abuf.write_byte (reason close) buf  
 
 
@@ -184,7 +184,7 @@ let decode_encode_data header =
     (Logs.debug (fun m -> m "Reading WriteData"))
     decode_vle
     decode_string
-    decode_bytes
+    decode_buf
     (make_encode_data header)
 
 let encode_encode_data m buf =
@@ -193,7 +193,7 @@ let encode_encode_data m buf =
   Abuf.write_byte (header m) buf;
   encode_vle (sn m) buf;
   encode_string (resource m) buf;
-  encode_bytes (payload m) buf
+  encode_buf (payload m) buf
 
 let decode_prid h buf = 
   if Flags.(hasFlag h aFlag) 
@@ -214,7 +214,7 @@ let decode_stream_data header =
     decode_vle
     decode_vle
     (decode_prid header)
-    decode_bytes
+    decode_buf
     (make_stream_data header)
 
 let encode_stream_data m buf =
@@ -224,7 +224,7 @@ let encode_stream_data m buf =
   encode_vle (sn m) buf;
   encode_vle (id m) buf;
   encode_prid (prid m) buf;
-  encode_bytes (payload m) buf
+  encode_buf (payload m) buf
 
 let decode_synch_count h buf = 
   if Flags.(hasFlag h uFlag) 
@@ -278,13 +278,13 @@ let encode_ack_nack m buf =
 
 let decode_keep_alive _ buf =
   Logs.debug (fun m -> m "Reading KeepAlive");
-  decode_bytes buf |> fun pid -> Message (KeepAlive (KeepAlive.create pid))
+  decode_buf buf |> fun pid -> Message (KeepAlive (KeepAlive.create pid))
 
 let encode_keep_alive keep_alive buf =
   let open KeepAlive in  
   Logs.debug (fun m -> m "Writing KeepAlive");
   Abuf.write_byte (header keep_alive) buf;
-  encode_bytes (pid keep_alive) buf
+  encode_buf (pid keep_alive) buf
 
 let decode_migrate_id h buf = 
   if Flags.(hasFlag h iFlag) 
@@ -327,7 +327,7 @@ let make_query pid qid resource predicate properties =
 let decode_query header =
   read5_spec
     (Logs.debug (fun m -> m "Reading Query"))
-    decode_bytes
+    decode_buf
     decode_vle
     decode_string
     decode_string
@@ -338,7 +338,7 @@ let encode_query m buf =
   let open Query in  
   Logs.debug (fun m -> m "Writing Query");
   Abuf.write_byte (header m) buf;
-  encode_bytes (pid m) buf;
+  encode_buf (pid m) buf;
   encode_vle (qid m) buf;
   encode_string (resource m) buf;
   encode_string (predicate m) buf;
@@ -352,17 +352,17 @@ let decode_reply_value header buf =
   then
     read4_spec
       (Logs.debug (fun m -> m "  Reading Reply value"))
-      decode_bytes
+      decode_buf
       decode_vle
       decode_string
-      decode_bytes
+      decode_buf
       (fun stoid rsn resource payload -> Some (stoid, rsn, resource, payload)) buf
   else None
 
 let decode_reply header =
   read3_spec
     (Logs.debug (fun m -> m "Reading Reply"))
-    decode_bytes
+    decode_buf
     decode_vle
     (decode_reply_value header)
     make_reply
@@ -371,16 +371,16 @@ let encode_reply_value v buf =
   match v with 
   | None -> ()
   | Some (stoid, rsn, resource, payload) -> 
-    encode_bytes stoid buf;
+    encode_buf stoid buf;
     encode_vle rsn buf;
     encode_string resource buf;
-    encode_bytes payload buf
+    encode_buf payload buf
 
 let encode_reply m buf =
   let open Reply in  
   Logs.debug (fun m -> m "Writing Reply");
   Abuf.write_byte (header m) buf;
-  encode_bytes (qpid m) buf;
+  encode_buf (qpid m) buf;
   encode_vle (qid m) buf;
   encode_reply_value (value m) buf
 
@@ -599,7 +599,7 @@ let ztcp_write_frame sock frame buf =
 
 let ztcp_write_frame_alloc sock frame =
   (* We shoud compute the size and allocate accordingly *)
-  let buf = Abuf.create ~grow:4096 65536 in 
+  let buf = Abuf.create ~grow:8192 65536 in 
   ztcp_write_frame sock frame buf
 
 let ztcp_write_frame_pooled sock frame pool = Lwt_pool.use pool @@ ztcp_write_frame sock frame

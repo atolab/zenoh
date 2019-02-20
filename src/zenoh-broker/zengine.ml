@@ -40,7 +40,7 @@ module ZEngine (MVar : MVar) = struct
         router = ZRouter.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
-        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring buflen) }
+        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen) }
 
     let start engine = 
       connect_peers (Guard.get engine)
