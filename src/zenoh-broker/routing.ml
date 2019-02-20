@@ -4,7 +4,6 @@ open NetService
 open R_name
 open Engine_state
 
-
 open Discovery
 let is_pulled pe resname = 
   let open Resource in 
@@ -150,7 +149,8 @@ let rspace msg =
 let process_broker_data pe session msg = 
   let open Session in      
   let%lwt _ = Logs_lwt.debug (fun m -> m "Received tree state on %s\n" (Id.to_string session.sid)) in
-  let b = Lwt_bytes.to_bytes @@ IOBuf.to_bytes @@ Message.StreamData.payload msg in
+  let pl = Message.StreamData.payload msg in
+  let b = Abuf.read_bytes (Abuf.readable_bytes pl) pl in
   let node = Marshal.from_bytes b 0 in
   let pe = {pe with router = ZRouter.update pe.router node} in
   let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in

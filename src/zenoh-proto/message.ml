@@ -576,7 +576,7 @@ end
 module Open = struct
   type body = {
     version : char;
-    pid : IOBuf.t;
+    pid : Abuf.t;
     lease : Vle.t;
     locators : Locators.t;
     properties : ZProperty.t list;
@@ -613,8 +613,8 @@ end
  **)
 module Accept = struct
   type body = {
-    opid : IOBuf.t;
-    apid : IOBuf.t;
+    opid : Abuf.t;
+    apid : Abuf.t;
     lease : Vle.t;
     properties : ZProperty.t list;
   }
@@ -647,7 +647,7 @@ end
  **)
 module Close = struct
   type body = {
-    pid : IOBuf.t;
+    pid : Abuf.t;
     reason : char;
   }
   type t = body marked block
@@ -668,7 +668,7 @@ end
  **)
 module KeepAlive = struct
   type body = {
-    pid : IOBuf.t;
+    pid : Abuf.t;
   }
   type t = body marked block
 
@@ -711,7 +711,7 @@ end
 module WriteData = struct
   type body = {
     resource : string;
-    payload: IOBuf.t;
+    payload: Abuf.t;
   }
   type t = body reliable marked block
 
@@ -732,7 +732,7 @@ module StreamData = struct
   type body = {
     id : Vle.t;
     prid : Vle.t option;
-    payload: IOBuf.t;
+    payload: Abuf.t;
   }
   type t = body reliable marked block
 
@@ -814,7 +814,7 @@ end
 
 module Query = struct
   type body = {
-    pid : IOBuf.t;
+    pid : Abuf.t;
     qid : Vle.t;
     resource : string;
     predicate : string;
@@ -838,9 +838,9 @@ end
 
 module Reply = struct
   type body = {
-    qpid : IOBuf.t;
+    qpid : Abuf.t;
     qid : Vle.t;
-    value : (IOBuf.t * Vle.t * string * IOBuf.t) option;
+    value : (Abuf.t * Vle.t * string * Abuf.t) option;
   }
   type t = body marked block
 

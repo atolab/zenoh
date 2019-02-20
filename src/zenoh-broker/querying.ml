@@ -92,7 +92,7 @@ let process_query engine tsex q =
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
           m "Handling Query Message. nid[%s] sid[%s] pid[%s] qid[%d] res[%s]" 
-            nid (Id.to_string session.sid) (IOBuf.hexdump (Message.Query.pid q)) (Int64.to_int (Message.Query.qid q)) (Message.Query.resource q)) in
+            nid (Id.to_string session.sid) (Abuf.hexdump (Message.Query.pid q)) (Int64.to_int (Message.Query.qid q)) (Message.Query.resource q)) in
       let%lwt ss = forward_query pe session.sid q in
       match ss with 
       | [] -> forward_reply_to_session pe (Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) None) session.sid >>= fun _ -> Lwt.return pe
@@ -116,7 +116,7 @@ let process_reply engine tsex r =
             | None -> "" in
           m "Handling Reply Message. nid[%s] sid[%s] qpid[%s] qid[%d] res[%s]" 
             nid (Id.to_string (TxSession.id tsex)) 
-            (IOBuf.hexdump (Message.Reply.qpid r)) (Int64.to_int (Message.Reply.qid r))
+            (Abuf.hexdump (Message.Reply.qpid r)) (Int64.to_int (Message.Reply.qid r))
             resource) in
       (match Message.Reply.value r with 
        | Some _ -> forward_reply_to_session pe r qs.srcFace >>= fun _ -> Lwt.return pe
@@ -130,4 +130,5 @@ let process_reply engine tsex r =
            | _ -> Lwt.return @@ QIDMap.add qid {qs with fwdFaces} pe.qmap in 
          Lwt.return {pe with qmap} ) in
   Guard.return [] pe
+
 

@@ -28,11 +28,12 @@ let setup_log style_renderer level =
 
 open Cmdliner
 
-let dbuf = IOBuf.create 1024
+let dbuf = Abuf.create_bigstring 1024
 
-let pid  = IOBuf.flip @@ 
-  Result.get @@ IOBuf.put_string (Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())) @@
-  (IOBuf.create 32) 
+let pid  = 
+  Abuf.create_bigstring 32 |> fun buf -> 
+  Abuf.write_bytes (Bytes.unsafe_of_string ((Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())))) buf; 
+  buf
 
 let lease = 0L
 let version = Char.chr 0x01
@@ -58,21 +59,9 @@ module Command = struct
 
 end
 
-let lbuf = IOBuf.create 16
-let wbuf = IOBuf.create 8192
-let rbuf = IOBuf.create 8192
-
-let get_message_length sock buf =
-  let rec extract_length buf v bc =
-    let buf = Result.get @@ IOBuf.reset_with  0 1 buf in
-    match%lwt Net.recv sock buf with
-    | 0 -> fail @@ Exception(`ClosedSession (`Msg "Peer closed the session unexpectedly"))
-    | _ ->
-      let (b, buf) = Result.get (IOBuf.get_char buf) in
-      match int_of_char b with
-      | c when c <= 0x7f -> return (v lor (c lsl (bc * 7)))
-      | c  -> extract_length buf (v lor ((c land 0x7f) lsl bc)) (bc + 1)
-  in extract_length buf 0 0
+let lbuf = Abuf.create_bigstring 16
+let wbuf = Abuf.create_bigstring 65537
+let rbuf = Abuf.create_bigstring 65537
 
 let get_args () =
   if Array.length Sys.argv < 3 then
@@ -85,17 +74,13 @@ let get_args () =
   else (Array.get Sys.argv 1, int_of_string @@ Array.get Sys.argv 2)
 
 let send_message sock (msg: Message.t) =
-  let open Result.Infix in
-  let wbuf = IOBuf.clear wbuf
-  and lbuf = IOBuf.clear lbuf in
-  
-  let wbuf = Result.get (Mcodec.encode_msg msg wbuf >>> IOBuf.flip) in
-
-  let len = IOBuf.limit wbuf in
-  let lbuf = Result.get (encode_vle (Vle.of_int len) lbuf >>> IOBuf.flip) in
-  
-  let%lwt _ = Net.send sock lbuf in
-  Net.send sock wbuf
+  Abuf.clear wbuf;
+  Abuf.clear lbuf;
+  Mcodec.encode_msg msg wbuf;
+  let len = Abuf.readable_bytes wbuf in
+  encode_vle (Vle.of_int len) lbuf;
+  let%lwt _ = Net.write_all sock (Abuf.wrap [lbuf; wbuf]) in
+  Lwt.return 1
   
 
 let send_scout sock =
@@ -137,11 +122,10 @@ let send_declare_sto sock id =
   in send_message sock msg
 
 let send_stream_data sock rid data =
-  let open Result.Infix in  
-  let sn = ZConduit.next_usn default_conduit in   
-  let buf = Result.get (encode_string data (IOBuf.clear dbuf)
-  >>> IOBuf.flip) in
-  let msg = Message.StreamData (StreamData.create (false,false) sn rid None buf) in
+  let sn = ZConduit.next_usn default_conduit in 
+  Abuf.clear dbuf;
+  encode_string data dbuf;
+  let msg = Message.StreamData (StreamData.create (false,false) sn rid None dbuf) in
   send_message sock msg
   
 let rec send_stream_data_n sock rid n p data = 
@@ -155,11 +139,10 @@ let rec send_stream_data_n sock rid n p data =
     end
 
 let send_write_data sock rname data =
-  let open Result.Infix in  
-  let sn = ZConduit.next_usn default_conduit in   
-  let buf = Result.get (encode_string data (IOBuf.clear dbuf)
-  >>> IOBuf.flip) in
-  let msg = Message.WriteData (WriteData.create (false,false) sn rname buf) in
+  let sn = ZConduit.next_usn default_conduit in 
+  Abuf.clear dbuf;
+  encode_string data dbuf;
+  let msg = Message.WriteData (WriteData.create (false,false) sn rname dbuf) in
   send_message sock msg
   
 let rec send_write_data_n sock rname n p data = 
@@ -263,13 +246,13 @@ let process_incoming_message = function
   | Message.StreamData dmsg ->
     let rid = StreamData.id dmsg in
     let buf = StreamData.payload dmsg in
-    let (data, _) = Result.get @@ decode_string  buf in
+    let data = decode_string buf in
     Logs.info (fun m -> m "\n[received stream data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | Message.WriteData dmsg ->
     let res = WriteData.resource dmsg in
     let buf = WriteData.payload dmsg in
-    let (data, _) = Result.get @@ decode_string  buf in
+    let data = decode_string buf in
     Logs.info (fun m -> m "\n[received write data res: %s payload: %s]\n>>" res data);
     return_true
   | msg ->
@@ -280,13 +263,12 @@ let process_incoming_message = function
 let rec run_decode_loop sock =  
   try%lwt
     let%lwt _ = Logs_lwt.debug (fun m -> m "[Starting run_decode_loop]\n") in 
-    let%lwt len = get_message_length sock rbuf in
+    let%lwt len = Net.read_vle sock >>= fun v -> Vle.to_int v |> Lwt.return in
     let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-    let%lwt _ = Lwt_bytes.recv sock (IOBuf.to_bytes rbuf) 0 len [] in
-    let rbuf = Result.get @@ IOBuf.set_position 0 rbuf in
-    let rbuf = Result.get @@ IOBuf.set_limit len rbuf in
-    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (IOBuf.to_string rbuf)) in
-    let (msg, _) = Result.get @@ Mcodec.decode_msg rbuf in
+    Abuf.clear rbuf; 
+    let%lwt _ = Net.read_all sock rbuf len in
+    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (Abuf.to_string rbuf)) in
+    let msg = Mcodec.decode_msg rbuf in
     let%lwt _ = process_incoming_message msg in
     run_decode_loop sock
   with
