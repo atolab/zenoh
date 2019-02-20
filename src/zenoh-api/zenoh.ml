@@ -108,7 +108,7 @@ let send_message sock msg =
   Abuf.clear lbuf;
   Mcodec.encode_msg msg wbuf;
   let len = Abuf.readable_bytes wbuf in
-  encode_vle (Vle.of_int len) lbuf;
+  fast_encode_vle (Vle.of_int len) lbuf;
   Net.write_all sock (Abuf.wrap [lbuf; wbuf])
 
 
