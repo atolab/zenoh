@@ -76,7 +76,7 @@ let run_broker tcpport peers strength bufn =
         let rec decode_msgs rbuf ms =           
           let rpos = Abuf.r_pos rbuf in 
           try                    
-            let mlen = Int64.to_int @@ Apero.decode_vle rbuf in                             
+            let mlen = Int64.to_int @@ Apero.fast_decode_vle rbuf in                             
             let available = Abuf.readable_bytes rbuf in            
             
             if available > mlen then 

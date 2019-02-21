@@ -15,7 +15,7 @@ let make_scout mask ps = Message (Scout (Scout.create mask ps))
 let decode_scout header = 
   read2_spec
     (Logs.debug (fun m -> m "Reading Scout"))
-    decode_vle 
+    fast_decode_vle 
     (Dcodec.decode_properties header) 
     make_scout
 
@@ -23,7 +23,7 @@ let encode_scout scout buf =
   let open Scout in
   Logs.debug (fun m -> m "Writring Scout") ;
   Abuf.write_byte (header scout) buf;
-  encode_vle (mask scout) buf;
+  fast_encode_vle (mask scout) buf;
   encode_properties (properties scout) buf
 
 
@@ -32,7 +32,7 @@ let make_hello mask ls ps = Message (Hello (Hello.create mask ls ps))
 let decode_hello header =
   read3_spec
     (Logs.debug (fun m -> m "Reading Hello"))    
-    decode_vle
+    fast_decode_vle
     decode_locators     
     (decode_properties header)    
     make_hello
@@ -41,7 +41,7 @@ let encode_hello hello buf =
   let open Hello in
   Logs.debug (fun m -> m "Writing Hello") ;
   Abuf.write_byte (header hello) buf;
-  encode_vle (mask hello) buf;
+  fast_encode_vle (mask hello) buf;
   encode_locators (locators hello) buf;
   encode_properties  (properties hello) buf
 
@@ -53,7 +53,7 @@ let decode_open header =
      (Logs.debug (fun m -> m "Reading Open"))
      Abuf.read_byte
      decode_buf
-     decode_vle
+     fast_decode_vle
      decode_locators
      (decode_properties header)
      make_open)
@@ -64,7 +64,7 @@ let encode_open msg buf =
   Abuf.write_byte (header msg) buf;
   Abuf.write_byte (version msg) buf;
   encode_buf (pid msg) buf;
-  encode_vle (lease msg) buf;
+  fast_encode_vle (lease msg) buf;
   encode_locators (locators msg) buf;
   Dcodec.encode_properties (properties msg) buf
 
@@ -76,7 +76,7 @@ let decode_accept header =
     (Logs.debug (fun m -> m"Reading Accept"))
     decode_buf
     decode_buf
-    decode_vle 
+    fast_decode_vle 
     (decode_properties header)
     make_accept  
 
@@ -86,7 +86,7 @@ let encode_accept accept buf =
   Abuf.write_byte (header accept) buf;
   encode_buf (opid accept) buf;
   encode_buf (apid accept) buf;
-  encode_vle (lease accept) buf;
+  fast_encode_vle (lease accept) buf;
   Dcodec.encode_properties (properties accept) buf
 
 
@@ -149,11 +149,11 @@ let decode_declarations buf =
       decode_declaration buf |> fun d ->
         loop (n-1) (d::ds)
   in 
-  decode_vle buf |> fun len ->
+  fast_decode_vle buf |> fun len ->
     loop (Vle.to_int len) []
 
 let encode_declarations ds buf =
-  encode_vle (Vle.of_int @@ List.length ds) buf;
+  fast_encode_vle (Vle.of_int @@ List.length ds) buf;
   List.iter (fun d -> encode_declaration d buf) ds
 
 
@@ -163,7 +163,7 @@ let make_declare h sn ds =
 let decode_declare header =
   read2_spec 
     (Logs.debug (fun m -> m "Reading Declare message"))
-    decode_vle
+    fast_decode_vle
     decode_declarations
     (make_declare header)
 
@@ -171,7 +171,7 @@ let encode_declare decl buf=
   let open Declare in  
   Logs.debug (fun m -> m "Writing Declare message");
   Abuf.write_byte (header decl) buf;
-  encode_vle (sn decl) buf;
+  fast_encode_vle (sn decl) buf;
   encode_declarations (declarations decl) buf
 
 
@@ -182,7 +182,7 @@ let make_encode_data h sn resource payload =
 let decode_encode_data header =
   read3_spec 
     (Logs.debug (fun m -> m "Reading WriteData"))
-    decode_vle
+    fast_decode_vle
     decode_string
     decode_buf
     (make_encode_data header)
@@ -191,18 +191,18 @@ let encode_encode_data m buf =
   let open WriteData in
   Logs.debug (fun m -> m "Writing WriteData");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn m) buf;
+  fast_encode_vle (sn m) buf;
   encode_string (resource m) buf;
   encode_buf (payload m) buf
 
 let decode_prid h buf = 
   if Flags.(hasFlag h aFlag) 
-  then decode_vle buf |> fun v -> Some v
+  then fast_decode_vle buf |> fun v -> Some v
   else None
 
 let encode_prid = function
   | None -> fun _ -> ()
-  | Some v -> encode_vle v
+  | Some v -> fast_encode_vle v
 
 let make_stream_data h sn id prid payload = 
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
@@ -211,8 +211,8 @@ let make_stream_data h sn id prid payload =
 let decode_stream_data header =
   read4_spec 
     (Logs.debug (fun m -> m "Reading StreamData"))
-    decode_vle
-    decode_vle
+    fast_decode_vle
+    fast_decode_vle
     (decode_prid header)
     decode_buf
     (make_stream_data header)
@@ -221,14 +221,14 @@ let encode_stream_data m buf =
   let open StreamData in
   Logs.debug (fun m -> m "Writing StreamData");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn m) buf;
-  encode_vle (id m) buf;
+  fast_encode_vle (sn m) buf;
+  fast_encode_vle (id m) buf;
   encode_prid (prid m) buf;
   encode_buf (payload m) buf
 
 let decode_synch_count h buf = 
   if Flags.(hasFlag h uFlag) 
-  then decode_vle buf |> fun v -> Some v
+  then fast_decode_vle buf |> fun v -> Some v
   else None
 
 
@@ -239,7 +239,7 @@ let make_synch h sn c=
 let decode_synch header =
   read2_spec 
     (Logs.debug (fun m -> m "Reading Synch"))
-    decode_vle
+    fast_decode_vle
     (decode_synch_count header)
     (make_synch header)
 
@@ -247,23 +247,23 @@ let encode_synch m buf =
   let open Synch in  
   Logs.debug (fun m -> m "Writing Synch");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn m) buf;
+  fast_encode_vle (sn m) buf;
   match count m  with
   | None -> ()
-  | Some c -> encode_vle c buf
+  | Some c -> fast_encode_vle c buf
 
 
 let make_ack sn m = Message (AckNack (AckNack.create sn m))
 
 let decode_acknack_mask h buf =
   if Flags.(hasFlag h mFlag) 
-  then decode_vle buf |> fun m -> Some m
+  then fast_decode_vle buf |> fun m -> Some m
   else None
 
 let decode_ack_nack header =
   read2_spec 
     (Logs.debug (fun m -> m "Reading AckNack"))
-    decode_vle
+    fast_decode_vle
     (decode_acknack_mask header)
     make_ack
 
@@ -271,10 +271,10 @@ let encode_ack_nack m buf =
   let open AckNack in
   Logs.debug (fun m -> m "Writing AckNack");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn m) buf;
+  fast_encode_vle (sn m) buf;
   match mask m with
   | None -> ()
-  | Some v -> encode_vle v buf
+  | Some v -> fast_encode_vle v buf
 
 let decode_keep_alive _ buf =
   Logs.debug (fun m -> m "Reading KeepAlive");
@@ -288,7 +288,7 @@ let encode_keep_alive keep_alive buf =
 
 let decode_migrate_id h buf = 
   if Flags.(hasFlag h iFlag) 
-  then decode_vle buf |> fun id -> Some id
+  then fast_decode_vle buf |> fun id -> Some id
   else None
 
 
@@ -298,27 +298,27 @@ let make_migrate ocid id rch_last_sn bech_last_sn =
 let decode_migrate header =
   read4_spec
     (Logs.debug (fun m -> m "Reading Migrate"))
-    decode_vle
+    fast_decode_vle
     (decode_migrate_id header)
-    decode_vle 
-    decode_vle 
+    fast_decode_vle 
+    fast_decode_vle 
     make_migrate
 
 let encode_migrate m buf =
   let open Migrate in  
   Logs.debug (fun m -> m "Writing Migrate");
   Abuf.write_byte (header m) buf;
-  encode_vle (ocid m) buf;
+  fast_encode_vle (ocid m) buf;
   (match id m with
   | None -> ()
-  | Some id -> encode_vle id buf);
-  encode_vle (rch_last_sn m) buf;
-  encode_vle (bech_last_sn m) buf
+  | Some id -> fast_encode_vle id buf);
+  fast_encode_vle (rch_last_sn m) buf;
+  fast_encode_vle (bech_last_sn m) buf
 
 
 let decode_max_samples header buf = 
   if Flags.(hasFlag header nFlag) 
-  then decode_vle buf |> fun max_samples -> Some max_samples
+  then fast_decode_vle buf |> fun max_samples -> Some max_samples
   else None
 
 let make_query pid qid resource predicate properties = 
@@ -328,7 +328,7 @@ let decode_query header =
   read5_spec
     (Logs.debug (fun m -> m "Reading Query"))
     decode_buf
-    decode_vle
+    fast_decode_vle
     decode_string
     decode_string
     (decode_properties header)
@@ -339,7 +339,7 @@ let encode_query m buf =
   Logs.debug (fun m -> m "Writing Query");
   Abuf.write_byte (header m) buf;
   encode_buf (pid m) buf;
-  encode_vle (qid m) buf;
+  fast_encode_vle (qid m) buf;
   encode_string (resource m) buf;
   encode_string (predicate m) buf;
   Dcodec.encode_properties (properties m) buf
@@ -353,7 +353,7 @@ let decode_reply_value header buf =
     read4_spec
       (Logs.debug (fun m -> m "  Reading Reply value"))
       decode_buf
-      decode_vle
+      fast_decode_vle
       decode_string
       decode_buf
       (fun stoid rsn resource payload -> Some (stoid, rsn, resource, payload)) buf
@@ -363,7 +363,7 @@ let decode_reply header =
   read3_spec
     (Logs.debug (fun m -> m "Reading Reply"))
     decode_buf
-    decode_vle
+    fast_decode_vle
     (decode_reply_value header)
     make_reply
 
@@ -372,7 +372,7 @@ let encode_reply_value v buf =
   | None -> ()
   | Some (stoid, rsn, resource, payload) -> 
     encode_buf stoid buf;
-    encode_vle rsn buf;
+    fast_encode_vle rsn buf;
     encode_string resource buf;
     encode_buf payload buf
 
@@ -381,7 +381,7 @@ let encode_reply m buf =
   Logs.debug (fun m -> m "Writing Reply");
   Abuf.write_byte (header m) buf;
   encode_buf (qpid m) buf;
-  encode_vle (qid m) buf;
+  fast_encode_vle (qid m) buf;
   encode_reply_value (value m) buf
 
 let make_pull header sn id max_samples = 
@@ -391,8 +391,8 @@ let make_pull header sn id max_samples =
 let decode_pull header =
   read3_spec
     (Logs.debug (fun m -> m "Reading Pull"))
-    decode_vle
-    decode_vle
+    fast_decode_vle
+    fast_decode_vle
     (decode_max_samples header)
     (make_pull header)
 
@@ -400,23 +400,23 @@ let encode_pull m buf =
   let open Pull in  
   Logs.debug (fun m -> m "Writing Pull");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn m) buf;
-  encode_vle (id m) buf;
+  fast_encode_vle (sn m) buf;
+  fast_encode_vle (id m) buf;
   match max_samples m with
   | None -> ()
-  | Some max -> encode_vle max buf
+  | Some max -> fast_encode_vle max buf
 
 let decode_ping_pong header buf =  
   Logs.debug (fun m -> m "Reading PingPong");
   let o = Flags.hasFlag header Flags.oFlag in
-  decode_vle buf |> fun hash ->  
+  fast_decode_vle buf |> fun hash ->  
     Message (PingPong (PingPong.create ~pong:o hash))
 
 let encode_ping_pong  m buf=
   let open PingPong in
   Logs.debug (fun m -> m "Writing PingPong");
   Abuf.write_byte (header m) buf;
-  encode_vle (hash m) buf
+  fast_encode_vle (hash m) buf
 
 let decode_compact_id header buf = 
   (* @AC: Olivier the conduit marker should always have a cid, that should not be 
@@ -426,7 +426,7 @@ let decode_compact_id header buf =
     let flags = (int_of_char (Flags.flags header)) lsr Flags.mid_len in 
     Vle.of_int @@ (flags land 0x3)
   else 
-    decode_vle buf
+    fast_decode_vle buf
 
 let decode_conduit header buf = 
   Logs.debug (fun m -> m "Reading Conduit") ;
@@ -438,12 +438,12 @@ let encode_conduit m buf =
   Abuf.write_byte (header m) buf;
   match Flags.hasFlag (header m) Flags.zFlag with 
   | true -> ()
-  | false -> encode_vle (id m) buf
+  | false -> fast_encode_vle (id m) buf
 
 
 let decode_frag_num header buf = 
   if Flags.(hasFlag header nFlag) 
-  then decode_vle buf |> fun n -> Some n
+  then fast_decode_vle buf |> fun n -> Some n
   else None
 
 let make_frag sn_base n = Marker (Frag (Frag.create sn_base n))  
@@ -451,7 +451,7 @@ let make_frag sn_base n = Marker (Frag (Frag.create sn_base n))
 let decode_frag header =   
   read2_spec 
     (Logs.debug (fun m -> m "Reading Frag"))
-    decode_vle
+    fast_decode_vle
     (decode_frag_num header)
     make_frag 
 
@@ -459,10 +459,10 @@ let encode_frag m buf =
   let open Frag in  
   Logs.debug (fun m ->  m "Writing Frag");
   Abuf.write_byte (header m) buf;
-  encode_vle (sn_base m) buf;
+  fast_encode_vle (sn_base m) buf;
   match n m with 
   | None -> () 
-  | Some n -> encode_vle n buf
+  | Some n -> fast_encode_vle n buf
 
 let decode_rspace header buf = 
   Logs.debug (fun m -> m "Reading ResourceSpace");
@@ -474,7 +474,7 @@ let encode_rspace m buf =
   Abuf.write_byte (header m) buf;
   match Flags.hasFlag (header m) Flags.zFlag with 
   | true -> () 
-  | false -> encode_vle (id m) buf
+  | false -> fast_encode_vle (id m) buf
 
 let decode_element buf =
   Abuf.read_byte buf |> fun header ->
@@ -549,9 +549,9 @@ let encode_msg msg buf =
   in  encode_msg_wm msg (markers msg)
 
 
-let decode_frame_length = decode_vle 
+let decode_frame_length = fast_decode_vle 
 
-let encode_frame_length = encode_vle 
+let encode_frame_length = fast_encode_vle 
 
 
 let decode_frame buf = 
@@ -594,7 +594,7 @@ let ztcp_write_frame sock frame buf =
   let ms = Frame.to_list frame in
   List.iter (fun m -> encode_msg m buf) ms;
   let lbuf = Abuf.create 8 in 
-  encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
+  fast_encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
   Net.write_all sock (Abuf.wrap [lbuf; buf])
 
 let ztcp_write_frame_alloc sock frame =
