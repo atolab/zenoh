@@ -10,7 +10,7 @@ let peer = match Array.length Sys.argv with
   | _ -> Sys.argv.(1)
 
 let listener spath data src = 
-  let str = decode_string data in
+  let str = decode_string @@ Abuf.duplicate data in
   Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" spath src str;
   let%lwt storage = Lwt_mvar.take storagevar in
   let storage = StrMap.add src data storage in
