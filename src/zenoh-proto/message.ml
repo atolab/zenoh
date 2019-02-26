@@ -752,6 +752,40 @@ module StreamData = struct
   let with_id d id = {d with body = {d.body with mbody = {d.body.mbody with rbody = {d.body.mbody.rbody with id = id}}}}
 end
 
+(**   
+     7 6 5 4 3 2 1 0
+     +-+-+-+-+-+-+-+-+
+     |X|X|P| BSTRDATA|
+     +-+-+-+-+-+-+-+-+
+     ~       SN      ~
+     +-+-+-+-+-+-+-+-+
+     ~      id       ~
+     +-+-+-+-+-+-+-+-+
+     ~   [payload]   ~
+     +-+-+-+-+-+-+-+-+
+     
+ **)
+module BatchedStreamData = struct
+  type body = {
+    id : Vle.t;
+    payload: Abuf.t list;
+  }
+  type t = body reliable marked block
+
+  let create (s, r) sn id payload =
+    let header  =
+      let sflag =  if s then int_of_char Flags.sFlag  else 0 in
+      let rflag =  if r then int_of_char Flags.rFlag  else 0 in      
+      let mid = int_of_char MessageId.bdataId in
+      char_of_int @@ sflag lor rflag lor mid in
+    { header; body={markers=Markers.empty; mbody={sn; rbody={id; payload}}}}
+
+  let id d = d.body.mbody.rbody.id  
+  let payload d = d.body.mbody.rbody.payload
+  let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
+  let with_id d id = {d with body = {d.body with mbody = {d.body.mbody with rbody = {d.body.mbody.rbody with id = id}}}}
+end
+
 module Synch = struct
   type body = {
     sn : Vle.t;
@@ -913,6 +947,7 @@ type t =
   | Declare of Declare.t
   | WriteData of WriteData.t
   | StreamData of StreamData.t
+  | BatchedStreamData of BatchedStreamData.t
   | Synch of Synch.t
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
@@ -931,6 +966,7 @@ let markers = function
   | Declare d ->  markers d
   | WriteData d ->  markers d
   | StreamData d ->  markers d
+  | BatchedStreamData d ->  markers d
   | Synch s ->  markers s
   | AckNack a ->  markers a
   | KeepAlive a ->  markers a
@@ -949,6 +985,7 @@ let with_marker msg marker = match msg with
   | Declare d ->  Declare (with_marker d marker)
   | WriteData d ->  WriteData (with_marker d marker)
   | StreamData d ->  StreamData (with_marker d marker)
+  | BatchedStreamData d -> BatchedStreamData (with_marker d marker)
   | Synch s ->  Synch (with_marker s marker)
   | AckNack a ->  AckNack (with_marker a marker)
   | KeepAlive a ->  KeepAlive (with_marker a marker)
@@ -967,6 +1004,7 @@ let with_markers msg markers = match msg with
   | Declare d ->  Declare (with_markers d markers)
   | WriteData d ->  WriteData (with_markers d markers)
   | StreamData d ->  StreamData (with_markers d markers)
+  | BatchedStreamData d ->  BatchedStreamData (with_markers d markers)
   | Synch s ->  Synch (with_markers s markers)
   | AckNack a ->  AckNack (with_markers a markers)
   | KeepAlive a ->  KeepAlive (with_markers a markers)
@@ -985,6 +1023,7 @@ let remove_markers = function
   | Declare d ->  Declare (remove_markers d)
   | WriteData d ->  WriteData (remove_markers d)
   | StreamData d ->  StreamData (remove_markers d)
+  | BatchedStreamData d -> BatchedStreamData (remove_markers d)
   | Synch s ->  Synch (remove_markers s)
   | AckNack a ->  AckNack (remove_markers a)
   | KeepAlive a ->  KeepAlive (remove_markers a)
@@ -1003,6 +1042,7 @@ let to_string = function (** This should actually call the to_string on individu
   | Declare _ -> "Declare"
   | WriteData _ -> "WriteData"
   | StreamData _ -> "StreamData"
+  | BatchedStreamData _ -> "BatchedStreamData"
   | Synch _ -> "Synch"
   | AckNack _ -> "AckNack"
   | KeepAlive _ -> "KeepAlive"

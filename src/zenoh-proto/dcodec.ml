@@ -18,7 +18,7 @@ let make_res_decl rid resource ps = Declaration.ResourceDecl (ResourceDecl.creat
 let decode_res_decl header =
   read3_spec 
     (Logs.debug (fun m -> m "Reading ResourceDeclaration"))
-    decode_vle
+    fast_decode_vle
     decode_string
     (decode_properties header)
     make_res_decl
@@ -27,7 +27,7 @@ let encode_res_decl d buf=
   let open ResourceDecl in
   Logs.debug (fun m -> m "Writing ResourceDeclaration") ;
   Abuf.write_byte (header d) buf;
-  encode_vle (rid d) buf;
+  fast_encode_vle (rid d) buf;
   encode_string (resource d) buf;
   encode_properties (properties d) buf
   
@@ -36,7 +36,7 @@ let make_pub_decl rid ps = Declaration.PublisherDecl (PublisherDecl.create rid p
 let decode_pub_decl header = 
   read2_spec 
   (Logs.debug (fun m -> m "Reading PubDeclaration"))
-  decode_vle
+  fast_decode_vle
   (decode_properties header)
   make_pub_decl
 
@@ -46,7 +46,7 @@ let encode_pub_decl d buf =
   let id = (rid d) in
   Logs.debug (fun m -> m  "Writing PubDeclaration for rid = %Ld" id) ;
   Abuf.write_byte (header d) buf;
-  encode_vle id buf;
+  fast_encode_vle id buf;
   encode_properties (properties d) buf
 
 let make_temporal_properties origin period duration = TemporalProperty.create origin period duration
@@ -54,9 +54,9 @@ let make_temporal_properties origin period duration = TemporalProperty.create or
 let decode_temporal_properties =
   read3_spec
     (Logs.debug (fun m -> m "Reading TemporalProperties"))
-    decode_vle
-    decode_vle
-    decode_vle
+    fast_decode_vle
+    fast_decode_vle
+    fast_decode_vle
     make_temporal_properties
   
 let encode_temporal_properties stp buf =
@@ -65,9 +65,9 @@ let encode_temporal_properties stp buf =
   | None -> ()
   | Some tp ->
     Logs.debug (fun m -> m "Writing Temporal") ;
-    encode_vle (origin tp) buf;
-    encode_vle (period tp) buf;
-    encode_vle (duration tp) buf
+    fast_encode_vle (origin tp) buf;
+    fast_encode_vle (period tp) buf;
+    fast_encode_vle (duration tp) buf
     
 let decode_sub_mode buf =
   Logs.debug (fun m -> m "Reading SubMode") ;
@@ -95,7 +95,7 @@ let make_sub_decl rid mode ps = Declaration.SubscriberDecl (SubscriberDecl.creat
 let decode_sub_decl header =
   read3_spec
     (Logs.debug (fun m -> m "Reading SubDeclaration"))
-    decode_vle
+    fast_decode_vle
     decode_sub_mode
     (decode_properties header)
     make_sub_decl
@@ -106,7 +106,7 @@ let encode_sub_decl d buf =
   let id = (rid d) in
   Logs.debug (fun m -> m "Writing SubDeclaration for rid = %Ld" id) ;
   Abuf.write_byte (header d) buf;
-  encode_vle id buf;
+  fast_encode_vle id buf;
   encode_sub_mode (mode d) buf;
   encode_properties (properties d) buf
 
@@ -117,7 +117,7 @@ let make_selection_decl h sid query ps =
 let decode_selection_decl header = 
   read3_spec
     (Logs.debug (fun m -> m "Reading SelectionDeclaration"))
-    decode_vle  
+    fast_decode_vle  
     decode_string
     (decode_properties header)
     (make_selection_decl header)
@@ -126,7 +126,7 @@ let encode_selection_decl d buf =
   let open SelectionDecl in
   Logs.debug (fun m -> m "Writing SelectionDeclaration");
   Abuf.write_byte (header d) buf;
-  encode_vle (sid d) buf;
+  fast_encode_vle (sid d) buf;
   encode_string (query d) buf;
   encode_properties (properties d) buf
   
@@ -136,16 +136,16 @@ let make_binding_decl h oldid newid =
 let decode_binding_decl header =  
   read2_spec
     (Logs.debug (fun m -> m "Reading BindingDeclaration"))
-    decode_vle
-    decode_vle
+    fast_decode_vle
+    fast_decode_vle
     (make_binding_decl header)
 
 let encode_bindind_decl d buf =
   let open BindingDecl in
   Logs.debug (fun m -> m "Writing BindingDeclaration") ;
   Abuf.write_byte (header d) buf;
-  encode_vle (old_id d) buf;
-  encode_vle (new_id d) buf
+  fast_encode_vle (old_id d) buf;
+  fast_encode_vle (new_id d) buf
 
 let make_commit_decl commit_id = (Declaration.CommitDecl (CommitDecl.create commit_id))
 
@@ -168,7 +168,7 @@ let decode_result_decl buf =
       | status when status = char_of_int 0 ->
         Declaration.ResultDecl  (ResultDecl.create commit_id status None)
       | status ->
-        decode_vle buf |> fun v ->
+        fast_decode_vle buf |> fun v ->
           Declaration.ResultDecl (ResultDecl.create commit_id status (Some v))
 
 let encode_result_decl rd buf =
@@ -179,62 +179,62 @@ let encode_result_decl rd buf =
   Abuf.write_byte (status rd) buf;
   match (id rd) with 
   | None -> ()
-  | Some v -> encode_vle v buf
+  | Some v -> fast_encode_vle v buf
 
 
 let decode_forget_res_decl buf =
   Logs.debug (fun m -> m "Reading ForgetResource Declaration");
-  decode_vle buf |> fun rid ->
+  fast_decode_vle buf |> fun rid ->
     Declaration.ForgetResourceDecl (ForgetResourceDecl.create rid)
   
 let encode_forget_res_decl frd buf =
   let open ForgetResourceDecl in
   Logs.debug (fun m -> m "Writing ForgetResource Declaration");
   Abuf.write_byte (header frd) buf;
-  encode_vle (rid frd) buf
+  fast_encode_vle (rid frd) buf
 
 
 let decode_forget_pub_decl buf =
   Logs.debug (fun m -> m "Reading ForgetPublisher Declaration");
-  decode_vle buf |> fun id -> 
+  fast_decode_vle buf |> fun id -> 
     Declaration.ForgetPublisherDecl (ForgetPublisherDecl.create id)
   
 let encode_forget_pub_decl fpd buf =
   let open ForgetPublisherDecl in
   Logs.debug (fun m -> m "Writing ForgetPublisher Declaration");
   Abuf.write_byte (header fpd) buf;
-  encode_vle (id fpd) buf
+  fast_encode_vle (id fpd) buf
 
 
 let decode_forget_sub_decl buf =
   Logs.debug (fun m -> m "Reading ForgetSubscriber Declaration");
-  decode_vle buf |> fun id -> 
+  fast_decode_vle buf |> fun id -> 
     Declaration.ForgetSubscriberDecl (ForgetSubscriberDecl.create id)
   
 let encode_forget_sub_decl fsd buf =
   let open ForgetSubscriberDecl in
   Logs.debug (fun m -> m "Writing ForgetSubscriber Declaration");
   Abuf.write_byte (header fsd) buf;
-  encode_vle (id fsd) buf
+  fast_encode_vle (id fsd) buf
 
 
 let decode_forget_sel_decl buf =
   Logs.debug (fun m -> m "Reading ForgetSelection Declaration") ;
-  decode_vle buf |> fun sid -> 
+  fast_decode_vle buf |> fun sid -> 
     Declaration.ForgetSelectionDecl (ForgetSelectionDecl.create sid)
 
 let encode_forget_sel_decl fsd buf =
   let open ForgetSelectionDecl in
   Logs.debug (fun m -> m "Writing ForgetSelection Declaration" );   
   Abuf.write_byte (header fsd) buf;
-  encode_vle (sid fsd) buf
+  fast_encode_vle (sid fsd) buf
 
 let make_storage_decl rid ps = Declaration.StorageDecl (StorageDecl.create rid ps)
 
 let decode_storage_decl header = 
   read2_spec 
   (Logs.debug (fun m -> m "Reading StorageDeclaration"))
-  decode_vle
+  fast_decode_vle
   (decode_properties header)
   make_storage_decl
 
@@ -244,17 +244,17 @@ let encode_storage_decl d buf =
   let id = (rid d) in
   Logs.debug (fun m -> m  "Writing StorageDeclarationv for rid = %Ld" id) ;
   Abuf.write_byte (header d) buf;
-  encode_vle id buf;
+  fast_encode_vle id buf;
   encode_properties (properties d) buf
 
 
 let decode_forget_storage_decl buf =
   Logs.debug (fun m -> m "Reading ForgetStorage Declaration");
-  decode_vle buf |> fun id -> 
+  fast_decode_vle buf |> fun id -> 
     Declaration.ForgetStorageDecl (ForgetStorageDecl.create id)
   
 let encode_forget_storage_decl fsd buf =
   let open ForgetStorageDecl in
   Logs.debug (fun m -> m "Writing ForgetStorage Declaration");
   Abuf.write_byte (header fsd) buf;
-  encode_vle (id fsd) buf
+  fast_encode_vle (id fsd) buf

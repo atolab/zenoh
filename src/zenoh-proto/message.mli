@@ -422,6 +422,18 @@ sig
   val with_id : t -> Vle.t -> t
 end
 
+module BatchedStreamData : 
+sig
+  type body
+  type t = body reliable marked block
+  val create : bool * bool -> Vle.t -> Vle.t  -> Abuf.t list -> t
+  val id : t -> Vle.t
+  val payload : t -> Abuf.t list
+  val with_sn : t -> Vle.t -> t
+  val with_id : t -> Vle.t -> t
+end 
+
+
 module Synch :
 sig
   type body
@@ -509,6 +521,7 @@ type t =
   | Declare of Declare.t
   | WriteData of WriteData.t
   | StreamData of StreamData.t
+  | BatchedStreamData of BatchedStreamData.t
   | Synch of Synch.t
   | AckNack of AckNack.t
   | KeepAlive of KeepAlive.t
