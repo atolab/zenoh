@@ -8,7 +8,7 @@ let run peers =
   (
     let%lwt z = zopen peers in
     let%lwt pub = publish "/roundtrip/pong" z in
-    let     listener data _ = stream data pub in
+    let     listener bufs _ = lstream bufs pub in
     let%lwt _ = subscribe "/roundtrip/ping" listener z in
 
     let rec infinitewait () = 

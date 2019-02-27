@@ -1,7 +1,7 @@
 type sub
 type pub
 type storage
-type sublistener = Abuf.t -> string -> unit Lwt.t
+type sublistener = Abuf.t list -> string -> unit Lwt.t
 type queryreply = 
   | StorageData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t}
   | StorageFinal of {stoid:Abuf.t; rsn:int}
@@ -22,6 +22,8 @@ val unpublish : pub -> t -> unit Lwt.t
 val write : Abuf.t -> string -> t -> unit Lwt.t
 
 val stream : Abuf.t -> pub -> unit Lwt.t
+
+val lstream : Abuf.t list -> pub -> unit Lwt.t
 
 val push_mode : submode
 

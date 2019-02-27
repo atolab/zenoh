@@ -5,7 +5,7 @@ open Lwt
 
 module VleMap = Map.Make(Vle)
 
-type sublistener = Abuf.t -> string -> unit Lwt.t
+type sublistener = Abuf.t list -> string -> unit Lwt.t
 type queryreply = 
   | StorageData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t}
   | StorageFinal of {stoid:Abuf.t; rsn:int}
@@ -68,8 +68,8 @@ type storage = {z:t; id:int; resid:Vle.t;}
 type submode = SubscriptionMode.t
 
 let lbuf = Abuf.create_bigstring 16
-let wbuf = Abuf.create_bigstring ~grow:8192 8192
-let rbuf = Abuf.create_bigstring ~grow:8192 8192
+let wbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
+let rbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
 
 
 let pid  = 
@@ -115,7 +115,30 @@ let send_message sock msg =
 let process_incoming_message msg resolver t = 
   let open Lwt.Infix in
   match msg with
-  | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true
+  | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true 
+  | Message.BatchedStreamData dmsg ->
+    let state = Guard.get t.state in
+    (* let%lwt _ = Lwt_mvar.put t.state state in  *)
+    let%lwt _ = match VleMap.find_opt (BatchedStreamData.id dmsg) state.resmap with
+    | Some res -> 
+      (* TODO make sure that payload is a copy *)
+      (* TODO make payload a readonly buffer *)
+      let bufs = BatchedStreamData.payload dmsg in
+      Lwt_list.iter_s (fun resid -> 
+        match VleMap.find_opt resid state.resmap with
+        | Some res -> 
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
+            Lwt.catch (fun () -> sub.listener (List.map (fun b -> Abuf.duplicate b) bufs) (PathExpr.to_string res.name)) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            Lwt.catch (fun () -> sto.listener (List.map (fun b -> Abuf.duplicate b) bufs) (PathExpr.to_string res.name))
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+          ) res.stos
+        | None -> Lwt.return_unit 
+      ) res.matches
+    | None -> Lwt.return_unit in
+    return_true
   | Message.StreamData dmsg ->
     let state = Guard.get t.state in
     (* let%lwt _ = Lwt_mvar.put t.state state in  *)
@@ -128,11 +151,11 @@ let process_incoming_message msg resolver t =
         match VleMap.find_opt resid state.resmap with
         | Some res -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (Abuf.duplicate buf) (PathExpr.to_string res.name)) 
+            Lwt.catch (fun () -> sub.listener [(Abuf.duplicate buf)] (PathExpr.to_string res.name)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (Abuf.duplicate buf) (PathExpr.to_string res.name))
+            Lwt.catch (fun () -> sto.listener [(Abuf.duplicate buf)] (PathExpr.to_string res.name))
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
         | None -> Lwt.return_unit 
@@ -149,11 +172,11 @@ let process_incoming_message msg resolver t =
       match PathExpr.intersect res.name datapath with 
       | true -> 
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
-            Lwt.catch (fun () -> sub.listener (Abuf.duplicate buf) (WriteData.resource dmsg)) 
+            Lwt.catch (fun () -> sub.listener [(Abuf.duplicate buf)] (WriteData.resource dmsg)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (Abuf.duplicate buf) (WriteData.resource dmsg))
+            Lwt.catch (fun () -> sto.listener [(Abuf.duplicate buf)] (WriteData.resource dmsg))
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
           ) res.stos
       | false -> return_unit) (VleMap.bindings state.resmap) in
@@ -276,6 +299,13 @@ let stream buf (pub:pub) =
   let (sn, state) = get_next_sn state in
   Guard.release pub.z.state state;
   send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid None buf))
+  >> Lwt.return_unit
+
+let lstream (bufs: Abuf.t list) (pub:pub) = 
+  let%lwt state = Guard.acquire pub.z.state in
+  let (sn, state) = get_next_sn state in
+  Guard.release pub.z.state state;
+  send_message pub.z.sock (Message.BatchedStreamData(BatchedStreamData.create (false, pub.reliable) sn pub.resid  bufs))
   >> Lwt.return_unit
 
 

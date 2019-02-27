@@ -5,9 +5,10 @@ let peer = match Array.length Sys.argv with
   | 1 -> "tcp/127.0.0.1:7447"
   | _ -> Sys.argv.(1)
 
-let listener sub data src = 
-  let str = decode_string data in
-  Printf.printf "LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sub src str;
+let listener sub bufs src =
+  bufs 
+    |> List.map (fun b -> decode_string b)  
+    |> List.iter  (fun s -> Printf.printf "LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" sub src s);
   Lwt.return_unit
 
 let run = 

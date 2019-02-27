@@ -487,6 +487,7 @@ let encode_rspace m buf =
 let decode_element buf =
   Abuf.read_byte buf |> fun header ->
     match char_of_int (Header.mid (header)) with
+    | id when id = MessageId.bdataId -> (decode_batched_stream_data header buf)
     | id when id = MessageId.scoutId ->  (decode_scout header buf) 
     | id when id = MessageId.helloId ->  (decode_hello header buf)
     | id when id = MessageId.openId ->  (decode_open header buf)

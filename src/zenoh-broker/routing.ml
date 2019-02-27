@@ -39,6 +39,27 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
     let open Lwt.Infix in 
     (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [msg]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
+let forward_stream_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable (payloads: Abuf.t list) =
+  let open Resource in 
+  let open ResName in 
+  match SIDMap.find_opt dstmapsession pe.smap with
+  | None -> Lwt.return_unit
+  | Some s ->
+    let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data to session %s" (Id.to_string s.sid)) in
+    let oc = Session.out_channel s in
+    let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
+    let msg = match srcresname with 
+      | ID id -> Message.BatchedStreamData(Message.BatchedStreamData.create (true, reliable) fsn id payloads)
+      | Path uri -> match srcresname = dstres.name with 
+        | true -> Message.BatchedStreamData(Message.BatchedStreamData.create (true, reliable) fsn dstmapid payloads)
+        | false -> WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) (Abuf.wrap payloads)) 
+    in
+
+    let sock = TxSession.socket s.tx_sex in 
+    let open Lwt.Infix in 
+    (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [msg]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+
+
 let forward_data pe sid srcres reliable payload = 
   let open Resource in
   let (_, ps) = List.fold_left (fun (sss, pss) name -> 
@@ -49,6 +70,22 @@ let forward_data pe sid srcres reliable payload =
             match (m.sub = Some false || m.sto != None) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
             | true -> 
               let p = forward_data_to_mapping pe srcres.name r m.session m.id reliable payload in
+              (m.session :: ss , p :: ps)
+            | false -> (ss, ps)
+          ) (sss, pss) r.mappings 
+    ) ([], []) srcres.matches in 
+  Lwt.join ps 
+
+let forward_stream_data pe sid srcres reliable payloads = 
+  let open Resource in
+  let (_, ps) = List.fold_left (fun (sss, pss) name -> 
+      match ResMap.find_opt name pe.rmap with 
+      | None -> (sss, pss)
+      | Some r -> 
+        List.fold_left (fun (ss, ps) m ->
+            match (m.sub = Some false || m.sto != None) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
+            | true -> 
+              let p = forward_stream_data_to_mapping pe srcres.name r m.session m.id reliable payloads in
               (m.session :: ss , p :: ps)
             | false -> (ss, ps)
           ) (sss, pss) r.mappings 
@@ -92,6 +129,32 @@ let process_user_streamdata (pe:engine_state) session msg =
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
     let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg) in
+    Lwt.return (pe, [])
+
+let process_user_batched_streamdata (pe:engine_state) session msg =      
+  let open Session in
+  let open Resource in
+  let rid = Message.BatchedStreamData.id msg in
+  let name = match VleMap.find_opt rid session.rmap with 
+    | None -> (match ResMap.bindings pe.rmap |> List.find_opt (fun (_, res) -> res.local_id = rid) with 
+        | None -> ResName.ID(rid)
+        | Some (_, res) -> res.name)
+    | Some name -> name in 
+  (* TODO: The store data should be done differently *)
+  let bufs = Message.BatchedStreamData.payload msg in 
+  let last = List.nth bufs ((List.length bufs) - 1) in 
+  match store_data pe name last with 
+  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+                                                (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
+  | (pe, Some res) -> 
+    let%lwt _ = Logs_lwt.debug (fun m -> 
+        let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+            TxSession.id peer.tsex = session.sid) pe.router.peers with 
+        | Some peer -> peer.pid
+        | None -> "UNKNOWN" in
+        m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
+          nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
+    let%lwt _ = forward_stream_data pe session.sid res (Message.Reliable.reliable msg) (Message.BatchedStreamData.payload msg) in
     Lwt.return (pe, [])
 
 let process_user_writedata pe session msg =      
@@ -170,6 +233,22 @@ let process_stream_data engine tsex msg =
       match rspace (Message.StreamData(msg)) with 
       | 1L -> process_broker_data pe session msg
       | _ -> process_user_streamdata pe session msg
+  in Guard.return ms pe
+
+let process_batched_stream_data engine tsex msg =
+  Guard.guarded engine
+  @@ fun pe ->
+  let%lwt (pe, ms) = 
+    let sid = TxSession.id tsex in 
+    let session = SIDMap.find_opt sid pe.smap in 
+    match session with 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "BatchedReceived StreamData on unknown session %s: Ignore it!" 
+                                            (Id.to_string sid)) in Lwt.return (pe, [])
+    | Some session -> 
+      match rspace (Message.BatchedStreamData(msg)) with 
+      (* TODO: Should decide if broker will ever send  batched data *)
+      | 1L -> Lwt.return (pe, []) 
+      | _ -> process_user_batched_streamdata pe session msg
   in Guard.return ms pe
 
 let process_write_data engine tsex msg =

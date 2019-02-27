@@ -63,6 +63,7 @@ module ZEngine (MVar : MVar) = struct
         | Message.Synch msg -> process_synch engine tsex msg
         | Message.AckNack msg -> process_ack_nack engine tsex msg
         | Message.StreamData msg -> process_stream_data engine tsex msg
+        | Message.BatchedStreamData msg -> process_batched_stream_data engine tsex msg
         | Message.WriteData msg -> process_write_data engine tsex msg
         | Message.Query msg -> process_query engine tsex msg
         | Message.Reply msg -> process_reply engine tsex msg
