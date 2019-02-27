@@ -140,7 +140,6 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
         | None -> ResName.ID(rid)
         | Some (_, res) -> res.name)
     | Some name -> name in 
-  (* TODO: The store data should be done differently *)
   let bufs = Message.BatchedStreamData.payload msg in 
   let last = List.nth bufs ((List.length bufs) - 1) in 
   match store_data pe name last with 
