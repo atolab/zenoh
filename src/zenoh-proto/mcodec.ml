@@ -180,7 +180,10 @@ let make_encode_data h sn resource payload =
   Message (WriteData (WriteData.create (s, r) sn resource payload))
 
 let decode_encode_data header buf=
-  make_encode_data header (fast_decode_vle buf) (decode_string buf) (decode_buf buf)  
+  let sn = fast_decode_vle buf in 
+  let resource = decode_string buf in 
+  let payload = decode_buf buf in 
+  make_encode_data header sn resource payload
 
 let encode_encode_data m buf =
   let open WriteData in
