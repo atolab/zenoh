@@ -175,14 +175,17 @@ let encode_declare decl buf=
   encode_declarations (declarations decl) buf
 
 
-let make_encode_data h sn resource payload = 
+let make_write_data h sn resource payload = 
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
   Message (WriteData (WriteData.create (s, r) sn resource payload))
 
-let decode_encode_data header buf=
-  make_encode_data header (fast_decode_vle buf) (decode_string buf) (decode_buf buf)  
+let decode_write_data header buf=
+  let sn = fast_decode_vle buf in 
+  let resource = decode_string buf in 
+  let payload = decode_buf buf in 
+  make_write_data header sn resource payload
 
-let encode_encode_data m buf =
+let encode_write_data m buf =
   let open WriteData in
   Logs.debug (fun m -> m "Writing WriteData");
   Abuf.write_byte (header m) buf;
@@ -204,6 +207,7 @@ let make_stream_data h sn id prid payload =
   Message (StreamData (StreamData.create (s, r) sn id prid payload))
 
 let decode_stream_data header buf =
+  Logs.debug (fun m -> m "Reading StreamData");
   let sn = fast_decode_vle buf in 
   let id = fast_decode_vle buf in 
   let prid = decode_prid header buf in 
@@ -212,6 +216,7 @@ let decode_stream_data header buf =
 
 let encode_stream_data m buf =
   let open StreamData in  
+  Logs.debug (fun m -> m "Writing StreamData");
   Abuf.write_byte (header m) buf;
   fast_encode_vle (sn m) buf;
   fast_encode_vle (id m) buf;
@@ -494,7 +499,7 @@ let decode_element buf =
     | id when id = MessageId.acceptId -> (decode_accept header buf)
     | id when id = MessageId.closeId ->  (decode_close header buf)
     | id when id = MessageId.declareId -> (decode_declare header buf)
-    | id when id = MessageId.wdataId ->  (decode_encode_data header buf)
+    | id when id = MessageId.wdataId ->  (decode_write_data header buf)
     | id when id = MessageId.sdataId ->  (decode_stream_data header buf)
     | id when id = MessageId.synchId -> (decode_synch header buf)
     | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
@@ -535,7 +540,7 @@ let encode_msg_element msg =
   | Accept m -> encode_accept m
   | Close m -> encode_close  m
   | Declare m -> encode_declare m
-  | WriteData m -> encode_encode_data m
+  | WriteData m -> encode_write_data m
   | StreamData m -> encode_stream_data m
   | BatchedStreamData m -> encode_batched_stream_data m
   | Synch m -> encode_synch  m
