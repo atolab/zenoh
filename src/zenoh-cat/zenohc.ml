@@ -121,28 +121,28 @@ let send_declare_sto sock id =
   let msg = Message.Declare (Declare.create (true, true) (ZConduit.next_rsn default_conduit) decls)
   in send_message sock msg
 
-let send_stream_data sock rid data =
+let send_compact_data sock rid data =
   let sn = ZConduit.next_usn default_conduit in 
   Abuf.clear dbuf;
   encode_string data dbuf;
-  let msg = Message.StreamData (StreamData.create (false,false) sn rid None dbuf) in
+  let msg = Message.CompactData (CompactData.create (false,false) sn rid None (Payload.create dbuf)) in
   send_message sock msg
   
-let rec send_stream_data_n sock rid n p data = 
+let rec send_compact_data_n sock rid n p data = 
   let%lwt _ = Logs_lwt.debug (fun m -> m "[Sending periodic sample...]") in
   if n = 0 then Lwt.return 0
   else 
     begin
-      let%lwt _ = (send_stream_data sock rid data) in
+      let%lwt _ = (send_compact_data sock rid data) in
       let%lwt _ =  Lwt_unix.sleep p in
-      send_stream_data_n sock rid (n-1) p data
+      send_compact_data_n sock rid (n-1) p data
     end
 
 let send_write_data sock rname data =
   let sn = ZConduit.next_usn default_conduit in 
   Abuf.clear dbuf;
   encode_string data dbuf;
-  let msg = Message.WriteData (WriteData.create (false,false) sn rname dbuf) in
+  let msg = Message.WriteData (WriteData.create (false,false) sn rname (Payload.create dbuf)) in
   send_message sock msg
   
 let rec send_write_data_n sock rname n p data = 
@@ -195,7 +195,7 @@ let produce_message sock cmd =
       | "pub" ->
         let rid = Vle.of_string (List.hd xs) in
         let data = List.hd @@ List.tl @@ xs in
-        send_stream_data sock rid data
+        send_compact_data sock rid data
       | "pubn" ->
         let%lwt _ = Logs_lwt.debug (fun m -> m "pubn....") in
         let rid = Vle.of_string (List.hd xs) in
@@ -203,7 +203,7 @@ let produce_message sock cmd =
         let p = float_of_string (List.nth xs 2) in
         let data = (List.nth xs 3) in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Staring pub loop with %d %f %s" n p data) in
-        send_stream_data_n sock rid n p data
+        send_compact_data_n sock rid n p data
       | "write" ->
         let rname = List.hd xs in
         let data = List.hd @@ List.tl @@ xs in
@@ -243,17 +243,23 @@ let rec run_encode_loop sock =
 
 
 let process_incoming_message = function
-  | Message.StreamData dmsg ->
-    let rid = StreamData.id dmsg in
-    let buf = StreamData.payload dmsg in
+  | Message.CompactData dmsg ->
+    let rid = CompactData.id dmsg in
+    let buf = CompactData.payload dmsg |> Payload.data in
     let data = decode_string buf in
-    Logs.info (fun m -> m "\n[received stream data rid: %Ld payload: %s]\n>>" rid data);
+    Logs.info (fun m -> m "\n[received compact data rid: %Ld payload: %s]\n>>" rid data);
     return_true
   | Message.WriteData dmsg ->
     let res = WriteData.resource dmsg in
-    let buf = WriteData.payload dmsg in
+    let buf = WriteData.payload dmsg |> Payload.data in
     let data = decode_string buf in
     Logs.info (fun m -> m "\n[received write data res: %s payload: %s]\n>>" res data);
+    return_true
+  | Message.StreamData dmsg ->
+    let res = StreamData.id dmsg in
+    let buf = StreamData.payload dmsg |> Payload.data in
+    let data = decode_string buf in
+    Logs.info (fun m -> m "\n[received stream data res: %Ld payload: %s]\n>>" res data);
     return_true
   | msg ->
       Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  

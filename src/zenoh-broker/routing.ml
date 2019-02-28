@@ -29,9 +29,9 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
     let oc = Session.out_channel s in
     let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
     let msgs = match srcresname with 
-      | ID id -> [Message.StreamData(Message.StreamData.create (true, reliable) fsn id None payload)]
+      | ID id -> [Message.CompactData(Message.CompactData.create (true, reliable) fsn id None payload)]
       | Path uri -> match srcresname = dstres.name with 
-        | true -> [Message.StreamData(Message.StreamData.create (true, reliable) fsn dstmapid None payload)]
+        | true -> [Message.StreamData(Message.StreamData.create (true, reliable) fsn dstmapid payload)]
         | false -> [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)] 
     in
 
@@ -39,7 +39,7 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
     let open Lwt.Infix in 
     (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
-let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable (payloads: Abuf.t list) =
+let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payloads =
   let open Resource in 
   let open ResName in 
   match SIDMap.find_opt dstmapsession pe.smap with
@@ -108,6 +108,29 @@ let forward_oneshot_data pe sid srcresname reliable payload =
     ) pe.rmap ([], []) in
   Lwt.join ps 
 
+let process_user_compactdata (pe:engine_state) session msg =      
+  let open Session in
+  let open Resource in
+  let rid = Message.CompactData.id msg in
+  let name = match VleMap.find_opt rid session.rmap with 
+    | None -> (match ResMap.bindings pe.rmap |> List.find_opt (fun (_, res) -> res.local_id = rid) with 
+        | None -> ResName.ID(rid)
+        | Some (_, res) -> res.name)
+    | Some name -> name in 
+  match store_data pe name (Message.CompactData.payload msg) with 
+  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
+                                                (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
+  | (pe, Some res) -> 
+    let%lwt _ = Logs_lwt.debug (fun m -> 
+        let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
+            TxSession.id peer.tsex = session.sid) pe.router.peers with 
+        | Some peer -> peer.pid
+        | None -> "UNKNOWN" in
+        m "Handling CompactData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
+          nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
+    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.CompactData.payload msg) in
+    Lwt.return (pe, [])
+
 let process_user_streamdata (pe:engine_state) session msg =      
   let open Session in
   let open Resource in
@@ -118,7 +141,7 @@ let process_user_streamdata (pe:engine_state) session msg =
         | Some (_, res) -> res.name)
     | Some name -> name in 
   match store_data pe name (Message.StreamData.payload msg) with 
-  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
@@ -211,7 +234,7 @@ let rspace msg =
 let process_broker_data pe session msg = 
   let open Session in      
   let%lwt _ = Logs_lwt.debug (fun m -> m "Received tree state on %s\n" (Id.to_string session.sid)) in
-  let pl = Message.StreamData.payload msg in
+  let pl = Message.CompactData.payload msg |> Payload.data in
   let b = Abuf.read_bytes (Abuf.readable_bytes pl) pl in
   let node = Marshal.from_bytes b 0 in
   let pe = {pe with router = ZRouter.update pe.router node} in
@@ -219,19 +242,19 @@ let process_broker_data pe session msg =
   forward_all_decls pe;
   Lwt.return (pe, []) 
 
-let process_stream_data engine tsex msg =
+let process_compact_data engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt (pe, ms) = 
     let sid = TxSession.id tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
-    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData on unknown session %s: Ignore it!" 
                                             (Id.to_string sid)) in Lwt.return (pe, [])
     | Some session -> 
-      match rspace (Message.StreamData(msg)) with 
+      match rspace (Message.CompactData(msg)) with 
       | 1L -> process_broker_data pe session msg
-      | _ -> process_user_streamdata pe session msg
+      | _ -> process_user_compactdata pe session msg
   in Guard.return ms pe
 
 let process_batched_stream_data engine tsex msg =
@@ -263,4 +286,19 @@ let process_write_data engine tsex msg =
       match rspace (Message.WriteData(msg)) with 
       | 1L -> Lwt.return (pe, []) 
       | _ -> process_user_writedata pe session msg
+  in Guard.return ms pe
+
+let process_stream_data engine tsex msg =
+  Guard.guarded engine
+  @@ fun pe ->
+  let%lwt (pe, ms) = 
+    let sid = TxSession.id tsex in 
+    let session = SIDMap.find_opt sid pe.smap in 
+    match session with 
+    | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 
+                                            (Id.to_string sid)) in Lwt.return (pe, [])
+    | Some session -> 
+      match rspace (Message.StreamData(msg)) with 
+      | 1L -> Lwt.return (pe, []) (* Should never happen *)
+      | _ -> process_user_streamdata pe session msg
   in Guard.return ms pe
