@@ -21,13 +21,13 @@ let handler = function
 let run = 
   let%lwt z = zopen peer in    
   Printf.printf "QUERY /home1/** :\n%!";
-  let%lwt _ = query "/home1/**" "" handler z in 
+  let%lwt _ = query z "/home1/**" "" handler in 
 
   let%lwt _ = Lwt_unix.sleep 0.2 in
 
   Printf.printf "\n%!";
   Printf.printf "LQUERY /home1/** :\n%!";
-  let%lwt _ = lquery "/home1/**" "" z >|= List.iter (fun (k,v) -> Printf.printf "  RECEIVED RESOURCE [%-20s] : %s\n%!" k (decode_string v)) in
+  let%lwt _ = lquery z "/home1/**" "" >|= List.iter (fun (k,v,_) -> Printf.printf "  RECEIVED RESOURCE [%-20s] : %s\n%!" k (decode_string v)) in
 
   Lwt_unix.sleep 1.0
 

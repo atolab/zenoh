@@ -11,7 +11,8 @@ module MessageId = struct
 
   let declareId = char_of_int 0x06
 
-  let sdataId = char_of_int 0x07
+  let cdataId = char_of_int 0x07
+  let sdataId = char_of_int 0x1A
   let bdataId = char_of_int 0x08
   let wdataId = char_of_int 0x09
 
@@ -711,7 +712,7 @@ end
 module WriteData = struct
   type body = {
     resource : string;
-    payload: Abuf.t;
+    payload: Payload.t;
   }
   type t = body reliable marked block
 
@@ -728,11 +729,11 @@ module WriteData = struct
   let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
 end
 
-module StreamData = struct
+module CompactData = struct
   type body = {
     id : Vle.t;
     prid : Vle.t option;
-    payload: Abuf.t;
+    payload: Payload.t;
   }
   type t = body reliable marked block
 
@@ -741,12 +742,33 @@ module StreamData = struct
       let sflag =  if s then int_of_char Flags.sFlag  else 0 in
       let rflag =  if r then int_of_char Flags.rFlag  else 0 in
       let aflag = match prid with | None -> 0 | _ -> int_of_char Flags.aFlag in
-      let mid = int_of_char MessageId.sdataId in
+      let mid = int_of_char MessageId.cdataId in
       char_of_int @@ sflag lor rflag lor aflag lor mid in
     { header; body={markers=Markers.empty; mbody={sn; rbody={id; prid; payload}}}}
 
   let id d = d.body.mbody.rbody.id
   let prid d = d.body.mbody.rbody.prid
+  let payload d = d.body.mbody.rbody.payload
+  let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
+  let with_id d id = {d with body = {d.body with mbody = {d.body.mbody with rbody = {d.body.mbody.rbody with id = id}}}}
+end
+
+module StreamData = struct
+  type body = {
+    id : Vle.t;
+    payload: Payload.t;
+  }
+  type t = body reliable marked block
+
+  let create (s, r) sn id payload =
+    let header  =
+      let sflag =  if s then int_of_char Flags.sFlag  else 0 in
+      let rflag =  if r then int_of_char Flags.rFlag  else 0 in      
+      let mid = int_of_char MessageId.sdataId in
+      char_of_int @@ sflag lor rflag lor mid in
+    { header; body={markers=Markers.empty; mbody={sn; rbody={id; payload}}}}
+
+  let id d = d.body.mbody.rbody.id  
   let payload d = d.body.mbody.rbody.payload
   let with_sn d nsn = {d with body = {d.body with mbody = {d.body.mbody with sn = nsn}}}
   let with_id d id = {d with body = {d.body with mbody = {d.body.mbody with rbody = {d.body.mbody.rbody with id = id}}}}
@@ -768,7 +790,7 @@ end
 module BatchedStreamData = struct
   type body = {
     id : Vle.t;
-    payload: Abuf.t list;
+    payload: Payload.t list;
   }
   type t = body reliable marked block
 
@@ -874,7 +896,7 @@ module Reply = struct
   type body = {
     qpid : Abuf.t;
     qid : Vle.t;
-    value : (Abuf.t * Vle.t * string * Abuf.t) option;
+    value : (Abuf.t * Vle.t * string * Payload.t) option;
   }
   type t = body marked block
 
@@ -946,6 +968,7 @@ type t =
   | Close of Close.t
   | Declare of Declare.t
   | WriteData of WriteData.t
+  | CompactData of CompactData.t
   | StreamData of StreamData.t
   | BatchedStreamData of BatchedStreamData.t
   | Synch of Synch.t
@@ -965,6 +988,7 @@ let markers = function
   | Close c ->  markers c
   | Declare d ->  markers d
   | WriteData d ->  markers d
+  | CompactData d ->  markers d
   | StreamData d ->  markers d
   | BatchedStreamData d ->  markers d
   | Synch s ->  markers s
@@ -984,6 +1008,7 @@ let with_marker msg marker = match msg with
   | Close c ->  Close (with_marker c marker)
   | Declare d ->  Declare (with_marker d marker)
   | WriteData d ->  WriteData (with_marker d marker)
+  | CompactData d ->  CompactData (with_marker d marker)
   | StreamData d ->  StreamData (with_marker d marker)
   | BatchedStreamData d -> BatchedStreamData (with_marker d marker)
   | Synch s ->  Synch (with_marker s marker)
@@ -1003,6 +1028,7 @@ let with_markers msg markers = match msg with
   | Close c ->  Close (with_markers c markers)
   | Declare d ->  Declare (with_markers d markers)
   | WriteData d ->  WriteData (with_markers d markers)
+  | CompactData d ->  CompactData (with_markers d markers)
   | StreamData d ->  StreamData (with_markers d markers)
   | BatchedStreamData d ->  BatchedStreamData (with_markers d markers)
   | Synch s ->  Synch (with_markers s markers)
@@ -1022,6 +1048,7 @@ let remove_markers = function
   | Close c ->  Close (remove_markers c)
   | Declare d ->  Declare (remove_markers d)
   | WriteData d ->  WriteData (remove_markers d)
+  | CompactData d ->  CompactData (remove_markers d)
   | StreamData d ->  StreamData (remove_markers d)
   | BatchedStreamData d -> BatchedStreamData (remove_markers d)
   | Synch s ->  Synch (remove_markers s)
@@ -1041,6 +1068,7 @@ let to_string = function (** This should actually call the to_string on individu
   | Close _ -> "Close"
   | Declare _ -> "Declare"
   | WriteData _ -> "WriteData"
+  | CompactData _ -> "CompactData"
   | StreamData _ -> "StreamData"
   | BatchedStreamData _ -> "BatchedStreamData"
   | Synch _ -> "Synch"
@@ -1051,14 +1079,3 @@ let to_string = function (** This should actually call the to_string on individu
   | Reply _ -> "Reply"
   | Pull _ -> "Pull"
   | PingPong _ -> "PingPong"
-
-  (* let make_scout s = Scout s
-  let make_hello h = Hello h
-  let make_open o = Open o
-  let make_accept a =  Accept a
-  let make_close c =  Close c
-  let make_declare d = Declare d
-  let make_stream_data sd =  StreamData sd
-  let make_synch s = Synch s
-  let make_ack_nack a = AckNack a
-  let make_keep_alive a = KeepAlive a *)

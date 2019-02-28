@@ -17,20 +17,20 @@ let run peers nb size =
     let%lwt _ = MVar_lwt.put state {wr_time=Unix.gettimeofday(); count=0; rt_times=[];} in
 
     let%lwt z = zopen peers in
-    let%lwt pub = publish "/roundtrip/ping" z in
+    let%lwt pub = publish z "/roundtrip/ping" in
 
     let listener _ _ state = 
       let now = Unix.gettimeofday() in 
       (match state.count + 1 < nb with 
-      | true -> Lwt.ignore_result @@ stream (Abuf.create size) pub
+      | true -> Lwt.ignore_result @@ stream pub (Abuf.create size)
       | false -> Lwt.wakeup_later resolver ());
       Lwt.return (Lwt.return_unit, {wr_time=now; count=state.count + 1; rt_times=(now -. state.wr_time) :: state.rt_times}) in
 
-    let%lwt _ = subscribe "/roundtrip/pong" (fun d s -> MVar_lwt.guarded state (listener d s)) z in
+    let%lwt _ = subscribe z "/roundtrip/pong" (fun r ds -> MVar_lwt.guarded state (listener r ds)) in
 
     Unix.sleep 2; (* Avoid "declare & shoot" issue. TODO : remove when fixed *)
 
-    Lwt.ignore_result @@ stream (Abuf.create size) pub;
+    Lwt.ignore_result @@ stream pub (Abuf.create size);
 
     let%lwt _ = promise in
     let%lwt state = MVar_lwt.take state in

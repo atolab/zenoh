@@ -10,6 +10,8 @@ type element =
   | Message of Message.t
   | Marker of marker
 
+let decode_payload h = Apero.Infix.(decode_buf %> Payload.from_buffer h)
+
 let make_scout mask ps = Message (Scout (Scout.create mask ps))
 
 let decode_scout header = 
@@ -179,10 +181,11 @@ let make_write_data h sn resource payload =
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
   Message (WriteData (WriteData.create (s, r) sn resource payload))
 
-let decode_write_data header buf=
+let decode_write_data header buf =
+  Logs.debug (fun m -> m "Reading WriteData");
   let sn = fast_decode_vle buf in 
   let resource = decode_string buf in 
-  let payload = decode_buf buf in 
+  let payload = decode_payload true buf in 
   make_write_data header sn resource payload
 
 let encode_write_data m buf =
@@ -191,7 +194,7 @@ let encode_write_data m buf =
   Abuf.write_byte (header m) buf;
   fast_encode_vle (sn m) buf;
   encode_string (resource m) buf;
-  encode_buf (payload m) buf
+  encode_buf (Payload.buffer @@ payload m) buf
 
 let decode_prid h buf = 
   if Flags.(hasFlag h aFlag) 
@@ -202,17 +205,38 @@ let encode_prid = function
   | None -> fun _ -> ()
   | Some v -> fast_encode_vle v
 
-let make_stream_data h sn id prid payload = 
+let make_compact_data h sn id prid payload = 
   let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
-  Message (StreamData (StreamData.create (s, r) sn id prid payload))
+  Message (CompactData (CompactData.create (s, r) sn id prid payload))
+
+let decode_compact_data header =
+  read4_spec 
+    (Logs.debug (fun m -> m "Reading CompactData"))
+    decode_vle
+    decode_vle
+    (decode_prid header)
+    (decode_payload false)
+    (make_compact_data header)
+
+let encode_compact_data m buf =
+  let open CompactData in
+  Logs.debug (fun m -> m "Writing CompactData");
+  Abuf.write_byte (header m) buf;
+  encode_vle (sn m) buf;
+  encode_vle (id m) buf;
+  encode_prid (prid m) buf;
+  encode_buf (Payload.data @@ payload m) buf
+
+let make_stream_data h sn id payload = 
+  let (s, r) = ((Flags.hasFlag h Flags.sFlag), (Flags.hasFlag h Flags.rFlag)) in
+  Message (StreamData (StreamData.create (s, r) sn id payload))
 
 let decode_stream_data header buf =
   Logs.debug (fun m -> m "Reading StreamData");
   let sn = fast_decode_vle buf in 
   let id = fast_decode_vle buf in 
-  let prid = decode_prid header buf in 
-  let p = decode_buf buf in 
-  make_stream_data header sn id prid p   
+  let p = decode_payload true buf in 
+  make_stream_data header sn id p   
 
 let encode_stream_data m buf =
   let open StreamData in  
@@ -220,23 +244,23 @@ let encode_stream_data m buf =
   Abuf.write_byte (header m) buf;
   fast_encode_vle (sn m) buf;
   fast_encode_vle (id m) buf;
-  encode_prid (prid m) buf;
-  encode_buf (payload m) buf
+  encode_buf (Payload.buffer @@ payload m) buf
 
 
 let decode_batched_stream_data header buf =  
   let sn = fast_decode_vle buf in 
   let id = fast_decode_vle buf in 
-  let payload = decode_seq decode_buf buf in
+  let payload = decode_seq (decode_payload true) buf in
   let flags = ((Flags.hasFlag header Flags.sFlag), (Flags.hasFlag header Flags.rFlag)) in
   Message (BatchedStreamData (BatchedStreamData.create flags sn id payload))
 
 let encode_batched_stream_data m buf =  
   let open BatchedStreamData in 
+  let open Apero.Infix in
   Abuf.write_byte (header m) buf;
   fast_encode_vle (sn m) buf;
   fast_encode_vle (id m) buf;    
-  encode_seq encode_buf (payload m) buf
+  encode_seq (Payload.buffer %> encode_buf) (payload m) buf
   
 
 let decode_synch_count h buf = 
@@ -368,17 +392,18 @@ let decode_reply_value header buf =
       decode_buf
       fast_decode_vle
       decode_string
-      decode_buf
+      (decode_payload true)
       (fun stoid rsn resource payload -> Some (stoid, rsn, resource, payload)) buf
   else None
 
-let decode_reply header =
+let decode_reply header buf =
   read3_spec
     (Logs.debug (fun m -> m "Reading Reply"))
     decode_buf
     fast_decode_vle
     (decode_reply_value header)
-    make_reply
+    make_reply 
+    buf
 
 let encode_reply_value v buf =
   match v with 
@@ -387,7 +412,7 @@ let encode_reply_value v buf =
     encode_buf stoid buf;
     fast_encode_vle rsn buf;
     encode_string resource buf;
-    encode_buf payload buf
+    encode_buf (Payload.buffer payload) buf
 
 let encode_reply m buf =
   let open Reply in  
@@ -500,6 +525,7 @@ let decode_element buf =
     | id when id = MessageId.closeId ->  (decode_close header buf)
     | id when id = MessageId.declareId -> (decode_declare header buf)
     | id when id = MessageId.wdataId ->  (decode_write_data header buf)
+    | id when id = MessageId.cdataId ->  (decode_compact_data header buf)
     | id when id = MessageId.sdataId ->  (decode_stream_data header buf)
     | id when id = MessageId.synchId -> (decode_synch header buf)
     | id when id = MessageId.ackNackId -> (decode_ack_nack header buf)
@@ -541,6 +567,7 @@ let encode_msg_element msg =
   | Close m -> encode_close  m
   | Declare m -> encode_declare m
   | WriteData m -> encode_write_data m
+  | CompactData m -> encode_compact_data m
   | StreamData m -> encode_stream_data m
   | BatchedStreamData m -> encode_batched_stream_data m
   | Synch m -> encode_synch  m
