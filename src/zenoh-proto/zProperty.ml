@@ -1,4 +1,5 @@
 open Apero
+open Ztypes
 
 module PropertyId = struct
   let maxConduits = 2L
@@ -44,7 +45,6 @@ module StorageDist = struct
 end
 
 module QueryDest = struct
-  open Queries
   let make dest = make 
     PropertyId.queryDest 
     (match dest with 

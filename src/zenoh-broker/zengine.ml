@@ -21,8 +21,8 @@ module ZEngine (MVar : MVar) = struct
       let open Frame in 
       List.iter (fun node -> 
           let b = Marshal.to_bytes node [] in
-          let sdata = Message.with_marker               
-              (StreamData(StreamData.create (true, true) 0L 0L None (Abuf.from_bytes b)))
+          let sdata = Message.with_marker 
+              (CompactData(CompactData.create (true, true) 0L 0L None (Abuf.from_bytes b |> Payload.create)))
               (RSpace (RSpace.create 1L)) in           
           Lwt.ignore_result @@ Mcodec.ztcp_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
 
@@ -64,6 +64,7 @@ module ZEngine (MVar : MVar) = struct
         | Message.AckNack msg -> process_ack_nack engine tsex msg
         | Message.StreamData msg -> process_stream_data engine tsex msg
         | Message.BatchedStreamData msg -> process_batched_stream_data engine tsex msg
+        | Message.CompactData msg -> process_compact_data engine tsex msg
         | Message.WriteData msg -> process_write_data engine tsex msg
         | Message.Query msg -> process_query engine tsex msg
         | Message.Reply msg -> process_reply engine tsex msg
