@@ -84,7 +84,7 @@ let run_broker tcpport peers strength bufn =
         | [] -> Lwt.return_unit
         | ms -> zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return_unit
   in 
-  Lwt.join [ZTcpTransport.start tx dispatcher_svc; ProtocolEngine.start engine]
+  Lwt.join [ZTcpTransport.start tx (fun _ -> Lwt.return_unit) dispatcher_svc; ProtocolEngine.start engine]
 
 
 
