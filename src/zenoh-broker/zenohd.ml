@@ -62,17 +62,15 @@ let run_broker tcpport peers strength bufn =
   let tx_connector = ZTcpTransport.establish_session tx in 
   let engine = ProtocolEngine.create ~bufn pid lease Locators.empty peers strength tx_connector in     
   let dispatcher_svc sex  = 
-    let rbuf = Abuf.create ~grow:4096 buf_size in 
     let wbuf = Abuf.create ~grow:4096 buf_size in
     let socket = (TxSession.socket sex) in
     let zreader = ztcp_read_frame socket in 
     let zwriter = ztcp_write_frame socket  in            
     let open Lwt.Infix in 
-    fun () ->
-      Abuf.clear rbuf;
-      Abuf.clear wbuf;
-      zreader rbuf () 
-      >>= fun frame ->
+    fun (freebufp, usedbufp) ->
+      let%lwt readbuf = freebufp in
+      Abuf.clear readbuf;
+      zreader readbuf () >>= fun frame ->
         Lwt.catch
           (fun () -> ProtocolEngine.handle_message engine sex (Frame.to_list frame)) 
           (fun e -> 
@@ -81,10 +79,14 @@ let run_broker tcpport peers strength bufn =
               (Printexc.to_string e))
             >>= fun _ -> Lwt.return []) 
         >>= function
-        | [] -> Lwt.return_unit
-        | ms -> zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return_unit
+      | [] -> Lwt.return (usedbufp, Lwt.return readbuf)
+      | ms -> Abuf.clear wbuf; zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return (usedbufp, Lwt.return readbuf)
   in 
-  Lwt.join [ZTcpTransport.start tx (fun _ -> Lwt.return_unit) dispatcher_svc; ProtocolEngine.start engine]
+  Lwt.join [ZTcpTransport.start tx (fun _ -> 
+                                    let rbuf1 = Abuf.create ~grow:4096 buf_size in 
+                                    let rbuf2 = Abuf.create ~grow:4096 buf_size in 
+                                    Lwt.return (Lwt.return rbuf1, Lwt.return rbuf2)) 
+                                    dispatcher_svc; ProtocolEngine.start engine]
 
 
 
