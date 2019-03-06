@@ -7,7 +7,7 @@ type state = {mutable starttime:float; mutable count:int;}
 
 let state =  {starttime=0.0; count=0}
 
-let listener bufs _ = 
+let listener _ bufs = 
     let n = List.length bufs in 
     let now = Unix.gettimeofday() in 
     Lwt.return @@ match state.starttime with 
@@ -23,7 +23,7 @@ let run peers =
   Lwt_main.run 
   (
     let%lwt z = zopen peers in 
-    let%lwt _ = subscribe "/home1" listener z in 
+    let%lwt _ = subscribe z "/home1" listener in 
     let%lwt _ = Lwt_unix.sleep 3000.0 in 
     Lwt.return_unit
   )

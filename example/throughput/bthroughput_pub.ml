@@ -24,10 +24,10 @@ let run peers size =
   Lwt_main.run 
   (
     let%lwt z = zopen peers in 
-    let%lwt home1pub = publish "/home1" z in 
+    let%lwt home1pub = publish z "/home1" in 
     let buf = Abuf.create size in
     Abuf.set_w_pos size buf;
-    let rec loop () = lstream bufs home1pub >>= loop in 
+    let rec loop () = lstream home1pub bufs >>= loop in 
     loop ()
   )
 
