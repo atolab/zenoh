@@ -311,19 +311,19 @@ let publish z resname =
   ; Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
 
 
-let write z resname ?timestamp:(ts=None) ?kind:(kind=None) ?encoding:(encoding=None) buf = 
+let write z resname ?timestamp ?kind ?encoding buf = 
   let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
   Guard.release z.state state;
-  send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
+  send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
   >> Lwt.return_unit
 
 
-let stream (pub:pub) ?timestamp:(ts=None) ?kind:(kind=None) ?encoding:(encoding=None) buf = 
+let stream (pub:pub) ?timestamp ?kind ?encoding buf = 
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
   Guard.release pub.z.state state;
-  send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
+  send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
   >> Lwt.return_unit
 
 let lstream (pub:pub) (bufs: Abuf.t list) = 
