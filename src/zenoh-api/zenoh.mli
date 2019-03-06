@@ -21,9 +21,9 @@ val publish : t -> string -> pub Lwt.t
 
 val unpublish : t -> pub -> unit Lwt.t
 
-val write : t -> string -> ?timestamp:Timestamp.t option -> ?kind:int64 option -> ?encoding:int64 option -> Abuf.t -> unit Lwt.t
+val write : t -> string -> ?timestamp:Timestamp.t -> ?kind:int64 -> ?encoding:int64 -> Abuf.t -> unit Lwt.t
 
-val stream : pub -> ?timestamp:Timestamp.t option -> ?kind:int64 option -> ?encoding:int64 option -> Abuf.t -> unit Lwt.t
+val stream : pub -> ?timestamp:Timestamp.t -> ?kind:int64 -> ?encoding:int64 -> Abuf.t -> unit Lwt.t
 
 val lstream : pub -> Abuf.t list -> unit Lwt.t
 
