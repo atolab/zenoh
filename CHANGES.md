@@ -1,3 +1,17 @@
+## 0.2.4 (2019-03-22)
+
+- Data context : possibility to attach context (timestamp, data kind and data encoding) to data samples.
+- Batched stream : possibility to send data samples in batches to improve performances.
+- API changes : zenoh engine is the first argument of functions rather than last argument.
+- Performances improvements
+
+## 0.2.3 (2019-02-22)
+
+- API changes : 
+    - New lquery function with automatic (reception side) replies consolidation.
+    - New squery function with replies provided through a Lwt_stream.
+- Performances improvements
+
 ## 0.2.2 (2019-02-11)
 
 - Fix bug when multiple storage declarations in the same client
