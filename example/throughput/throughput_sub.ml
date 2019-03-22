@@ -22,7 +22,7 @@ let run peers =
   Lwt_main.run 
   (
     let%lwt z = zopen peers in 
-    let%lwt _ = subscribe "/home1" listener z in 
+    let%lwt _ = subscribe z "/home1" listener in 
     let%lwt _ = Lwt_unix.sleep 3000.0 in 
     Lwt.return_unit
   )

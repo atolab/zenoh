@@ -9,6 +9,7 @@ sig
   val acceptId : char
   val closeId : char
   val declareId : char
+  val cdataId : char
   val sdataId : char
   val bdataId : char
   val wdataId : char
@@ -404,20 +405,31 @@ module WriteData :
 sig
   type body
   type t = body reliable marked block
-  val create : bool * bool -> Vle.t -> string -> Abuf.t -> t
+  val create : bool * bool -> Vle.t -> string -> Payload.t -> t
   val resource : t -> string
-  val payload : t -> Abuf.t
+  val payload : t -> Payload.t
   val with_sn : t -> Vle.t -> t
+end
+
+module CompactData :
+sig
+  type body
+  type t = body reliable marked block
+  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> Payload.t -> t
+  val id : t -> Vle.t
+  val prid : t -> Vle.t option
+  val payload : t -> Payload.t
+  val with_sn : t -> Vle.t -> t
+  val with_id : t -> Vle.t -> t
 end
 
 module StreamData :
 sig
   type body
   type t = body reliable marked block
-  val create : bool * bool -> Vle.t -> Vle.t -> Vle.t option -> Abuf.t -> t
+  val create : bool * bool -> Vle.t -> Vle.t -> Payload.t -> t
   val id : t -> Vle.t
-  val prid : t -> Vle.t option
-  val payload : t -> Abuf.t
+  val payload : t -> Payload.t
   val with_sn : t -> Vle.t -> t
   val with_id : t -> Vle.t -> t
 end
@@ -426,9 +438,9 @@ module BatchedStreamData :
 sig
   type body
   type t = body reliable marked block
-  val create : bool * bool -> Vle.t -> Vle.t  -> Abuf.t list -> t
+  val create : bool * bool -> Vle.t -> Vle.t  -> Payload.t list -> t
   val id : t -> Vle.t
-  val payload : t -> Abuf.t list
+  val payload : t -> Payload.t list
   val with_sn : t -> Vle.t -> t
   val with_id : t -> Vle.t -> t
 end 
@@ -479,15 +491,15 @@ module Reply :
 sig
   type body
   type t = body marked block
-  val create : Abuf.t -> Vle.t -> (Abuf.t * Vle.t * string * Abuf.t) option -> t
+  val create : Abuf.t -> Vle.t -> (Abuf.t * Vle.t * string * Payload.t) option -> t
   val qpid : t -> Abuf.t
   val qid : t -> Vle.t
   val final : t -> bool
-  val value : t -> (Abuf.t * Vle.t * string * Abuf.t) option
+  val value : t -> (Abuf.t * Vle.t * string * Payload.t) option
   val stoid : t -> Abuf.t option
   val rsn : t -> Vle.t option
   val resource : t -> string option
-  val payload : t -> Abuf.t option
+  val payload : t -> Payload.t option
 end
 
 module Pull :
@@ -520,6 +532,7 @@ type t =
   | Close of Close.t
   | Declare of Declare.t
   | WriteData of WriteData.t
+  | CompactData of CompactData.t
   | StreamData of StreamData.t
   | BatchedStreamData of BatchedStreamData.t
   | Synch of Synch.t
