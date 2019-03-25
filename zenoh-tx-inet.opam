@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git+https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version: "0.2.3"
+version: "0.2.4"
 license: "Apache-2.0"
 
 build: [
@@ -22,9 +22,9 @@ depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
   "lwt" {>= "4.1.0"}
-  "apero-core" {>= "0.4.3"}
-  "apero-net" {>= "0.4.3"}
-  "zenoh-proto" {= "0.2.3"}
+  "apero-core" {>= "0.4.4"}
+  "apero-net" {>= "0.4.4"}
+  "zenoh-proto" {= "0.2.4"}
 ]
 synopsis : "The zenoh transport framework"
 description: """
