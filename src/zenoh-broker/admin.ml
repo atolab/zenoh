@@ -5,7 +5,9 @@ open Apero
 
 let admin_prefix = "/_z_/"
 
-let is_admin q = String.equal admin_prefix (String.sub (Message.Query.resource q) 0 (String.length admin_prefix))
+let is_admin q = 
+  String.length (Message.Query.resource q) >= String.length admin_prefix &&
+  String.equal admin_prefix (String.sub (Message.Query.resource q) 0 (String.length admin_prefix))
 
 let broker_json pe = 
   let locators = pe.locators |> Locator.Locators.to_list |> List.map (fun l -> `String(Locator.Locator.to_string l)) in
