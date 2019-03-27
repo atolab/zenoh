@@ -2,6 +2,7 @@ open Engine_state
 open Message
 open Apero
 
+
 let admin_prefix = "/_z_/"
 
 let is_admin q = String.equal admin_prefix (String.sub (Message.Query.resource q) 0 (String.length admin_prefix))
@@ -9,7 +10,7 @@ let is_admin q = String.equal admin_prefix (String.sub (Message.Query.resource q
 let broker_json pe = 
   let locators = pe.locators |> Locator.Locators.to_list |> List.map (fun l -> `String(Locator.Locator.to_string l)) in
   `Assoc [ 
-      ("pid",      `String (Abuf.hexdump pe.pid));      
+      ("pid",      `String (Abuf.hexdump pe.pid));
       ("locators", `List locators);
       ("lease",    `Int (Vle.to_int pe.lease));
     ]
@@ -17,7 +18,7 @@ let broker_json pe =
 let full_broker_json pe = 
   let locators = pe.locators |> Locator.Locators.to_list |> List.map (fun l -> `String(Locator.Locator.to_string l)) in
   `Assoc [ 
-      ("pid",      `String (Abuf.hexdump pe.pid));      
+      ("pid",      `String (Abuf.hexdump pe.pid));
       ("locators", `List locators);
       ("lease",    `Int (Vle.to_int pe.lease));
       ("router",   (ZRouter.to_yojson pe.router));
