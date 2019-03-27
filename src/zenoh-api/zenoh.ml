@@ -59,6 +59,7 @@ let get_next_qry_id state = (state.next_qry_id, {state with next_qry_id=Vle.add 
 
 type t = {
   sock : Lwt_unix.file_descr;
+  peer_pid : string option;
   state : state Guard.t;
 }
 
@@ -116,7 +117,7 @@ let send_message sock msg =
 let process_incoming_message msg resolver t = 
   let open Lwt.Infix in
   match msg with
-  | Message.Accept _ -> Lwt.wakeup_later resolver t; return_true
+  | Message.Accept amsg -> Lwt.wakeup_later resolver {t with peer_pid=Some (Abuf.hexdump @@ Message.Accept.apid amsg)}; return_true
   | Message.BatchedStreamData dmsg ->
     let state = Guard.get t.state in
     (* let%lwt _ = Lwt_mvar.put t.state state in  *)
@@ -284,7 +285,7 @@ let zopen peer =
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let (promise, resolver) = Lwt.task () in
   let con = connect sock saddr in 
-  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state} in
+  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
 
@@ -293,7 +294,10 @@ let info z =
     | ADDR_UNIX a -> "unix:"^a
     | ADDR_INET (a,p) -> Printf.sprintf "%s:%d" (Unix.string_of_inet_addr a) p
   in
-  Apero.Properties.singleton "peer" peer
+  let props = Apero.Properties.of_list ["peer", peer; "pid",(Abuf.hexdump pid)]  in 
+  match z.peer_pid with 
+  | None -> props 
+  | Some bpid -> Apero.Properties.add "peer_pid" bpid props
 
 let publish z resname = 
   let resname = PathExpr.of_string resname in
