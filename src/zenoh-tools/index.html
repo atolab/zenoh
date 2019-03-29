@@ -39,7 +39,7 @@
     </head>
 <body>
 <div id="commandpanel">
-    <form id="server"><input type="text" name="address" value="http://127.0.0.1:8000" size="50"></form>
+    <form id="server" onsubmit="redraw();return false"><input id="serveraddress" type="text" name="address" value="http://127.0.0.1:8000" size="50"></form>
     <button id="refresh"     onclick="refresh()"    >Refresh</button>
     <button id="autorefresh" onclick="autorefresh()">Auto refresh</button>
     <button id="redraw"      onclick="redraw()"     >Redraw</button>
@@ -147,7 +147,7 @@
     }
 
     function refresh() {
-        $.getJSON("http://127.0.0.1:8000/_z_/services/**", update);
+        $.getJSON($("#serveraddress").val() + "/_z_/services/**", update);
     }
 
     function autorefresh() {
@@ -155,7 +155,7 @@
         if($("#autorefresh").hasClass("loading"))
         {
             function periodicupdate(){
-                $.getJSON("http://127.0.0.1:8000/_z_/services/**", function(services) {
+                $.getJSON($("#serveraddress").val() + "/_z_/services/**", function(services) {
                     update(services);
                     if($("#autorefresh").hasClass("loading"))
                     {
@@ -177,7 +177,7 @@
             }
             else
             {
-                $.getJSON("http://127.0.0.1:8000/_z_/services/" + network.getSelectedNodes()[0], function(services) {
+                $.getJSON($("#serveraddress").val() + "/_z_/services/" + network.getSelectedNodes()[0], function(services) {
                     $("#data").JSONView(services["/_z_/services/" + network.getSelectedNodes()[0]], { collapsed: false });
                 });
             }
@@ -189,7 +189,7 @@
     }
 
     function redraw() {
-        $.getJSON("http://127.0.0.1:8000/_z_/services/**", function(services) {
+        $.getJSON($("#serveraddress").val() + "/_z_/services/**", function(services) {
             update(services);
             network = new vis.Network(container, data, options);
             network.on("click", showDetails);
