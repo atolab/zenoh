@@ -34,6 +34,7 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
         | true -> [Message.StreamData(Message.StreamData.create (true, reliable) fsn dstmapid payload)]
         | false -> [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)] 
     in
+    Session.add_out_msg s.stats;
 
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
@@ -54,6 +55,7 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
         | true -> [Message.BatchedStreamData(Message.BatchedStreamData.create (true, reliable) fsn dstmapid payloads)]
         | false -> List.map (fun p -> Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) p)) payloads
     in
+    Session.add_out_msg s.stats;
 
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 

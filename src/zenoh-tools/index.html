@@ -1,12 +1,19 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+        <!-- <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.js"></script>
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
         <link href="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" /> -->
+    
+        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/jquery.min.js"></script>
+        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/jquery.jsonview.min.js"></script>
+        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/vis.min.js"></script>
+        <link href="file:///Users/olivier/workspaces/offline/vis.min.css" rel="stylesheet" type="text/css" />
+        <link href="file:///Users/olivier/workspaces/offline/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
+        <link rel="stylesheet" href="file:///Users/olivier/workspaces/offline/load8.css" />
     
         <style type="text/css">
             #commandpanel {height:5vh;}
@@ -60,9 +67,11 @@
         edges: edges
     };
     var default_node_color = {background:"#DDDDDD", border:"#AAAAAA", highlight:{background:"#CCCCCC", border:"#555555"}}
+    var default_edge_color = {color:"grey", highlight:"grey", hover:"grey"}
+    var flow_edge_color = {color:"blue", highlight:"blue", hover:"blue"}
                
     var options = {
-        // edges:{smooth:false},
+        edges:{font:{multi:"html", mono:{size:12}}},
         nodes:{shape:"box", heightConstraint:50, widthConstraint:50, margin:10, 
                font:{multi:"html", mono:{size:10}},
                color:default_node_color},
@@ -100,16 +109,14 @@
         newnodes = Object.keys(services).map( function(id, idx) {
             label = "<code>" + services[id].locators[0].split("/")[1].split(":")[0] + "</code>" + "\n" + 
                     "<code>" + services[id].locators[0].split("/")[1].split(":")[1] + "</code>";
-            color = default_node_color;
-            services[id].router.tree_set.forEach( function (tree){
-                if (tree.local.parent == null)
-                {
-                    color=tree_colors[tree.local.tree_nb];
-                }
-            });
-            return {id: services[id].pid, label: label, color:color};
+            return {id: services[id].pid, label: label, color:default_node_color};
         });
         updateDataSet(nodes, newnodes);
+    }
+
+    function getSessionForPeer(service, peerid) {
+        peer = service.router.peers.find(function(peer){return (peer.pid === peerid);});
+        return service.sessions.find(function(session){return (session.sid === peer.sid);});
     }
 
     function updateEdges(services) {
@@ -117,12 +124,28 @@
             return services[id].router.tree_set
                 .filter( function (tree){ return tree.local.parent != null;})
                 .map( function (tree){ 
-                    color=tree_colors[tree.local.tree_nb];
-                    return {
-                        id: parentLinkId(services[id].pid, tree.local.parent, tree.local.tree_nb),
-                        from: services[id].pid, to: tree.local.parent, arrows:"to", 
-                        color:{color:color, highlight:color, hover:color}, 
-                        width:2};
+                    tpup = getSessionForPeer(services[id], tree.local.parent).stats.out_msgs_tp;
+                    tpdwn = getSessionForPeer(services["/_z_/services/" + tree.local.parent], services[id].pid).stats.out_msgs_tp;
+                    label= "<code>" + (tpup + tpdwn).toString() + " m/s" + "</code>";
+                    if ((tpup + tpdwn) > 0)
+                    {
+                        arrows = '';
+                        if (tpup > 0) {arrows += 'to, '}
+                        if (tpdwn > 0) {arrows += 'from, '}
+                        return {
+                        id: parentLinkId(services[id].pid, tree.local.parent),
+                        from: services[id].pid, to: tree.local.parent, 
+                        label:label, arrows: arrows, 
+                        color:flow_edge_color, dashes:false, width:2};
+                    }
+                    else
+                    {
+                        return {
+                        id: parentLinkId(services[id].pid, tree.local.parent),
+                        from: services[id].pid, to: tree.local.parent, 
+                        label:label, arrows:'', 
+                        color:default_edge_color, dashes:false, width:1};
+                    }
                 });
             }).flat();
 
@@ -132,7 +155,9 @@
                 .map( function (peer){ 
                     return {
                         id: brokenLinkId(services[id].pid, peer.pid),
-                        from: services[id].pid, to: peer.pid, dashes:true};
+                        from: services[id].pid, to: peer.pid, 
+                        label:"<code></code>", arrows:'', 
+                        color:default_edge_color, dashes:true, width:1};
                 });
             }).flat();
         

@@ -19,11 +19,13 @@ let broker_json pe =
 
 let full_broker_json pe = 
   let locators = pe.locators |> Locator.Locators.to_list |> List.map (fun l -> `String(Locator.Locator.to_string l)) in
+  let sessions = pe.smap |> SIDMap.bindings |> List.map (fun (_, v) -> Session.to_yojson v) in
   `Assoc [ 
-      ("pid",      `String (Abuf.hexdump pe.pid));
-      ("locators", `List locators);
-      ("lease",    `Int (Vle.to_int pe.lease));
-      ("router",   (ZRouter.to_yojson pe.router));
+      ("pid",       `String (Abuf.hexdump pe.pid));
+      ("locators",  `List locators);
+      ("lease",     `Int (Vle.to_int pe.lease));
+      ("router",    (ZRouter.to_yojson pe.router));
+      ("sessions",  `List sessions);
     ]
 
 let broker_path_str pe = String.concat "" [admin_prefix; "services/"; Abuf.hexdump pe.pid]
