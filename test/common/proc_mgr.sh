@@ -27,10 +27,15 @@ runproc()
 
 restartproc()
 {
-  mkfifo ${proc_in[$1]}
-  eval "exec $1<>${proc_in[$1]}"
-  ${proc_cmd[$1]} < ${proc_in[$1]} > ${proc_log[$1]} 2>&1 &
-  proc_pid[$1]=$!
+  if [ "${proc_pid[$1]}" != "" ] 
+  then
+    echo "proc $1 already running (pid : ${proc_pid[$1]})"
+  else
+    mkfifo ${proc_in[$1]}
+    eval "exec $1<>${proc_in[$1]}"
+    ${proc_cmd[$1]} < ${proc_in[$1]} > ${proc_log[$1]} 2>&1 &
+    proc_pid[$1]=$!
+  fi
 }
 
 killproc()
@@ -38,6 +43,7 @@ killproc()
   eval "exec $1>&-"
   rm -f ${proc_in[$1]}
   kill -9 ${proc_pid[$1]}
+  proc_pid[$1]=""
   echo "**********************************************" >> ${proc_log[$1]}
   echo "kill -9" >> ${proc_log[$1]}
   echo "**********************************************" >> ${proc_log[$1]}
