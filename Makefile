@@ -18,6 +18,8 @@ ROUNDTRIP_PING=example/roundtrip/roundtrip_ping.exe
 ROUNDTRIP_PONG=example/roundtrip/roundtrip_pong.exe
 THROUGHPUT_SUB=example/throughput/throughput_sub.exe
 THROUGHPUT_PUB=example/throughput/throughput_pub.exe
+DEMO_SUB=example/demo/demo_sub.exe
+DEMO_PUB=example/demo/demo_pub.exe
 
 all:
 	${BUILD} 
@@ -31,6 +33,8 @@ all:
 	${BUILD} ${ROUNDTRIP_PONG}
 	${BUILD} ${THROUGHPUT_SUB}
 	${BUILD} ${THROUGHPUT_PUB}
+	${BUILD} ${DEMO_SUB}
+	${BUILD} ${DEMO_PUB}
 
 release:
 	${RELEASE} 
@@ -44,6 +48,8 @@ release:
 	${RELEASE} ${ROUNDTRIP_PONG}
 	${RELEASE} ${THROUGHPUT_SUB}
 	${RELEASE} ${THROUGHPUT_PUB}
+	${RELEASE} ${DEMO_SUB}
+	${RELEASE} ${DEMO_PUB}
 	
 test:
 	${TEST}
