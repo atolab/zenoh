@@ -16,7 +16,8 @@
         <link rel="stylesheet" href="file:///Users/olivier/workspaces/offline/load8.css" />
     
         <style type="text/css">
-            #commandpanel {height:5vh;}
+            body {font-family:sans-serif;}
+            #commandpanel {height:6vh;}
             #displaypanel {height:90vh;}
             #server {float:left;}
             #graph {
@@ -27,6 +28,7 @@
             }
             #data {
                 float:left;
+                width:   45%;
                 height: 100%;
                 overflow:scroll;
                 border: 1px solid lightgrey;
@@ -41,12 +43,20 @@
                 font-size: 1px; 
                 float:left; 
             }
+            #message{ 
+                color:red;
+                font-weight:bold;
+                font-size: 12px; 
+            }
 
         </style>
     </head>
 <body>
 <div id="commandpanel">
-    <form id="server" onsubmit="redraw();return false"><input id="serveraddress" type="text" name="address" value="http://127.0.0.1:8000" size="50"></form>
+    <form id="server" onsubmit="redraw();return false">
+        <input id="serveraddress" type="text" name="address" value="http://127.0.0.1:8000" size="50"/>
+        <div><span id="message"></span></div>
+    </form>
     <button id="refresh"     onclick="refresh()"    >Refresh</button>
     <button id="autorefresh" onclick="autorefresh()">Auto refresh</button>
     <button id="redraw"      onclick="redraw()"     >Redraw</button>
@@ -66,12 +76,18 @@
         nodes: nodes,
         edges: edges
     };
-    var default_node_color = {background:"#DDDDDD", border:"#AAAAAA", highlight:{background:"#CCCCCC", border:"#555555"}}
-    var default_edge_color = {color:"grey", highlight:"grey", hover:"grey"}
-    var flow_edge_color = {color:"blue", highlight:"blue", hover:"blue"}
+    var default_node_color = {background:"#7BBCFF", border:"#00356D", 
+                              highlight:{background:"#1387FF", border:"#00356D"}};
+    var default_node_text_color = "#000000";
+    var disabled_node_color = {background:"#F5F5F5", border:"#F5F5F5", 
+                               highlight:{background:"#F5F5F5", border:"#F5F5F5"}};
+    var disabled_node_text_color = "#BBBBBB";
+    var default_edge_color = {color:"grey", highlight:"grey", hover:"grey"};
+    var disabled_edge_color = {color:"#EEEEEE", highlight:"#EEEEEE", hover:"#EEEEEE"};
+    var flow_edge_color = {color:"#1387FF", highlight:"#1387FF", hover:"#1387FF"};
                
     var options = {
-        edges:{font:{multi:"html", mono:{size:12}}},
+        edges:{font:{multi:"html", mono:{size:12}},selectionWidth:0},
         nodes:{shape:"box", heightConstraint:50, widthConstraint:50, margin:10, 
                font:{multi:"html", mono:{size:10}},
                color:default_node_color},
@@ -109,7 +125,7 @@
         newnodes = Object.keys(services).map( function(id, idx) {
             label = "<code>" + services[id].locators[0].split("/")[1].split(":")[0] + "</code>" + "\n" + 
                     "<code>" + services[id].locators[0].split("/")[1].split(":")[1] + "</code>";
-            return {id: services[id].pid, label: label, color:default_node_color};
+            return {id: services[id].pid, label: label};
         });
         updateDataSet(nodes, newnodes);
     }
@@ -136,7 +152,7 @@
                         id: parentLinkId(services[id].pid, tree.local.parent),
                         from: services[id].pid, to: tree.local.parent, 
                         label:label, arrows: arrows, 
-                        color:flow_edge_color, dashes:false, width:2};
+                        color:flow_edge_color, dashes:false, width:4};
                     }
                     else
                     {
@@ -144,7 +160,7 @@
                         id: parentLinkId(services[id].pid, tree.local.parent),
                         from: services[id].pid, to: tree.local.parent, 
                         label:label, arrows:'', 
-                        color:default_edge_color, dashes:false, width:1};
+                        color:null, dashes:false, width:2};
                     }
                 });
             }).flat();
@@ -157,7 +173,7 @@
                         id: brokenLinkId(services[id].pid, peer.pid),
                         from: services[id].pid, to: peer.pid, 
                         label:"<code></code>", arrows:'', 
-                        color:default_edge_color, dashes:true, width:1};
+                        color:null, dashes:true, width:1};
                 });
             }).flat();
         
@@ -165,14 +181,44 @@
         updateDataSet(edges, links);
     }
 
+    function failure(){
+        $("#message").html("Unable to contact server!");
+
+        edges.forEach(function(edge){
+            edge.label = "<code></code>";
+            edge.arrows = "";
+            edge.color = null;
+            if(edge.width > 2){edge.width = 2;};
+            edges.update(edge);
+        });
+
+        options.nodes.color = disabled_node_color;
+        options.edges.color = disabled_edge_color;
+        options.nodes.font.mono.color = disabled_node_text_color;
+        network.setOptions(options);
+
+        $("#data").html("");
+    }
+
+    function cleanfailure(){
+        $("#message").html("");
+
+        options.nodes.color = default_node_color;
+        options.edges.color = default_edge_color;
+        options.nodes.font.mono.color = default_node_text_color;
+        network.setOptions(options);
+    }
+
     function update(services) {
+        cleanfailure();
         updateNodes(services);
         updateEdges(services);
         showDetails(services);
     }
 
     function refresh() {
-        $.getJSON($("#serveraddress").val() + "/_z_/services/**", update);
+        $.getJSON($("#serveraddress").val() + "/_z_/services/**", update)
+        .fail(failure);
     }
 
     function autorefresh() {
@@ -182,6 +228,13 @@
             function periodicupdate(){
                 $.getJSON($("#serveraddress").val() + "/_z_/services/**", function(services) {
                     update(services);
+                    if($("#autorefresh").hasClass("loading"))
+                    {
+                        setTimeout(periodicupdate, 500);
+                    }
+                })
+                .fail(function() {
+                    failure();
                     if($("#autorefresh").hasClass("loading"))
                     {
                         setTimeout(periodicupdate, 500);
@@ -204,7 +257,8 @@
             {
                 $.getJSON($("#serveraddress").val() + "/_z_/services/" + network.getSelectedNodes()[0], function(services) {
                     $("#data").JSONView(services["/_z_/services/" + network.getSelectedNodes()[0]], { collapsed: false });
-                });
+                })
+                .fail(failure);
             }
         }
         else
@@ -213,12 +267,20 @@
         }
     }
 
+    function resetgraph(){
+        network = new vis.Network(container, data, options);
+        network.on("click", showDetails);
+        network.on("dragStart", showDetails);
+    }
+
     function redraw() {
         $.getJSON($("#serveraddress").val() + "/_z_/services/**", function(services) {
+            resetgraph();
             update(services);
-            network = new vis.Network(container, data, options);
-            network.on("click", showDetails);
-            network.on("dragStart", showDetails);
+        })
+        .fail(function() {
+            resetgraph();
+            failure();
         });
     }
 </script>
