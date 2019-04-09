@@ -1,19 +1,12 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <!-- <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.js"></script>
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
         <link href="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" /> -->
-    
-        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/jquery.min.js"></script>
-        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/jquery.jsonview.min.js"></script>
-        <script type="text/javascript" src="file:///Users/olivier/workspaces/offline/vis.min.js"></script>
-        <link href="file:///Users/olivier/workspaces/offline/vis.min.css" rel="stylesheet" type="text/css" />
-        <link href="file:///Users/olivier/workspaces/offline/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
-        <link rel="stylesheet" href="file:///Users/olivier/workspaces/offline/load8.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" />
     
         <style type="text/css">
             body {font-family:sans-serif;}
@@ -67,6 +60,8 @@
 </div>
 
 <script type="text/javascript">
+    $.ajaxSetup({timeout:500});
+
     var tree_colors = ["#7777FF","#FF0000","#00FF00","#FFFF00","#00FFFF","#FF00FF"]
 
     var nodes = new vis.DataSet();
@@ -87,9 +82,9 @@
     var flow_edge_color = {color:"#1387FF", highlight:"#1387FF", hover:"#1387FF"};
                
     var options = {
-        edges:{font:{multi:"html", mono:{size:12}},selectionWidth:0},
+        edges:{font:{face:'courier', size:10, multi:"html", bold:{face:'courier bold', size:12}}, selectionWidth:0},
         nodes:{shape:"box", heightConstraint:50, widthConstraint:50, margin:10, 
-               font:{multi:"html", mono:{size:10}},
+               font:{face:'courier', size:10, multi:"html", bold:{face:'courier bold', size:12}},
                color:default_node_color},
         physics:{enabled:true}
     };
@@ -123,8 +118,9 @@
 
     function updateNodes(services) {
         newnodes = Object.keys(services).map( function(id, idx) {
-            label = "<code>" + services[id].locators[0].split("/")[1].split(":")[0] + "</code>" + "\n" + 
-                    "<code>" + services[id].locators[0].split("/")[1].split(":")[1] + "</code>";
+            label = "<b>" + services[id].pid.substring(0, 6) + "..</b>" + "\n\n" + 
+                    services[id].locators[0].split("/")[1].split(":")[0] + "\n" + 
+                    services[id].locators[0].split("/")[1].split(":")[1];
             return {id: services[id].pid, label: label};
         });
         updateDataSet(nodes, newnodes);
@@ -142,7 +138,7 @@
                 .map( function (tree){ 
                     tpup = getSessionForPeer(services[id], tree.local.parent).stats.out_msgs_tp;
                     tpdwn = getSessionForPeer(services["/_z_/services/" + tree.local.parent], services[id].pid).stats.out_msgs_tp;
-                    label= "<code>" + (tpup + tpdwn).toString() + " m/s" + "</code>";
+                    label= "<b>" + (tpup + tpdwn).toString() + " m/s" + "</b>";
                     if ((tpup + tpdwn) > 0)
                     {
                         arrows = '';
@@ -172,7 +168,7 @@
                     return {
                         id: brokenLinkId(services[id].pid, peer.pid),
                         from: services[id].pid, to: peer.pid, 
-                        label:"<code></code>", arrows:'', 
+                        label:"<b></b>", arrows:'', 
                         color:null, dashes:true, width:1};
                 });
             }).flat();
@@ -185,7 +181,7 @@
         $("#message").html("Unable to contact server!");
 
         edges.forEach(function(edge){
-            edge.label = "<code></code>";
+            edge.label = "<b></b>";
             edge.arrows = "";
             edge.color = null;
             if(edge.width > 2){edge.width = 2;};
@@ -194,7 +190,8 @@
 
         options.nodes.color = disabled_node_color;
         options.edges.color = disabled_edge_color;
-        options.nodes.font.mono.color = disabled_node_text_color;
+        options.nodes.font.color = disabled_node_text_color;
+        options.nodes.font.bold.color = disabled_node_text_color;
         network.setOptions(options);
 
         $("#data").html("");
@@ -205,7 +202,8 @@
 
         options.nodes.color = default_node_color;
         options.edges.color = default_edge_color;
-        options.nodes.font.mono.color = default_node_text_color;
+        options.nodes.font.color = default_node_text_color;
+        options.nodes.font.bold.color = default_node_text_color;
         network.setOptions(options);
     }
 
