@@ -12,7 +12,7 @@ let run peers res value =
     let%lwt z = zopen peers in 
     let%lwt pub = publish z res in 
     let buf = Abuf.create 1024 in
-    Apero.encode_string res buf;
+    Apero.encode_string value buf;
     let rec loop () = 
       stream pub buf 
       >>= fun () -> Printf.printf "SEND %s\n%!" value |> Lwt.return
