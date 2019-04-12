@@ -9,7 +9,7 @@ let final_reply q = Message.Reply.create (Message.Query.pid q) (Message.Query.qi
 let forward_query_to_txsex pe q txsex =
   let sock = TxSession.socket txsex in 
   let open Lwt.Infix in 
-  (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Query(q)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+  (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Query(q)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_query_to_session pe q sid =
   match SIDMap.find_opt sid pe.smap with
@@ -25,7 +25,7 @@ let forward_reply_to_session pe r sid =
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding reply to session %s" (Id.to_string s.sid)) in
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_replies_to_session pe rs sid =
   match SIDMap.find_opt sid pe.smap with
@@ -35,7 +35,7 @@ let forward_replies_to_session pe rs sid =
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
     List.map (fun r -> 
-      (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+      (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
     ) rs |> Lwt.join
     
 let forward_query_to pe q = List.map (fun s -> forward_query_to_session pe q s)

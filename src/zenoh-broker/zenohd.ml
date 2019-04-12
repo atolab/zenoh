@@ -65,7 +65,7 @@ let run_broker tcpport peers strength bufn =
     let wbuf = Abuf.create ~grow:4096 buf_size in
     let socket = (TxSession.socket sex) in
     let zreader = ztcp_read_frame socket in 
-    let zwriter = ztcp_write_frame socket  in            
+    let zwriter = ztcp_safe_write_frame socket in
     let open Lwt.Infix in 
     fun (freebufp, usedbufp) ->
       let%lwt readbuf = freebufp in

@@ -40,7 +40,7 @@ let forward_data_to_mapping pe srcresname _(* dstres *) dstmapsession _(* dstmap
 
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payloads =
   let open Resource in 
@@ -61,7 +61,7 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
 
     let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 
 let forward_data pe sid srcres reliable payload = 

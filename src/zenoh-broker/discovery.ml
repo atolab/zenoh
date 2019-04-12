@@ -131,9 +131,8 @@ open Engine_state
                     | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
             (pe, [resdecl; subdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
-        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
     let forget_sdecl_to_session pe res zsex =       
         let module M = Message in
@@ -143,9 +142,8 @@ open Engine_state
         | ID id -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create id)
         | Path _ -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create res.local_id) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fsubdecl]) in
-        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
 
     let forward_sdecl pe res router =  
@@ -256,9 +254,8 @@ open Engine_state
             let ds = [Message.Declaration.SubscriberDecl (Message.SubscriberDecl.create m.id Message.SubscriptionMode.push_mode [])] in
             let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
             Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
-            (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *) 
             let open Lwt.Infix in
-            let p = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+            let p = Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
               >>= fun _ -> Lwt.return_unit in 
             (pe, [p])
         | (false, true) -> 
@@ -272,9 +269,8 @@ open Engine_state
             let ds = [Message.Declaration.ForgetSubscriberDecl (Message.ForgetSubscriberDecl.create m.id)] in
             let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
             Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending ForgetSubscriberDecl to session %s" (Id.to_string session.sid));
-            (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *) 
             let open Lwt.Infix in
-            let p = Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+            let p = Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
               >>= fun _ -> Lwt.return_unit in 
             (pe, [p])
         | (false, false) -> (pe, [])
@@ -400,9 +396,8 @@ open Engine_state
                     | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
             (pe, [resdecl; stodecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
-        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
     let forget_stodecl_to_session pe res zsex =
         let module M = Message in
@@ -412,9 +407,8 @@ open Engine_state
         | ID id -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create id)
         | Path _ -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fstodecl]) in
-        (* TODO: This is going to throw an exception if the channel is out of places... need to handle that! *)
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
 
     let forward_stodecl pe res router =

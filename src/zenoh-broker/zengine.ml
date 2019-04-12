@@ -24,7 +24,7 @@ module ZEngine (MVar : MVar) = struct
           let sdata = Message.with_marker 
               (CompactData(CompactData.create (true, true) 0L 0L None (Abuf.from_bytes b |> Payload.create)))
               (RSpace (RSpace.create 1L)) in           
-          Lwt.ignore_result @@ Mcodec.ztcp_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
+          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 

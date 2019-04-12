@@ -639,9 +639,24 @@ let ztcp_write_frame sock frame buf =
   fast_encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
   Net.write_all sock (Abuf.wrap [lbuf; buf])
 
+let ztcp_safe_write_frame sock frame buf =
+  Lwt.catch 
+    (fun () -> ztcp_write_frame sock frame buf)
+    (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)
+
 let ztcp_write_frame_alloc sock frame =
   (* We shoud compute the size and allocate accordingly *)
   let buf = Abuf.create ~grow:8192 65536 in 
   ztcp_write_frame sock frame buf
 
+let ztcp_safe_write_frame_alloc sock frame =
+  Lwt.catch 
+    (fun () -> ztcp_write_frame_alloc sock frame)
+    (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)
+
 let ztcp_write_frame_pooled sock frame pool = Lwt_pool.use pool @@ ztcp_write_frame sock frame
+
+let ztcp_safe_write_frame_pooled sock frame pool =
+  Lwt.catch 
+    (fun () -> ztcp_write_frame_pooled sock frame pool)
+    (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)
