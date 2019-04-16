@@ -19,8 +19,8 @@ let store_data pe resname payload =
         | true -> Some{name=resname; mappings=[]; matches=[]; local_id=0L; last_value=Some payload}
         | false -> None)
 
-let forward_data_to_mapping pe srcresname _(* dstres *) dstmapsession _(* dstmapid *) reliable payload =
-  (* let open Resource in  *)
+let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payload =
+  let open Resource in 
   let open ResName in 
   match SIDMap.find_opt dstmapsession pe.smap with
   | None -> Lwt.return_unit
@@ -30,11 +30,9 @@ let forward_data_to_mapping pe srcresname _(* dstres *) dstmapsession _(* dstmap
     let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
     let msgs = match srcresname with 
       | ID id -> [Message.CompactData(Message.CompactData.create (true, reliable) fsn id None payload)]
-      | Path uri -> 
-        [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)]
-        (* match srcresname = dstres.name with 
+      | Path uri -> match srcresname = dstres.name with 
         | true -> [Message.StreamData(Message.StreamData.create (true, reliable) fsn dstmapid payload)]
-        | false -> [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)]  *)
+        | false -> [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)] 
     in
     Session.add_out_msg s.stats;
 
