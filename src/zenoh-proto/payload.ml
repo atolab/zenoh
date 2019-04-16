@@ -147,8 +147,9 @@ let header p =
 
 let buffer p = 
   p.has_header |> function 
-  | true -> p.buffer
+  | true -> Abuf.set_r_pos 0 p.buffer; p.buffer
   | false -> 
+    Abuf.set_r_pos 0 p.buffer; 
     let hbuf = Abuf.create 1 in 
     Abuf.write_byte '\x00' hbuf; 
     Abuf.wrap [hbuf; p.buffer]

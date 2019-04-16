@@ -129,7 +129,10 @@ open Engine_state
                 (fun m -> match m with 
                     | Some mapping -> mapping
                     | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
-            (pe, [resdecl; subdecl]) in
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; subdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
@@ -138,10 +141,22 @@ open Engine_state
         let module M = Message in
         let open Resource in 
         let oc = Session.out_channel zsex in
-        let fsubdecl = match res.name with 
-        | ID id -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create id)
-        | Path _ -> M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create res.local_id) in
-        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fsubdecl]) in
+        let (pe, ds) = match res.name with 
+        | ID id -> (
+            let fsubdecl = M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create id) in
+            (pe, [fsubdecl]))
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
+            let fsubdecl = M.Declaration.ForgetSubscriberDecl M.(ForgetSubscriberDecl.create res.local_id) in
+            let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
+                (fun m -> match m with 
+                    | Some mapping -> mapping
+                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; fsubdecl]) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
@@ -394,7 +409,10 @@ open Engine_state
                 (fun m -> match m with 
                     | Some mapping -> mapping
                     | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
-            (pe, [resdecl; stodecl]) in
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; stodecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
@@ -403,10 +421,22 @@ open Engine_state
         let module M = Message in
         let open Resource in 
         let oc = Session.out_channel zsex in
-        let fstodecl = match res.name with 
-        | ID id -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create id)
-        | Path _ -> M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
-        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) [fstodecl]) in
+        let (pe, ds) = match res.name with 
+        | ID id -> (
+            let fstodecl = M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create id) in
+            (pe, [fstodecl]))
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
+            let fstodecl = M.Declaration.ForgetStorageDecl M.(ForgetStorageDecl.create res.local_id) in
+            let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
+                (fun m -> match m with 
+                    | Some mapping -> mapping
+                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; fstodecl]) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
         (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
