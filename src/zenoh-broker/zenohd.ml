@@ -53,8 +53,9 @@ let run_broker tcpport peers strength bufn =
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
   |> List.map (fun s -> Option.get @@ Locator.of_string s) in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "tcpport : %d" tcpport) in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "peers : %s" (to_string peers)) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "pid : %s" (Abuf.hexdump pid)) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "tcpport : %d" tcpport) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "peers : %s" (to_string peers)) in
   let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
 
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
