@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git+https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version:"0.2.4"
+version:"0.2.5"
 license: "Apache-2.0"
 
 build: [
@@ -24,8 +24,8 @@ depends: [
   "lwt" {>= "4.1.0"}
   "apero-core" {>= "0.4.4"}
   "apero-net" {>= "0.4.4"}
-  "zenoh-proto" {= "0.2.4"}
-  "zenoh-api" {= "0.2.4"}
+  "zenoh-proto" {= "0.2.5"}
+  "zenoh-api" {= "0.2.5"}
 ]
 
 synopsis : "Zenoh -- the ZEro Network Over-Head protocol"
