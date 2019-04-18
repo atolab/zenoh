@@ -1,3 +1,8 @@
+## 0.2.5 (2019-04-18)
+
+- Management : zenoh routers answer to management queries.
+- Bug fixes in the discovery engine.
+
 ## 0.2.4 (2019-03-22)
 
 - Data context : possibility to attach context (timestamp, data kind and data encoding) to data samples.
