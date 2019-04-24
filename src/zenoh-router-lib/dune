@@ -2,5 +2,5 @@
   (name            zenoh_router_lib)
   (public_name     zenoh-router-lib)
   (wrapped         false)
-  (libraries       apero-core apero-net zenoh-proto zenoh-router lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord str)
+  (libraries       apero-core apero-net zenoh-proto zenoh-router zenoh-ocaml lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord str)
   (preprocess      (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
