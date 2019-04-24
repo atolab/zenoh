@@ -1,5 +1,6 @@
-(executable
-  (name       zenohd)
-  (modules    zenohd zengine engine_state query session resource zRouter spn_tree discovery scouting routing querying admin)
+(library
+  (name            zenoh_router)
+  (public_name     zenoh-router)
+  (wrapped         false)
   (libraries  str lwt lwt.unix zenoh_proto zenoh_tx_inet apero-core apero-net apero-time atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner yojson ppx_deriving_yojson.runtime)
   (preprocess (pps lwt_ppx ppx_deriving.show ppx_deriving.ord  ppx_sexp_conv ppx_deriving_yojson)))

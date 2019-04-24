@@ -1,23 +1,23 @@
 (executable
   (name       throughput_sub)
   (modules    throughput_sub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       throughput_pub)
   (modules    throughput_pub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       bthroughput_sub)
   (modules    bthroughput_sub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       bthroughput_pub)
   (modules    bthroughput_pub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

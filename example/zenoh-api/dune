@@ -1,23 +1,23 @@
 (executable
   (name       sub)
   (modules    sub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       pub)
   (modules    pub)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       storage)
   (modules    storage)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (executable
   (name       query)
   (modules    query)
-  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-api)
+  (libraries  apero-core apero-net lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord zenoh-ocaml)
   (preprocess (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

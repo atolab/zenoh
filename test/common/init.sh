@@ -15,7 +15,7 @@ done
 RDIR="$( dirname "$SOURCE" )"
 DIR="$( cd -P "$( dirname "$SOURCE" )" && cd ../.. &&  pwd )"
 
-export PATH=${DIR}/_build/default/src/zenoh-broker/:$PATH
+export PATH=${DIR}/_build/default/src/zenoh-router-daemon/:$PATH
 export PATH=${DIR}/_build/default/src/zenoh-cat/:$PATH
 export PATH=${DIR}/_build/default/example/throughput/:$PATH
 export PATH=${DIR}/_build/default/example/roundtrip/:$PATH

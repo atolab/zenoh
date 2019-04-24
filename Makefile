@@ -8,7 +8,7 @@ DOC=dune build @doc
 INSTALL=dune install
 UNINSTALL=dune uninstall
 
-BROKER=src/zenoh-broker/zenohd.exe
+ROUTER=src/zenoh-router-daemon/zenohd.exe
 CLIENT=src/zenoh-cat/zenohc.exe
 API_EXAMPLE_SUB=example/zenoh-api/sub.exe
 API_EXAMPLE_PUB=example/zenoh-api/pub.exe
@@ -23,7 +23,7 @@ DEMO_PUB=example/demo/demo_pub.exe
 
 all:
 	${BUILD} 
-	${BUILD} ${BROKER}
+	${BUILD} ${ROUTER}
 	${BUILD} ${CLIENT}
 	${BUILD} ${API_EXAMPLE_SUB}
 	${BUILD} ${API_EXAMPLE_PUB}
@@ -38,7 +38,7 @@ all:
 
 release:
 	${RELEASE} 
-	${RELEASE} ${BROKER}
+	${RELEASE} ${ROUTER}
 	${RELEASE} ${CLIENT}
 	${RELEASE} ${API_EXAMPLE_SUB}
 	${RELEASE} ${API_EXAMPLE_PUB}
