@@ -5,6 +5,7 @@ open Zenoh_proto
 open NetService
 open R_name
 open Engine_state
+open Cmdliner
 
 
 module Engine (MVar : MVar) = struct
@@ -100,7 +101,7 @@ let to_string peers =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run_broker tcpport peers strength bufn = 
+let run tcpport peers strength bufn = 
   let open ZEngine in   
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
@@ -142,4 +143,7 @@ let run_broker tcpport peers strength bufn =
                                     dispatcher_svc; ProtocolEngine.start engine]
 
 
-  
+let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
+let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
+let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength")
+let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers")

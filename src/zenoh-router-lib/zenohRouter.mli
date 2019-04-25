@@ -1,1 +1,1 @@
-val zopen : int -> string -> int -> int -> Zenoh.t Lwt.t
+val zopen : string array -> Zenoh.t Lwt.t
