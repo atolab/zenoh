@@ -50,7 +50,7 @@ open Engine_state
         | ID id -> (pe, id) in
         let(pe, res) = update_resource_opt pe name 
             (fun r -> match r with 
-                | Some res -> Some (Resource.update_mapping_opt res (TxSession.id @@ Session.tx_sex session) updater)
+                | Some res -> Some (Resource.update_mapping_opt res (Session.id session) updater)
                 | None -> (match updater None with 
                     | Some m -> Some {name; mappings=[m]; matches=[name]; local_id; last_value=None}
                     | None -> None)) in
@@ -128,14 +128,14 @@ open Engine_state
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
             let rmap = VleMap.add res.local_id res.name zsex.rmap in
             let session = {zsex with rmap;} in
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, [resdecl; subdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
     let forget_sdecl_to_session pe res zsex =       
         let module M = Message in
@@ -151,14 +151,14 @@ open Engine_state
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
             let rmap = VleMap.add res.local_id res.name zsex.rmap in
             let session = {zsex with rmap;} in
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, [resdecl; fsubdecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
 
     let forward_sdecl pe res router =  
@@ -190,7 +190,7 @@ open Engine_state
                 then 
                     begin
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forward_sdecl_to_session pe res s in 
                     (pe, p :: ps)
                     end
@@ -209,7 +209,7 @@ open Engine_state
                 then 
                     begin
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forget_sdecl_to_session pe res s in 
                     (pe, p :: ps)
                     end
@@ -227,7 +227,7 @@ open Engine_state
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forward_sdecl_to_session pe res s in 
                     (pe, p :: ps)
                 ) (pe, []) in 
@@ -238,7 +238,7 @@ open Engine_state
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forget_sdecl_to_session pe res s in 
                     (pe, p :: ps)
                 ) (pe, ps))
@@ -270,7 +270,7 @@ open Engine_state
             let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
             Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending SubscriberDecl to session %s" (Id.to_string session.sid));
             let open Lwt.Infix in
-            let p = Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+            let p = Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
               >>= fun _ -> Lwt.return_unit in 
             (pe, [p])
         | (false, true) -> 
@@ -285,7 +285,7 @@ open Engine_state
             let decl = Message.Declare (Message.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
             Lwt.ignore_result @@ Logs_lwt.debug(fun m ->  m "Sending ForgetSubscriberDecl to session %s" (Id.to_string session.sid));
             let open Lwt.Infix in
-            let p = Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
+            let p = Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex session) (Frame.Frame.create [decl]) pe.buffer_pool 
               >>= fun _ -> Lwt.return_unit in 
             (pe, [p])
         | (false, false) -> (pe, [])
@@ -408,14 +408,14 @@ open Engine_state
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
             let rmap = VleMap.add res.local_id res.name zsex.rmap in
             let session = {zsex with rmap;} in
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, [resdecl; stodecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
     let forget_stodecl_to_session pe res zsex =
         let module M = Message in
@@ -431,14 +431,14 @@ open Engine_state
             let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
                 (fun m -> match m with 
                     | Some mapping -> mapping
-                    | None -> Resource.create_mapping res.local_id (TxSession.id zsex.tx_sex)) in 
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
             let rmap = VleMap.add res.local_id res.name zsex.rmap in
             let session = {zsex with rmap;} in
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, [resdecl; fstodecl]) in
         let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
         let open Lwt.Infix in 
-        (pe, Mcodec.ztcp_safe_write_frame_pooled (TxSession.socket @@ Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
 
     let forward_stodecl pe res router =
@@ -470,7 +470,7 @@ open Engine_state
                 then 
                     begin
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forward_stodecl_to_session pe res s (Option.get sto.sto) in 
                     (pe, p :: ps)
                     end
@@ -489,7 +489,7 @@ open Engine_state
                 then 
                     begin
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forget_stodecl_to_session pe res s in 
                     (pe, p :: ps)
                     end
@@ -508,7 +508,7 @@ open Engine_state
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forward_stodecl_to_session pe res s dist in 
                     (pe, p :: ps)
                 ) (pe, []) in 
@@ -519,7 +519,7 @@ open Engine_state
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
                     let (pe, ps) = x in
-                    let s = Option.get @@ SIDMap.find_opt (TxSession.id stsex) pe.smap in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
                     let (pe, p) = forget_stodecl_to_session pe res s in 
                     (pe, p :: ps)
                 ) (pe, ps))
@@ -645,7 +645,7 @@ open Engine_state
     let process_declare engine tsex msg =         
         let pe = Guard.get engine in
         let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Declare Message") in    
-        let sid = TxSession.id tsex in 
+        let sid = Session.txid tsex in 
         match SIDMap.find_opt sid pe.smap with 
         | Some s ->
             let ic = Session.in_channel s in

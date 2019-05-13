@@ -36,9 +36,8 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
     in
     Session.add_out_msg s.stats;
 
-    let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payloads =
   let open Resource in 
@@ -57,9 +56,8 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
     in
     Session.add_out_msg s.stats;
 
-    let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 
 let forward_data pe sid srcres reliable payload = 
@@ -125,7 +123,7 @@ let process_user_compactdata (pe:engine_state) session msg =
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            TxSession.id peer.tsex = session.sid) pe.router.peers with 
+            Session.txid peer.tsex = session.sid) pe.router.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling CompactData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -148,7 +146,7 @@ let process_user_streamdata (pe:engine_state) session msg =
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            TxSession.id peer.tsex = session.sid) pe.router.peers with 
+            Session.txid peer.tsex = session.sid) pe.router.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -173,7 +171,7 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            TxSession.id peer.tsex = session.sid) pe.router.peers with 
+            Session.txid peer.tsex = session.sid) pe.router.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -185,7 +183,7 @@ let process_user_writedata pe session msg =
   let open Session in 
   let%lwt _ = Logs_lwt.debug (fun m -> 
       let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-          TxSession.id peer.tsex = session.sid) pe.router.peers with 
+          Session.txid peer.tsex = session.sid) pe.router.peers with 
       | Some peer -> peer.pid
       | None -> "UNKNOWN" in
       m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
@@ -201,7 +199,7 @@ let process_user_writedata pe session msg =
 
 
 let process_pull engine tsex msg =
-  let sid = TxSession.id tsex in 
+  let sid = Session.txid tsex in 
   let pe = Guard.get engine in
   let session = SIDMap.find_opt sid pe.smap in 
   match session with 
@@ -248,7 +246,7 @@ let process_compact_data engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt (pe, ms) = 
-    let sid = TxSession.id tsex in 
+    let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData on unknown session %s: Ignore it!" 
@@ -263,7 +261,7 @@ let process_batched_stream_data engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt (pe, ms) = 
-    let sid = TxSession.id tsex in 
+    let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "BatchedReceived StreamData on unknown session %s: Ignore it!" 
@@ -279,7 +277,7 @@ let process_write_data engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt (pe, ms) = 
-    let sid = TxSession.id tsex in
+    let sid = Session.txid tsex in
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received WriteData on unknown session %s: Ignore it!" 
@@ -294,7 +292,7 @@ let process_stream_data engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt (pe, ms) = 
-    let sid = TxSession.id tsex in 
+    let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
     match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData on unknown session %s: Ignore it!" 

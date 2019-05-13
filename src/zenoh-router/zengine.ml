@@ -26,7 +26,7 @@ module Engine (MVar : MVar) = struct
           let sdata = Message.with_marker 
               (CompactData(CompactData.create (true, true) 0L 0L None (Abuf.from_bytes b |> Payload.create)))
               (RSpace (RSpace.create 1L)) in           
-          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc (TxSession.socket ZRouter.(peer.tsex)) (Frame.create [sdata]) ) _nodes
+          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc ZRouter.(peer.tsex) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
@@ -53,7 +53,7 @@ module Engine (MVar : MVar) = struct
 
     let process_ack_nack _ _ _ = Lwt.return []
 
-    let handle_message engine (tsex : TxSession.t) (msgs: Message.t list)  = 
+    let handle_message engine (tsex : Session.tx_sex) (msgs: Message.t list)  = 
       let open Lwt.Infix in   
       let dispatch = function
         | Message.Scout msg -> process_scout engine tsex msg 
@@ -101,8 +101,8 @@ let to_string peers =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength bufn = 
-  let open ZEngine in   
+let run tcpport peers strength bufn (local_session:Session.local_sex option) = 
+  let open ZEngine in 
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
   |> List.map (fun s -> Option.get @@ Locator.of_string s) in
@@ -115,12 +115,14 @@ let run tcpport peers strength bufn =
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
   let engine = ProtocolEngine.create ~bufn pid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength tx_connector in
-  let dispatcher_svc sex  = 
+
+  let open Lwt.Infix in 
+
+  let dispatcher_svc txsex  = 
+    let sex = Session.(TxSex(txsex)) in
     let wbuf = Abuf.create ~grow:4096 buf_size in
-    let socket = (TxSession.socket sex) in
-    let zreader = ztcp_read_frame socket in 
-    let zwriter = ztcp_safe_write_frame socket in
-    let open Lwt.Infix in 
+    let zreader = ztcp_read_frame sex in 
+    let zwriter = ztcp_safe_write_frame sex in
     fun (freebufp, usedbufp) ->
       let%lwt readbuf = freebufp in
       Abuf.clear readbuf;
@@ -129,13 +131,36 @@ let run tcpport peers strength bufn =
           (fun () -> ProtocolEngine.handle_message engine sex (Frame.to_list frame)) 
           (fun e -> 
             Logs_lwt.warn (fun m -> m "Error handling messages from session %s : %s" 
-              (Id.to_string (TxSession.id sex))
+              (Id.to_string (Session.txid sex))
               (Printexc.to_string e))
             >>= fun _ -> Lwt.return []) 
         >>= function
       | [] -> Lwt.return (usedbufp, Lwt.return readbuf)
       | ms -> Abuf.clear wbuf; zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return (usedbufp, Lwt.return readbuf)
   in 
+
+  let%lwt () = match local_session with 
+  | Some lsex -> 
+    let tx_sex = Session.Local lsex in
+    let fakebuf = Abuf.create 0 in
+    let rec local_loop () = 
+      let%lwt frame = ztcp_read_frame tx_sex fakebuf () in 
+      Lwt.catch
+        (fun () -> ProtocolEngine.handle_message engine tx_sex (Frame.to_list frame)) 
+        (fun e -> 
+          Logs_lwt.warn (fun m -> m "Error handling messages from local session : %s" 
+            (Printexc.to_string e))
+              >>= fun _ -> Lwt.return []) 
+      >>= (function
+      | [] -> Lwt.return_unit
+      | ms -> ztcp_safe_write_frame tx_sex (Frame.create ms) fakebuf >>= fun _ -> Lwt.return_unit)
+      >>= fun () -> local_loop ()
+    in 
+    local_loop () |> Lwt.ignore_result;
+    Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit
+  | None -> Lwt.return_unit
+  in
+
   Lwt.join [ZTcpTransport.start tx (fun _ -> 
                                     let rbuf1 = Abuf.create ~grow:4096 buf_size in 
                                     let rbuf2 = Abuf.create ~grow:4096 buf_size in 

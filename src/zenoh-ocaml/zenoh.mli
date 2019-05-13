@@ -15,6 +15,8 @@ type t
 
 val zopen : string -> t Lwt.t
 
+val zropen : (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push) -> t Lwt.t
+
 val info : t -> Apero.properties
 
 val publish : t -> string -> pub Lwt.t

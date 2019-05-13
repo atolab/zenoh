@@ -7,9 +7,8 @@ open Engine_state
 let final_reply q = Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) None
 
 let forward_query_to_txsex pe q txsex =
-  let sock = TxSession.socket txsex in 
   let open Lwt.Infix in 
-  (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Query(q)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+  (Mcodec.ztcp_safe_write_frame_pooled txsex @@ Frame.Frame.create [Query(q)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_query_to_session pe q sid =
   match SIDMap.find_opt sid pe.smap with
@@ -23,19 +22,17 @@ let forward_reply_to_session pe r sid =
   | None -> let%lwt _ = Logs_lwt.debug (fun m -> m  "Unable to forward reply to unknown session %s" (Id.to_string sid)) in Lwt.return_unit
   | Some s ->
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding reply to session %s" (Id.to_string s.sid)) in
-    let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
-    (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+    (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_replies_to_session pe rs sid =
   match SIDMap.find_opt sid pe.smap with
   | None -> let%lwt _ = Logs_lwt.debug (fun m -> m  "Unable to forward reply to unknown session %s" (Id.to_string sid)) in Lwt.return_unit
   | Some s ->
     let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding %i replies to session %s" (List.length rs)(Id.to_string s.sid)) in
-    let sock = TxSession.socket s.tx_sex in 
     let open Lwt.Infix in 
     List.map (fun r -> 
-      (Mcodec.ztcp_safe_write_frame_pooled sock @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
+      (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create [Reply(r)]) pe.buffer_pool >>= fun _ -> Lwt.return_unit
     ) rs |> Lwt.join
     
 let forward_query_to pe q = List.map (fun s -> forward_query_to_session pe q s)
@@ -111,14 +108,14 @@ let process_query engine tsex q =
   Guard.guarded engine @@ fun pe -> 
   let open Session in 
   let open Lwt.Infix in
-  let sid = TxSession.id tsex in
+  let sid = Session.txid tsex in
   let session = SIDMap.find_opt sid pe.smap in 
   let%lwt pe = match session with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received Query on unknown session %s: Ignore it!" (Id.to_string sid)) in Lwt.return pe
     | Some session -> 
       let%lwt _ = Logs_lwt.debug (fun m -> 
           let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-              TxSession.id peer.tsex = session.sid) pe.router.peers with 
+              Session.txid peer.tsex = session.sid) pe.router.peers with 
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
           m "Handling Query Message. nid[%s] sid[%s] pid[%s] qid[%d] res[%s]" 
@@ -143,14 +140,14 @@ let process_reply engine tsex r =
     | Some qs -> 
       let%lwt _ = Logs_lwt.debug (fun m -> 
           let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-              TxSession.id peer.tsex = (TxSession.id tsex)) pe.router.peers with 
+              Session.txid peer.tsex = (Session.txid tsex)) pe.router.peers with 
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
           let resource = match (Message.Reply.resource r) with 
             | Some res -> res
             | None -> "" in
           m "Handling Reply Message. nid[%s] sid[%s] qpid[%s] qid[%d] res[%s]" 
-            nid (Id.to_string (TxSession.id tsex)) 
+            nid (Id.to_string (Session.txid tsex)) 
             (Abuf.hexdump (Message.Reply.qpid r)) (Int64.to_int (Message.Reply.qid r))
             resource) in
       (match Message.Reply.value r with 

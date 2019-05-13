@@ -5,16 +5,12 @@ open R_name
 
 let framing_buf_len = 16
 
-module SessionId :  sig
-  include (module type of Int64)
-  val next_id : unit -> t
-end = struct
-  include Int64
-  let session_count = ref 0L
+type local_sex = (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push)
 
-  let next_id () =
-    let r = !session_count in  session_count := add !session_count 1L ; r
-end
+type tx_sex = | TxSex of TxSession.t | Local of local_sex
+
+
+let txid = function | TxSex tx -> TxSession.id tx | Local _ -> NetService.Id.of_string "-1"
 
 type stats = {
   mutable out_msgs : int;
@@ -52,8 +48,10 @@ let add_out_msg s =
   update_stats s;
   s.out_msgs_tp_build <- s.out_msgs_tp_build + 1
 
+
+
 type t = {    
-  tx_sex : TxSession.t;      
+  tx_sex : tx_sex;      
   ic : InChannel.t;
   oc : OutChannel.t;
   rmap : ResName.t VleMap.t;
@@ -78,11 +76,12 @@ let create tx_sex mask =
     oc;
     rmap = VleMap.empty; 
     mask = mask;
-    sid = TxSession.id tx_sex;
+    sid = txid tx_sex;
     stats = create_stats ();
   }
+
 let in_channel s = s.ic
 let out_channel s = s.oc
 let tx_sex s = s.tx_sex
-let id s = TxSession.id s.tx_sex
+let id s = txid s.tx_sex
 let is_broker s = Message.ScoutFlags.hasFlag s.mask Message.ScoutFlags.scoutBroker

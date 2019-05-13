@@ -5,6 +5,9 @@ open Dcodec
 open Frame
 open Block
 open Reliable
+open Session
+open Lwt.Infix
+open Apero.Infix
 
 type element =
   | Message of Message.t
@@ -624,39 +627,49 @@ let encode_frame f =
   fold_m encode_msg (Frame.to_list f) *)
 
 
-let ztcp_read_frame sock buf () =
-  let open Lwt.Infix in 
-  let%lwt len = Net.read_vle sock >|= Vle.to_int in 
-  let%lwt _ = Net.read_all sock buf len in 
-  Lwt.return @@ decode_frame buf
+let ztcp_read_frame tx_sex buf () =
+  match tx_sex with 
+  | TxSex tx_sex -> 
+    let open Lwt.Infix in 
+    let sock = TxSession.socket tx_sex in 
+    let%lwt len = Net.read_vle sock >|= Vle.to_int in 
+    let%lwt _ = Net.read_all sock buf len in 
+    Lwt.return @@ decode_frame buf
+  | Local (stream, _) -> Lwt_stream.get stream >>= (Option.get %> Lwt.return)
 
 
-let ztcp_write_frame sock frame buf =   
-  Abuf.clear buf;
-  let ms = Frame.to_list frame in
-  List.iter (fun m -> encode_msg m buf) ms;
-  let lbuf = Abuf.create 8 in 
-  fast_encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
-  Net.write_all sock (Abuf.wrap [lbuf; buf])
+let ztcp_write_frame tx_sex frame buf = 
+  match tx_sex with 
+  | TxSex tx_sex -> 
+    let sock = TxSession.socket tx_sex in 
+    Abuf.clear buf;
+    let ms = Frame.to_list frame in
+    List.iter (fun m -> encode_msg m buf) ms;
+    let lbuf = Abuf.create 8 in 
+    fast_encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
+    Net.write_all sock (Abuf.wrap [lbuf; buf])
+  | Local (_, push) -> 
+    push#push frame >>= fun () -> Lwt.return 0
+    
 
-let ztcp_safe_write_frame sock frame buf =
+let ztcp_safe_write_frame tx_sex frame buf =
   Lwt.catch 
-    (fun () -> ztcp_write_frame sock frame buf)
+    (fun () -> ztcp_write_frame tx_sex frame buf)
     (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)
 
-let ztcp_write_frame_alloc sock frame =
+let ztcp_write_frame_alloc tx_sex frame =
   (* We shoud compute the size and allocate accordingly *)
   let buf = Abuf.create ~grow:8192 65536 in 
-  ztcp_write_frame sock frame buf
+  ztcp_write_frame tx_sex frame buf
 
-let ztcp_safe_write_frame_alloc sock frame =
+let ztcp_safe_write_frame_alloc tx_sex frame =
   Lwt.catch 
-    (fun () -> ztcp_write_frame_alloc sock frame)
+    (fun () -> ztcp_write_frame_alloc tx_sex frame)
     (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)
 
-let ztcp_write_frame_pooled sock frame pool = Lwt_pool.use pool @@ ztcp_write_frame sock frame
+let ztcp_write_frame_pooled tx_sex frame pool = Lwt_pool.use pool @@ ztcp_write_frame tx_sex frame
 
-let ztcp_safe_write_frame_pooled sock frame pool =
+let ztcp_safe_write_frame_pooled tx_sex frame pool =
   Lwt.catch 
-    (fun () -> ztcp_write_frame_pooled sock frame pool)
+    (fun () -> ztcp_write_frame_pooled tx_sex frame pool)
     (fun ex -> Logs.warn(fun m -> m "Error sending frame : %s" (Printexc.to_string ex)); Lwt.return 0)

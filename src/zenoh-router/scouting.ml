@@ -1,3 +1,4 @@
+open Lwt.Infix
 open Apero
 open Apero_net
 open NetService
@@ -20,36 +21,37 @@ let make_accept pe opid = Message.Accept (Message.Accept.create opid pe.pid pe.l
 
 let rec connect_peer peer connector max_retries = 
   let open Frame in 
+  let open Apero.Infix in
+  let open Session in
+  let txconnector = (connector %> fun tslwt -> tslwt >>= fun ts -> Lwt.return (TxSex(ts))) in
   Lwt.catch 
     (fun () ->
        let%lwt _ = Logs_lwt.debug (fun m -> m "Connecting to peer %s" (Locator.to_string peer)) in 
-       let%lwt tx_sex = connector peer in
-       let sock = TxSession.socket tx_sex in 
+       let%lwt tx_sex = txconnector peer in
        let frame = Frame.create [make_scout] in 
        let%lwt _ = Logs_lwt.debug (fun m -> m "Sending scout to peer %s" (Locator.to_string peer)) in 
-       Mcodec.ztcp_write_frame_alloc sock frame )
+       Mcodec.ztcp_write_frame_alloc tx_sex frame )
     (fun _ -> 
        let%lwt _ = Logs_lwt.debug (fun m -> m "Failed to connect to %s" (Locator.to_string peer)) in 
        let%lwt _ = Lwt_unix.sleep 1.0 in 
        if max_retries > 0 then connect_peer peer connector (max_retries -1)
        else Lwt.fail_with ("Permanently Failed to connect to " ^ (Locator.to_string peer)))
 
-let connect_peers pe =        
-  let open Lwt.Infix in 
+let connect_peers pe = 
   Lwt_list.iter_p (fun p -> 
       Lwt.catch
-        (fun _ -> (connect_peer p  pe.tx_connector 1000) >|= ignore )
+        (fun _ -> (connect_peer p pe.tx_connector 1000) >|= ignore )
         (fun ex -> let%lwt _ = Logs_lwt.warn (fun m -> m "%s" (Printexc.to_string ex)) in Lwt.return_unit)
     ) pe.peers
 
 
 let remove_session pe tsex peer =    
-  let sid = TxSession.id tsex in 
+  let sid = Session.txid tsex in 
   let%lwt _ = Logs_lwt.debug (fun m -> m  "Un-registering Session %s \n" (Id.to_string sid)) in
   let smap = SIDMap.remove sid pe.smap in
   let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
 
-  let optpeer = List.find_opt (fun (x:ZRouter.peer) -> TxSession.id x.tsex = TxSession.id tsex) pe.router.peers in
+  let optpeer = List.find_opt (fun (x:ZRouter.peer) -> Session.txid x.tsex = Session.txid tsex) pe.router.peers in
   let%lwt router = match optpeer with
     | Some peer ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Delete node %s" peer.pid) in
@@ -70,27 +72,33 @@ let remove_session pe tsex peer =
 
 
 let guarded_remove_session engine tsex peer =
-  let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.to_string  @@ TxSession.id tsex) peer) in 
+  let%lwt _ = Logs_lwt.debug (fun m -> m "Cleaning up session %s (%s) because of a connection drop" (Id.to_string  @@ Session.txid tsex) peer) in 
   Guard.guarded engine 
   @@ fun pe -> 
   let%lwt pe = remove_session pe tsex peer in
   Guard.return pe pe
 
 let add_session engine tsex mask = 
+  let open Session in
   Guard.guarded engine 
   @@ fun pe ->      
-  let sid = TxSession.id tsex in    
+  let sid = Session.txid tsex in    
   let%lwt _ = Logs_lwt.debug (fun m -> m "Registering Session %s mask:%i\n" (Id.to_string sid) (Vle.to_int mask)) in
-  let s = Session.create (tsex:TxSession.t) mask in    
-  let smap = SIDMap.add (TxSession.id tsex) s pe.smap in   
+  let s = Session.create (tsex:Session.tx_sex) mask in    
+  let smap = SIDMap.add (Session.txid tsex) s pe.smap in   
   let%lwt peer = 
     Lwt.catch 
       (fun () -> 
-         match (Lwt_unix.getpeername (TxSession.socket tsex)) with 
-         | Lwt_unix.ADDR_UNIX u -> Lwt.return u 
-         | Lwt_unix.ADDR_INET (a, p) -> Lwt.return @@ "tcp/" ^ (Unix.string_of_inet_addr a) ^ ":" ^ (string_of_int p))
+        match tsex with 
+        | TxSex ts -> 
+          (match (Lwt_unix.getpeername (TxSession.socket ts)) with 
+          | Lwt_unix.ADDR_UNIX u -> Lwt.return u
+          | Lwt_unix.ADDR_INET (a, p) -> Lwt.return @@ "tcp/" ^ (Unix.string_of_inet_addr a) ^ ":" ^ (string_of_int p))
+        | Local _ -> Lwt.return "Local")
       (fun _ -> Lwt.return "UNKNOWN") in
-  let _ = Lwt.bind (TxSession.when_closed tsex)  (fun _ -> guarded_remove_session engine tsex peer) in
+  let _ = match tsex with 
+  | TxSex ts -> Lwt.bind (TxSession.when_closed ts)  (fun _ -> guarded_remove_session engine tsex peer)
+  | Local _ -> Lwt.return pe in
   let pe' = {pe with smap} in
   Guard.return pe' pe'
 
@@ -99,7 +107,7 @@ let process_scout engine _ _ =
   Lwt.return [make_hello @@ Guard.get engine]
 
 let process_hello engine tsex msg  =
-  let sid = TxSession.id tsex in 
+  let sid = Session.txid tsex in 
   let%lwt pe' = add_session engine tsex (Message.Hello.mask msg) in           
   match Message.ScoutFlags.hasFlag (Message.Hello.mask msg) Message.ScoutFlags.scoutBroker with 
   | false -> Lwt.return  []
@@ -118,7 +126,7 @@ let process_broker_open engine tsex msg =
 let process_open engine tsex msg  =
   let open Lwt.Infix in 
   let pe = Guard.get engine in
-  match SIDMap.find_opt (TxSession.id tsex) pe.smap with
+  match SIDMap.find_opt (Session.txid tsex) pe.smap with
   | None -> 
     (let mask = match ZProperty.NodeMask.find_opt (Message.Open.properties msg) with 
         | None -> 0L
@@ -148,7 +156,7 @@ let process_accept_broker engine tsex msg =
 
 let process_accept engine tsex msg =
   let pe = Guard.get engine in
-  let sid = TxSession.id tsex in 
+  let sid = Session.txid tsex in 
   match SIDMap.find_opt sid pe.smap with
   | None -> 
     let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from unscouted remote peer: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in

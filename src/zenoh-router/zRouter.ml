@@ -5,7 +5,7 @@ open Spn_tree.Node
   type peer = 
     {
       pid : string;
-      tsex : NetService.TxSession.t
+      tsex : Session.tx_sex
     }
   type t =
     {
@@ -30,7 +30,7 @@ open Spn_tree.Node
       send_to = sender
     }
 
-  let peers_to_yojson peers = `List (List.map (fun peer -> `Assoc [ ("pid", `String peer.pid); ("sid", `String (NetService.Id.to_string (NetService.TxSession.id peer.tsex)))] ) peers)
+  let peers_to_yojson peers = `List (List.map (fun peer -> `Assoc [ ("pid", `String peer.pid); ("sid", `String (NetService.Id.to_string (Session.txid peer.tsex)))] ) peers)
   let to_yojson r = `Assoc [ ("peers", peers_to_yojson r.peers); ("tree_set", Spn_tree.Set.to_yojson r.tree_set)]
 
   let report router = 

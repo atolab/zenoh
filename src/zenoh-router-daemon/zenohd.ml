@@ -19,7 +19,7 @@ let setup_log style_renderer level =
 
 let run tcpport peers strength bufn style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ Zengine.run tcpport peers strength bufn
+  Lwt_main.run @@ Zengine.run tcpport peers strength bufn None
    
 let () =
   Printexc.record_backtrace true;

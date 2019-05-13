@@ -1,4 +1,5 @@
 open Apero
+open Apero.Infix
 open Ztypes
 open Message
 open Locator
@@ -57,8 +58,42 @@ let get_next_entity_id state = (state.next_pubsub_id, {state with next_pubsub_id
 let get_next_res_id state = (state.next_res_id, {state with next_res_id=Vle.add state.next_res_id 1L})
 let get_next_qry_id state = (state.next_qry_id, {state with next_qry_id=Vle.add state.next_qry_id 1L})
 
+type session = | Sock of Lwt_unix.file_descr | Stream of (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push)
+
+let lbuf = Abuf.create_bigstring 16
+let wbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
+let rbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
+
+let send_message sock msg =
+  match sock with 
+  | Sock sock -> 
+    Abuf.clear wbuf;
+    Abuf.clear lbuf;
+    Mcodec.encode_msg msg wbuf;
+    let len = Abuf.readable_bytes wbuf in
+    fast_encode_vle (Vle.of_int len) lbuf;
+    Net.write_all sock (Abuf.wrap [lbuf; wbuf]) 
+    >>= fun _ -> Lwt.return_unit
+  | Stream (_, push) -> 
+    push#push @@ Frame.Frame.create [msg]
+
+let read_messages = function
+  | Sock sock -> 
+    let%lwt len = Net.read_vle sock >>= fun v -> Vle.to_int v |> Lwt.return in
+    let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
+    Abuf.clear rbuf;
+    let%lwt _ = Net.read_all sock rbuf len in
+    let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (Abuf.to_string rbuf)) in
+    Lwt.return @@ [Mcodec.decode_msg rbuf]
+  | Stream (stream, _) -> 
+    Lwt_stream.get stream >>= (Option.get %> Lwt.return) >>= (Frame.Frame.to_list %> Lwt.return)
+
+let close = function
+  | Sock sock -> Lwt_unix.close sock 
+  | Stream _ -> Lwt.return_unit
+
 type t = {
-  sock : Lwt_unix.file_descr;
+  sock : session;
   peer_pid : string option;
   state : state Guard.t;
 }
@@ -68,10 +103,6 @@ type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
 type storage = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
-
-let lbuf = Abuf.create_bigstring 16
-let wbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
-let rbuf = Abuf.create_bigstring ~grow:8192 (64*1024)
 
 
 let pid  = 
@@ -104,15 +135,6 @@ let add_resource resname state =
 (* let make_hello = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) Locators.empty []) *)
 let make_open = Message.Open (Open.create version pid lease Locators.empty [])
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
-
-let send_message sock msg =
-  Abuf.clear wbuf;
-  Abuf.clear lbuf;
-  Mcodec.encode_msg msg wbuf;
-  let len = Abuf.readable_bytes wbuf in
-  fast_encode_vle (Vle.of_int len) lbuf;
-  Net.write_all sock (Abuf.wrap [lbuf; wbuf])
-
 
 let process_incoming_message msg resolver t = 
   let open Lwt.Infix in
@@ -250,13 +272,9 @@ let process_incoming_message msg resolver t =
     return_true
 
 let rec run_decode_loop resolver t = 
-  let%lwt len = Net.read_vle t.sock >>= fun v -> Vle.to_int v |> Lwt.return in
-  let%lwt _ = Logs_lwt.debug (fun m -> m ">>> Received message of %d bytes" len) in
-  Abuf.clear rbuf;
-  let%lwt _ = Net.read_all t.sock rbuf len in
-  let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (Abuf.to_string rbuf)) in
-  let msg = Mcodec.decode_msg rbuf in
-  let%lwt _ = process_incoming_message msg resolver t in
+  let%lwt msgs = read_messages t.sock in
+  let%lwt () = Lwt_list.iter_s (fun msg -> 
+    process_incoming_message msg resolver t >>= fun _ -> Lwt.return_unit) msgs in
   run_decode_loop resolver t
   
 let safe_run_decode_loop resolver t =  
@@ -266,7 +284,7 @@ let safe_run_decode_loop resolver t =
   | x ->
     let%lwt _ = Logs_lwt.warn (fun m -> m "Exception in decode loop : %s\n%s" (Printexc.to_string x) (Printexc.get_backtrace ()) ) in
     try%lwt
-      let%lwt _ = Lwt_unix.close t.sock in
+      let%lwt _ = close t.sock in
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
     with
     | _ -> 
@@ -285,14 +303,26 @@ let zopen peer =
   let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
   let (promise, resolver) = Lwt.task () in
   let con = connect sock saddr in 
+  let sock = Sock(sock) in
   let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
   let _ = con >>= fun _ -> send_message sock make_open in
   con >>= fun _ -> promise
 
+let zropen stream = 
+let sock = Stream(stream) in
+  let (promise, resolver) = Lwt.task () in
+  let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
+  let _ = send_message sock make_open in
+  promise
+
 let info z =
-  let peer = match Unix.getpeername @@ Lwt_unix.unix_file_descr z.sock with
+  let peer = 
+  match z.sock with 
+  | Sock sock -> 
+    (match Unix.getpeername @@ Lwt_unix.unix_file_descr sock with
     | ADDR_UNIX a -> "unix:"^a
-    | ADDR_INET (a,p) -> Printf.sprintf "%s:%d" (Unix.string_of_inet_addr a) p
+    | ADDR_INET (a,p) -> Printf.sprintf "%s:%d" (Unix.string_of_inet_addr a) p)
+  | Stream _ -> "local"
   in
   let props = Apero.Properties.of_list ["peer", peer; "pid",(Abuf.hexdump pid)]  in 
   match z.peer_pid with 

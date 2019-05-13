@@ -2,8 +2,10 @@ open Cmdliner
 
 let zopen argv = 
   let run tcpport peers strength bufn = 
-    Zengine.run tcpport peers strength bufn |> Lwt.ignore_result; 
-    Zenoh.zopen ("tcp/127.0.0.1:" ^ (string_of_int tcpport))
+    let (instream, inpush) = Lwt_stream.create_bounded 256 in
+    let (outstream, outpush) = Lwt_stream.create_bounded 256 in
+    Zengine.run tcpport peers strength bufn (Some (instream, outpush)) |> Lwt.ignore_result; 
+    Zenoh.zropen (outstream, inpush)
   in 
   
   Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.bufn, Term.info "zenohd") ~argv) |> function
