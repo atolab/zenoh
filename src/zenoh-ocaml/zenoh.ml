@@ -336,13 +336,12 @@ let publish z resname =
   let (pubid, state) = get_next_entity_id state in
 
   let (sn, state) = get_next_sn state in
+  Guard.release z.state state;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     PublisherDecl(PublisherDecl.create res.rid [])
   ])) in 
-
-  Guard.release z.state state 
-  ; Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
+  Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
 
 
 let write z resname ?timestamp ?kind ?encoding buf = 
@@ -393,14 +392,12 @@ let subscribe z ?(mode=push_mode)  resname listener =
   let state = {state with resmap} in
 
   let (sn, state) = get_next_sn state in
+  Guard.release z.state state ;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     SubscriberDecl(SubscriberDecl.create res.rid mode [])
   ])) in 
-
-  Guard.release z.state state ;
-  let sub : sub = {z=z; id=subid; resid=res.rid} in
-  Lwt.return sub
+  Lwt.return ({z=z; id=subid; resid=res.rid}:sub)
 
 
 let pull (sub:sub) = 
@@ -437,12 +434,11 @@ let store z resname listener qhandler =
   let state = {state with resmap} in
 
   let (sn, state) = get_next_sn state in
+  Guard.release z.state state ;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     StorageDecl(StorageDecl.create res.rid [])
   ])) in 
-
-  Guard.release z.state state ;
   Lwt.return {z=z; id=stoid; resid=res.rid} 
 
 
@@ -452,9 +448,9 @@ let query z ?(dest=Partial)  resname predicate listener =
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
   let props = [ZProperty.QueryDest.make dest] in
-  let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate props)) in 
   let state = {state with qrymap} in
-  Lwt.return @@ Guard.release z.state state 
+  Guard.release z.state state;
+  send_message z.sock (Message.Query(Query.create pid qryid resname predicate props))
 
 
 let squery z ?(dest=Partial) resname predicate = 
