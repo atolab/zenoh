@@ -13,6 +13,7 @@ let listener spath src datas =
   let%lwt storage = Lwt_mvar.take storagevar in
   let storage = List.fold_left (
     fun storage data -> (data |> fst |> decode_string |> Printf.printf "STORAGE LISTENER [%-8s] RECIEVED RESOURCE [%-20s] : %s\n%!" spath src);
+                         Abuf.reset_r_pos (fst data);
                          StrMap.add src data storage) 
     storage datas in 
   Lwt_mvar.put storagevar storage
