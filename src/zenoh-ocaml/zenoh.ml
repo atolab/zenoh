@@ -113,6 +113,11 @@ let pid  =
 let lease = 0L
 let version = Char.chr 0x01
 
+let clean_query z qryid = 
+  let%lwt state = Guard.acquire z.state in
+  let qrymap = VleMap.remove qryid state.qrymap in 
+  let state = {state with qrymap} in
+  Lwt.return @@ Guard.release z.state state
 
 let match_resource rmap mres = 
   VleMap.fold (fun _ res x -> 
@@ -259,6 +264,7 @@ let process_incoming_message msg resolver t =
         (match (Message.Reply.value rmsg) with 
         | None -> Lwt.catch(fun () -> query.listener ReplyFinal) 
                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+                  >>= fun () -> clean_query t (Reply.qid rmsg)
         | Some (stoid, rsn, resname, payload) -> 
           let data = Payload.data payload in
           (match Abuf.readable_bytes data with 
