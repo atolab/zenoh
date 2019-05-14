@@ -1,3 +1,7 @@
+## 0.2.6 (2019-05-14)
+
+- Zenoh Router Lib : Applications can run the zenoh router as a library and interract with it through the same API as client applications.
+
 ## 0.2.5 (2019-04-18)
 
 - Management : zenoh routers answer to management queries.
