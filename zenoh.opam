@@ -25,7 +25,7 @@ depends: [
   "apero-core" {>= "0.4.4"}
   "apero-net" {>= "0.4.4"}
   "zenoh-proto" {= "0.2.5"}
-  "zenoh-api" {= "0.2.5"}
+  "zenoh-ocaml" {= "0.2.5"}
 ]
 
 synopsis : "Zenoh -- the ZEro Network Over-Head protocol"
