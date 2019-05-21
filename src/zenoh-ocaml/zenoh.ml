@@ -159,10 +159,12 @@ let process_incoming_message msg resolver t =
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
             Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
             Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
@@ -182,10 +184,12 @@ let process_incoming_message msg resolver t =
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
             Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Payload.data payload), (Payload.header payload)]) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
             Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Payload.data payload), (Payload.header payload)]) 
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
@@ -205,10 +209,12 @@ let process_incoming_message msg resolver t =
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
             Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Payload.data payload), empty_data_info]) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
             Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Payload.data payload), empty_data_info])
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.stos
         | None -> Lwt.return_unit 
       ) res.matches
@@ -226,17 +232,19 @@ let process_incoming_message msg resolver t =
           let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
             Lwt.catch (fun () -> sub.listener (WriteData.resource dmsg) [(Payload.data payload), (Payload.header payload)]) 
                       (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.subs in
           Lwt_list.iter_s (fun (sto:insto) -> 
             Lwt.catch (fun () -> sto.listener (WriteData.resource dmsg) [(Payload.data payload), (Payload.header payload)]) 
                       (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
           ) res.stos
       | false -> return_unit) (VleMap.bindings state.resmap) in
       return_true
   | Message.Query qmsg -> 
     let querypath = PathExpr.of_string @@ Query.resource qmsg in
     let state = Guard.get t.state in    
-    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
+    Lwt_list.iter_s (fun (_, res) -> 
       match PathExpr.intersect res.name querypath with 
       | true -> 
           Lwt_list.fold_left_s (fun rsn (sto:insto) ->
@@ -250,9 +258,9 @@ let process_incoming_message msg resolver t =
           >>= fun rsn -> 
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", Payload.create ~header:empty_data_info @@ Abuf.create 0))))
           >>= fun _ -> return_unit
-      | false -> return_unit) (VleMap.bindings state.resmap) in
-    let%lwt _ = send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) in
-    return_true    
+      | false -> return_unit) (VleMap.bindings state.resmap)
+    >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) 
+    |> Lwt.ignore_result; Lwt.return_true    
   | Message.Reply rmsg -> 
     (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
     | false -> return_true
@@ -264,14 +272,17 @@ let process_incoming_message msg resolver t =
         (match (Message.Reply.value rmsg) with 
         | None -> Lwt.catch(fun () -> query.listener ReplyFinal) 
                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
-                  >>= fun () -> clean_query t (Reply.qid rmsg)
+                  |> Lwt.ignore_result;
+                  clean_query t (Reply.qid rmsg)
         | Some (stoid, rsn, resname, payload) -> 
           let data = Payload.data payload in
           (match Abuf.readable_bytes data with 
           | 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+                 |> Lwt.ignore_result; Lwt.return_unit
           | _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+                 |> Lwt.ignore_result; Lwt.return_unit
           )) >>= fun _ -> return_true )
   | msg ->
     Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
