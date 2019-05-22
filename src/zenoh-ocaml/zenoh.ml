@@ -443,7 +443,10 @@ let query z ?(dest=Partial) resname predicate listener =
 
 let squery z ?(dest=Partial) resname predicate = 
   let stream, push = Lwt_stream.create () in 
-  let reply_handler qreply = push @@ Some qreply; Lwt.return_unit in 
+  let reply_handler = function
+    | ReplyFinal -> push @@ Some ReplyFinal; push None; Lwt.return_unit
+    | qreply -> push @@ Some qreply; Lwt.return_unit
+   in
   let _ = (query z resname predicate reply_handler ~dest) in 
   stream
 
@@ -452,8 +455,7 @@ type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutab
 let lquery z ?(dest=Partial) resname predicate =   
   let promise,resolver = Lwt.wait () in 
   let ctx = {resolver; qs = []} in  
-  let reply_handler qreply =     
-    match qreply with 
+  let reply_handler = function
     | StorageData {stoid=_; rsn=_; resname; data; info} -> 
       (* TODO: Eventually we should check the timestamp *)
       (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 
