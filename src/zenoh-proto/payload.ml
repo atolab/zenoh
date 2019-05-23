@@ -160,3 +160,7 @@ let data p =
             skip_payload_header p.buffer;
             Abuf.slice (Abuf.r_pos p.buffer) (Abuf.readable_bytes p.buffer) p.buffer
   | false -> Abuf.duplicate p.buffer
+
+let with_timestamp p ts = 
+  let header = {(header p) with ts = (Some ts)} in 
+  create ~header (data p)

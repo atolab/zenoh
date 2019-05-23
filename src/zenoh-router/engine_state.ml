@@ -13,6 +13,8 @@ type engine_state = {
     pid : Abuf.t;
     lease : Vle.t;
     locators : Locators.t;
+    hlc : Ztypes.HLC.t;
+    timestamp : bool;
     smap : Session.t SIDMap.t;
     rmap : Resource.t ResMap.t;
     qmap : Query.t QIDMap.t;
