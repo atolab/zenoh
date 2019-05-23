@@ -168,7 +168,8 @@ let run tcpport peers strength bufn (local_session:Session.local_sex option) =
                                     dispatcher_svc; ProtocolEngine.start engine]
 
 
-let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
-let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
-let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength")
-let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers")
+let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"The listening tcp port.")
+let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"The peers to connect to.")
+let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"The router strength.")
+let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"The number of write buffers.")
+let plugins = Arg.(value & opt_all string [] & info ["g"; "plugin"] ~docv:"PLUGIN" ~doc:"Plugin to load at startup.")
