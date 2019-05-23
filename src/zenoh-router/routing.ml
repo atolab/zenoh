@@ -1,3 +1,5 @@
+open Lwt.Infix
+open Apero.Infix
 open Apero
 open Channel
 open NetService
@@ -35,8 +37,6 @@ let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable
         | false -> [Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) payload)] 
     in
     Session.add_out_msg s.stats;
-
-    let open Lwt.Infix in 
     (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payloads =
@@ -55,8 +55,6 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
         | false -> List.map (fun p -> Message.WriteData(Message.WriteData.create (true, reliable) fsn (PathExpr.to_string uri) p)) payloads
     in
     Session.add_out_msg s.stats;
-
-    let open Lwt.Infix in 
     (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
 
@@ -108,6 +106,13 @@ let forward_oneshot_data pe sid srcresname reliable payload =
     ) pe.rmap ([], []) in
   Lwt.join ps 
 
+let stamp_payload pe p = 
+  match pe.timestamp with 
+  | false -> Lwt.return p 
+  | true -> match (Payload.header p).ts with 
+    | Some _ -> Lwt.return p 
+    | None -> (Ztypes.HLC.new_timestamp pe.hlc) >>= (Payload.with_timestamp p %> Lwt.return)
+
 let process_user_compactdata (pe:engine_state) session msg =      
   let open Session in
   let open Resource in
@@ -128,7 +133,8 @@ let process_user_compactdata (pe:engine_state) session msg =
         | None -> "UNKNOWN" in
         m "Handling CompactData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.CompactData.payload msg) in
+    let%lwt payload = stamp_payload pe (Message.CompactData.payload msg) in
+    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 let process_user_streamdata (pe:engine_state) session msg =      
@@ -151,7 +157,8 @@ let process_user_streamdata (pe:engine_state) session msg =
         | None -> "UNKNOWN" in
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.StreamData.payload msg) in
+    let%lwt payload = stamp_payload pe (Message.StreamData.payload msg) in
+    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 let process_user_batched_streamdata (pe:engine_state) session msg =      
@@ -176,7 +183,8 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
         | None -> "UNKNOWN" in
         m "Handling BatchedData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
-    let%lwt _ = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) bufs in
+    let%lwt stamped_bufs = Lwt_list.map_s (stamp_payload pe) bufs in
+    let%lwt _ = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) stamped_bufs in
     Lwt.return (pe, [])
 
 let process_user_writedata pe session msg =      
@@ -189,12 +197,13 @@ let process_user_writedata pe session msg =
       m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
         nid (Id.to_string session.sid) (Message.WriteData.resource msg)) in
   let name = ResName.Path(PathExpr.of_string @@ Message.WriteData.resource msg) in
-  match store_data pe name (Message.WriteData.payload msg) with 
+  let%lwt payload = stamp_payload pe (Message.WriteData.payload msg) in
+  match store_data pe name payload with 
   | (pe, None) -> 
-    let%lwt _ = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) (Message.WriteData.payload msg) in
+    let%lwt _ = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
   | (pe, Some res) -> 
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) (Message.WriteData.payload msg) in
+    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 

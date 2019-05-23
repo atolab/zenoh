@@ -17,13 +17,12 @@ let setup_log style_renderer level =
   Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
-
-let run tcpport peers strength usersfile plugins bufn style_renderer level = 
+let run tcpport peers strength usersfile plugins bufn timestamp style_renderer level = 
   setup_log style_renderer level; 
   let run () =  
     let (instream, inpush) = Lwt_stream.create_bounded 256 in
     let (outstream, outpush) = Lwt_stream.create_bounded 256 in
-    let res = Zengine.run tcpport peers strength usersfile bufn (Some (instream, outpush)) in
+    let res = Zengine.run tcpport peers strength usersfile bufn timestamp (Some (instream, outpush)) in
     let%lwt z = Zenoh.zropen (outstream, inpush) in
     Lwt_list.iter_p (fun plugin -> 
       let args = String.split_on_char ' ' plugin |> Array.of_list in
@@ -39,5 +38,5 @@ let () =
   Printexc.record_backtrace true;
   Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.users $ Zengine.plugins $ Zengine.bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.users $ Zengine.plugins $ Zengine.bufn $ Zengine.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   

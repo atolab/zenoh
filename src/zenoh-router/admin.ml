@@ -1,3 +1,4 @@
+open Lwt.Infix
 open Engine_state
 open Message
 open Apero
@@ -51,10 +52,13 @@ let json_replies pe q =
 
 let replies pe q = 
   let open Ztypes in
+  let%lwt ts = (match pe.timestamp with 
+    | true -> HLC.new_timestamp pe.hlc >>= fun ts -> Lwt.return (Some ts)
+    | false -> Lwt.return None) in
   Lwt.return @@ List.mapi (fun idx (p, j) -> 
     let data = Abuf.create ~grow:65536 1024 in 
     Apero.encode_string (Yojson.Safe.to_string j) data;
-    let info = {srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=None; encoding=Some 4L (* JSON *); kind=None} in
+    let info = {srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts; encoding=Some 4L (* JSON *); kind=None} in
     let pl = Payload.create ~header:info data in
     Reply.create (Query.pid q) (Query.qid q) (Some (pe.pid, Vle.of_int (idx + 1), Path.to_string p, pl))
   ) (json_replies pe q)
