@@ -1,0 +1,6 @@
+(library
+  (name            storage_plugin)
+  (modules         storage_plugin)
+  (public_name     storage-plugin)
+  (libraries       lwt zenoh_router) 
+  (wrapped         true))

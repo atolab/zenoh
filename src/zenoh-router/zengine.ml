@@ -198,3 +198,4 @@ let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:
 let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"Broker strength")
 let users = Arg.(value & opt (some string) None & info ["u"; "users"] ~docv:"USERS" ~doc:"Authorized user/password file")
 let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"Number of write buffers")
+let plugins = Arg.(value & opt_all string [] & info ["g"; "plugin"] ~docv:"PLUGIN" ~doc:"Plugin to load at startup.")
