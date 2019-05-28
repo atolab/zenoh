@@ -25,10 +25,13 @@ let run tcpport peers strength plugins bufn timestamp style_renderer level =
     let res = Zengine.run tcpport peers strength bufn timestamp (Some (instream, outpush)) in
     let%lwt z = Zenoh.zropen (outstream, inpush) in
     Lwt_list.iter_p (fun plugin -> 
-      let args = String.split_on_char ' ' plugin |> Array.of_list in
-      Dynlink.loadfile @@ Dynlink.adapt_filename plugin;
-      let module M = (val Plugins.get_plugin () : Plugins.Plugin) in
-      M.run z args
+      try
+        Dynlink.loadfile @@ Dynlink.adapt_filename plugin;
+        let args = String.split_on_char ' ' plugin |> Array.of_list in
+        let module M = (val Plugins.get_plugin () : Plugins.Plugin) in
+        M.run z args
+      with
+        | Dynlink.Error s -> failwith (Printf.sprintf "Error loading module %s: %s" plugin (Dynlink.error_message s));
       ) plugins |> Lwt.ignore_result;
     res
   in  
