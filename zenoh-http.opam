@@ -1,0 +1,32 @@
+opam-version: "2.0"
+maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Olivier Hecart" "Julien Enoch"]
+homepage:     "https://zenoh.io"
+bug-reports:  "https://github.com/atolab/zenoh/issues/"
+dev-repo:     "git+https://github.com/atolab/zenoh.git"
+tags:         ["zenoh"]
+
+version:"0.2.5"
+license: "Apache-2.0"
+
+build: [
+ ["dune" "-p" name "-j" jobs]
+]
+
+install: [
+  ["dune" "build" "-p" name "@install"]
+  ["dune" "install" name]
+]
+
+depends: [
+  "ocaml" {>= "4.03.0" }
+  "dune"
+  "lwt" {>= "4.1.0"}
+  "zenoh-router" {= "0.2.5"}
+  "httpas" {>= "0.6.0"}
+]
+synopsis : "The zenoh http plugin"
+description: """
+zenoh is a high-level and extremely wire-efficient named-data protocol
+that nicely combines data streaming with distributed data quering. 
+This package provides the zenoh router as a library."""
