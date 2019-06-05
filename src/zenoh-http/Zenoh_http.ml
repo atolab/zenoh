@@ -43,11 +43,9 @@ module ZenohHTTP:Plugins.Plugin = struct
   let on_body_read_complete body (action:Abuf.t -> unit) =
     let rec on_read buffer chunk ~off ~len =
       let chunk = Bigstringaf.substring chunk ~off ~len in
-      Logs.debug (fun m -> m "[Zhttp] .... on_read chunk: %s" chunk);
       Abuf.write_bytes (Bytes.of_string chunk) buffer;
       Body.schedule_read body ~on_eof:(on_eof buffer) ~on_read:(on_read buffer)
     and on_eof buffer () =
-      Logs.debug (fun m -> m "[Zhttp] .... on_eof buffer: %s" (Abuf.to_string buffer));
       let buffer' = Abuf.create ~grow:2 (Abuf.readable_bytes buffer + 1) in
       Apero.encode_buf buffer buffer';
       action buffer'
@@ -83,7 +81,6 @@ module ZenohHTTP:Plugins.Plugin = struct
             try begin
               on_body_read_complete (Reqd.request_body reqd) (
                 fun buf ->
-                  Logs.debug (fun m -> m "[Zhttp] .... on_body_read_complete body=%s" (Abuf.to_string buf));
                   Lwt.async (fun _ ->
                     Logs.debug (fun m -> m "[Zhttp] Zenoh.write put on %s %d bytes" resname (Abuf.readable_bytes buf));
                     Zenoh.write zenoh resname buf ~kind:zwrite_kind_put >|= fun _ ->
@@ -93,11 +90,10 @@ module ZenohHTTP:Plugins.Plugin = struct
             | exn ->
               respond_internal_error reqd (Printexc.to_string exn)
           end
-        | `POST -> begin
+        | `Other m when m = "PATCH" -> begin
             try begin
               on_body_read_complete (Reqd.request_body reqd) (
                 fun buf ->
-                  Logs.debug (fun m -> m "[Zhttp] .... on_body_read_complete body=%s" (Abuf.to_string buf));
                   Lwt.async (fun _ ->
                     Logs.debug (fun m -> m "[Zhttp] Zenoh.write update on %s %d bytes" resname (Abuf.readable_bytes buf));
                     Zenoh.write zenoh resname buf ~kind:zwrite_kind_update >|= fun _ ->
