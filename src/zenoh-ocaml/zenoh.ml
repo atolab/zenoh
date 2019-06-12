@@ -306,8 +306,6 @@ let safe_run_decode_loop resolver t =
     with
     | _ -> 
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
-  
-let (>>) a b = a >>= fun x -> x |> fun _ -> b  
 
 let zopen peer = 
   let open Lwt_unix in
@@ -353,36 +351,32 @@ let publish z resname =
   let (pubid, state) = get_next_entity_id state in
 
   let (sn, state) = get_next_sn state in
-  Guard.release z.state state;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     PublisherDecl(PublisherDecl.create res.rid [])
   ])) in 
+  Guard.release z.state state;
   Lwt.return {z; id=pubid; resid=res.rid; reliable=false}
 
 
 let write z resname ?timestamp ?kind ?encoding buf = 
   let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
-  Guard.release z.state state;
-  send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
-  >> Lwt.return_unit
-
+  let%lwt _ = send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
+  Lwt.return @@ Guard.release z.state state
 
 let stream (pub:pub) ?timestamp ?kind ?encoding buf = 
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
-  Guard.release pub.z.state state;
-  send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf)))
-  >> Lwt.return_unit
+  let%lwt _ = send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
+  Lwt.return @@ Guard.release pub.z.state state
 
 let lstream (pub:pub) (bufs: Abuf.t list) = 
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
-  Guard.release pub.z.state state;
   let payloads = List.map (fun b -> Payload.create b) bufs in
-  send_message pub.z.sock (Message.BatchedStreamData(BatchedStreamData.create (false, pub.reliable) sn pub.resid payloads))
-  >> Lwt.return_unit
+  let%lwt _ = send_message pub.z.sock (Message.BatchedStreamData(BatchedStreamData.create (false, pub.reliable) sn pub.resid payloads)) in
+  Lwt.return @@ Guard.release pub.z.state state
 
 
 let unpublish z (pub:pub) = 
@@ -409,20 +403,19 @@ let subscribe z ?(mode=push_mode)  resname listener =
   let state = {state with resmap} in
 
   let (sn, state) = get_next_sn state in
-  Guard.release z.state state ;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     SubscriberDecl(SubscriberDecl.create res.rid mode [])
   ])) in 
+  Guard.release z.state state ;
   Lwt.return ({z=z; id=subid; resid=res.rid}:sub)
 
 
 let pull (sub:sub) = 
   let%lwt state = Guard.acquire sub.z.state in
   let (sn, state) = get_next_sn state in 
-  Guard.release sub.z.state state;
   let%lwt _ = send_message sub.z.sock (Message.Pull(Pull.create (true, true) sn sub.resid None)) in 
-  Lwt.return_unit
+  Lwt.return @@ Guard.release sub.z.state state
 
 
 let unsubscribe z (sub:sub) = 
@@ -451,11 +444,11 @@ let store z resname listener qhandler =
   let state = {state with resmap} in
 
   let (sn, state) = get_next_sn state in
-  Guard.release z.state state ;
   let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
     StorageDecl(StorageDecl.create res.rid [])
   ])) in 
+  Guard.release z.state state ;
   Lwt.return {z=z; id=stoid; resid=res.rid} 
 
 
@@ -466,8 +459,8 @@ let query z ?(dest=Partial)  resname predicate listener =
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
   let props = [ZProperty.QueryDest.make dest] in
   let state = {state with qrymap} in
-  Guard.release z.state state;
-  send_message z.sock (Message.Query(Query.create pid qryid resname predicate props))
+  let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate props)) in
+  Lwt.return @@ Guard.release z.state state
 
 
 let squery z ?(dest=Partial) resname predicate = 
