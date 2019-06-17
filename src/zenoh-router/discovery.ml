@@ -86,7 +86,7 @@ open Engine_state
         | false -> 
         match ResMap.exists 
                 (fun _ sr ->  res_match pr sr && List.exists 
-                                (fun m -> m.sub != None && m.session != s.sid) sr.mappings) pe.rmap with
+                                (fun m -> (m.sub != None || m.sto != None) && m.session != s.sid) sr.mappings) pe.rmap with
         | false -> Lwt.return (pe, [])
         | true -> 
             let pm = {pm with matched_pub = true} in
