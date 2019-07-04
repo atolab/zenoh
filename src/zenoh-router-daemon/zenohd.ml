@@ -17,13 +17,13 @@ let setup_log style_renderer level =
   Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
-let run tcpport peers strength bufn style_renderer level = 
+let run tcpport peers strength usersfile bufn style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ Zengine.run tcpport peers strength bufn None
+  Lwt_main.run @@ Zengine.run tcpport peers strength usersfile bufn None
    
 let () =
   Printexc.record_backtrace true;
   Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.users $ Zengine.bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   

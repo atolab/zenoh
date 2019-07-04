@@ -17,6 +17,7 @@ type engine_state = {
     rmap : Resource.t ResMap.t;
     qmap : Query.t QIDMap.t;
     peers : Locator.t list;
+    users : (string * string) list option;
     router : ZRouter.t;
     next_mapping : Vle.t;
     tx_connector : tx_session_connector;

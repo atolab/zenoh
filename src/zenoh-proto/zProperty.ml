@@ -10,6 +10,9 @@ module PropertyId = struct
 
   let nodeMask = 1L
   let storageDist = 3L
+
+  let user = 0x50L
+  let password = 0x51L
 end
 
 module T = Apero.KeyValueF.Make(Apero.Vle) (Abuf)
@@ -59,4 +62,24 @@ module QueryDest = struct
     | _ -> Partial
 
   let find_opt = find_opt PropertyId.queryDest
+end
+
+module User = struct 
+  let make name = make 
+    PropertyId.user 
+    (Abuf.create (String.length name) |> fun buf -> Abuf.write_bytes (Bytes.unsafe_of_string name) buf; buf)
+  
+  let name = on_value (fun buf -> Abuf.read_bytes (Abuf.readable_bytes buf) buf |> Bytes.unsafe_to_string) 
+
+  let find_opt = find_opt PropertyId.user
+end
+
+module Password = struct 
+  let make phrase = make 
+    PropertyId.password 
+    (Abuf.create (String.length phrase) |> fun buf -> Abuf.write_bytes (Bytes.unsafe_of_string phrase) buf; buf)
+  
+  let phrase = on_value (fun buf -> Abuf.read_bytes (Abuf.readable_bytes buf) buf |> Bytes.unsafe_to_string) 
+
+  let find_opt = find_opt PropertyId.password
 end

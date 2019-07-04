@@ -7,6 +7,8 @@ open Engine_state
 
 open Discovery 
 
+exception Bad_user_password
+
 let pid_to_string = Abuf.hexdump
 
 let make_scout = Message.Scout (Message.Scout.create Message.ScoutFlags.scoutBroker [])
@@ -123,7 +125,22 @@ let process_broker_open engine tsex msg =
   forward_all_decls pe;
   Guard.return [make_accept pe' (Message.Open.pid msg)] pe'
 
-let process_open engine tsex msg  =
+let is_acceptable pe tsex msg =
+  match tsex with 
+  | Session.Local _ -> true
+  | _ -> 
+    match pe.users with 
+    | None -> true
+    | Some users -> 
+      let username = match ZProperty.User.find_opt (Message.Open.properties msg) with 
+      | None -> ""
+      | Some user -> ZProperty.User.name user in
+      let password = match ZProperty.Password.find_opt (Message.Open.properties msg) with 
+      | None -> ""
+      | Some password -> ZProperty.Password.phrase password in
+      List.exists (fun (user, passwd) -> String.equal user username && String.equal password passwd ) users
+
+let process_open engine tsex msg =
   let open Lwt.Infix in 
   let pe = Guard.get engine in
   match SIDMap.find_opt (Session.txid tsex) pe.smap with
@@ -133,17 +150,23 @@ let process_open engine tsex msg  =
         | Some nodeMask -> ZProperty.NodeMask.mask nodeMask in
      match Message.ScoutFlags.hasFlag mask (Message.ScoutFlags.scoutBroker) with 
      | false ->
-       let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-       let%lwt pe' = add_session engine tsex mask in 
-       Lwt.return [make_accept pe' (Message.Open.pid msg)] 
+       (match is_acceptable pe tsex msg with 
+        | true -> 
+          let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from unscouted remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+          let%lwt pe' = add_session engine tsex mask in 
+          Lwt.return [make_accept pe' (Message.Open.pid msg)] 
+        | false -> raise Bad_user_password)
      | true -> 
        let%lwt pe' = add_session engine tsex mask in 
        Guard.set  pe' engine >>= 
        fun _ -> process_broker_open engine tsex msg)
   | Some session -> match Vle.logand session.mask Message.ScoutFlags.scoutBroker <> 0L with 
     | false -> 
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-      Lwt.return ([make_accept pe (Message.Open.pid msg)])     
+      (match is_acceptable pe tsex msg with 
+      | true -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote peer: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
+        Lwt.return ([make_accept pe (Message.Open.pid msg)])
+      | false -> raise Bad_user_password) 
     | true -> process_broker_open engine tsex msg
 
 let process_accept_broker engine tsex msg = 

@@ -30,7 +30,7 @@ module Engine (MVar : MVar) = struct
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
-    let create ?(bufn = 32) ?(buflen=65536) (pid : Abuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
+    let create ?(bufn = 32) ?(buflen=65536) ?(users=None) (pid : Abuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
       Guard.create @@ { 
         pid; 
         lease; 
@@ -39,6 +39,7 @@ module Engine (MVar : MVar) = struct
         rmap = ResMap.empty; 
         qmap = QIDMap.empty;
         peers;
+        users;
         router = ZRouter.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
@@ -99,10 +100,32 @@ let to_string peers =
   |> List.map (fun p -> Locator.to_string p) 
   |> String.concat "," 
 
+let rec read_users ic = 
+  let read_user ic = 
+    match input_line ic with 
+    | "" -> None
+    | str -> 
+      let tokens = String.split_on_char ':' str in 
+      Some (List.nth tokens 0, List.nth tokens 1)
+  in
+  try
+    match read_user ic with 
+    | None -> read_users ic
+    | Some user -> user :: read_users ic
+  with
+  | End_of_file -> [] 
+  | _ -> failwith "Invalid users file format"
+
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength bufn (local_session:Session.local_sex option) = 
+let run tcpport peers strength usersfile bufn (local_session:Session.local_sex option) = 
   let open ZEngine in 
+  let users = 
+    try match usersfile with 
+      | None -> None 
+      | Some file -> Some (read_users @@ Pervasives.open_in file)
+    with e -> Printf.printf "%s\n%!" (Printexc.to_string e); exit 1
+  in
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
   |> List.map (fun s -> Option.get @@ Locator.of_string s) in
@@ -114,7 +137,7 @@ let run tcpport peers strength bufn (local_session:Session.local_sex option) =
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
-  let engine = ProtocolEngine.create ~bufn pid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength tx_connector in
+  let engine = ProtocolEngine.create ~bufn ~users pid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength tx_connector in
 
   let open Lwt.Infix in 
 
@@ -129,11 +152,13 @@ let run tcpport peers strength bufn (local_session:Session.local_sex option) =
       zreader readbuf () >>= fun frame ->
         Lwt.catch
           (fun () -> ProtocolEngine.handle_message engine sex (Frame.to_list frame)) 
-          (fun e -> 
-            Logs_lwt.warn (fun m -> m "Error handling messages from session %s : %s" 
-              (Id.to_string (Session.txid sex))
-              (Printexc.to_string e))
-            >>= fun _ -> Lwt.return []) 
+          (function 
+           | Scouting.Bad_user_password -> raise @@ Scouting.Bad_user_password
+           | e ->
+              Logs_lwt.warn (fun m -> m "Error handling messages from session %s : %s" 
+                (Id.to_string (Session.txid sex))
+                (Printexc.to_string e))
+              >>= fun _ -> Lwt.return []) 
         >>= function
       | [] -> Lwt.return (usedbufp, Lwt.return readbuf)
       | ms -> Abuf.clear wbuf; zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return (usedbufp, Lwt.return readbuf)
@@ -168,7 +193,8 @@ let run tcpport peers strength bufn (local_session:Session.local_sex option) =
                                     dispatcher_svc; ProtocolEngine.start engine]
 
 
-let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"listening port")
-let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
-let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"broker strength")
-let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"number of write buffers")
+let tcpport = Arg.(value & opt int 7447 & info ["t"; "tcpport"] ~docv:"TCPPORT" ~doc:"Listening tcp port")
+let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"Peers")
+let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"Broker strength")
+let users = Arg.(value & opt (some string) None & info ["u"; "users"] ~docv:"USERS" ~doc:"Authorized user/password file")
+let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"Number of write buffers")

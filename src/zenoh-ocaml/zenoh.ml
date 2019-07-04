@@ -138,7 +138,15 @@ let add_resource resname state =
 
 
 (* let make_hello = Message.Hello (Hello.create (Vle.of_char ScoutFlags.scoutBroker) Locators.empty []) *)
-let make_open = Message.Open (Open.create version pid lease Locators.empty [])
+let make_open username password = 
+  let props = [] in 
+  let props = match username with  
+  | Some name -> ZProperty.User.make name :: props
+  | None -> props in 
+  let props = match password with  
+  | Some word -> ZProperty.Password.make word :: props
+  | None -> props in 
+  Message.Open (Open.create version pid lease Locators.empty props)
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
 let process_incoming_message msg resolver t = 
@@ -307,7 +315,7 @@ let safe_run_decode_loop resolver t =
     | _ -> 
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
 
-let zopen peer = 
+let zopen ?username ?password peer = 
   let open Lwt_unix in
   let sock = socket PF_INET SOCK_STREAM 0 in
   setsockopt sock SO_REUSEADDR true;
@@ -320,14 +328,14 @@ let zopen peer =
   let con = connect sock saddr in 
   let sock = Sock(sock) in
   let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
-  let _ = con >>= fun _ -> send_message sock make_open in
+  let _ = con >>= fun _ -> send_message sock (make_open username password) in
   con >>= fun _ -> promise
 
 let zropen stream = 
 let sock = Stream(stream) in
   let (promise, resolver) = Lwt.task () in
   let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
-  let _ = send_message sock make_open in
+  let _ = send_message sock (make_open None None) in
   promise
 
 let info z =

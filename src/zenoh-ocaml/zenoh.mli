@@ -13,7 +13,7 @@ type query_handler = string -> string -> (string * Abuf.t * data_info) list Lwt.
 type submode
 type t
 
-val zopen : string -> t Lwt.t
+val zopen : ?username:string -> ?password:string -> string -> t Lwt.t
 
 val zropen : (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push) -> t Lwt.t
 
