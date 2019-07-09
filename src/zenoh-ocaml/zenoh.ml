@@ -273,7 +273,8 @@ let process_incoming_message msg resolver t =
     (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
     | false -> return_true
     | true -> 
-      let state = Guard.get t.state in    
+      (* Don't use Guard.get. We want to make sure the request has been registered. *)
+      let%lwt state = Guard.acquire t.state in Guard.release t.state state;
       match VleMap.find_opt (Reply.qid rmsg) state.qrymap with 
       | None -> return_true 
       | Some query -> 
