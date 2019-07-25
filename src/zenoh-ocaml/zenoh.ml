@@ -534,6 +534,22 @@ let store z resname listener qhandler =
 
 
 let query z ?(dest=Partial)  resname predicate listener = 
+  let state = Guard.get z.state in
+  let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
+    match PathExpr.intersect res.name (PathExpr.of_string resname) with 
+    | true -> 
+        Lwt_list.map_s (fun (sto:insto) ->
+          Lwt.catch(fun () -> sto.qhandler resname predicate) 
+                    (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
+                    (* TODO propagate query failures *)
+        ) res.stos
+        >>= Lwt_list.iter_s (fun storeps ->
+              let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
+                listener (StorageData({stoid=pid; rsn; resname; data; info}))) storeps in
+              listener (StorageFinal({stoid=pid; rsn=(List.length storeps)}))
+            )
+    | false -> return_unit) (VleMap.bindings state.resmap)
+  in
   let%lwt state = Guard.acquire z.state in
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
