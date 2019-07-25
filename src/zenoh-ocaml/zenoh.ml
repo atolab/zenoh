@@ -90,7 +90,11 @@ let read_messages = function
       | _ -> try 
                 let msg = Mcodec.decode_msg buf in
                 decode_msgs buf (msg::msgs)
-             with _ -> msgs
+             with e -> match msgs with
+             | [] -> raise e
+             | msgs ->
+                Logs.err (fun m -> m "Exception decoding message: %s " (Printexc.to_string e));
+                msgs
     in
     Lwt.return @@ List.rev @@ decode_msgs rbuf []
   | Stream (stream, _) -> 
