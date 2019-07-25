@@ -381,18 +381,77 @@ let publish z resname =
 
 
 let write z resname ?timestamp ?kind ?encoding buf = 
+    let state = Guard.get z.state in
+    let info = {empty_data_info with ts=timestamp; kind; encoding} in
+    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
+      match PathExpr.intersect res.name (PathExpr.of_string resname) with 
+      | true -> 
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
+            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.stos
+      | false -> return_unit) (VleMap.bindings state.resmap)
+  in
   let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
   Lwt.return @@ Guard.release z.state state
 
 let stream (pub:pub) ?timestamp ?kind ?encoding buf = 
+    let state = Guard.get pub.z.state in
+    let%lwt _ = match VleMap.find_opt pub.resid state.resmap with
+    | Some res -> 
+      let info = {empty_data_info with ts=timestamp; kind; encoding} in
+      Lwt_list.iter_s (fun resid -> 
+        match VleMap.find_opt resid state.resmap with
+        | Some res -> 
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
+            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.stos
+        | None -> Lwt.return_unit 
+      ) res.matches
+    | None -> Lwt.return_unit
+  in
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
   let%lwt _ = send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
   Lwt.return @@ Guard.release pub.z.state state
 
 let lstream (pub:pub) (bufs: Abuf.t list) = 
+    let state = Guard.get pub.z.state in
+    let%lwt _ = match VleMap.find_opt pub.resid state.resmap with
+    | Some res -> 
+      let info = empty_data_info in
+      Lwt_list.iter_s (fun resid -> 
+        match VleMap.find_opt resid state.resmap with
+        | Some res -> 
+          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
+            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun buf -> (Abuf.duplicate buf, info)) bufs))
+                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.subs in
+          Lwt_list.iter_s (fun (sto:insto) -> 
+            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun buf -> (Abuf.duplicate buf, info)) bufs))
+                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+            |> Lwt.ignore_result; Lwt.return_unit
+          ) res.stos
+        | None -> Lwt.return_unit 
+      ) res.matches
+    | None -> Lwt.return_unit
+  in
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
   let payloads = List.map (fun b -> Payload.create b) bufs in
