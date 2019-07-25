@@ -45,7 +45,7 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
   match SIDMap.find_opt dstmapsession pe.smap with
   | None -> Lwt.return_unit
   | Some s ->
-    let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding data to session %s" (Id.to_string s.sid)) in
+    let%lwt _ = Logs_lwt.debug (fun m -> m  "Forwarding batched data to session %s" (Id.to_string s.sid)) in
     let oc = Session.out_channel s in
     let fsn = if reliable then OutChannel.next_rsn oc else  OutChannel.next_usn oc in
     let msgs = match srcresname with 
@@ -166,7 +166,7 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
   let bufs = Message.BatchedStreamData.payload msg in 
   let last = List.nth bufs ((List.length bufs) - 1) in 
   match store_data pe name last with 
-  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received StreamData for unknown resource %s on session %s: Ignore it!" 
+  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received BatchedData for unknown resource %s on session %s: Ignore it!" 
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
@@ -174,9 +174,9 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
             Session.txid peer.tsex = session.sid) pe.router.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
-        m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
+        m "Handling BatchedData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
-    let%lwt _ = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) (Message.BatchedStreamData.payload msg) in
+    let%lwt _ = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) bufs in
     Lwt.return (pe, [])
 
 let process_user_writedata pe session msg =      
