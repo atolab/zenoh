@@ -84,7 +84,15 @@ let read_messages = function
     Abuf.clear rbuf;
     let%lwt _ = Net.read_all sock rbuf len in
     let%lwt _ =  Logs_lwt.debug (fun m -> m "tx-received: %s "  (Abuf.to_string rbuf)) in
-    Lwt.return @@ [Mcodec.decode_msg rbuf]
+    let rec decode_msgs buf msgs = 
+      match Abuf.readable_bytes buf with 
+      | 0 -> msgs
+      | _ -> try 
+                let msg = Mcodec.decode_msg buf in
+                decode_msgs buf (msg::msgs)
+             with _ -> msgs
+    in
+    Lwt.return @@ List.rev @@ decode_msgs rbuf []
   | Stream (stream, _) -> 
     Lwt_stream.get stream >>= (Option.get %> Lwt.return) >>= (Frame.Frame.to_list %> Lwt.return)
 
