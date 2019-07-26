@@ -104,6 +104,9 @@ let close = function
   | Sock sock -> Lwt_unix.close sock 
   | Stream _ -> Lwt.return_unit
 
+let copy buf = 
+  Abuf.get_buf ~at:(Abuf.r_pos buf) (Abuf.readable_bytes buf) buf
+
 type t = {
   sock : session;
   peer_pid : string option;
@@ -163,12 +166,12 @@ let make_open username password =
 
 let invoke_listeners res resname payloads = 
   let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-    Lwt.catch (fun () -> sub.listener resname (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+    Lwt.catch (fun () -> sub.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
               (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.subs in
   Lwt_list.iter_s (fun (sto:insto) -> 
-    Lwt.catch (fun () -> sto.listener resname (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+    Lwt.catch (fun () -> sto.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
               (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.stos
@@ -426,7 +429,7 @@ let store z resname listener qhandler =
 let query z ?(dest=Partial) resname predicate listener = 
   let%lwt _ = process_query z resname predicate (fun replies -> 
     let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
-      listener (StorageData({stoid=pid; rsn; resname; data; info}))) replies in
+      listener (StorageData({stoid=pid; rsn; resname; data=copy data; info}))) replies in
     listener (StorageFinal({stoid=pid; rsn=(List.length replies)})))
   in
   let%lwt state = Guard.acquire z.state in
