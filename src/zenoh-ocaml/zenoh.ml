@@ -161,126 +161,70 @@ let make_open username password =
   Message.Open (Open.create version pid lease Locators.empty props)
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
+let invoke_listeners res payloads = 
+  let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
+    Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+              (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+    |> Lwt.ignore_result; Lwt.return_unit
+  ) res.subs in
+  Lwt_list.iter_s (fun (sto:insto) -> 
+    Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+              (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+    |> Lwt.ignore_result; Lwt.return_unit
+  ) res.stos
+
+let process_stream_data z rid payloads =
+  let state = Guard.get z.state in
+  let%lwt _ = match VleMap.find_opt rid state.resmap with
+  | Some res -> 
+    Lwt_list.iter_s (fun resid -> 
+      match VleMap.find_opt resid state.resmap with
+      | Some res -> invoke_listeners res payloads
+      | None -> Lwt.return_unit 
+    ) res.matches
+  | None -> Lwt.return_unit in
+  return_true
+
+let process_write_data z resname payloads = 
+  let state = Guard.get z.state in
+  let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
+    match PathExpr.intersect res.name (PathExpr.of_string resname) with 
+    | true -> invoke_listeners res payloads
+    | false -> return_unit) (VleMap.bindings state.resmap) in
+    return_true
+
+let process_query z resname predicate process_replies = 
+  let state = Guard.get z.state in
+  let path = PathExpr.of_string resname in
+  VleMap.bindings state.resmap 
+  |> List.filter (fun (_, res) -> PathExpr.intersect res.name path)
+  |> Lwt_list.iter_s (fun (_, res) -> 
+        res.stos |> Lwt_list.iter_s (fun (sto:insto) -> 
+          Lwt.catch(fun () -> sto.qhandler resname predicate) 
+                    (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
+                    (* TODO propagate query failures *)
+          >>= process_replies
+        )
+      )
+
 let process_incoming_message msg resolver t = 
   let open Lwt.Infix in
   match msg with
   | Message.Accept amsg -> Lwt.wakeup_later resolver {t with peer_pid=Some (Abuf.hexdump @@ Message.Accept.apid amsg)}; return_true
-  | Message.BatchedStreamData dmsg ->
-    let state = Guard.get t.state in
-    (* let%lwt _ = Lwt_mvar.put t.state state in  *)
-    let%lwt _ = match VleMap.find_opt (BatchedStreamData.id dmsg) state.resmap with
-    | Some res -> 
-      (* TODO make sure that payload is a copy *)
-      (* TODO make payload a readonly buffer *)
-      let payloads = BatchedStreamData.payload dmsg in
-      Lwt_list.iter_s (fun resid -> 
-        match VleMap.find_opt resid state.resmap with
-        | Some res -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-        | None -> Lwt.return_unit 
-      ) res.matches
-    | None -> Lwt.return_unit in
-    return_true
-  | Message.StreamData dmsg ->
-    let state = Guard.get t.state in
-    (* let%lwt _ = Lwt_mvar.put t.state state in  *)
-    let%lwt _ = match VleMap.find_opt (StreamData.id dmsg) state.resmap with
-    | Some res -> 
-      (* TODO make sure that payload is a copy *)
-      (* TODO make payload a readonly buffer *)
-      let payload = StreamData.payload dmsg in
-      Lwt_list.iter_s (fun resid -> 
-        match VleMap.find_opt resid state.resmap with
-        | Some res -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Payload.data payload), (Payload.header payload)]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Payload.data payload), (Payload.header payload)]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-        | None -> Lwt.return_unit 
-      ) res.matches
-    | None -> Lwt.return_unit in
-    return_true
-  | Message.CompactData dmsg ->
-    let state = Guard.get t.state in
-    (* let%lwt _ = Lwt_mvar.put t.state state in  *)
-    let%lwt _ = match VleMap.find_opt (CompactData.id dmsg) state.resmap with
-    | Some res -> 
-      (* TODO make sure that payload is a copy *)
-      (* TODO make payload a readonly buffer *)
-      let payload = CompactData.payload dmsg in
-      Lwt_list.iter_s (fun resid -> 
-        match VleMap.find_opt resid state.resmap with
-        | Some res -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Payload.data payload), empty_data_info]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Payload.data payload), empty_data_info])
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-        | None -> Lwt.return_unit 
-      ) res.matches
-    | None -> Lwt.return_unit in
-    return_true
-  | Message.WriteData dmsg ->
-    let datapath = PathExpr.of_string @@ WriteData.resource dmsg in
-    let state = Guard.get t.state in    
-    (* TODO make sure that payload is a copy *)
-    (* TODO make payload a readonly buffer *)
-    let payload = WriteData.payload dmsg in
-    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
-      match PathExpr.intersect res.name datapath with 
-      | true -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) ->
-            Lwt.catch (fun () -> sub.listener (WriteData.resource dmsg) [(Payload.data payload), (Payload.header payload)]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (WriteData.resource dmsg) [(Payload.data payload), (Payload.header payload)]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-      | false -> return_unit) (VleMap.bindings state.resmap) in
-      return_true
+  | Message.BatchedStreamData dmsg -> process_stream_data t (BatchedStreamData.id dmsg) (BatchedStreamData.payload dmsg)
+  | Message.StreamData dmsg -> process_stream_data t (StreamData.id dmsg) [StreamData.payload dmsg]
+  | Message.CompactData dmsg -> process_stream_data t (CompactData.id dmsg) [CompactData.payload dmsg]
+  | Message.WriteData dmsg -> process_write_data t (WriteData.resource dmsg) [WriteData.payload dmsg]
   | Message.Query qmsg -> 
-    let querypath = PathExpr.of_string @@ Query.resource qmsg in
-    let state = Guard.get t.state in    
-    Lwt_list.iter_s (fun (_, res) -> 
-      match PathExpr.intersect res.name querypath with 
-      | true -> 
-          Lwt_list.fold_left_s (fun rsn (sto:insto) ->
-            Lwt.catch(fun () -> sto.qhandler (Query.resource qmsg) (Query.predicate qmsg)) 
-                     (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
-                     (* TODO propagate query failures *)
-            >>= Lwt_list.fold_left_s (fun rsn (resname, data, ctx) -> 
-              send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, resname, Payload.create ~header:ctx data))))
-              >>= fun _ -> Lwt.return (Vle.add rsn Vle.one)) rsn
-          ) Vle.zero res.stos
-          >>= fun rsn -> 
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) (Some (pid, rsn, "", Payload.create ~header:empty_data_info @@ Abuf.create 0))))
-          >>= fun _ -> return_unit
-      | false -> return_unit) (VleMap.bindings state.resmap)
-    >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) 
-    |> Lwt.ignore_result; Lwt.return_true    
+      process_query t (Query.resource qmsg) (Query.predicate qmsg) (fun replies -> 
+        replies |> Lwt_list.iteri_s (fun rsn (resname, data, ctx) -> 
+          let rep_value = (Some (pid, Vle.of_int rsn, resname, Payload.create ~header:ctx data)) in
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
+        >>= fun () -> 
+          let rep_value = (Some (pid, Vle.of_int (List.length replies), "", Payload.create ~header:empty_data_info @@ Abuf.create 0)) in
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
+      >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) 
+      |> Lwt.ignore_result; Lwt.return_true
   | Message.Reply rmsg -> 
     (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
     | false -> return_true
@@ -381,80 +325,26 @@ let publish z resname =
 
 
 let write z resname ?timestamp ?kind ?encoding buf = 
-    let state = Guard.get z.state in
-    let info = {empty_data_info with ts=timestamp; kind; encoding} in
-    let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
-      match PathExpr.intersect res.name (PathExpr.of_string resname) with 
-      | true -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-      | false -> return_unit) (VleMap.bindings state.resmap)
-  in
+  let payload = (Payload.create ~header:{empty_data_info with ts=timestamp; encoding; kind;} buf) in
+  let _ = process_write_data z resname [payload] in
   let%lwt state = Guard.acquire z.state in
   let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
+  let%lwt _ = send_message z.sock (Message.WriteData(WriteData.create (false, false) sn resname payload)) in
   Lwt.return @@ Guard.release z.state state
 
 let stream (pub:pub) ?timestamp ?kind ?encoding buf = 
-    let state = Guard.get pub.z.state in
-    let%lwt _ = match VleMap.find_opt pub.resid state.resmap with
-    | Some res -> 
-      let info = {empty_data_info with ts=timestamp; kind; encoding} in
-      Lwt_list.iter_s (fun resid -> 
-        match VleMap.find_opt resid state.resmap with
-        | Some res -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) [(Abuf.duplicate buf), info]) 
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-        | None -> Lwt.return_unit 
-      ) res.matches
-    | None -> Lwt.return_unit
-  in
+  let payload = (Payload.create ~header:{empty_data_info with ts=timestamp; encoding; kind;} buf) in
+  let _ = process_stream_data pub.z pub.resid [payload] in
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
-  let%lwt _ = send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid (Payload.create ~header:{ts=timestamp; encoding; kind; srcid=None; srcsn=None; bkrid=None; bkrsn=None} buf))) in
+  let%lwt _ = send_message pub.z.sock (Message.StreamData(StreamData.create (false, pub.reliable) sn pub.resid payload)) in
   Lwt.return @@ Guard.release pub.z.state state
 
 let lstream (pub:pub) (bufs: Abuf.t list) = 
-    let state = Guard.get pub.z.state in
-    let%lwt _ = match VleMap.find_opt pub.resid state.resmap with
-    | Some res -> 
-      let info = empty_data_info in
-      Lwt_list.iter_s (fun resid -> 
-        match VleMap.find_opt resid state.resmap with
-        | Some res -> 
-          let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-            Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun buf -> (Abuf.duplicate buf, info)) bufs))
-                      (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.subs in
-          Lwt_list.iter_s (fun (sto:insto) -> 
-            Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun buf -> (Abuf.duplicate buf, info)) bufs))
-                      (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
-            |> Lwt.ignore_result; Lwt.return_unit
-          ) res.stos
-        | None -> Lwt.return_unit 
-      ) res.matches
-    | None -> Lwt.return_unit
-  in
+  let payloads = List.map (fun b -> Payload.create b) bufs in
+  let _ = process_stream_data pub.z pub.resid payloads in
   let%lwt state = Guard.acquire pub.z.state in
   let (sn, state) = get_next_sn state in
-  let payloads = List.map (fun b -> Payload.create b) bufs in
   let%lwt _ = send_message pub.z.sock (Message.BatchedStreamData(BatchedStreamData.create (false, pub.reliable) sn pub.resid payloads)) in
   Lwt.return @@ Guard.release pub.z.state state
 
@@ -533,22 +423,11 @@ let store z resname listener qhandler =
 
 
 
-let query z ?(dest=Partial)  resname predicate listener = 
-  let state = Guard.get z.state in
-  let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
-    match PathExpr.intersect res.name (PathExpr.of_string resname) with 
-    | true -> 
-        Lwt_list.map_s (fun (sto:insto) ->
-          Lwt.catch(fun () -> sto.qhandler resname predicate) 
-                    (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
-                    (* TODO propagate query failures *)
-        ) res.stos
-        >>= Lwt_list.iter_s (fun storeps ->
-              let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
-                listener (StorageData({stoid=pid; rsn; resname; data; info}))) storeps in
-              listener (StorageFinal({stoid=pid; rsn=(List.length storeps)}))
-            )
-    | false -> return_unit) (VleMap.bindings state.resmap)
+let query z ?(dest=Partial) resname predicate listener = 
+  let%lwt _ = process_query z resname predicate (fun replies -> 
+    let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
+      listener (StorageData({stoid=pid; rsn; resname; data; info}))) replies in
+    listener (StorageFinal({stoid=pid; rsn=(List.length replies)})))
   in
   let%lwt state = Guard.acquire z.state in
   let (qryid, state) = get_next_qry_id state in
