@@ -179,7 +179,7 @@ let process_stream_data z rid payloads =
   | Some res -> 
     Lwt_list.iter_s (fun resid -> 
       match VleMap.find_opt resid state.resmap with
-      | Some res -> invoke_listeners res (PathExpr.to_string res.name) payloads
+      | Some matching_res -> invoke_listeners matching_res (PathExpr.to_string res.name) payloads
       | None -> Lwt.return_unit 
     ) res.matches
   | None -> Lwt.return_unit in
