@@ -161,14 +161,14 @@ let make_open username password =
   Message.Open (Open.create version pid lease Locators.empty props)
 (* let make_accept opid = Message.Accept (Accept.create opid pid lease []) *)
 
-let invoke_listeners res payloads = 
+let invoke_listeners res resname payloads = 
   let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
-    Lwt.catch (fun () -> sub.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+    Lwt.catch (fun () -> sub.listener resname (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
               (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.subs in
   Lwt_list.iter_s (fun (sto:insto) -> 
-    Lwt.catch (fun () -> sto.listener (PathExpr.to_string res.name) (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
+    Lwt.catch (fun () -> sto.listener resname (List.map (fun p -> (Payload.data p), (Payload.header p)) payloads)) 
               (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.stos
@@ -179,7 +179,7 @@ let process_stream_data z rid payloads =
   | Some res -> 
     Lwt_list.iter_s (fun resid -> 
       match VleMap.find_opt resid state.resmap with
-      | Some res -> invoke_listeners res payloads
+      | Some res -> invoke_listeners res (PathExpr.to_string res.name) payloads
       | None -> Lwt.return_unit 
     ) res.matches
   | None -> Lwt.return_unit in
@@ -189,7 +189,7 @@ let process_write_data z resname payloads =
   let state = Guard.get z.state in
   let%lwt _ = Lwt_list.iter_s (fun (_, res) -> 
     match PathExpr.intersect res.name (PathExpr.of_string resname) with 
-    | true -> invoke_listeners res payloads
+    | true -> invoke_listeners res resname payloads
     | false -> return_unit) (VleMap.bindings state.resmap) in
     return_true
 
