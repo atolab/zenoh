@@ -1,67 +1,22 @@
-.PHONY: all clean test doc
-
-BUILD=dune build
-RELEASE=dune build --profile release 
-CLEAN= dune clean
-TEST=dune runtest -j1 --no-buffer
-DOC=dune build @doc
-INSTALL=dune install
-UNINSTALL=dune uninstall
-
-ROUTER=src/zenoh-router-daemon/zenohd.exe
-CLIENT=src/zenoh-cat/zenohc.exe
-API_EXAMPLE_SUB=example/zenoh-api/sub.exe
-API_EXAMPLE_PUB=example/zenoh-api/pub.exe
-API_EXAMPLE_STO=example/zenoh-api/storage.exe
-API_EXAMPLE_QUE=example/zenoh-api/query.exe
-ROUNDTRIP_PING=example/roundtrip/roundtrip_ping.exe
-ROUNDTRIP_PONG=example/roundtrip/roundtrip_pong.exe
-THROUGHPUT_SUB=example/throughput/throughput_sub.exe
-THROUGHPUT_PUB=example/throughput/throughput_pub.exe
-DEMO_SUB=example/demo/demo_sub.exe
-DEMO_PUB=example/demo/demo_pub.exe
+.PHONY: all release test doc install clean uninstall
 
 all:
-	${BUILD} 
-	${BUILD} ${ROUTER}
-	${BUILD} ${CLIENT}
-	${BUILD} ${API_EXAMPLE_SUB}
-	${BUILD} ${API_EXAMPLE_PUB}
-	${BUILD} ${API_EXAMPLE_STO}
-	${BUILD} ${API_EXAMPLE_QUE}
-	${BUILD} ${ROUNDTRIP_PING}
-	${BUILD} ${ROUNDTRIP_PONG}
-	${BUILD} ${THROUGHPUT_SUB}
-	${BUILD} ${THROUGHPUT_PUB}
-	${BUILD} ${DEMO_SUB}
-	${BUILD} ${DEMO_PUB}
+	dune build @all
 
 release:
-	${RELEASE} 
-	${RELEASE} ${ROUTER}
-	${RELEASE} ${CLIENT}
-	${RELEASE} ${API_EXAMPLE_SUB}
-	${RELEASE} ${API_EXAMPLE_PUB}
-	${RELEASE} ${API_EXAMPLE_STO}
-	${RELEASE} ${API_EXAMPLE_QUE}
-	${RELEASE} ${ROUNDTRIP_PING}
-	${RELEASE} ${ROUNDTRIP_PONG}
-	${RELEASE} ${THROUGHPUT_SUB}
-	${RELEASE} ${THROUGHPUT_PUB}
-	${RELEASE} ${DEMO_SUB}
-	${RELEASE} ${DEMO_PUB}
+	dune build @all --profile release
 	
 test:
-	${TEST}
+	dune runtest -j1 --no-buffer
 
 doc:
-	${DOC}
+	dune build @doc
 
 install:
-	${INSTALL}
+	dune install
 
 clean:
-	${CLEAN}
+	dune clean
 
 uninstall:
-	${UNINSTALL}
+	dune uninstall
