@@ -219,14 +219,14 @@ let process_incoming_message msg resolver t =
   | Message.CompactData dmsg -> process_stream_data t (CompactData.id dmsg) [CompactData.payload dmsg]
   | Message.WriteData dmsg -> process_write_data t (WriteData.resource dmsg) [WriteData.payload dmsg]
   | Message.Query qmsg -> 
-      process_query t (Query.resource qmsg) (Query.predicate qmsg) (fun replies -> 
+      (process_query t (Query.resource qmsg) (Query.predicate qmsg) (fun replies -> 
         replies |> Lwt_list.iteri_s (fun rsn (resname, data, ctx) -> 
           let rep_value = (Some (pid, Vle.of_int rsn, resname, Payload.create ~header:ctx data)) in
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
         >>= fun () -> 
           let rep_value = (Some (pid, Vle.of_int (List.length replies), "", Payload.create ~header:empty_data_info @@ Abuf.create 0)) in
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
-      >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)) 
+      >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)))
       |> Lwt.ignore_result; Lwt.return_true
   | Message.Reply rmsg -> 
     (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
