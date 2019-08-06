@@ -53,12 +53,17 @@ module ZenohHTTP:Plugins.Plugin = struct
     let buffer = Abuf.create ~grow:1024 1024 in
     Body.schedule_read body ~on_eof:(on_eof buffer) ~on_read:(on_read buffer)
 
-  let request_handler zenoh (_ : Unix.sockaddr) reqd =
+  let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
     let req = Reqd.request reqd in
     Logs.debug (fun m -> m "[Zhttp] HTTP req: %a on %s with headers: %a"
                                    Method.pp_hum req.meth req.target
                                    Headers.pp_hum req.headers);
     let resname, predicate = Astring.span ~sat:(fun c -> c <> '?') req.target in
+    let resname =
+      if Astring.is_prefix ~affix:"/@/local" resname
+      then "/@/"^zpid^(Astring.with_index_range ~first:8 resname)
+      else resname
+    in
     let predicate = Astring.with_range ~first:1 predicate in
     try begin
       if resname = "/" then
@@ -144,8 +149,13 @@ module ZenohHTTP:Plugins.Plugin = struct
     Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list args |> String.concat " "));
     let port = 8000 in
     let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
+    let zprops = Zenoh.info zenoh in
+    let zpid = match Properties.get "peer_pid" zprops with
+      | Some pid -> pid
+      | None -> Uuid.make () |> Uuid.to_string
+    in
     Lwt_io.establish_server_with_client_socket listen_address 
-      (Server.create_connection_handler ~request_handler:(request_handler zenoh) ~error_handler:(error_handler zenoh))
+      (Server.create_connection_handler ~request_handler:(request_handler zenoh zpid) ~error_handler:(error_handler zenoh))
     >|= fun _ ->
     Logs.debug (fun m -> m "[Zhttp] listening on port: %d" port);
 
