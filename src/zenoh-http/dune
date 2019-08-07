@@ -6,17 +6,15 @@
   (preprocess      (pps lwt_ppx)))
 
 (rule
-  (targets        zenoh-http-plugin.cmxs)
+  (targets    zenoh-http-plugin.cmxs)
   (deps       (package zenoh-http))
-  (action (run %{ocamlopt} -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs -g -shared -linkall -I .
-    -o %{targets}
-
-    %{lib:angstrom:angstrom.cmxa}
-    %{lib:faraday:faraday.cmxa}
-    %{lib:faraday-lwt:faraday_lwt.cmxa}
-    %{lib:faraday-lwt-unix:faraday_lwt_unix.cmxa}
-    %{lib:httpaf:httpaf.cmxa}
-    %{lib:httpaf-lwt-unix:httpaf_lwt_unix.cmxa}
-    
-    ./zenoh_http.cmxa))
-  )
+  (action (run ocamlfind ocamlopt
+                  -verbose
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-router
+                  -package zenoh-http
+                  -o %{targets}
+  )))
