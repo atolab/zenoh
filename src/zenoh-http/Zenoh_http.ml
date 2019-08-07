@@ -14,6 +14,7 @@ module ZenohHTTP:Plugins.Plugin = struct
 
   let respond ?(body="") ?(headers=Headers.empty) ?(status=`OK) reqd =
     let headers = Headers.add headers "content-length" (String.length body |> string_of_int) in
+    let headers = Headers.add headers "Access-Control-Allow-Origin" "*" in
     Reqd.respond_with_string reqd (Response.create ~headers status) body
 
   let respond_usage = respond ~status:`Bad_request ~body:(
