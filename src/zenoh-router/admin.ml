@@ -35,6 +35,9 @@ let router_path pe = Path.of_string (String.concat "" [admin_prefix; "services/"
 let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; "/resources/"; R_name.ResName.to_string res_name] 
 
 let json_replies pe q = 
+  match is_admin q with 
+  | false -> []
+  | true -> 
   let qexpr = PathExpr.of_string (Message.Query.resource q) in 
   List.concat [
     (* match PathExpr.is_matching_path (broker_path pe) qexpr with 
