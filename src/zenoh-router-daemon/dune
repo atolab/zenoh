@@ -2,4 +2,5 @@
   (name       zenohd)
   (modules    zenohd)
   (libraries  str lwt lwt.unix zenoh_proto zenoh_tx_inet zenoh_router apero-core apero-net apero-time atdgen logs logs.fmt logs.cli fmt fmt.cli fmt.tty cmdliner yojson ppx_deriving_yojson.runtime dynlink)
+  (link_flags (-linkall))
   (preprocess (pps lwt_ppx ppx_deriving.show ppx_deriving.ord  ppx_sexp_conv ppx_deriving_yojson)))
