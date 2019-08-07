@@ -9,7 +9,6 @@
   (targets    zenoh-http-plugin.cmxs)
   (deps       (package zenoh-http))
   (action (run ocamlfind ocamlopt
-                  -verbose
                   -shared
                   -linkall
                   -linkpkg
