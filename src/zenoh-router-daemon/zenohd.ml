@@ -22,7 +22,7 @@ let run tcpport peers strength usersfile plugins bufn timestamp style_renderer l
   let run () =  
     let (instream, inpush) = Lwt_stream.create_bounded 256 in
     let (outstream, outpush) = Lwt_stream.create_bounded 256 in
-    let res = Zengine.run tcpport peers strength usersfile bufn timestamp (Some (instream, outpush)) in
+    let res = Zrouter.run tcpport peers strength usersfile bufn timestamp (Some (instream, outpush)) in
     let%lwt z = Zenoh.zropen (outstream, inpush) in
     Lwt_list.iter_p (fun plugin -> 
       try
@@ -41,5 +41,5 @@ let () =
   Printexc.record_backtrace true;
   Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.users $ Zengine.plugins $ Zengine.bufn $ Zengine.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  let _ = Term.(eval (const run $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   

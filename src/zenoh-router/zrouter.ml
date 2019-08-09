@@ -26,7 +26,7 @@ module Engine (MVar : MVar) = struct
           let sdata = Message.with_marker 
               (CompactData(CompactData.create (true, true) 0L 0L None (Abuf.from_bytes b |> Payload.create)))
               (RSpace (RSpace.create 1L)) in           
-          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc ZRouter.(peer.tsex) (Frame.create [sdata]) ) _nodes
+          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc Spn_trees_mgr.(peer.tsex) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
@@ -45,7 +45,7 @@ module Engine (MVar : MVar) = struct
         qmap = QIDMap.empty;
         peers;
         users;
-        router = ZRouter.create send_nodes (Abuf.hexdump pid) strength 2 0;
+        trees = Spn_trees_mgr.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
         buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen) }

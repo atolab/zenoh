@@ -53,14 +53,14 @@ let remove_session pe tsex peer =
   let smap = SIDMap.remove sid pe.smap in
   let rmap = ResMap.map (fun r -> Resource.remove_mapping r sid) pe.rmap in 
 
-  let optpeer = List.find_opt (fun (x:ZRouter.peer) -> Session.txid x.tsex = Session.txid tsex) pe.router.peers in
-  let%lwt router = match optpeer with
+  let optpeer = List.find_opt (fun (x:Spn_trees_mgr.peer) -> Session.txid x.tsex = Session.txid tsex) pe.trees.peers in
+  let%lwt trees = match optpeer with
     | Some peer ->
       let%lwt _ = Logs_lwt.debug (fun m -> m "Delete node %s" peer.pid) in
-      let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
-      Lwt.return @@ ZRouter.delete_node pe.router peer.pid
-    | None -> Lwt.return pe.router in
-  let pe = {pe with rmap; smap; router} in
+      let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (Spn_trees_mgr.report pe.trees)) in
+      Lwt.return @@ Spn_trees_mgr.delete_node pe.trees peer.pid
+    | None -> Lwt.return pe.trees in
+  let pe = {pe with rmap; smap; trees} in
   forward_all_decls pe;
   let%lwt pe = notify_all_pubs pe in
   Lwt.ignore_result @@ Lwt.catch
@@ -121,7 +121,7 @@ let process_broker_open engine tsex msg =
   Guard.guarded engine 
   @@ fun pe ->
   let%lwt _ = Logs_lwt.debug (fun m -> m "Accepting Open from remote broker: %s\n" (pid_to_string @@ Message.Open.pid msg)) in
-  let pe' = {pe with router = ZRouter.new_node pe.router {pid = Abuf.hexdump @@ Message.Open.pid msg; tsex}} in
+  let pe' = {pe with trees = Spn_trees_mgr.new_node pe.trees {pid = Abuf.hexdump @@ Message.Open.pid msg; tsex}} in
   forward_all_decls pe;
   Guard.return [make_accept pe' (Message.Open.pid msg)] pe'
 
@@ -173,7 +173,7 @@ let process_accept_broker engine tsex msg =
   Guard.guarded engine
   @@ fun pe ->
   let%lwt _ = Logs_lwt.debug (fun m -> m "Accepted from remote broker: %s\n" (pid_to_string @@ Message.Accept.apid msg)) in
-  let pe' = {pe with router = ZRouter.new_node pe.router {pid = Abuf.hexdump @@ Message.Accept.apid msg; tsex}} in
+  let pe' = {pe with trees = Spn_trees_mgr.new_node pe.trees {pid = Abuf.hexdump @@ Message.Accept.apid msg; tsex}} in
   forward_all_decls pe;
   Guard.return [] pe'
 

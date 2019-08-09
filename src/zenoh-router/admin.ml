@@ -25,7 +25,7 @@ let full_broker_json pe =
       ("pid",       `String (Abuf.hexdump pe.pid));
       ("locators",  `List locators);
       ("lease",     `Int (Vle.to_int pe.lease));
-      ("router",    (ZRouter.to_yojson pe.router));
+      ("trees",    (Spn_trees_mgr.to_yojson pe.trees));
       ("sessions",  `List sessions);
     ]
 

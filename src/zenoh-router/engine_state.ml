@@ -20,7 +20,7 @@ type engine_state = {
     qmap : Query.t QIDMap.t;
     peers : Locator.t list;
     users : (string * string) list option;
-    router : ZRouter.t;
+    trees : Spn_trees_mgr.t;
     next_mapping : Vle.t;
     tx_connector : tx_session_connector;
     buffer_pool : Abuf.t Lwt_pool.t

@@ -127,8 +127,8 @@ let process_user_compactdata (pe:engine_state) session msg =
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
-        let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            Session.txid peer.tsex = session.sid) pe.router.peers with 
+        let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+            Session.txid peer.tsex = session.sid) pe.trees.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling CompactData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -151,8 +151,8 @@ let process_user_streamdata (pe:engine_state) session msg =
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
-        let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            Session.txid peer.tsex = session.sid) pe.router.peers with 
+        let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+            Session.txid peer.tsex = session.sid) pe.trees.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -177,8 +177,8 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
   | (pe, Some res) -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
-        let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-            Session.txid peer.tsex = session.sid) pe.router.peers with 
+        let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+            Session.txid peer.tsex = session.sid) pe.trees.peers with 
         | Some peer -> peer.pid
         | None -> "UNKNOWN" in
         m "Handling BatchedData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
@@ -190,8 +190,8 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
 let process_user_writedata pe session msg =      
   let open Session in 
   let%lwt _ = Logs_lwt.debug (fun m -> 
-      let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-          Session.txid peer.tsex = session.sid) pe.router.peers with 
+      let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+          Session.txid peer.tsex = session.sid) pe.trees.peers with 
       | Some peer -> peer.pid
       | None -> "UNKNOWN" in
       m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
@@ -246,8 +246,8 @@ let process_broker_data pe session msg =
   let pl = Message.CompactData.payload msg |> Payload.data in
   let b = Abuf.read_bytes (Abuf.readable_bytes pl) pl in
   let node = Marshal.from_bytes b 0 in
-  let pe = {pe with router = ZRouter.update pe.router node} in
-  let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (ZRouter.report pe.router)) in
+  let pe = {pe with trees = Spn_trees_mgr.update pe.trees node} in
+  let%lwt _ = Logs_lwt.debug (fun m -> m "Spanning trees status :\n%s" (Spn_trees_mgr.report pe.trees)) in
   forward_all_decls pe;
   Lwt.return (pe, []) 
 

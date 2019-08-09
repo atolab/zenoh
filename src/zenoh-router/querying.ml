@@ -114,8 +114,8 @@ let process_query engine tsex q =
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received Query on unknown session %s: Ignore it!" (Id.to_string sid)) in Lwt.return pe
     | Some session -> 
       let%lwt _ = Logs_lwt.debug (fun m -> 
-          let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-              Session.txid peer.tsex = session.sid) pe.router.peers with 
+          let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+              Session.txid peer.tsex = session.sid) pe.trees.peers with 
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
           m "Handling Query Message. nid[%s] sid[%s] pid[%s] qid[%d] res[%s]" 
@@ -139,8 +139,8 @@ let process_reply engine tsex r =
     | None -> Logs_lwt.debug (fun m -> m  "Received reply for unknown query. Ingore it!") >>= fun _ -> Lwt.return pe
     | Some qs -> 
       let%lwt _ = Logs_lwt.debug (fun m -> 
-          let nid = match List.find_opt (fun (peer:ZRouter.peer) -> 
-              Session.txid peer.tsex = (Session.txid tsex)) pe.router.peers with 
+          let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
+              Session.txid peer.tsex = (Session.txid tsex)) pe.trees.peers with 
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
           let resource = match (Message.Reply.resource r) with 
