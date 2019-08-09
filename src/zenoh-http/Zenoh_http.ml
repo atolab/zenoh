@@ -140,10 +140,7 @@ let error_handler _ (_ : Unix.sockaddr) ?request:_ error start_response =
   end;
   Body.close_writer response_body
 
-
-let _ = 
-  Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list Sys.argv |> String.concat " "));
-  let port = 8000 in
+let run port =
   let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
   let%lwt zenoh = Zenoh.zopen "" in
   let zprops = Zenoh.info zenoh in
@@ -154,4 +151,11 @@ let _ =
   Lwt_io.establish_server_with_client_socket listen_address 
     (Server.create_connection_handler ~request_handler:(request_handler zenoh zpid) ~error_handler:(error_handler zenoh))
   >|= fun _ ->
-  Logs.debug (fun m -> m "[Zhttp] listening on port: %d" port);
+  Logs.debug (fun m -> m "[Zhttp] listening on port: %d" port)
+
+let port = Cmdliner.Arg.(value & opt int 8000 & info ["h"; "httpport"] ~docv:"HTTPPORT" ~doc:"Listening http port")
+
+let _ = 
+  Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list Sys.argv |> String.concat " "));
+  Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http-plugin"))
+
