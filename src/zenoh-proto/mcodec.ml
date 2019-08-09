@@ -635,7 +635,7 @@ let ztcp_read_frame tx_sex buf () =
     let%lwt len = Net.read_vle sock >|= Vle.to_int in 
     let%lwt _ = Net.read_all sock buf len in 
     Lwt.return @@ decode_frame buf
-  | Local (stream, _) -> Lwt_stream.get stream >>= (Option.get %> Lwt.return)
+  | Local lo_sex -> Lwt_stream.get lo_sex.stream >>= (Option.get %> Lwt.return)
 
 
 let ztcp_write_frame tx_sex frame buf = 
@@ -648,8 +648,8 @@ let ztcp_write_frame tx_sex frame buf =
     let lbuf = Abuf.create 8 in 
     fast_encode_vle (Vle.of_int @@ Abuf.readable_bytes buf) lbuf;
     Net.write_all sock (Abuf.wrap [lbuf; buf])
-  | Local (_, push) -> 
-    push#push frame >>= fun () -> Lwt.return 0
+  | Local lo_sex -> 
+    lo_sex.push#push frame >>= fun () -> Lwt.return 0
     
 
 let ztcp_safe_write_frame tx_sex frame buf =

@@ -276,27 +276,29 @@ let safe_run_decode_loop resolver t =
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
 
 let zopen ?username ?password peer = 
-  let open Lwt_unix in
-  let sock = socket PF_INET SOCK_STREAM 0 in
-  setsockopt sock SO_REUSEADDR true;
-  setsockopt sock TCP_NODELAY true;
-  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
-    ADDR_INET (Unix.inet_addr_of_string ip, port)) in
-  let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
-  let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
-  let (promise, resolver) = Lwt.task () in
-  let con = connect sock saddr in 
-  let sock = Sock(sock) in
-  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
-  let _ = con >>= fun _ -> send_message sock (make_open username password) in
-  con >>= fun _ -> promise
-
-let zropen stream = 
-let sock = Stream(stream) in
-  let (promise, resolver) = Lwt.task () in
-  let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
-  let _ = send_message sock (make_open None None) in
-  promise
+  let%lwt local_sex = Zenoh_local_router.open_local_session () in
+  match local_sex with 
+  | Some local_sex ->
+    let sock = Stream(local_sex) in
+    let (promise, resolver) = Lwt.task () in
+    let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
+    let _ = send_message sock (make_open None None) in
+    promise 
+  | None ->
+    let open Lwt_unix in
+    let sock = socket PF_INET SOCK_STREAM 0 in
+    setsockopt sock SO_REUSEADDR true;
+    setsockopt sock TCP_NODELAY true;
+    let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
+      ADDR_INET (Unix.inet_addr_of_string ip, port)) in
+    let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
+    let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
+    let (promise, resolver) = Lwt.task () in
+    let con = connect sock saddr in 
+    let sock = Sock(sock) in
+    let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
+    let _ = con >>= fun _ -> send_message sock (make_open username password) in
+    con >>= fun _ -> promise
 
 let info z =
   let peer = 

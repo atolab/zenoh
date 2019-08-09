@@ -5,12 +5,16 @@ open R_name
 
 let framing_buf_len = 16
 
-type local_sex = (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push)
+type local_sex = {
+  sid : NetService.Id.t; 
+  stream : Frame.Frame.t Lwt_stream.t;
+  push : Frame.Frame.t Lwt_stream.bounded_push
+}
 
 type tx_sex = | TxSex of TxSession.t | Local of local_sex
 
 
-let txid = function | TxSex tx -> TxSession.id tx | Local _ -> NetService.Id.of_string "-1"
+let txid = function | TxSex tx -> TxSession.id tx | Local lx -> lx.sid
 
 type stats = {
   mutable out_msgs : int;

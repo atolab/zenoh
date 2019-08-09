@@ -1,6 +1,20 @@
 (library
-  (name            storage_plugin)
-  (modules         storage_plugin)
-  (public_name     storage-plugin)
-  (libraries       lwt zenoh_router) 
+  (name            storage)
+  (modules         storage)
+  (public_name     storage)
+  (libraries       zenoh-ocaml apero-core dynload-sys lwt) 
   (wrapped         true))
+
+(rule
+  (targets    storage-plugin.cmxs)
+  (deps       (package storage))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink apero-core
+                  -dontlink zenoh-ocaml
+                  -package storage
+                  -o %{targets}
+  )))

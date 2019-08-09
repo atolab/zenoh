@@ -23,8 +23,8 @@ type engine_state = {
     trees : Spn_trees_mgr.t;
     next_mapping : Vle.t;
     tx_connector : tx_session_connector;
-    buffer_pool : Abuf.t Lwt_pool.t
-
+    buffer_pool : Abuf.t Lwt_pool.t;
+    next_local_id : NetService.Id.t;
 }
 
 let report_resources e = 

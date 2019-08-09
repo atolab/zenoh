@@ -14,8 +14,10 @@ type submode
 type t
 
 val zopen : ?username:string -> ?password:string -> string -> t Lwt.t
-
-val zropen : (Frame.Frame.t Lwt_stream.t * Frame.Frame.t Lwt_stream.bounded_push) -> t Lwt.t
+(* [zopen locator] opens a zenoh session with a zenoh router and returns a zenoh handle. 
+   If a zenoh router is found running in the local process the given [locator] is ignored 
+   and a local session is opened with the locally running router. 
+   If not, zenoh will try to connect to a zenoh router at the given [locator]. *)
 
 val info : t -> Apero.properties
 
@@ -51,4 +53,3 @@ val lquery : t -> ?dest:Ztypes.query_dest -> string -> string -> (string * Abuf.
 (* [lquery] consolidates the results of a query and returns them into a list of key values *)
 
 val unstore : t -> storage -> unit Lwt.t
-(* val terminate : t -> unit  *)

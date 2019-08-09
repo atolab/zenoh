@@ -20,19 +20,12 @@ let setup_log style_renderer level =
 let run tcpport peers strength usersfile plugins bufn timestamp style_renderer level = 
   setup_log style_renderer level; 
   let run () =  
-    let (instream, inpush) = Lwt_stream.create_bounded 256 in
-    let (outstream, outpush) = Lwt_stream.create_bounded 256 in
-    let res = Zrouter.run tcpport peers strength usersfile bufn timestamp (Some (instream, outpush)) in
-    let%lwt z = Zenoh.zropen (outstream, inpush) in
+    let res = Zrouter.run tcpport peers strength usersfile bufn timestamp in
     Lwt_list.iter_p (fun plugin -> 
-      try
-        Dynlink.loadfile @@ Dynlink.adapt_filename plugin;
-        let args = String.split_on_char ' ' plugin |> Array.of_list in
-        let module M = (val Plugins.get_plugin () : Plugins.Plugin) in
-        M.run z args
-      with
-        | Dynlink.Error s -> failwith (Printf.sprintf "Error loading module %s: %s" plugin (Dynlink.error_message s));
-      ) plugins |> Lwt.ignore_result;
+      let args = String.split_on_char ' ' plugin |> Array.of_list in
+      Dynload.loadfile args.(0) args;
+      Lwt.return_unit
+    ) plugins |> Lwt.ignore_result;
     res
   in  
   Lwt_main.run @@ run ()

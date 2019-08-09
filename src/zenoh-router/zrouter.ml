@@ -48,7 +48,8 @@ module Engine (MVar : MVar) = struct
         trees = Spn_trees_mgr.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
-        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen) }
+        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen);
+        next_local_id = NetService.Id.of_string "-1"}
 
     let start engine = 
       connect_peers (Guard.get engine)
@@ -119,7 +120,7 @@ let rec read_users ic =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength usersfile bufn timestamp (local_session:Session.local_sex option) = 
+let run tcpport peers strength usersfile bufn timestamp = 
   let open ZEngine in 
   let users = 
     try match usersfile with 
@@ -165,26 +166,31 @@ let run tcpport peers strength usersfile bufn timestamp (local_session:Session.l
       | ms -> Abuf.clear wbuf; zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return (usedbufp, Lwt.return readbuf)
   in 
 
-  let%lwt () = match local_session with 
-  | Some lsex -> 
-    let tx_sex = Session.Local lsex in
-    let fakebuf = Abuf.create 0 in
-    let rec local_loop () = 
-      let%lwt frame = ztcp_read_frame tx_sex fakebuf () in 
-      Lwt.catch
-        (fun () -> ProtocolEngine.handle_message engine tx_sex (Frame.to_list frame)) 
-        (fun e -> 
-          Logs_lwt.warn (fun m -> m "Error handling messages from local session : %s" 
-            (Printexc.to_string e))
-              >>= fun _ -> Lwt.return []) 
-      >>= (function
-      | [] -> Lwt.return_unit
-      | ms -> ztcp_safe_write_frame tx_sex (Frame.create ms) fakebuf >>= fun _ -> Lwt.return_unit)
-      >>= fun () -> local_loop ()
-    in 
-    local_loop () |> Lwt.ignore_result;
-    Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit
-  | None -> Lwt.return_unit
+  let%lwt () = Zenoh_local_router.register_router (
+    fun (stream, push) -> 
+      let%lwt sid = Guard.guarded engine (fun pe ->
+        let sid = pe.next_local_id in
+        let next_local_id = NetService.Id.add sid (NetService.Id.of_string "-1") in
+        let pe = {pe with next_local_id} in
+        Guard.return sid pe) 
+      in
+      let tx_sex = Session.Local {sid; stream; push} in
+      let fakebuf = Abuf.create 0 in
+      let rec local_loop () = 
+        let%lwt frame = ztcp_read_frame tx_sex fakebuf () in 
+        Lwt.catch
+          (fun () -> ProtocolEngine.handle_message engine tx_sex (Frame.to_list frame)) 
+          (fun e -> 
+            Logs_lwt.warn (fun m -> m "Error handling messages from local session : %s" 
+              (Printexc.to_string e))
+                >>= fun _ -> Lwt.return []) 
+        >>= (function
+        | [] -> Lwt.return_unit
+        | ms -> ztcp_safe_write_frame tx_sex (Frame.create ms) fakebuf >>= fun _ -> Lwt.return_unit)
+        >>= fun () -> local_loop ()
+      in 
+      local_loop () |> Lwt.ignore_result;
+      Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit);
   in
 
   Lwt.join [ZTcpTransport.start tx (fun _ -> 
