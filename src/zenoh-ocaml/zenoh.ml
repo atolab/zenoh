@@ -167,12 +167,12 @@ let make_open username password =
 let invoke_listeners res resname payloads = 
   let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
     Lwt.catch (fun () -> sub.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
-              (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+              (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s : \n%s" (Printexc.to_string e) (Printexc.get_backtrace ())))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.subs in
   Lwt_list.iter_s (fun (sto:insto) -> 
     Lwt.catch (fun () -> sto.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
-              (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+              (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s : \n%s" (Printexc.to_string e) (Printexc.get_backtrace ())))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.stos
 
