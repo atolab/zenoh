@@ -1,14 +1,16 @@
+(copy_files ../zenoh-api/storage.ml)
+
 (library
   (name            storage)
   (modules         storage)
   (public_name     storage)
-  (libraries       zenoh-ocaml apero-core dynload-sys lwt) 
-  (wrapped         true))
+  (libraries       zenoh-ocaml dynload-sys)
+  (preprocess      (pps lwt_ppx)))
 
 (rule
   (targets    storage-plugin.cmxs)
   (deps       (package storage))
-  (action (run ocamlfind ocamlopt
+  (action     (run ocamlfind ocamlopt
                   -shared
                   -linkall
                   -linkpkg
@@ -16,5 +18,4 @@
                   -dontlink apero-core
                   -dontlink zenoh-ocaml
                   -package storage
-                  -o %{targets}
-  )))
+                  -o %{targets})))
