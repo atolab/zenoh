@@ -4,7 +4,7 @@ open Message
 open Apero
 
 
-let admin_prefix = "/_z_/"
+let admin_prefix = "/@/"
 
 let is_admin q = 
   String.length (Message.Query.resource q) >= String.length admin_prefix &&
@@ -29,10 +29,11 @@ let full_broker_json pe =
       ("sessions",  `List sessions);
     ]
 
-let broker_path_str pe = String.concat "" [admin_prefix; "services/"; Abuf.hexdump pe.pid]
+
+let broker_path_str pe = String.concat "" [admin_prefix; Abuf.hexdump pe.pid]
 let broker_path pe = Path.of_string @@ broker_path_str pe
-let router_path pe = Path.of_string (String.concat "" [admin_prefix; "services/"; Abuf.hexdump pe.pid; "/routing"])
-let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; "/resources/"; R_name.ResName.to_string res_name] 
+(* let router_path pe = Path.of_string (String.concat "" [broker_path_str pe; "/routing"])
+let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; R_name.ResName.to_string res_name]  *)
 
 let json_replies pe q = 
   match is_admin q with 
