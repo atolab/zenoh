@@ -56,11 +56,11 @@ let run tcpport peers strength usersfile plugins bufn timestamp style_renderer l
   let run () =  
     let res = Zrouter.run tcpport peers strength usersfile bufn timestamp in
     Lwt_list.iter_p (fun plugin -> 
+      let args = String.split_on_char ' ' plugin |> Array.of_list in
       (try
-        match look_for_plugin plugin with 
+        match look_for_plugin args.(0) with 
         | Some plugin -> 
-          let args = String.split_on_char ' ' plugin |> Array.of_list in
-          Dynload.loadfile args.(0) args
+          Dynload.loadfile plugin args
         | None -> Logs.warn (fun m -> m "Unable to find plugin %s !" plugin)
       with _ -> Logs.warn (fun m -> m "Unable to load plugin %s !" plugin));
       Lwt.return_unit
