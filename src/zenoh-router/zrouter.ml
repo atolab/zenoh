@@ -26,24 +26,30 @@ module Engine (MVar : MVar) = struct
           let sdata = Message.with_marker 
               (CompactData(CompactData.create (true, true) 0L 0L None (Abuf.from_bytes b |> Payload.create)))
               (RSpace (RSpace.create 1L)) in           
-          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc ZRouter.(peer.tsex) (Frame.create [sdata]) ) _nodes
+          Lwt.ignore_result @@ Mcodec.ztcp_safe_write_frame_alloc Spn_trees_mgr.(peer.tsex) (Frame.create [sdata]) ) _nodes
 
     let send_nodes peers nodes = List.iter (fun peer -> send_nodes peer nodes) peers
 
-    let create ?(bufn = 32) ?(buflen=65536) ?(users=None) (pid : Abuf.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength (tx_connector: tx_session_connector) = 
+    let create ?(bufn = 32) ?(buflen=65536) ?(users=None) (uid : Uuid.t) (lease : Vle.t) (ls : Locators.t) (peers : Locator.t list) strength timestamp (tx_connector: tx_session_connector) = 
+      let pid = 
+        Abuf.create_bigstring 32 |> fun buf -> 
+        Abuf.write_bytes (Bytes.unsafe_of_string (Uuid.to_bytes uid)) buf; buf in
       Guard.create @@ { 
-        pid; 
+        pid;
         lease; 
         locators = ls; 
+        hlc = Ztypes.HLC.create uid;
+        timestamp;
         smap = SIDMap.empty; 
         rmap = ResMap.empty; 
         qmap = QIDMap.empty;
         peers;
         users;
-        router = ZRouter.create send_nodes (Abuf.hexdump pid) strength 2 0;
+        trees = Spn_trees_mgr.create send_nodes (Abuf.hexdump pid) strength 2 0;
         next_mapping = 0L; 
         tx_connector;
-        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen) }
+        buffer_pool = Lwt_pool.create bufn (fun () -> Lwt.return @@ Abuf.create_bigstring ~grow:8192 buflen);
+        next_local_id = NetService.Id.of_string "-1"}
 
     let start engine = 
       connect_peers (Guard.get engine)
@@ -89,11 +95,7 @@ let svc_id = 0x01
 
 let lease = 0L
 let version = Char.chr 0x01
-
-let pid  = 
-  Abuf.create_bigstring 32 |> fun buf -> 
-  Abuf.write_bytes (Bytes.unsafe_of_string ((Uuidm.to_bytes @@ Uuidm.v5 (Uuidm.create `V4) (string_of_int @@ Unix.getpid ())))) buf; 
-  buf
+let uid = Uuid.make ()
 
 let to_string peers = 
   peers
@@ -118,7 +120,7 @@ let rec read_users ic =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength usersfile bufn (local_session:Session.local_sex option) = 
+let run tcpport peers strength usersfile bufn timestamp = 
   let open ZEngine in 
   let users = 
     try match usersfile with 
@@ -129,7 +131,7 @@ let run tcpport peers strength usersfile bufn (local_session:Session.local_sex o
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
   |> List.map (fun s -> Option.get @@ Locator.of_string s) in
-  let%lwt _ = Logs_lwt.info (fun m -> m "pid : %s" (Abuf.hexdump pid)) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "pid : %s" (Uuid.to_bytes uid |> Bytes.unsafe_of_string |> Abuf.from_bytes |> Abuf.hexdump)) in
   let%lwt _ = Logs_lwt.info (fun m -> m "tcpport : %d" tcpport) in
   let%lwt _ = Logs_lwt.info (fun m -> m "peers : %s" (to_string peers)) in
   let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
@@ -137,7 +139,7 @@ let run tcpport peers strength usersfile bufn (local_session:Session.local_sex o
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
-  let engine = ProtocolEngine.create ~bufn ~users pid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength tx_connector in
+  let engine = ProtocolEngine.create ~bufn ~users uid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength timestamp tx_connector in
 
   let open Lwt.Infix in 
 
@@ -164,26 +166,31 @@ let run tcpport peers strength usersfile bufn (local_session:Session.local_sex o
       | ms -> Abuf.clear wbuf; zwriter (Frame.create ms) wbuf >>= fun _ -> Lwt.return (usedbufp, Lwt.return readbuf)
   in 
 
-  let%lwt () = match local_session with 
-  | Some lsex -> 
-    let tx_sex = Session.Local lsex in
-    let fakebuf = Abuf.create 0 in
-    let rec local_loop () = 
-      let%lwt frame = ztcp_read_frame tx_sex fakebuf () in 
-      Lwt.catch
-        (fun () -> ProtocolEngine.handle_message engine tx_sex (Frame.to_list frame)) 
-        (fun e -> 
-          Logs_lwt.warn (fun m -> m "Error handling messages from local session : %s" 
-            (Printexc.to_string e))
-              >>= fun _ -> Lwt.return []) 
-      >>= (function
-      | [] -> Lwt.return_unit
-      | ms -> ztcp_safe_write_frame tx_sex (Frame.create ms) fakebuf >>= fun _ -> Lwt.return_unit)
-      >>= fun () -> local_loop ()
-    in 
-    local_loop () |> Lwt.ignore_result;
-    Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit
-  | None -> Lwt.return_unit
+  let%lwt () = Zenoh_local_router.register_router (
+    fun (stream, push) -> 
+      let%lwt sid = Guard.guarded engine (fun pe ->
+        let sid = pe.next_local_id in
+        let next_local_id = NetService.Id.add sid (NetService.Id.of_string "-1") in
+        let pe = {pe with next_local_id} in
+        Guard.return sid pe) 
+      in
+      let tx_sex = Session.Local {sid; stream; push} in
+      let fakebuf = Abuf.create 0 in
+      let rec local_loop () = 
+        let%lwt frame = ztcp_read_frame tx_sex fakebuf () in 
+        Lwt.catch
+          (fun () -> ProtocolEngine.handle_message engine tx_sex (Frame.to_list frame)) 
+          (fun e -> 
+            Logs_lwt.warn (fun m -> m "Error handling messages from local session : %s" 
+              (Printexc.to_string e))
+                >>= fun _ -> Lwt.return []) 
+        >>= (function
+        | [] -> Lwt.return_unit
+        | ms -> ztcp_safe_write_frame tx_sex (Frame.create ms) fakebuf >>= fun _ -> Lwt.return_unit)
+        >>= fun () -> local_loop ()
+      in 
+      local_loop () |> Lwt.ignore_result;
+      Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit);
   in
 
   Lwt.join [ZTcpTransport.start tx (fun _ -> 
@@ -198,3 +205,5 @@ let peers = Arg.(value & opt string "" & info ["p"; "peers"] ~docv:"PEERS" ~doc:
 let strength = Arg.(value & opt int 0 & info ["s"; "strength"] ~docv:"STRENGTH" ~doc:"Broker strength")
 let users = Arg.(value & opt (some string) None & info ["u"; "users"] ~docv:"USERS" ~doc:"Authorized user/password file")
 let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"Number of write buffers")
+let plugins = Arg.(value & opt_all string [] & info ["P"; "plugin"] ~docv:"PLUGIN" ~doc:"Plugin to load at startup. PLUGIN must be an absolute or relative path to a cma library eventually followed by space separated arguments. Example : -P \"plugins/plugin.cma arg1\".")
+let timestamp = Arg.(value & opt bool true & info ["T"; "timestamp"] ~docv:"true|false" ~doc:"If true, the zenoh router will timestamp all data received with no timestamp.")

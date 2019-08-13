@@ -167,12 +167,12 @@ let make_open username password =
 let invoke_listeners res resname payloads = 
   let%lwt _ = Lwt_list.iter_s (fun (sub:insub) -> 
     Lwt.catch (fun () -> sub.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
-              (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s" (Printexc.to_string e)))
+              (fun e -> Logs_lwt.info (fun m -> m "Subscriber listener raised exception %s : \n%s" (Printexc.to_string e) (Printexc.get_backtrace ())))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.subs in
   Lwt_list.iter_s (fun (sto:insto) -> 
     Lwt.catch (fun () -> sto.listener resname (List.map (fun p -> (copy (Payload.data p)), (Payload.header p)) payloads)) 
-              (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s" (Printexc.to_string e)))
+              (fun e -> Logs_lwt.info (fun m -> m "Storage listener raised exception %s : \n%s" (Printexc.to_string e) (Printexc.get_backtrace ())))
     |> Lwt.ignore_result; Lwt.return_unit
   ) res.stos
 
@@ -276,27 +276,29 @@ let safe_run_decode_loop resolver t =
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
 
 let zopen ?username ?password peer = 
-  let open Lwt_unix in
-  let sock = socket PF_INET SOCK_STREAM 0 in
-  setsockopt sock SO_REUSEADDR true;
-  setsockopt sock TCP_NODELAY true;
-  let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
-    ADDR_INET (Unix.inet_addr_of_string ip, port)) in
-  let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
-  let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
-  let (promise, resolver) = Lwt.task () in
-  let con = connect sock saddr in 
-  let sock = Sock(sock) in
-  let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
-  let _ = con >>= fun _ -> send_message sock (make_open username password) in
-  con >>= fun _ -> promise
-
-let zropen stream = 
-let sock = Stream(stream) in
-  let (promise, resolver) = Lwt.task () in
-  let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
-  let _ = send_message sock (make_open None None) in
-  promise
+  let%lwt local_sex = Zenoh_local_router.open_local_session () in
+  match local_sex with 
+  | Some local_sex ->
+    let sock = Stream(local_sex) in
+    let (promise, resolver) = Lwt.task () in
+    let _ = safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in 
+    let _ = send_message sock (make_open None None) in
+    promise 
+  | None ->
+    let open Lwt_unix in
+    let sock = socket PF_INET SOCK_STREAM 0 in
+    setsockopt sock SO_REUSEADDR true;
+    setsockopt sock TCP_NODELAY true;
+    let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
+      ADDR_INET (Unix.inet_addr_of_string ip, port)) in
+    let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
+    let _ = Logs_lwt.debug (fun m -> m "peer : tcp/%s:%s" name_info.ni_hostname name_info.ni_service) in
+    let (promise, resolver) = Lwt.task () in
+    let con = connect sock saddr in 
+    let sock = Sock(sock) in
+    let _ = con >>= fun _ -> safe_run_decode_loop resolver {sock; state=Guard.create create_state; peer_pid=None;} in
+    let _ = con >>= fun _ -> send_message sock (make_open username password) in
+    con >>= fun _ -> promise
 
 let info z =
   let peer = 
@@ -443,7 +445,10 @@ let query z ?(dest=Partial) resname predicate listener =
 
 let squery z ?(dest=Partial) resname predicate = 
   let stream, push = Lwt_stream.create () in 
-  let reply_handler qreply = push @@ Some qreply; Lwt.return_unit in 
+  let reply_handler = function
+    | ReplyFinal -> push @@ Some ReplyFinal; push None; Lwt.return_unit
+    | qreply -> push @@ Some qreply; Lwt.return_unit
+   in
   let _ = (query z resname predicate reply_handler ~dest) in 
   stream
 
@@ -452,8 +457,7 @@ type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutab
 let lquery z ?(dest=Partial) resname predicate =   
   let promise,resolver = Lwt.wait () in 
   let ctx = {resolver; qs = []} in  
-  let reply_handler qreply =     
-    match qreply with 
+  let reply_handler = function
     | StorageData {stoid=_; rsn=_; resname; data; info} -> 
       (* TODO: Eventually we should check the timestamp *)
       (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 

@@ -1,0 +1,20 @@
+(library
+  (name            zenoh_http)
+  (public_name     zenoh-http)
+  (wrapped         false)
+  (libraries       zenoh-router dynload-sys httpaf httpaf-lwt-unix)
+  (preprocess      (pps lwt_ppx)))
+
+(rule
+  (targets    zenoh-http-plugin.cmxs)
+  (deps       (package zenoh-http))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-router
+                  -dontlink apero-core
+                  -package zenoh-http
+                  -o %{targets}
+  )))

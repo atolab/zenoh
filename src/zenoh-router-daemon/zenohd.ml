@@ -17,13 +17,61 @@ let setup_log style_renderer level =
   Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
-let run tcpport peers strength usersfile bufn style_renderer level = 
+let look_for_plugin plugin = 
+  match Sys.file_exists plugin with 
+  | true -> Some plugin
+  | false -> match Sys.file_exists (plugin ^ ".cmxs") with
+    | true -> Some (plugin ^ ".cmxs")
+    | false -> match Sys.file_exists (plugin ^ "-plugin.cmxs") with
+      | true -> Some (plugin ^ "-plugin.cmxs")
+      | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name) 
+                                        ^ Filename.dir_sep ^ ".." 
+                                        ^ Filename.dir_sep ^ "lib" 
+                                        ^ Filename.dir_sep ^ plugin) with 
+        | true -> Some ((Filename.dirname Sys.executable_name) 
+                        ^ Filename.dir_sep ^ ".." 
+                        ^ Filename.dir_sep ^ "lib" 
+                        ^ Filename.dir_sep ^ plugin)
+        | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name) 
+                                          ^ Filename.dir_sep ^ ".." 
+                                          ^ Filename.dir_sep ^ "lib" 
+                                          ^ Filename.dir_sep ^ plugin ^ ".cmxs") with 
+          | true -> Some ((Filename.dirname Sys.executable_name) 
+                          ^ Filename.dir_sep ^ ".." 
+                          ^ Filename.dir_sep ^ "lib" 
+                          ^ Filename.dir_sep ^ plugin ^ ".cmxs")
+          | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name) 
+                                            ^ Filename.dir_sep ^ ".." 
+                                            ^ Filename.dir_sep ^ "lib" 
+                                            ^ Filename.dir_sep ^ plugin ^ "-plugin.cmxs") with 
+            | true -> Some ((Filename.dirname Sys.executable_name) 
+                            ^ Filename.dir_sep ^ ".." 
+                            ^ Filename.dir_sep ^ "lib" 
+                            ^ Filename.dir_sep ^ plugin ^ "-plugin.cmxs")
+            | false -> None
+  
+
+let run tcpport peers strength usersfile plugins bufn timestamp style_renderer level = 
   setup_log style_renderer level; 
-  Lwt_main.run @@ Zengine.run tcpport peers strength usersfile bufn None
+  let run () =  
+    let res = Zrouter.run tcpport peers strength usersfile bufn timestamp in
+    Lwt_list.iter_p (fun plugin -> 
+      (try
+        match look_for_plugin plugin with 
+        | Some plugin -> 
+          let args = String.split_on_char ' ' plugin |> Array.of_list in
+          Dynload.loadfile args.(0) args
+        | None -> Logs.warn (fun m -> m "Unable to find plugin %s !" plugin)
+      with _ -> Logs.warn (fun m -> m "Unable to load plugin %s !" plugin));
+      Lwt.return_unit
+    ) plugins |> Lwt.ignore_result;
+    res
+  in  
+  Lwt_main.run @@ run ()
    
 let () =
   Printexc.record_backtrace true;
   Lwt_engine.set (new Lwt_engine.libev ());
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ Zengine.tcpport $ Zengine.peers $ Zengine.strength $ Zengine.users $ Zengine.bufn $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
+  let _ = Term.(eval (const run $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
   

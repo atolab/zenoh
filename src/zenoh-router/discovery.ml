@@ -161,8 +161,8 @@ open Engine_state
         (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
 
 
-    let forward_sdecl pe res router =  
-        let open ZRouter in
+    let forward_sdecl pe res trees =  
+        let open Spn_trees_mgr in
         let open Resource in 
         let subs = List.filter (fun map -> map.sub != None) res.mappings in 
         let (pe, ps) = (match subs with 
@@ -176,13 +176,13 @@ open Engine_state
             | None -> (pe, [])
             | Some subsex ->
             let tsex = Session.tx_sex subsex in
-            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
-            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
             | None -> TreeSet.get_childs tree0 
             | Some parent -> parent :: TreeSet.get_childs tree0 )
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -201,7 +201,7 @@ open Engine_state
             | true -> let (pe, p) = forget_sdecl_to_session pe res subsex in (pe, p::ps) in 
             TreeSet.get_broken_links tree0 
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -216,13 +216,13 @@ open Engine_state
                 else x
                 ) (pe, ps))
         | _ -> 
-            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
-            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
             | None -> TreeSet.get_childs tree0 
             | Some parent -> parent :: TreeSet.get_childs tree0 )
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -233,7 +233,7 @@ open Engine_state
                 ) (pe, []) in 
             TreeSet.get_broken_links tree0 
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -248,7 +248,7 @@ open Engine_state
                 (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
 
     let forward_all_sdecl pe = 
-        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_sdecl pe res pe.router; true) pe.rmap in ()
+        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_sdecl pe res pe.trees; true) pe.rmap in ()
 
     let notify_pub pe ?sub:(sub=None) res m = 
         let open Resource in
@@ -360,7 +360,7 @@ open Engine_state
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
-            let%lwt pe = forward_sdecl pe res pe.router in
+            let%lwt pe = forward_sdecl pe res pe.trees in
             let%lwt pe = notify_pub_matching_res pe s res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
@@ -374,7 +374,7 @@ open Engine_state
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
-            let%lwt pe = forward_sdecl pe res pe.router in
+            let%lwt pe = forward_sdecl pe res pe.trees in
             let%lwt pe = notify_pub_matching_res pe s res in
             Lwt.return (pe, [])
         end
@@ -441,8 +441,8 @@ open Engine_state
         (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
 
 
-    let forward_stodecl pe res router =
-        let open ZRouter in
+    let forward_stodecl pe res trees =
+        let open Spn_trees_mgr in
         let open Resource in 
         let stos = List.filter (fun map -> map.sto != None) res.mappings in 
         let (pe, ps) = (match stos with 
@@ -456,13 +456,13 @@ open Engine_state
             | None -> (pe, [])
             | Some stosex ->
             let tsex = Session.tx_sex stosex in
-            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
-            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
             | None -> TreeSet.get_childs tree0 
             | Some parent -> parent :: TreeSet.get_childs tree0 )
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -481,7 +481,7 @@ open Engine_state
             | true -> let (pe, p) = forget_stodecl_to_session pe res stosex in (pe, p::ps) in 
             TreeSet.get_broken_links tree0 
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -497,13 +497,13 @@ open Engine_state
                 ) (pe, ps))
         | _ -> 
             let dist = List.fold_left (fun accu map -> min accu (Option.get map.sto)) (Option.get (List.hd stos).sto) stos in
-            let module TreeSet = (val router.tree_mod : Spn_tree.Set.S) in
-            let tree0 = Option.get (TreeSet.get_tree router.tree_set 0) in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
             let (pe, ps) = (match TreeSet.get_parent tree0 with 
             | None -> TreeSet.get_childs tree0 
             | Some parent -> parent :: TreeSet.get_childs tree0 )
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -514,7 +514,7 @@ open Engine_state
                 ) (pe, []) in 
             TreeSet.get_broken_links tree0 
             |> List.map (fun (node:Spn_tree.Node.t) -> 
-                (List.find_opt (fun peer -> peer.pid = node.node_id) router.peers))
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
             |> List.filter (fun opt -> opt != None)
             |> List.map (fun peer -> (Option.get peer).tsex)
             |> List.fold_left (fun x stsex -> 
@@ -552,7 +552,7 @@ open Engine_state
         Lwt.return (pe, res)
 
     let forward_all_stodecl pe = 
-        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.router; true) pe.rmap in ()
+        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_stodecl pe res pe.trees; true) pe.rmap in ()
 
     let process_stodecl pe s sd = 
         let oldstate = sto_state pe s (Message.StorageDecl.rid sd) in
@@ -563,7 +563,7 @@ open Engine_state
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
-            let%lwt pe = forward_stodecl pe res pe.router in
+            let%lwt pe = forward_stodecl pe res pe.trees in
             let%lwt pe = notify_pub_matching_res pe s res ~sub:(Some true) in
             Lwt.return (pe, [])
         end
@@ -578,7 +578,7 @@ open Engine_state
             match res with 
             | None -> Lwt.return (pe, [])
             | Some res -> 
-            let%lwt pe = forward_stodecl pe res pe.router in
+            let%lwt pe = forward_stodecl pe res pe.trees in
             let%lwt pe = notify_pub_matching_res pe s res in
             Lwt.return (pe, [])
         end

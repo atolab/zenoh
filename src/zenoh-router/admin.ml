@@ -1,9 +1,10 @@
+open Lwt.Infix
 open Engine_state
 open Message
 open Apero
 
 
-let admin_prefix = "/_z_/"
+let admin_prefix = "/@/"
 
 let is_admin q = 
   String.length (Message.Query.resource q) >= String.length admin_prefix &&
@@ -24,16 +25,20 @@ let full_broker_json pe =
       ("pid",       `String (Abuf.hexdump pe.pid));
       ("locators",  `List locators);
       ("lease",     `Int (Vle.to_int pe.lease));
-      ("router",    (ZRouter.to_yojson pe.router));
+      ("trees",    (Spn_trees_mgr.to_yojson pe.trees));
       ("sessions",  `List sessions);
     ]
 
-let broker_path_str pe = String.concat "" [admin_prefix; "services/"; Abuf.hexdump pe.pid]
+
+let broker_path_str pe = String.concat "" [admin_prefix; Abuf.hexdump pe.pid]
 let broker_path pe = Path.of_string @@ broker_path_str pe
-let router_path pe = Path.of_string (String.concat "" [admin_prefix; "services/"; Abuf.hexdump pe.pid; "/routing"])
-let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; "/resources/"; R_name.ResName.to_string res_name] 
+(* let router_path pe = Path.of_string (String.concat "" [broker_path_str pe; "/routing"])
+let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; R_name.ResName.to_string res_name]  *)
 
 let json_replies pe q = 
+  match is_admin q with 
+  | false -> []
+  | true -> 
   let qexpr = PathExpr.of_string (Message.Query.resource q) in 
   List.concat [
     (* match PathExpr.is_matching_path (broker_path pe) qexpr with 
@@ -51,10 +56,13 @@ let json_replies pe q =
 
 let replies pe q = 
   let open Ztypes in
+  let%lwt ts = (match pe.timestamp with 
+    | true -> HLC.new_timestamp pe.hlc >>= fun ts -> Lwt.return (Some ts)
+    | false -> Lwt.return None) in
   Lwt.return @@ List.mapi (fun idx (p, j) -> 
     let data = Abuf.create ~grow:65536 1024 in 
     Apero.encode_string (Yojson.Safe.to_string j) data;
-    let info = {srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=None; encoding=Some 4L (* JSON *); kind=None} in
+    let info = {srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts; encoding=Some 4L (* JSON *); kind=None} in
     let pl = Payload.create ~header:info data in
     Reply.create (Query.pid q) (Query.qid q) (Some (pe.pid, Vle.of_int (idx + 1), Path.to_string p, pl))
   ) (json_replies pe q)
