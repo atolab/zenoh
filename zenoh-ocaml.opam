@@ -10,13 +10,15 @@ version:"0.2.5"
 license: "Apache-2.0"
 
 build: [
+["dune" "subst"] {pinned}
  ["dune" "-p" name "-j" jobs]
 ]
 
 install: [
-  ["dune" "build" "-p" name "@install"]
+  ["dune" "build" "@install"]
   ["dune" "install" name]
 ]
+
 
 depends: [
   "ocaml" {>= "4.03.0" }
