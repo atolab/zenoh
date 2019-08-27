@@ -22,12 +22,12 @@ depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
   "lwt" {>= "4.1.0"}
-  "apero-core" {>= "0.4.4"}
-  "apero-net" {>= "0.4.4"}
+  "apero-core" {>= "0.4.5"}
+  "apero-net" {>= "0.4.5"}
   "zenoh-proto" {= "0.2.5"}
 ]
 synopsis : "The zenoh ocaml API"
 description: """
 zenoh is a high-level and extremely wire-efficient named-data protocol
-that nicely combines data streaming with distributed data quering. 
+that nicely combines data streaming with distributed data quering.
 This package provides OCaml API for developing zenoh applications."""
