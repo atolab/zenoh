@@ -25,6 +25,7 @@ depends: [
   "lwt" {>= "4.1.0"}
   "zenoh-router" {= "0.2.5"}
   "httpaf" {>= "0.6.0"}
+  "httpaf-lwt-unix" {>= "0.6.0"}
 ]
 synopsis : "The zenoh http plugin"
 description: """
