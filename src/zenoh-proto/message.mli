@@ -257,6 +257,20 @@ sig
   val id : t -> Vle.t
 end
 
+(** @AC: Originally the Selections were supposed to be continuous queries. Notice that
+    the main difference between a selection and a subscription is that the seleciton was
+    supposed to have a query portion. 
+    Beside this the difference between a Selection and a Query is that the Selection 
+    produces a continuous stream of data.
+    
+    Selections, arent' currently implemented and the questions is whether we should
+    remove them from the protocol alltogether. 
+
+    The matter with selections is that they would require the producer or the broker 
+    to be able to interpret the data. This is not necessarily something we want to
+    do in zenoh.
+*) 
+
 module Declaration :
 sig
   type t =
