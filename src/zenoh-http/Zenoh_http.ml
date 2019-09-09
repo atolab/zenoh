@@ -87,7 +87,7 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
               fun buf ->
                 Lwt.async (fun _ ->
                   Logs.debug (fun m -> m "[Zhttp] Zenoh.write put on %s %d bytes" resname (Abuf.readable_bytes buf));
-                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_put >|= fun _ ->
+                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_put ~encoding:0x2L >|= fun _ ->
                   respond reqd ~status:`No_content)
             )
           end with
