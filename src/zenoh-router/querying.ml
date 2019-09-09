@@ -4,7 +4,7 @@ open NetService
 open R_name
 open Engine_state
 
-let final_reply q = Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) None
+let final_reply q = Message.Reply.create (Message.Query.pid q) (Message.Query.qid q) Storage None
 
 let forward_query_to_txsex pe q txsex =
   let open Lwt.Infix in 
@@ -42,53 +42,65 @@ let forward_amdin_query pe sid q =
   let faces = SIDMap.bindings pe.smap |> List.filter (fun (k, _) -> k <> sid) |> List.split |> fst  in 
   Lwt.join @@ forward_query_to pe q faces >>= fun _ -> Lwt.return faces
 
+type dest_kind = | Storages | Evals
+type coverness = | Covering | Matching
+
 let forward_user_query pe sid q = 
   let open Resource in 
   let open Lwt.Infix in 
-  let dest = match ZProperty.QueryDest.find_opt (Message.Query.properties q) with 
+  let destStorages = match ZProperty.DestStorages.find_opt (Message.Query.properties q) with 
   | None -> Partial
-  | Some prop -> ZProperty.QueryDest.dest prop in 
+  | Some prop -> ZProperty.DestStorages.dest prop in
+  let destEvals = match ZProperty.DestEvals.find_opt (Message.Query.properties q) with 
+  | None -> Partial
+  | Some prop -> ZProperty.DestEvals.dest prop in 
 
-  let get_complete_faces () = 
+  let sub_get_faces coverness dest_kind = 
     ResMap.fold (fun _ res accu -> match res.name with 
         | ID _ -> accu
         | Path path -> 
-          (match PathExpr.includes ~subexpr:(PathExpr.of_string @@ Message.Query.resource q) path with 
+          match coverness with 
+          | Covering ->
+            (match PathExpr.includes ~subexpr:(PathExpr.of_string @@ Message.Query.resource q) path with 
+              | false -> accu 
+              | true -> 
+                List.fold_left (fun accu m -> 
+                    match m.session != sid, dest_kind, m.sto, m.eval with
+                    | true, Storages, Some _, _ -> (m.session, Option.get m.sto) :: accu
+                    | true, Evals, _, Some _ -> (m.session, Option.get m.eval) :: accu
+                    | _-> accu
+                  ) accu res.mappings)
+          | Matching -> 
+            match ResName.name_match (ResName.Path(PathExpr.of_string @@ Message.Query.resource q)) res.name with 
             | false -> accu 
             | true -> 
-              List.fold_left (fun accu m -> 
-                  match m.sto != None && m.session != sid && not @@ List.exists (fun (s, _) -> m.session == s) accu with
-                  | true -> (m.session, Option.get m.sto) :: accu
-                  | false -> accu
-                ) accu res.mappings)) pe.rmap [] in
+                List.fold_left (fun accu m -> 
+                    match m.session != sid, dest_kind, m.sto, m.eval with
+                    | true, Storages, Some _, _ -> (m.session, Option.get m.sto) :: accu
+                    | true, Evals, _, Some _ -> (m.session, Option.get m.eval) :: accu
+                    | _-> accu
+                  ) accu res.mappings) pe.rmap [] in
 
-  let get_matching_faces () = 
-    ResMap.fold (fun _ res accu -> 
-        match ResName.name_match (ResName.Path(PathExpr.of_string @@ Message.Query.resource q)) res.name with 
-        | false -> accu 
-        | true -> 
-          List.fold_left (fun accu m -> 
-              match m.sto != None && m.session != sid && not @@ List.exists (fun s -> m.session == s) accu with
-              | true -> m.session :: accu
-              | false -> accu
-            ) accu res.mappings) pe.rmap [] in
-
-  let (ps, ss) = match dest with 
-    | All -> let matching_faces = get_matching_faces () in (forward_query_to pe q matching_faces, matching_faces) 
-    | Complete _ -> let complete_faces = get_complete_faces () |> List.map (fun (face, _) -> face) in (forward_query_to pe q complete_faces, complete_faces) 
+  let get_faces dest kind = match dest with 
+    | All -> sub_get_faces Matching kind |> List.split |> fst
+    | Complete _ -> sub_get_faces Covering kind |> List.split |> fst
     (* TODO : manage quorum *)
     | Partial -> 
-      (let complete_faces = get_complete_faces () in
-        match complete_faces with 
-        | [] -> let matching_faces = get_matching_faces () in (forward_query_to pe q matching_faces, matching_faces)
+      (match sub_get_faces Covering kind with
+        | [] -> sub_get_faces Matching kind |> List.split |> fst
         | faces -> 
           let (nearest_face, _) = List.fold_left (fun (accu, accudist) (s, sdist) -> 
               match sdist < accudist with 
               | true -> (s, sdist)
               | false -> (accu, accudist)) (List.hd faces) faces in 
-          (forward_query_to pe q [nearest_face], [nearest_face]))
+          [nearest_face]) 
+    | No -> [] in
+  let storage_faces = get_faces destStorages Storages in
+  let eval_faces = get_faces destEvals Evals in
+  let faces = List.append storage_faces eval_faces in 
+  let faces = List.sort_uniq (fun s1 s2 -> match s1 == s2 with | true -> 0 | false -> 1 ) faces in
 
-  in Lwt.join ps >>= fun _ -> Lwt.return ss
+  forward_query_to pe q faces |> Lwt.join >>= fun () -> Lwt.return faces
 
 let forward_query pe sid q = 
   match Admin.is_admin q with 

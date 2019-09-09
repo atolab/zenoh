@@ -242,7 +242,7 @@ let encode_storage_decl d buf =
   let open StorageDecl in
   Logs.debug (fun m -> m "Writing StorageDeclaration") ;
   let id = (rid d) in
-  Logs.debug (fun m -> m  "Writing StorageDeclarationv for rid = %Ld" id) ;
+  Logs.debug (fun m -> m  "Writing StorageDeclaration for rid = %Ld" id) ;
   Abuf.write_byte (header d) buf;
   fast_encode_vle id buf;
   encode_properties (properties d) buf
@@ -256,5 +256,35 @@ let decode_forget_storage_decl buf =
 let encode_forget_storage_decl fsd buf =
   let open ForgetStorageDecl in
   Logs.debug (fun m -> m "Writing ForgetStorage Declaration");
+  Abuf.write_byte (header fsd) buf;
+  fast_encode_vle (id fsd) buf
+
+let make_eval_decl rid ps = Declaration.EvalDecl (EvalDecl.create rid ps)
+
+let decode_eval_decl header = 
+  read2_spec 
+  (Logs.debug (fun m -> m "Reading EvalDeclaration"))
+  fast_decode_vle
+  (decode_properties header)
+  make_eval_decl
+
+let encode_eval_decl d buf =
+  let open EvalDecl in
+  Logs.debug (fun m -> m "Writing EvalDeclaration") ;
+  let id = (rid d) in
+  Logs.debug (fun m -> m  "Writing EvalDeclaration for rid = %Ld" id) ;
+  Abuf.write_byte (header d) buf;
+  fast_encode_vle id buf;
+  encode_properties (properties d) buf
+
+
+let decode_forget_eval_decl buf =
+  Logs.debug (fun m -> m "Reading ForgetEval Declaration");
+  fast_decode_vle buf |> fun id -> 
+    Declaration.ForgetEvalDecl (ForgetEvalDecl.create id)
+  
+let encode_forget_eval_decl fsd buf =
+  let open ForgetEvalDecl in
+  Logs.debug (fun m -> m "Writing ForgetEval Declaration");
   Abuf.write_byte (header fsd) buf;
   fast_encode_vle (id fsd) buf

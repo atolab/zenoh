@@ -1,10 +1,9 @@
 open Zenoh
 open Apero
-open Lwt.Infix
+open Cmdliner
 
-let peer = match Array.length Sys.argv with 
-  | 1 -> "tcp/127.0.0.1:7447"
-  | _ -> Sys.argv.(1)
+let peers = Arg.(value & opt string "tcp/127.0.0.1:7447" & info ["p"; "peers"] ~docv:"PEERS" ~doc:"peers")
+let res = Arg.(value & opt string "/demo/**" & info ["r"; "resource"] ~docv:"RESOURCE" ~doc:"resource")
 
 let handler = function
   | StorageData rep ->
@@ -25,19 +24,15 @@ let handler = function
     Printf.printf "  QUERY HANDLER RECIEVED GLOBAL FINAL\n%!";
     Lwt.return_unit
 
-let run = 
-  let%lwt z = zopen peer in    
-  Printf.printf "QUERY /home1/** :\n%!";
-  let%lwt _ = query z "/home1/**" "" handler in 
+let run peers res = 
+  Lwt_main.run 
+  (
+    let%lwt z = zopen peers in    
+    Printf.printf "QUERY %s :\n%!" res;
+    let%lwt _ = query z res "" handler in 
 
-  let%lwt _ = Lwt_unix.sleep 0.2 in
-
-  Printf.printf "\n%!";
-  Printf.printf "LQUERY /home1/** :\n%!";
-  let%lwt _ = lquery z "/home1/**" "" >|= List.iter (fun (k,v,_) -> Printf.printf "  RECEIVED RESOURCE [%-20s] : %s\n%!" k (decode_string v)) in
-
-  Lwt_unix.sleep 1.0
-
+    Lwt_unix.sleep 1.0
+  )
 
 let () = 
-  Lwt_main.run @@ run
+  let _ = Term.(eval (const run $ peers $ res, Term.info "demo_query")) in  ()

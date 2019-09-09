@@ -38,6 +38,7 @@ sig
   val rFlag : char
   val nFlag : char
   val cFlag : char
+  val eFlag : char
   val aFlag : char
   val uFlag : char
   val zFlag : char
@@ -82,6 +83,8 @@ sig
   val forgetSelectionDeclId : char
   val storageDeclId : char
   val forgetStorageDeclId : char
+  val evalDeclId : char
+  val forgetEvalDeclId : char
 end
 
 module SubscriptionModeId :
@@ -169,6 +172,24 @@ sig
   val properties : t -> ZProperty.t list
 end
 
+module StorageDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> ZProperty.t list -> t
+  val rid : t -> Vle.t
+  val properties : t -> ZProperty.t list
+end
+
+module EvalDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> ZProperty.t list -> t
+  val rid : t -> Vle.t
+  val properties : t -> ZProperty.t list
+end
+
 module SelectionDecl :
 sig
   type body
@@ -232,29 +253,28 @@ sig
   val id : t -> Vle.t
 end
 
-module ForgetSelectionDecl :
-sig
-  type body
-  type t = body block
-  val create : Vle.t -> t
-  val sid : t -> Vle.t
-end
-
-module StorageDecl :
-sig
-  type body
-  type t = body block
-  val create : Vle.t -> ZProperty.t list -> t
-  val rid : t -> Vle.t
-  val properties : t -> ZProperty.t list
-end
-
 module ForgetStorageDecl :
 sig
   type body
   type t = body block
   val create : Vle.t -> t
   val id : t -> Vle.t
+end
+
+module ForgetEvalDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> t
+  val id : t -> Vle.t
+end
+
+module ForgetSelectionDecl :
+sig
+  type body
+  type t = body block
+  val create : Vle.t -> t
+  val sid : t -> Vle.t
 end
 
 (** @AC: Originally the Selections were supposed to be continuous queries. Notice that
@@ -277,6 +297,8 @@ sig
       | ResourceDecl of ResourceDecl.t
       | PublisherDecl of PublisherDecl.t
       | SubscriberDecl of SubscriberDecl.t
+      | StorageDecl of StorageDecl.t
+      | EvalDecl of EvalDecl.t
       | SelectionDecl of SelectionDecl.t
       | BindingDecl of BindingDecl.t
       | CommitDecl of CommitDecl.t
@@ -284,9 +306,9 @@ sig
       | ForgetResourceDecl of ForgetResourceDecl.t
       | ForgetPublisherDecl of ForgetPublisherDecl.t
       | ForgetSubscriberDecl of ForgetSubscriberDecl.t
-      | ForgetSelectionDecl of ForgetSelectionDecl.t
-      | StorageDecl of StorageDecl.t
       | ForgetStorageDecl of ForgetStorageDecl.t
+      | ForgetEvalDecl of ForgetEvalDecl.t
+      | ForgetSelectionDecl of ForgetSelectionDecl.t
 end
 
 module Declarations : sig
@@ -505,11 +527,13 @@ module Reply :
 sig
   type body
   type t = body marked block
-  val create : Abuf.t -> Vle.t -> (Abuf.t * Vle.t * string * Payload.t) option -> t
+  type source = | Storage | Eval
+  val create : Abuf.t -> Vle.t -> source -> (Abuf.t * Vle.t * string * Payload.t) option ->t
   val qpid : t -> Abuf.t
   val qid : t -> Vle.t
   val final : t -> bool
   val value : t -> (Abuf.t * Vle.t * string * Payload.t) option
+  val source : t -> source
   val stoid : t -> Abuf.t option
   val rsn : t -> Vle.t option
   val resource : t -> string option

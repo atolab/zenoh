@@ -64,5 +64,5 @@ let replies pe q =
     Apero.encode_string (Yojson.Safe.to_string j) data;
     let info = {srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts; encoding=Some 4L (* JSON *); kind=None} in
     let pl = Payload.create ~header:info data in
-    Reply.create (Query.pid q) (Query.qid q) (Some (pe.pid, Vle.of_int (idx + 1), Path.to_string p, pl))
+    Reply.create (Query.pid q) (Query.qid q) Reply.Eval (Some (pe.pid, Vle.of_int (idx + 1), Path.to_string p, pl))
   ) (json_replies pe q)

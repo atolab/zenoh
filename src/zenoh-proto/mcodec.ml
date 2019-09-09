@@ -128,6 +128,8 @@ let decode_declaration buf =
   | r when r = DeclarationId.forgetSelectionDeclId -> decode_forget_sel_decl buf 
   | s when s = DeclarationId.storageDeclId -> decode_storage_decl header buf
   | f when f = DeclarationId.forgetStorageDeclId -> decode_forget_storage_decl buf
+  | s when s = DeclarationId.evalDeclId -> decode_eval_decl header buf
+  | f when f = DeclarationId.forgetEvalDeclId -> decode_forget_eval_decl buf
   | _ -> raise @@ Exception(`NotImplemented)
 
 let encode_declaration (d: Declaration.t) buf=
@@ -145,6 +147,8 @@ let encode_declaration (d: Declaration.t) buf=
   | ForgetSelectionDecl fsd -> encode_forget_sel_decl fsd buf 
   | StorageDecl sd -> encode_storage_decl sd buf 
   | ForgetStorageDecl fsd -> encode_forget_storage_decl fsd buf 
+  | EvalDecl ed -> encode_eval_decl ed buf 
+  | ForgetEvalDecl fed -> encode_forget_eval_decl fed buf 
 
 
 let decode_declarations buf = 
@@ -384,8 +388,8 @@ let encode_query m buf =
   encode_string (predicate m) buf;
   Dcodec.encode_properties (properties m) buf
 
-let make_reply qpid qid value = 
-  Message (Reply (Reply.create qpid qid value))
+let make_reply source qpid qid value = 
+  Message (Reply (Reply.create qpid qid source value))
 
 let decode_reply_value header buf = 
   if Flags.(hasFlag header fFlag) 
@@ -400,12 +404,13 @@ let decode_reply_value header buf =
   else None
 
 let decode_reply header buf =
+  let source = match Flags.hasFlag header Flags.eFlag with | true -> Reply.Eval | false -> Reply.Storage in
   read3_spec
-    (Logs.debug (fun m -> m "Reading Reply"))
+    (Logs.debug (fun m -> m "Reading Reply src=%s" (match source with | Reply.Eval -> "Eval" | Reply.Storage -> "Storage")))
     decode_buf
     fast_decode_vle
     (decode_reply_value header)
-    make_reply 
+    (make_reply source)
     buf
 
 let encode_reply_value v buf =

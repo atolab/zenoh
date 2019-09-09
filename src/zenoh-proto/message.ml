@@ -48,6 +48,7 @@ module Flags = struct
   let rFlag = char_of_int 0x40
   let nFlag = char_of_int 0x40
   let cFlag = char_of_int 0x40
+  let eFlag = char_of_int 0x40
 
   let aFlag = char_of_int 0x80
   let uFlag = char_of_int 0x80
@@ -94,6 +95,8 @@ module DeclarationId = struct
   let forgetSelectionDeclId = char_of_int 0x0b
   let storageDeclId = char_of_int 0x0c
   let forgetStorageDeclId = char_of_int 0x0d
+  let evalDeclId = char_of_int 0x0e
+  let forgetEvalDeclId = char_of_int 0x0f
 end
 
 module SubscriptionModeId = struct
@@ -345,6 +348,22 @@ module StorageDecl = struct
   let properties storageDecl = storageDecl.body.properties
 end
 
+module EvalDecl = struct
+  type body = {
+    rid : Vle.t;
+    properties : ZProperty.t list;
+  }
+  type t = body block
+
+  let create rid properties =
+    let header = match properties with
+      | [] -> DeclarationId.evalDeclId
+      | _ -> char_of_int ((int_of_char DeclarationId.evalDeclId) lor (int_of_char Flags.pFlag))
+    in {header=header; body={rid=rid; properties=properties}}
+  let rid evalDecl = evalDecl.body.rid
+  let properties evalDecl = evalDecl.body.properties
+end
+
 module ForgetStorageDecl = struct
   type body = {
     id : Vle.t;
@@ -355,11 +374,23 @@ module ForgetStorageDecl = struct
   let id decl = decl.body.id
 end
 
+module ForgetEvalDecl = struct
+  type body = {
+    id : Vle.t;
+  }
+  type t = body block
+
+  let create id = {header=DeclarationId.forgetEvalDeclId; body={id=id}}
+  let id decl = decl.body.id
+end
+
 module Declaration = struct
   type t =
     | ResourceDecl of ResourceDecl.t
     | PublisherDecl of PublisherDecl.t
     | SubscriberDecl of SubscriberDecl.t
+    | StorageDecl of StorageDecl.t
+    | EvalDecl of EvalDecl.t
     | SelectionDecl of SelectionDecl.t
     | BindingDecl of BindingDecl.t
     | CommitDecl of CommitDecl.t
@@ -367,9 +398,9 @@ module Declaration = struct
     | ForgetResourceDecl of ForgetResourceDecl.t
     | ForgetPublisherDecl of ForgetPublisherDecl.t
     | ForgetSubscriberDecl of ForgetSubscriberDecl.t
-    | ForgetSelectionDecl of ForgetSelectionDecl.t
-    | StorageDecl of StorageDecl.t
     | ForgetStorageDecl of ForgetStorageDecl.t
+    | ForgetEvalDecl of ForgetEvalDecl.t
+    | ForgetSelectionDecl of ForgetSelectionDecl.t
 end
 
 module Declarations = struct
@@ -899,19 +930,22 @@ module Reply = struct
     value : (Abuf.t * Vle.t * string * Payload.t) option;
   }
   type t = body marked block
+  type source = | Storage | Eval
 
-  let create qpid qid value =
+  let create qpid qid source value =
   (* (stoid, rsn, resource, payload) *)
     let header = 
       let fFlag = match value with | None -> 0 | _ -> int_of_char Flags.fFlag in
+      let eFlag = match source with | Storage -> 0 | _ -> int_of_char Flags.eFlag in
       let mid = int_of_char MessageId.replyId in
-      char_of_int @@ fFlag lor mid in
+      char_of_int @@ fFlag lor eFlag lor mid in
     { header; body={markers=Markers.empty; mbody={qpid; qid; value;}}}
 
   let qpid q = q.body.mbody.qpid
   let qid q = q.body.mbody.qid
   let final q = q.body.mbody.value = None
   let value q = q.body.mbody.value
+  let source q = match Flags.hasFlag q.header Flags.eFlag with | true -> Eval | false -> Storage
   let stoid q = match q.body.mbody.value with | None -> None | Some (stoid, _, _, _) -> Some stoid
   let rsn q = match q.body.mbody.value with | None -> None | Some (_, rsn, _, _) -> Some rsn
   let resource q = match q.body.mbody.value with | None -> None | Some (_, _, resource, _) -> Some resource

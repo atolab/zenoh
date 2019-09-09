@@ -17,6 +17,12 @@
   (preprocess (pps lwt_ppx)))
 
 (executable
+  (name       eval)
+  (modules    eval)
+  (libraries  zenoh-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
   (name       query)
   (modules    query)
   (libraries  zenoh-ocaml)

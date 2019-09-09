@@ -11,6 +11,8 @@ type sublistener = string -> (Abuf.t * data_info) list -> unit Lwt.t
 type queryreply = 
   | StorageData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t; info:data_info}
   | StorageFinal of {stoid:Abuf.t; rsn:int}
+  | EvalData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t; info:data_info}
+  | EvalFinal of {stoid:Abuf.t; rsn:int}
   | ReplyFinal 
 type reply_handler = queryreply -> unit Lwt.t
 type query_handler = string -> string -> (string * Abuf.t * data_info) list Lwt.t
@@ -19,7 +21,9 @@ type insub = {subid:int; resid:Vle.t; listener:sublistener}
 
 type insto = {stoid:int; resname:PathExpr.t; listener:sublistener; qhandler:query_handler}
 
-type resource = {rid: Vle.t; name: PathExpr.t; matches: Vle.t list; subs: insub list; stos : insto list;}
+type ineval = {evalid:int; resname:PathExpr.t; qhandler:query_handler}
+
+type resource = {rid: Vle.t; name: PathExpr.t; matches: Vle.t list; subs: insub list; stos : insto list; evals : ineval list;}
 
 type query = {qid: Vle.t; listener:reply_handler;}
 
@@ -40,6 +44,12 @@ let with_sto sto res =
 
 let remove_sto stoid res = 
   {res with stos = List.filter (fun s -> s.stoid != stoid) res.stos}
+
+let with_eval eval res = 
+  {res with evals = eval :: List.filter (fun e -> e != eval) res.evals}
+
+let remove_eval evalid res = 
+  {res with evals = List.filter (fun e -> e.evalid != evalid) res.evals}
   
 
 type state = {
@@ -116,6 +126,7 @@ type t = {
 type sub = {z:t; id:int; resid:Vle.t;}
 type pub = {z:t; id:int; resid:Vle.t; reliable:bool}
 type storage = {z:t; id:int; resid:Vle.t;}
+type eval = {z:t; id:int; resid:Vle.t;}
 
 type submode = SubscriptionMode.t
 
@@ -146,7 +157,7 @@ let match_resource rmap mres =
 
 let add_resource resname state = 
   let (rid, state) = get_next_res_id state in 
-  let res =  {rid; name=resname; matches=[rid]; subs=[]; stos=[]} in
+  let res =  {rid; name=resname; matches=[rid]; subs=[]; stos=[]; evals=[]} in
   let (resmap, res) = match_resource state.resmap res in
   let resmap = VleMap.add rid res resmap in 
   (res, {state with resmap})
@@ -202,11 +213,17 @@ let process_query z resname predicate process_replies =
   VleMap.bindings state.resmap 
   |> List.filter (fun (_, res) -> PathExpr.intersect res.name path)
   |> Lwt_list.iter_s (fun (_, res) -> 
+        let%lwt _ = res.evals |> Lwt_list.iter_s (fun (eval:ineval) -> 
+          Lwt.catch(fun () -> eval.qhandler resname predicate) 
+                    (fun e -> Logs_lwt.info (fun m -> m "Eval query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
+                    (* TODO propagate query failures *)
+          >>= process_replies Reply.Eval
+        ) in
         res.stos |> Lwt_list.iter_s (fun (sto:insto) -> 
           Lwt.catch(fun () -> sto.qhandler resname predicate) 
                     (fun e -> Logs_lwt.info (fun m -> m "Storage query handler raised exception %s" (Printexc.to_string e)) >>= fun () -> Lwt.return [])
                     (* TODO propagate query failures *)
-          >>= process_replies
+          >>= process_replies Reply.Storage
         )
       )
 
@@ -219,14 +236,14 @@ let process_incoming_message msg resolver t =
   | Message.CompactData dmsg -> process_stream_data t (CompactData.id dmsg) [CompactData.payload dmsg]
   | Message.WriteData dmsg -> process_write_data t (WriteData.resource dmsg) [WriteData.payload dmsg]
   | Message.Query qmsg -> 
-      (process_query t (Query.resource qmsg) (Query.predicate qmsg) (fun replies -> 
+      (process_query t (Query.resource qmsg) (Query.predicate qmsg) (fun source replies -> 
         replies |> Lwt_list.iteri_s (fun rsn (resname, data, ctx) -> 
           let rep_value = (Some (pid, Vle.of_int rsn, resname, Payload.create ~header:ctx data)) in
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) source rep_value)))
         >>= fun () -> 
           let rep_value = (Some (pid, Vle.of_int (List.length replies), "", Payload.create ~header:empty_data_info @@ Abuf.create 0)) in
-          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) rep_value)))
-      >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) None)))
+          send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) source rep_value)))
+      >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) Storage None)))
       |> Lwt.ignore_result; Lwt.return_true
   | Message.Reply rmsg -> 
     (match String.equal (Abuf.hexdump (Reply.qpid rmsg)) (Abuf.hexdump pid) with 
@@ -244,13 +261,19 @@ let process_incoming_message msg resolver t =
                   clean_query t (Reply.qid rmsg)
         | Some (stoid, rsn, resname, payload) -> 
           let data = Payload.data payload in
-          (match Abuf.readable_bytes data with 
-          | 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
+          (match (Reply.source rmsg, Abuf.readable_bytes data) with 
+          | Storage, 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
+                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+                          |> Lwt.ignore_result; Lwt.return_unit
+          | Eval, 0 ->  Lwt.catch(fun () -> query.listener (EvalFinal({stoid; rsn=(Vle.to_int rsn)})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
-                 |> Lwt.ignore_result; Lwt.return_unit
-          | _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
+                        |> Lwt.ignore_result; Lwt.return_unit
+          | Storage, _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
+                            (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
+                          |> Lwt.ignore_result; Lwt.return_unit
+          | Eval, _ ->  Lwt.catch(fun () -> query.listener (EvalData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
-                 |> Lwt.ignore_result; Lwt.return_unit
+                        |> Lwt.ignore_result; Lwt.return_unit
           )) >>= fun _ -> return_true )
   | msg ->
     Logs.debug (fun m -> m "\n[received: %s]\n>> " (Message.to_string msg));  
@@ -424,37 +447,59 @@ let store z resname listener qhandler =
     StorageDecl(StorageDecl.create res.rid [])
   ])) in 
   Guard.release z.state state ;
-  Lwt.return {z=z; id=stoid; resid=res.rid} 
+  Lwt.return ({z=z; id=stoid; resid=res.rid} : storage)
 
+let evaluate z resname qhandler = 
+  let resname = PathExpr.of_string resname in
+  let%lwt state = Guard.acquire z.state in
+  let (res, state) = add_resource resname state in
+  let (evalid, state) = get_next_entity_id state in
+  let ineval = {evalid; resname; qhandler} in
+  let res = with_eval ineval res in
+  let resmap = VleMap.add res.rid res state.resmap in 
+  let state = {state with resmap} in
 
+  let (sn, state) = get_next_sn state in
+  let _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ResourceDecl(ResourceDecl.create res.rid (PathExpr.to_string res.name) []);
+    EvalDecl(EvalDecl.create res.rid [])
+  ])) in 
+  Guard.release z.state state ;
+  Lwt.return ({z=z; id=evalid; resid=res.rid} : eval)
 
-let query z ?(dest=Partial) resname predicate listener = 
-  let%lwt _ = process_query z resname predicate (fun replies -> 
-    let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
-      listener (StorageData({stoid=pid; rsn; resname; data=copy data; info}))) replies in
-    listener (StorageFinal({stoid=pid; rsn=(List.length replies)})))
+let query z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate listener = 
+  let%lwt _ = process_query z resname predicate (fun source replies -> 
+    match source with 
+    | Storage -> 
+      let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
+        listener (StorageData({stoid=pid; rsn; resname; data=copy data; info}))) replies in
+      listener (StorageFinal({stoid=pid; rsn=(List.length replies)}))
+    | Eval -> 
+      let%lwt _ = Lwt_list.iteri_s (fun rsn (resname, data, info) -> 
+        listener (EvalData({stoid=pid; rsn; resname; data=copy data; info}))) replies in
+      listener (EvalFinal({stoid=pid; rsn=(List.length replies)})))
   in
   let%lwt state = Guard.acquire z.state in
   let (qryid, state) = get_next_qry_id state in
   let qrymap = VleMap.add qryid {qid=qryid; listener} state.qrymap in 
-  let props = [ZProperty.QueryDest.make dest] in
+  let props = [ZProperty.DestStorages.make dest_storages; ZProperty.DestEvals.make dest_evals] in
   let state = {state with qrymap} in
   let%lwt _ = send_message z.sock (Message.Query(Query.create pid qryid resname predicate props)) in
   Lwt.return @@ Guard.release z.state state
 
 
-let squery z ?(dest=Partial) resname predicate = 
+let squery z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate = 
   let stream, push = Lwt_stream.create () in 
   let reply_handler = function
     | ReplyFinal -> push @@ Some ReplyFinal; push None; Lwt.return_unit
     | qreply -> push @@ Some qreply; Lwt.return_unit
    in
-  let _ = (query z resname predicate reply_handler ~dest) in 
+  let _ = (query z resname predicate reply_handler ~dest_storages ~dest_evals) in 
   stream
 
 type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutable qs: (string * Abuf.t * data_info) list}
 
-let lquery z ?(dest=Partial) resname predicate =   
+let lquery z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate =   
   let promise,resolver = Lwt.wait () in 
   let ctx = {resolver; qs = []} in  
   let reply_handler = function
@@ -463,11 +508,17 @@ let lquery z ?(dest=Partial) resname predicate =
       (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 
       | Some _ -> Lwt.return_unit
       | None  -> ctx.qs <- (resname, data, info)::ctx.qs; Lwt.return_unit)
+    | EvalData {stoid=_; rsn=_; resname; data; info} -> 
+      (* TODO: Eventually we should check the timestamp *)
+      (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 
+      | Some _ -> Lwt.return_unit
+      | None  -> ctx.qs <- (resname, data, info)::ctx.qs; Lwt.return_unit)
     | StorageFinal {stoid=_;rsn=_} -> Lwt.return_unit
+    | EvalFinal {stoid=_;rsn=_} -> Lwt.return_unit
     | ReplyFinal ->       
       Lwt.wakeup_later ctx.resolver ctx.qs; Lwt.return_unit
   in
-  let _ = (query z resname predicate reply_handler ~dest) in 
+  let _ = (query z resname predicate reply_handler ~dest_storages ~dest_evals) in 
   promise
 
 
@@ -482,5 +533,20 @@ let unstore z (sto:storage) =
   let (sn, state) = get_next_sn state in
   let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
     ForgetStorageDecl(ForgetStorageDecl.create sto.resid)
+  ])) in 
+  Lwt.return @@ Guard.release z.state state 
+
+
+let unevaluate z (eval:eval) = 
+  let%lwt state = Guard.acquire z.state in
+  let state = match VleMap.find_opt eval.resid state.resmap with 
+  | None -> state 
+  | Some res -> 
+    let res = remove_eval eval.id res in 
+    let resmap = VleMap.add res.rid res state.resmap in 
+    {state with resmap} in
+  let (sn, state) = get_next_sn state in
+  let%lwt _ = send_message z.sock (Message.Declare(Declare.create (true, false) sn [
+    ForgetEvalDecl(ForgetEvalDecl.create eval.resid)
   ])) in 
   Lwt.return @@ Guard.release z.state state 

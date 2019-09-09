@@ -8,6 +8,7 @@ type mapping = {
     pub : bool;
     sub : bool option;
     sto : int option;
+    eval : int option;
     matched_pub : bool;
     matched_sub : bool;
 }
@@ -27,6 +28,7 @@ let create_mapping id session =
         pub = false;
         sub = None;
         sto = None;
+        eval = None;
         matched_pub = false;
         matched_sub = false;
     }

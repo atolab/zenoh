@@ -584,11 +584,214 @@ open Engine_state
         end
         else Lwt.return (pe, [])
 
+
+    (* ======================== EVAL DECL =========================== *)
+
+    let eval_state pe (s:Session.t) rid = 
+        let resname = res_name s rid in
+        let optres = ResMap.find_opt resname pe.rmap in 
+        match optres with 
+        | None -> None
+        | Some res ->
+            let open Resource in
+            let mapping = List.find_opt (fun m -> m.session = s.sid) res.mappings in 
+            match mapping with 
+            | None -> None
+            | Some mapping -> mapping.eval 
+
+    let forward_evaldecl_to_session pe res zsex dist =       
+        let module M = Message in
+        let open Resource in 
+        let oc = Session.out_channel zsex in
+        let (pe, ds) = match res.name with 
+        | ID id -> (
+            let evaldecl = M.Declaration.EvalDecl M.(EvalDecl.create id [ZProperty.StorageDist.make (Vle.of_int dist)]) in
+            (pe, [evaldecl]))
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
+            let evaldecl = M.Declaration.EvalDecl (M.EvalDecl.create res.local_id [ZProperty.StorageDist.make (Vle.of_int dist)]) in
+            let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
+                (fun m -> match m with 
+                    | Some mapping -> mapping
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; evaldecl]) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+        let open Lwt.Infix in 
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool>|= fun _ -> ())
+
+    let forget_evaldecl_to_session pe res zsex =
+        let module M = Message in
+        let open Resource in 
+        let oc = Session.out_channel zsex in
+        let (pe, ds) = match res.name with 
+        | ID id -> (
+            let fevaldecl = M.Declaration.ForgetEvalDecl M.(ForgetEvalDecl.create id) in
+            (pe, [fevaldecl]))
+        | Path uri -> 
+            let resdecl = M.Declaration.ResourceDecl (M.ResourceDecl.create res.local_id (PathExpr.to_string uri) []) in
+            let fevaldecl = M.Declaration.ForgetEvalDecl M.(ForgetEvalDecl.create res.local_id) in
+            let (pe, _) = update_resource_mapping pe res.name zsex res.local_id 
+                (fun m -> match m with 
+                    | Some mapping -> mapping
+                    | None -> Resource.create_mapping res.local_id (Session.id zsex)) in 
+            let rmap = VleMap.add res.local_id res.name zsex.rmap in
+            let session = {zsex with rmap;} in
+            let smap = SIDMap.add session.sid session pe.smap in
+            ({pe with smap}, [resdecl; fevaldecl]) in
+        let decl = M.Declare (M.Declare.create (true, true) (OutChannel.next_rsn oc) ds) in
+        let open Lwt.Infix in 
+        (pe, Mcodec.ztcp_safe_write_frame_pooled (Session.tx_sex zsex) (Frame.Frame.create [decl]) pe.buffer_pool >|= fun _ -> ())
+
+    let forward_evaldecl pe res trees =
+        let open Spn_trees_mgr in
+        let open Resource in 
+        let evals = List.filter (fun map -> map.eval != None) res.mappings in 
+        let (pe, ps) = (match evals with 
+        | [] -> 
+            SIDMap.fold (fun _ session (pe, ps) -> 
+                match Session.is_broker session with 
+                | true -> let (pe, p) = forget_evaldecl_to_session pe res session in (pe, p::ps)
+                | false -> (pe, ps)) pe.smap (pe, [])
+        | eval :: [] -> 
+            (match SIDMap.find_opt eval.session pe.smap with 
+            | None -> (pe, [])
+            | Some evalsex ->
+            let tsex = Session.tx_sex evalsex in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
+            let (pe, ps) = (match TreeSet.get_parent tree0 with 
+            | None -> TreeSet.get_childs tree0 
+            | Some parent -> parent :: TreeSet.get_childs tree0 )
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                if(tsex != stsex)
+                then 
+                    begin
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
+                    let (pe, p) = forward_evaldecl_to_session pe res s (Option.get eval.eval) in 
+                    (pe, p :: ps)
+                    end
+                else x
+                ) (pe, []) in 
+            let (pe, ps) = match Session.is_broker evalsex with
+            | false -> (pe, ps)
+            | true -> let (pe, p) = forget_evaldecl_to_session pe res evalsex in (pe, p::ps) in 
+            TreeSet.get_broken_links tree0 
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                if(tsex != stsex)
+                then 
+                    begin
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
+                    let (pe, p) = forget_evaldecl_to_session pe res s in 
+                    (pe, p :: ps)
+                    end
+                else x
+                ) (pe, ps))
+        | _ -> 
+            let dist = List.fold_left (fun accu map -> min accu (Option.get map.eval)) (Option.get (List.hd evals).eval) evals in
+            let module TreeSet = (val trees.tree_mod : Spn_tree.Set.S) in
+            let tree0 = Option.get (TreeSet.get_tree trees.tree_set 0) in
+            let (pe, ps) = (match TreeSet.get_parent tree0 with 
+            | None -> TreeSet.get_childs tree0 
+            | Some parent -> parent :: TreeSet.get_childs tree0 )
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
+                    let (pe, p) = forward_evaldecl_to_session pe res s dist in 
+                    (pe, p :: ps)
+                ) (pe, []) in 
+            TreeSet.get_broken_links tree0 
+            |> List.map (fun (node:Spn_tree.Node.t) -> 
+                (List.find_opt (fun peer -> peer.pid = node.node_id) trees.peers))
+            |> List.filter (fun opt -> opt != None)
+            |> List.map (fun peer -> (Option.get peer).tsex)
+            |> List.fold_left (fun x stsex -> 
+                    let (pe, ps) = x in
+                    let s = Option.get @@ SIDMap.find_opt (Session.txid stsex) pe.smap in
+                    let (pe, p) = forget_evaldecl_to_session pe res s in 
+                    (pe, p :: ps)
+                ) (pe, ps))
+        in 
+        Lwt.Infix.(
+        Lwt.catch(fun () -> Lwt.join ps >>= fun () -> Lwt.return pe)
+                (fun ex -> Logs_lwt.debug (fun m -> m "Ex %s" (Printexc.to_string ex)) >>= fun () -> Lwt.return pe))
+
+    let register_eval pe (s:Session.t) ed =
+        let rid = Message.EvalDecl.rid ed in 
+        let dist = match ZProperty.StorageDist.find_opt (Message.EvalDecl.properties ed) with 
+            | Some prop -> (ZProperty.StorageDist.dist prop |> Vle.to_int) + 1
+            | None -> 1 in
+        let resname = res_name s rid in
+        let (pe, res) = update_resource_mapping pe resname s rid 
+            (fun m -> 
+                match m with 
+                | Some m -> {m with eval = Some dist} 
+                | None -> {(Resource.create_mapping rid s.sid) with eval = Some dist;}) in
+        Lwt.return (pe, Some res)
+
+    let unregister_eval pe (s:Session.t) fed =
+        let rid = Message.ForgetEvalDecl.id fed in 
+        let resname = res_name s rid in
+        let (pe, res) = update_resource_mapping_opt pe resname s rid 
+            (fun m -> 
+                match m with 
+                | Some m -> Some {m with eval = None;} 
+                | None -> None) in
+        Lwt.return (pe, res)
+
+    let forward_all_evaldecl pe = 
+        let _ = ResMap.for_all (fun _ res -> Lwt.ignore_result @@ forward_evaldecl pe res pe.trees; true) pe.rmap in ()
+
+    let process_evaldecl pe s ed = 
+        let oldstate = eval_state pe s (Message.EvalDecl.rid ed) in
+        let%lwt (pe, res) = register_eval pe s ed in
+        let newstate = eval_state pe s (Message.EvalDecl.rid ed) in
+        if oldstate <> newstate then 
+        begin
+            match res with 
+            | None -> Lwt.return (pe, [])
+            | Some res -> 
+            let%lwt pe = forward_evaldecl pe res pe.trees in
+            Lwt.return (pe, [])
+        end
+        else Lwt.return (pe, [])
+
+    let process_fevaldecl pe s fed = 
+        let oldstate = eval_state pe s (Message.ForgetEvalDecl.id fed) in
+        let%lwt (pe, res) = unregister_eval pe s fed in
+        let newstate = eval_state pe s (Message.ForgetEvalDecl.id fed) in
+        if oldstate <> newstate then 
+        begin
+            match res with 
+            | None -> Lwt.return (pe, [])
+            | Some res -> 
+            let%lwt pe = forward_evaldecl pe res pe.trees in
+            Lwt.return (pe, [])
+        end
+        else Lwt.return (pe, [])
+
     (* ======================== ======== =========================== *)
 
     let forward_all_decls pe = 
         forward_all_sdecl pe;
-        forward_all_stodecl pe
+        forward_all_stodecl pe;
+        forward_all_evaldecl pe
 
     let make_result pe _ cd =
         Lwt.return (pe, [Message.Declaration.ResultDecl (Message.ResultDecl.create (Message.CommitDecl.commit_id cd) (char_of_int 0) None)])
@@ -611,12 +814,18 @@ open Engine_state
             | StorageDecl sd ->
                 let%lwt _ = Logs_lwt.debug (fun m -> m "StoDecl for resource: %Ld"  (Message.StorageDecl.rid sd)) in
                 process_stodecl pe s sd
+            | EvalDecl ed ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "EvalDecl for resource: %Ld"  (Message.EvalDecl.rid ed)) in
+                process_evaldecl pe s ed
             | ForgetSubscriberDecl fsd ->
                 let%lwt _ = Logs_lwt.debug (fun m -> m "FSDecl for resource: %Ld"  (Message.ForgetSubscriberDecl.id fsd)) in
                 process_fsdecl pe s fsd
             | ForgetStorageDecl fsd ->
                 let%lwt _ = Logs_lwt.debug (fun m -> m "FStoDecl for resource: %Ld"  (Message.ForgetStorageDecl.id fsd)) in
                 process_fstodecl pe s fsd
+            | ForgetEvalDecl fed ->
+                let%lwt _ = Logs_lwt.debug (fun m -> m "FEvalDecl for resource: %Ld"  (Message.ForgetEvalDecl.id fed)) in
+                process_fevaldecl pe s fed
             | CommitDecl cd -> 
                 let%lwt _ = Logs_lwt.debug (fun m -> m "Commit SDecl ") in
                 make_result pe s cd

@@ -6,7 +6,8 @@ module PropertyId = struct
   let snLen = 4L
   let reliability = 6L
   let authData = 12L
-  let queryDest = 16L
+  let destStorages = 16L
+  let destEvals = 17L
 
   let nodeMask = 1L
   let storageDist = 3L
@@ -47,21 +48,42 @@ module StorageDist = struct
   let find_opt = find_opt PropertyId.storageDist
 end
 
-module QueryDest = struct
+module DestStorages = struct
   let make dest = make 
-    PropertyId.queryDest 
+    PropertyId.destStorages 
     (match dest with 
       | Partial    -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
       | Complete q -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 1L buf; Apero.fast_encode_vle (Vle.of_int q) buf; buf
-      | All        -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 2L buf; buf)
+      | All        -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 2L buf; buf
+      | No         -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 3L buf; buf)
 
   let dest = on_value @@ fun buf ->
     Apero.fast_decode_vle buf |> function
     | 1L -> Complete (Apero.fast_decode_vle buf |> Vle.to_int)
     | 2L -> All
+    | 3L -> No
     | _ -> Partial
 
-  let find_opt = find_opt PropertyId.queryDest
+  let find_opt = find_opt PropertyId.destStorages
+end
+
+module DestEvals = struct
+  let make dest = make 
+    PropertyId.destEvals 
+    (match dest with 
+      | Partial    -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
+      | Complete q -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 1L buf; Apero.fast_encode_vle (Vle.of_int q) buf; buf
+      | All        -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 2L buf; buf
+      | No         -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 3L buf; buf)
+
+  let dest = on_value @@ fun buf ->
+    Apero.fast_decode_vle buf |> function
+    | 1L -> Complete (Apero.fast_decode_vle buf |> Vle.to_int)
+    | 2L -> All
+    | 3L -> No
+    | _ -> Partial
+
+  let find_opt = find_opt PropertyId.destEvals
 end
 
 module User = struct 

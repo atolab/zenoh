@@ -3,10 +3,13 @@ open Ztypes
 type sub
 type pub
 type storage
+type eval
 type sublistener = string -> (Abuf.t * data_info) list -> unit Lwt.t
 type queryreply = 
   | StorageData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t; info:data_info}
   | StorageFinal of {stoid:Abuf.t; rsn:int}
+  | EvalData of {stoid:Abuf.t; rsn:int; resname:string; data:Abuf.t; info:data_info}
+  | EvalFinal of {stoid:Abuf.t; rsn:int}
   | ReplyFinal 
 type reply_handler = queryreply -> unit Lwt.t
 type query_handler = string -> string -> (string * Abuf.t * data_info) list Lwt.t
@@ -43,13 +46,17 @@ val unsubscribe : t -> sub -> unit Lwt.t
 
 val store : t -> string -> sublistener -> query_handler -> storage Lwt.t
 
-val query : t -> ?dest:Ztypes.query_dest -> string -> string -> reply_handler -> unit Lwt.t
+val evaluate : t -> string -> query_handler -> eval Lwt.t
 
-val squery : t -> ?dest:Ztypes.query_dest -> string -> string -> queryreply Lwt_stream.t
+val query : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_dest -> string -> string -> reply_handler -> unit Lwt.t
+
+val squery : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_dest -> string -> string -> queryreply Lwt_stream.t
 (* [lquery] returns a stream that will allow to asynchronously iterate through the 
 replies of the query *)
 
-val lquery : t -> ?dest:Ztypes.query_dest -> string -> string -> (string * Abuf.t * data_info) list Lwt.t
+val lquery : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_dest -> string -> string -> (string * Abuf.t * data_info) list Lwt.t
 (* [lquery] consolidates the results of a query and returns them into a list of key values *)
 
 val unstore : t -> storage -> unit Lwt.t
+
+val unevaluate : t -> eval -> unit Lwt.t

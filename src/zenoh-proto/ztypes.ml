@@ -2,6 +2,7 @@ module HLC = Apero_time.HLC.Make (Apero_time.Clock_unix)
 module Timestamp = HLC.Timestamp
 
 type query_dest = 
+| No
 | Partial
 | Complete of int
 | All
