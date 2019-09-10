@@ -467,7 +467,7 @@ let evaluate z resname qhandler =
   Guard.release z.state state ;
   Lwt.return ({z=z; id=evalid; resid=res.rid} : eval)
 
-let query z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate listener = 
+let query z ?(dest_storages=Best_match) ?(dest_evals=Best_match) resname predicate listener = 
   let%lwt _ = process_query z resname predicate (fun source replies -> 
     match source with 
     | Storage -> 
@@ -488,7 +488,7 @@ let query z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate lis
   Lwt.return @@ Guard.release z.state state
 
 
-let squery z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate = 
+let squery z ?(dest_storages=Best_match) ?(dest_evals=Best_match) resname predicate = 
   let stream, push = Lwt_stream.create () in 
   let reply_handler = function
     | ReplyFinal -> push @@ Some ReplyFinal; push None; Lwt.return_unit
@@ -499,7 +499,7 @@ let squery z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate =
 
 type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutable qs: (string * Abuf.t * data_info) list}
 
-let lquery z ?(dest_storages=Partial) ?(dest_evals=Partial) resname predicate =   
+let lquery z ?(dest_storages=Best_match) ?(dest_evals=Best_match) resname predicate =   
   let promise,resolver = Lwt.wait () in 
   let ctx = {resolver; qs = []} in  
   let reply_handler = function

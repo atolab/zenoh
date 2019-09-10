@@ -52,7 +52,7 @@ module DestStorages = struct
   let make dest = make 
     PropertyId.destStorages 
     (match dest with 
-      | Partial    -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
+      | Best_match -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
       | Complete q -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 1L buf; Apero.fast_encode_vle (Vle.of_int q) buf; buf
       | All        -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 2L buf; buf
       | No         -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 3L buf; buf)
@@ -62,7 +62,7 @@ module DestStorages = struct
     | 1L -> Complete (Apero.fast_decode_vle buf |> Vle.to_int)
     | 2L -> All
     | 3L -> No
-    | _ -> Partial
+    | _ -> Best_match
 
   let find_opt = find_opt PropertyId.destStorages
 end
@@ -71,7 +71,7 @@ module DestEvals = struct
   let make dest = make 
     PropertyId.destEvals 
     (match dest with 
-      | Partial    -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
+      | Best_match -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 0L buf; buf
       | Complete q -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 1L buf; Apero.fast_encode_vle (Vle.of_int q) buf; buf
       | All        -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 2L buf; buf
       | No         -> Abuf.create 32 |> fun buf -> Apero.fast_encode_vle 3L buf; buf)
@@ -81,7 +81,7 @@ module DestEvals = struct
     | 1L -> Complete (Apero.fast_decode_vle buf |> Vle.to_int)
     | 2L -> All
     | 3L -> No
-    | _ -> Partial
+    | _ -> Best_match
 
   let find_opt = find_opt PropertyId.destEvals
 end

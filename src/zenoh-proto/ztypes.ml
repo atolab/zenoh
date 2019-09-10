@@ -3,7 +3,7 @@ module Timestamp = HLC.Timestamp
 
 type query_dest = 
 | No
-| Partial
+| Best_match
 | Complete of int
 | All
 

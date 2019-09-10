@@ -49,10 +49,10 @@ let forward_user_query pe sid q =
   let open Resource in 
   let open Lwt.Infix in 
   let destStorages = match ZProperty.DestStorages.find_opt (Message.Query.properties q) with 
-  | None -> Partial
+  | None -> Best_match
   | Some prop -> ZProperty.DestStorages.dest prop in
   let destEvals = match ZProperty.DestEvals.find_opt (Message.Query.properties q) with 
-  | None -> Partial
+  | None -> Best_match
   | Some prop -> ZProperty.DestEvals.dest prop in 
 
   let sub_get_faces coverness dest_kind = 
@@ -85,7 +85,7 @@ let forward_user_query pe sid q =
     | All -> sub_get_faces Matching kind |> List.split |> fst
     | Complete _ -> sub_get_faces Covering kind |> List.split |> fst
     (* TODO : manage quorum *)
-    | Partial -> 
+    | Best_match -> 
       (match sub_get_faces Covering kind with
         | [] -> sub_get_faces Matching kind |> List.split |> fst
         | faces -> 
