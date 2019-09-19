@@ -9,6 +9,10 @@ let zwrite_kind_update = 1L
 let zwrite_kind_remove = 2L
 let empty_buf = Abuf.create 0
 
+let encoding_raw = 0x00L
+let encoding_string = 0x02L
+let encoding_json = 0x04L
+
 
 let respond ?(body="") ?(headers=Headers.empty) ?(status=`OK) reqd =
   let headers = Headers.add headers "content-length" (String.length body |> string_of_int) in
@@ -52,6 +56,37 @@ let on_body_read_complete body (action:Abuf.t -> unit) =
   let buffer = Abuf.create ~grow:1024 1024 in
   Body.schedule_read body ~on_eof:(on_eof buffer) ~on_read:(on_read buffer)
 
+let media_type_regex =
+  (* RFC6838 Media type format:   type "/" [tree "."] subtype ["+" suffix] *[";" parameter]   *)
+  Str.regexp @@ Printf.sprintf "^\\(%s\\)/\\(\\(%s\\)\\.\\)?\\(%s\\)\\(\\+\\(%s\\)\\)?\\(;\\(%s\\)\\)?$"
+    "[A-Za-z0-9][-_!#$&^A-Za-z0-9]*" "[A-Za-z0-9][-_!#$&^A-Za-z0-9]*" "[A-Za-z0-9][-_!#$&^A-Za-z0-9]*" "[A-Za-z0-9][-_!#$&^A-Za-z0-9]*" ".+"
+
+let decode_media_type s =
+  let matched_group_option n =
+    try Str.matched_group n s with Not_found -> ""
+  in
+  if Str.string_match media_type_regex s 0 then
+    (matched_group_option 1) :: (matched_group_option 3) :: (matched_group_option 4) :: (matched_group_option 6) :: (matched_group_option 8) :: []
+  else ( Logs.warn (fun m -> m "[Zhttp] Invalid media type: %s (consider value as RAW encoding)" s); [] )
+
+let encoding_of_content_type = function
+  | None -> encoding_raw
+  | Some s ->
+    let l = decode_media_type s in Logs.info (fun m -> m "[Zhttp] media type: %s" (String.concat " / " l));
+    match l with
+    | [ "text" ; _ ; _ ; _ ; _ ]
+    | [ "application" ; _ ; "x-www-form-urlencoded" ; _ ; _ ]
+    | [ "application" ; _ ; "xml" ; _ ; _ ]
+    | [ "application" ; _ ; "xhtml+xml" ; _ ; _ ]
+      -> encoding_string
+    | [ "application" ; _ ; "json" ; _ ; _ ]
+      -> encoding_json
+    | [] -> Logs.warn (fun m -> m "[Zhttp] Invalid media type: %s (consider value as RAW encoding)" s);
+      encoding_raw
+    | _ -> Logs.debug (fun m -> m "[Zhttp] Unknown media type: %s (default as RAW encoding)" s);
+      encoding_raw
+
+
 let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
   let req = Reqd.request reqd in
   Logs.debug (fun m -> m "[Zhttp] HTTP req: %a on %s with headers: %a"
@@ -86,8 +121,9 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
             on_body_read_complete (Reqd.request_body reqd) (
               fun buf ->
                 Lwt.async (fun _ ->
-                  Logs.debug (fun m -> m "[Zhttp] Zenoh.write put on %s %d bytes" resname (Abuf.readable_bytes buf));
-                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_put ~encoding:0x2L >|= fun _ ->
+                  let encoding = encoding_of_content_type @@ Headers.get req.headers "content-type" in
+                  Logs.debug (fun m -> m "[Zhttp] Zenoh.write put on %s %d bytes with encoding %Ld" resname (Abuf.readable_bytes buf) encoding);
+                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_put ~encoding >|= fun _ ->
                   respond reqd ~status:`No_content)
             )
           end with

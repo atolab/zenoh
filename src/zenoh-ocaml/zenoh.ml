@@ -312,6 +312,7 @@ let zopen ?username ?password peer =
     let sock = socket PF_INET SOCK_STREAM 0 in
     setsockopt sock SO_REUSEADDR true;
     setsockopt sock TCP_NODELAY true;
+    setsockopt sock SO_KEEPALIVE true;
     let saddr = Scanf.sscanf peer "%[^/]/%[^:]:%d" (fun _ ip port -> 
       ADDR_INET (Unix.inet_addr_of_string ip, port)) in
     let name_info = Unix.getnameinfo saddr [NI_NUMERICHOST; NI_NUMERICSERV] in
