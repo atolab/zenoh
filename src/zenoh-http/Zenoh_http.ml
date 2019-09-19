@@ -151,7 +151,7 @@ let run port =
   Lwt_io.establish_server_with_client_socket listen_address 
     (Server.create_connection_handler ~request_handler:(request_handler zenoh zpid) ~error_handler:(error_handler zenoh))
   >|= fun _ ->
-  Logs.debug (fun m -> m "[Zhttp] listening on port: %d" port)
+  Logs.info (fun m -> m "[Zhttp] listening on port tcp/0.0.0.0:%d" port)
 
 let port = Cmdliner.Arg.(value & opt int 8000 & info ["h"; "httpport"] ~docv:"HTTPPORT" ~doc:"Listening http port")
 

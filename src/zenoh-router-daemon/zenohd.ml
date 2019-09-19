@@ -17,57 +17,9 @@ let setup_log style_renderer level =
   Logs.set_reporter (reporter (Format.std_formatter));
   ()
 
-let look_for_plugin plugin =
-  match Sys.file_exists plugin with
-  | true -> Some plugin
-  | false -> match Sys.file_exists (plugin ^ ".cmxs") with
-    | true -> Some (plugin ^ ".cmxs")
-    | false -> match Sys.file_exists (plugin ^ "-plugin.cmxs") with
-      | true -> Some (plugin ^ "-plugin.cmxs")
-      | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name)
-                                        ^ Filename.dir_sep ^ ".."
-                                        ^ Filename.dir_sep ^ "lib"
-                                        ^ Filename.dir_sep ^ plugin) with
-        | true -> Some ((Filename.dirname Sys.executable_name)
-                        ^ Filename.dir_sep ^ ".."
-                        ^ Filename.dir_sep ^ "lib"
-                        ^ Filename.dir_sep ^ plugin)
-        | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name)
-                                          ^ Filename.dir_sep ^ ".."
-                                          ^ Filename.dir_sep ^ "lib"
-                                          ^ Filename.dir_sep ^ plugin ^ ".cmxs") with
-          | true -> Some ((Filename.dirname Sys.executable_name)
-                          ^ Filename.dir_sep ^ ".."
-                          ^ Filename.dir_sep ^ "lib"
-                          ^ Filename.dir_sep ^ plugin ^ ".cmxs")
-          | false -> match Sys.file_exists ((Filename.dirname Sys.executable_name)
-                                            ^ Filename.dir_sep ^ ".."
-                                            ^ Filename.dir_sep ^ "lib"
-                                            ^ Filename.dir_sep ^ plugin ^ "-plugin.cmxs") with
-            | true -> Some ((Filename.dirname Sys.executable_name)
-                            ^ Filename.dir_sep ^ ".."
-                            ^ Filename.dir_sep ^ "lib"
-                            ^ Filename.dir_sep ^ plugin ^ "-plugin.cmxs")
-            | false -> None
-
-
 let run tcpport peers strength usersfile plugins bufn timestamp style_renderer level =
   setup_log style_renderer level;
-  let run () =
-    let res = Zrouter.run tcpport peers strength usersfile bufn timestamp in
-    Lwt_list.iter_p (fun plugin ->
-      let args = String.split_on_char ' ' plugin |> Array.of_list in
-      (try
-        match look_for_plugin args.(0) with
-        | Some plugin ->
-          Dynload.loadfile plugin args
-        | None -> Logs.warn (fun m -> m "Unable to find plugin %s !" plugin)
-      with e -> Logs.warn (fun m -> m "Unable to load plugin %s ! Error: %s" plugin (Printexc.to_string e)));
-      Lwt.return_unit
-    ) plugins |> Lwt.ignore_result;
-    res
-  in
-  Lwt_main.run @@ run ()
+  Lwt_main.run @@ Zrouter.run tcpport peers strength usersfile plugins bufn timestamp
 
 let () =
   Printexc.record_backtrace true;

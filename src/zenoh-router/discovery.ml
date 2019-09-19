@@ -57,7 +57,7 @@ open Engine_state
         match res with 
         | Some res -> 
             let sid = Session.id session in 
-            Logs.info (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string res.name) (Id.to_string sid) (Vle.to_int rid));
+            Logs.debug (fun m -> m "Register resource '%s' mapping [sid : %s, rid : %d]" (ResName.to_string res.name) (Id.to_string sid) (Vle.to_int rid));
             let session = {session with rmap=VleMap.add rid res.name session.rmap;} in      
             let smap = SIDMap.add session.sid session pe.smap in
             ({pe with smap}, Some res)

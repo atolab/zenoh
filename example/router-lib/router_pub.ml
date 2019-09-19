@@ -1,9 +1,9 @@
 open Zenoh
 open Apero
 
-let run tcpport peers strength usersfile bufn timestamp = 
+let run tcpport peers strength usersfile plugins bufn timestamp = 
   Lwt_main.run (
-    let _ = Zrouter.run tcpport peers strength usersfile bufn timestamp in
+    let _ = Zrouter.run tcpport peers strength usersfile plugins bufn timestamp in
     let%lwt z = zopen "" in 
     let%lwt pub = publish z "/home2" in 
     let rec publish i = 
@@ -22,7 +22,8 @@ let () =
                       Zrouter.tcpport $ 
                       Zrouter.peers $ 
                       Zrouter.strength $ 
-                      Zrouter.users $ 
+                      Zrouter.users $
+                      Zrouter.plugins $ 
                       Zrouter.bufn $
                       Zrouter.timestamp, Term.info "router_pub")) 
   in ()

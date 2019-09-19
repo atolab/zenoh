@@ -120,8 +120,9 @@ let rec read_users ic =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength usersfile bufn timestamp = 
+let run tcpport peers strength usersfile plugins bufn timestamp = 
   let open ZEngine in 
+  let%lwt _ = Logs_lwt.info (fun m -> m "Zenoh router starting ...") in
   let users = 
     try match usersfile with 
       | None -> None 
@@ -131,9 +132,9 @@ let run tcpport peers strength usersfile bufn timestamp =
   let peers = String.split_on_char ',' peers 
   |> List.filter (fun s -> not (String.equal s ""))
   |> List.map (fun s -> Option.get @@ Locator.of_string s) in
-  let%lwt _ = Logs_lwt.info (fun m -> m "pid : %s" (Uuid.to_bytes uid |> Bytes.unsafe_of_string |> Abuf.from_bytes |> Abuf.hexdump)) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "pid     : %s" (Uuid.to_bytes uid |> Bytes.unsafe_of_string |> Abuf.from_bytes |> Abuf.hexdump)) in
   let%lwt _ = Logs_lwt.info (fun m -> m "tcpport : %d" tcpport) in
-  let%lwt _ = Logs_lwt.info (fun m -> m "peers : %s" (to_string peers)) in
+  let%lwt _ = Logs_lwt.info (fun m -> m "peers   : %s" (to_string peers)) in
   let locator = Option.get @@ Iplocator.TcpLocator.of_string (Printf.sprintf "tcp/0.0.0.0:%d" tcpport);  in
 
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
@@ -192,6 +193,8 @@ let run tcpport peers strength usersfile bufn timestamp =
       local_loop () |> Lwt.ignore_result;
       Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit);
   in
+
+  Zplugins.load_plugins plugins;
 
   Lwt.join [ZTcpTransport.start tx (fun _ -> 
                                     let rbuf1 = Abuf.create ~grow:4096 buf_size in 
