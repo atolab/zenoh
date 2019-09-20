@@ -241,7 +241,7 @@ let process_incoming_message msg resolver t =
           let rep_value = (Some (pid, Vle.of_int rsn, resname, Payload.create ~header:ctx data)) in
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) source rep_value)))
         >>= fun () -> 
-          let rep_value = (Some (pid, Vle.of_int (List.length replies), "", Payload.create ~header:empty_data_info @@ Abuf.create 0)) in
+          let rep_value = (Some (pid, Vle.of_int (List.length replies), "", Payload.from_buffer true (Abuf.create 0))) in
           send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) source rep_value)))
       >>= fun () -> send_message t.sock (Message.Reply(Reply.create (Query.pid qmsg) (Query.qid qmsg) Storage None)))
       |> Lwt.ignore_result; Lwt.return_true
