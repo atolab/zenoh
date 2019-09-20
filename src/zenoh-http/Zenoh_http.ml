@@ -36,7 +36,8 @@ let respond_unsupported reqd meth path = respond reqd ~status:`Bad_request ~body
 
 let json_of_results (results : (string * Abuf.t * Ztypes.data_info) list) =
   (* We assume the value can be decoded as a string *)
-  let string_of_buf = Apero.compose Bytes.to_string Apero.decode_bytes in
+  let read_all_bytes buf = Abuf.read_bytes (Abuf.readable_bytes buf) buf in
+  let string_of_buf = Apero.compose Bytes.to_string read_all_bytes in
   results
   |> List.map (fun (resname, buf, _) -> Printf.sprintf "\"%s\" : %s" resname  (string_of_buf buf))
   |> String.concat ",\n"
