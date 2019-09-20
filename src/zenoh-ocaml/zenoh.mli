@@ -22,6 +22,8 @@ val zopen : ?username:string -> ?password:string -> string -> t Lwt.t
    and a local session is opened with the locally running router. 
    If not, zenoh will try to connect to a zenoh router at the given [locator]. *)
 
+val zclose : t -> unit Lwt.t
+
 val info : t -> Apero.properties
 
 val publish : t -> string -> pub Lwt.t

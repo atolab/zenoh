@@ -324,6 +324,11 @@ let zopen ?username ?password peer =
     let _ = con >>= fun _ -> send_message sock (make_open username password) in
     con >>= fun _ -> promise
 
+let zclose z =
+  (* TODO: implement clean closure *)
+  ignore z;
+  Lwt.return_unit
+
 let info z =
   let peer = 
   match z.sock with 
