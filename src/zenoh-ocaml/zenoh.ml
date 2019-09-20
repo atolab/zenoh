@@ -260,18 +260,18 @@ let process_incoming_message msg resolver t =
                   |> Lwt.ignore_result;
                   clean_query t (Reply.qid rmsg)
         | Some (stoid, rsn, resname, payload) -> 
-          let data = Payload.data payload in
-          (match (Reply.source rmsg, Abuf.readable_bytes data) with 
+          let payload_buffer = Payload.buffer payload in
+          (match (Reply.source rmsg, Abuf.readable_bytes payload_buffer) with 
           | Storage, 0 -> Lwt.catch(fun () -> query.listener (StorageFinal({stoid; rsn=(Vle.to_int rsn)})))
                             (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
                           |> Lwt.ignore_result; Lwt.return_unit
           | Eval, 0 ->  Lwt.catch(fun () -> query.listener (EvalFinal({stoid; rsn=(Vle.to_int rsn)})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
                         |> Lwt.ignore_result; Lwt.return_unit
-          | Storage, _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
+          | Storage, _ -> Lwt.catch(fun () -> query.listener (StorageData({stoid; rsn=(Vle.to_int rsn); resname; data=Payload.data payload; info=Payload.header payload})))
                             (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
                           |> Lwt.ignore_result; Lwt.return_unit
-          | Eval, _ ->  Lwt.catch(fun () -> query.listener (EvalData({stoid; rsn=(Vle.to_int rsn); resname; data; info=Payload.header payload})))
+          | Eval, _ ->  Lwt.catch(fun () -> query.listener (EvalData({stoid; rsn=(Vle.to_int rsn); resname; data=Payload.data payload; info=Payload.header payload})))
                           (fun e -> Logs_lwt.info (fun m -> m "Reply handler raised exception %s" (Printexc.to_string e)))
                         |> Lwt.ignore_result; Lwt.return_unit
           )) >>= fun _ -> return_true )
