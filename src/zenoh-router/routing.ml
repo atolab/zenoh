@@ -194,8 +194,8 @@ let process_user_writedata pe session msg =
           Session.txid peer.tsex = session.sid) pe.trees.peers with 
       | Some peer -> peer.pid
       | None -> "UNKNOWN" in
-      m "Handling WriteData Message. nid[%s] sid[%s] res[%s]" 
-        nid (Id.to_string session.sid) (Message.WriteData.resource msg)) in
+      m "Handling WriteData Message. nid[%s] sid[%s] res[%s] [%s]" 
+        nid (Id.to_string session.sid) (Message.WriteData.resource msg) (Abuf.hexdump (Payload.buffer (Message.WriteData.payload msg)))) in
   let name = ResName.Path(PathExpr.of_string @@ Message.WriteData.resource msg) in
   let%lwt payload = stamp_payload pe (Message.WriteData.payload msg) in
   match store_data pe name payload with 
