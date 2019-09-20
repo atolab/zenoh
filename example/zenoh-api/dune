@@ -1,29 +1,35 @@
 (executable
-  (name       sub)
-  (modules    sub)
+  (name       z_stream)
+  (modules    z_stream)
   (libraries  zenoh-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
-  (name       pub)
-  (modules    pub)
+  (name       z_write)
+  (modules    z_write)
   (libraries  zenoh-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
-  (name       storage)
-  (modules    storage)
+  (name       z_sub)
+  (modules    z_sub)
   (libraries  zenoh-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
-  (name       eval)
-  (modules    eval)
+  (name       z_storage)
+  (modules    z_storage)
   (libraries  zenoh-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
-  (name       query)
-  (modules    query)
+  (name       z_eval)
+  (modules    z_eval)
+  (libraries  zenoh-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       z_query)
+  (modules    z_query)
   (libraries  zenoh-ocaml)
   (preprocess (pps lwt_ppx)))
