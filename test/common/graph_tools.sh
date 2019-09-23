@@ -26,6 +26,7 @@ broker_cmd()
   graph=$1
   node=$2
   port=$node
+  httpport=$(($port - 1000))
   peers=""
   for peer in `cat $graph | grep -e "$node *\-\-" | sed "s% *\([0-9]*\) *-- *\([0-9]*\)[^0-9].*%\2%g"`
   do 
@@ -39,9 +40,9 @@ broker_cmd()
   #printf "%-100s > %s\n" "zenohd.exe -t $i -p $peers" "\$outdir/zenohd_$i.log 2>&1"
   if [[ $peers == "" ]] 
   then 
-    echo "zenohd.exe -t $port -s $node"
+    echo "zenohd.exe -P \"$ZENOH_HTTP -h $httpport\" -t $port -s $node"
   else
-    echo "zenohd.exe -t $port -s $node -p $peers"
+    echo "zenohd.exe -P \"$ZENOH_HTTP -h $httpport\" -t $port -s $node -p $peers"
   fi
 }
 
