@@ -39,7 +39,10 @@ let forward_query_to pe q = List.map (fun s -> forward_query_to_session pe q s)
 
 let forward_amdin_query pe sid q = 
   let open Lwt.Infix in 
-  let faces = SIDMap.bindings pe.smap |> List.filter (fun (k, _) -> k <> sid) |> List.split |> fst  in 
+  let faces = SIDMap.bindings pe.smap 
+    |> List.filter (fun (id, s) -> id <> sid && Session.is_broker s) 
+    |> List.split |> fst
+  in 
   Lwt.join @@ forward_query_to pe q faces >>= fun _ -> Lwt.return faces
 
 type dest_kind = | Storages | Evals
