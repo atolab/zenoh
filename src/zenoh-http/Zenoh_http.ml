@@ -19,13 +19,11 @@ let respond ?(body="") ?(headers=Headers.empty) ?(status=`OK) reqd =
   let headers = Headers.add headers "Access-Control-Allow-Origin" "*" in
   Reqd.respond_with_string reqd (Response.create ~headers status) body
 
-let respond_usage = respond ~status:`Bad_request ~body:(
-  "Welcome to ZENOH REST API\n\n"^
-  "Usage:\n\n"^
-  "  GET resource?query \n"^
-  "    => get all the values for 'resource' using 'query'\n"^
-  "  POST /@/local/**\n"^
-  "   => get all keys/values from Admin Space\n")
+let respond_file path reqd = 
+  try respond ~body:(OCamlRes.Res.find (OCamlRes.Path.of_string path) Resources.root) reqd; true
+  with Not_found -> 
+  try respond ~body:(OCamlRes.Res.find (OCamlRes.Path.of_string (path^"/index.html")) Resources.root) reqd; true
+  with Not_found -> false
 
 let respond_internal_error reqd error = respond reqd ~status:`Internal_server_error ~body:
   ("INTERNAL ERROR: "^error)
@@ -101,17 +99,14 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
   in
   let predicate = Astring.with_range ~first:1 predicate in
   try begin
-    if resname = "/" then
-      respond_usage reqd
-    else
       match req.meth with
       | `GET -> begin
         Lwt.async (fun _ ->
           try begin
             Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery on %s with predicate: %s" resname predicate);
-            Zenoh.lquery zenoh resname predicate >|=
-            json_of_results >|= fun body ->
-            respond reqd ~body
+            Zenoh.lquery zenoh resname predicate >|= function 
+            | [] -> if not (respond_file resname reqd) then respond reqd ~body:"{}"
+            | results -> respond reqd ~body:(json_of_results results)
           end with
           | exn ->
             respond_internal_error reqd (Printexc.to_string exn); Lwt.return_unit

@@ -2,7 +2,7 @@
   (name            zenoh_http)
   (public_name     zenoh-http)
   (wrapped         false)
-  (libraries       zenoh-router dynload-sys httpaf httpaf-lwt-unix)
+  (libraries       zenoh-router dynload-sys httpaf httpaf-lwt-unix ocplib-ocamlres)
   (preprocess      (pps lwt_ppx)))
 
 (rule
@@ -18,3 +18,8 @@
                   -package zenoh-http
                   -o %{targets}
   )))
+
+(rule
+  (targets resources.ml)
+  (deps    (source_tree resources))
+  (action  (run ocp-ocamlres resources -o %{targets})))
