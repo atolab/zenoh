@@ -37,7 +37,7 @@ let json_of_results (results : (string * Abuf.t * Ztypes.data_info) list) =
   let read_all_bytes buf = Abuf.read_bytes (Abuf.readable_bytes buf) buf in
   let string_of_buf = Apero.compose Bytes.to_string read_all_bytes in
   results
-  |> List.map (fun (resname, buf, _) -> Printf.sprintf "\"%s\" : %s" resname  (string_of_buf buf))
+  |> List.map (fun (resname, buf, _) -> Printf.sprintf "\"%s\" : \"%s\"" resname  (string_of_buf buf)) (* TODO: manage encoding of values *)
   |> String.concat ",\n"
   |> Printf.sprintf "{%s}"
 
@@ -103,6 +103,7 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
       | `GET -> begin
         Lwt.async (fun _ ->
           try begin
+            (* TODO: manage "accept" header *)
             Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery on %s with predicate: %s" resname predicate);
             Zenoh.lquery zenoh resname predicate >|= function 
             | [] -> if not (respond_file resname reqd) then respond reqd ~body:"{}"
@@ -131,8 +132,9 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
             on_body_read_complete (Reqd.request_body reqd) (
               fun buf ->
                 Lwt.async (fun _ ->
-                  Logs.debug (fun m -> m "[Zhttp] Zenoh.write update on %s %d bytes" resname (Abuf.readable_bytes buf));
-                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_update >|= fun _ ->
+                  let encoding = encoding_of_content_type @@ Headers.get req.headers "content-type" in
+                  Logs.debug (fun m -> m "[Zhttp] Zenoh.write update on %s %d bytes with encoding %Ld" resname (Abuf.readable_bytes buf) encoding);
+                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_update ~encoding >|= fun _ ->
                   respond reqd ~status:`No_content)
             )
           end with
