@@ -37,7 +37,11 @@ let json_of_results (results : (string * Abuf.t * Ztypes.data_info) list) =
   let read_all_bytes buf = Abuf.read_bytes (Abuf.readable_bytes buf) buf in
   let string_of_buf = Apero.compose Bytes.to_string read_all_bytes in
   results
-  |> List.map (fun (resname, buf, _) -> Printf.sprintf "\"%s\" : \"%s\"" resname  (string_of_buf buf)) (* TODO: manage encoding of values *)
+  |> List.map (fun (resname, buf, info) -> 
+      match Ztypes.(info.encoding) with
+      | Some e when e=encoding_json -> Printf.sprintf "\"%s\" : %s" resname  (string_of_buf buf)
+      | _ -> Printf.sprintf "\"%s\" : \"%s\"" resname  (string_of_buf buf)
+      )
   |> String.concat ",\n"
   |> Printf.sprintf "{%s}"
 
