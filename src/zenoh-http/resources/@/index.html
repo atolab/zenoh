@@ -9,9 +9,10 @@
         <link href="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/7.0.4/jsoneditor.min.css" rel="stylesheet" type="text/css" />
         <style>
             * {font-family: sans-serif;}
+            #frame-gtool { width: 100%; height: 80vh; border:0px;}
             .etabs { margin: 0; padding: 0; }
             .tab { display: inline-block; zoom:1; *display:inline; background: #eee; border: solid 1px #999; border-bottom: none; -moz-border-radius: 4px 4px 0 0; -webkit-border-radius: 4px 4px 0 0; }
-            .tab a { font-size: 14px; line-height: 2em; display: block; padding: 0 10px; outline: none; }
+            .tab a { font-size: 14px; line-height: 2em; display: block; padding: 0 10px; outline: none; color: #000; text-decoration: none;}
             .tab a:hover { text-decoration: underline; }
             .tab.active { background: #fff; padding-top: 6px; position: relative; top: 1px; border-color: #666; }
             .tab a.active { font-weight: bold; }
@@ -25,6 +26,7 @@
             <ul class='etabs'>
                 <li class='tab'><a href="#tabs1-localrouter">Local router</a></li>
                 <li class='tab'><a href="#tabs1-allrouters">All routers</a></li>
+                <li class='tab'><a href="#tabs1-gtool">Graph tool</a></li>
             </ul>
             <div class='panel-container'>
                 <div id="tabs1-localrouter">
@@ -41,6 +43,9 @@
                     <h2>Plugins</h2>
                     <div id="allplugins"></div>
                 </div>
+                <div id="tabs1-gtool">
+                    <iframe id="frame-gtool" src=""></iframe>
+                </div>
             </div>
         </div>
         <script>
@@ -56,32 +61,33 @@
             const allplugins = new JSONEditor(
                 document.getElementById('allplugins'), 
                 {mode: 'view'});
+
             const tabs = {
-                "": {
-                    "/@/local": localrouter,
-                    "/@/local/plugins/*": localplugins
+                "": function () {
+                    $.get("/@/local", function(json) {localrouter.updateText(json);});
+                    $.get("/@/local/plugins/*", function(json) {localplugins.updateText(json);});
                 },
-                "tabs1-localrouter": {
-                    "/@/local": localrouter,
-                    "/@/local/plugins/*": localplugins
+                "tabs1-localrouter": function () {
+                    $.get("/@/local", function(json) {localrouter.updateText(json);});
+                    $.get("/@/local/plugins/*", function(json) {localplugins.updateText(json);});
                 },
-                "tabs1-allrouters": {
-                    "/@/*": allrouters,
-                    "/@/*/plugins/*": allplugins
+                "tabs1-allrouters": function () {
+                    $.get("/@/*", function(json) {allrouters.updateText(json);});
+                    $.get("/@/*/plugins/*", function(json) {allplugins.updateText(json);});
+                },
+                "tabs1-gtool": function () {
+                    if($('#frame-gtool').attr('src') == "") {
+                        $('#frame-gtool').attr('src', '/@/gtool.html');
+                    }else{
+                        document.getElementById('frame-gtool').contentWindow.postMessage("refresh", "*");
+                    }
                 }
-            }
-            function displayContent(tab) {
-                Object.keys(tabs[tab]).forEach(function(url) {
-                    $.get(url, function(json) {
-                        tabs[tab][url].updateText(json);
-                     })
-                });
             }
             $(document).ready( function() {
                 $('#tab-container').easytabs();
-                displayContent(window.location.hash.substr(1));
+                tabs[window.location.hash.substr(1)].call();
                 $('#tab-container').bind('easytabs:midTransition', function(_, _, panel) {
-                    displayContent(panel[0].id);
+                    tabs[panel[0].id].call();
                 })
             });
         </script>

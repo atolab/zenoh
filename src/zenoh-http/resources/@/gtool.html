@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/jquery-jsonview/1.2.3/jquery.jsonview.min.css" rel="stylesheet" type="text/css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/css-spinning-spinners/1.1.0/load8.css" />
+    
+        <style type="text/css">
+            body {font-family:sans-serif;}
+            #topconfpanel {font-size: 12px; height:6vh;}
+            #sideconfpanel {
+                border: 1px solid lightgrey; 
+                font-size: 12px; 
+                float:left;
+                width:   15%;
+                height: 100%;
+                overflow:scroll;
+                border: 1px solid lightgrey;}
+            #sideconfpanel form {margin-left:5px; padding-top:5px; }
+            #sideconfpanel div {padding-top:10px; padding-bottom:10px;}
+            #zenohconfpanel {border-top: 1px solid lightgrey;}
+            #yaksconfpanel {border-top: 1px solid lightgrey;}
+            .subconf {margin-left:20px;}
+            #displaypanel {height:90vh;}
+            #server {float:left;}
+            #graph {
+                float:left;
+                width:   50%;
+                height: 100%;
+                border: 1px solid lightgrey;
+            }
+            #data {
+                float:left;
+                width:   34%;
+                height: 100%;
+                overflow:scroll;
+                border: 1px solid lightgrey;
+            }
+            button {
+                padding-left:30px;
+                padding-right:30px;
+            }
+            .loading:before { 
+                position:relative; 
+                left: -10px; top: 7px; 
+                font-size: 1px; 
+                float:left; 
+            }
+            #message{ 
+                color:red;
+                font-weight:bold;
+                font-size: 12px; 
+            }
+
+        </style>
+    </head>
+<body>
+    
+<div id="topconfpanel">
+    <!-- <form id="server" onsubmit="redraw();return false">
+        <input id="serveraddress" type="text" name="address" value="http://127.0.0.1:8000" size="50"/>
+        <div><span id="message"></span></div>
+    </form> -->
+    <div><span id="message"></span></div>
+    <button id="refresh"     onclick="refresh()"    >Refresh</button>
+    <button id="autorefresh" onclick="autorefresh()">Auto refresh</button>
+    <button id="redraw"      onclick="redraw()"     >Redraw</button>
+</div>
+<div id="displaypanel">
+    <div id="sideconfpanel">
+        <div id="zenohconfpanel">
+            <b>zenoh</b>
+            <form id="zenoh" onsubmit="return false">
+                <input type="checkbox" id="zenohservices" name="zenohservices" value="zenohservices" onchange='showHideZenohServices(this);' checked> Show zenoh routers<br>
+            </form>
+        </div>
+        <div id="yaksconfpanel">
+            <b>yaks</b>
+            <form id="yaks" onsubmit="return false">
+                <input type="checkbox" id="yaksservices" name="yaksservices" value="yaksservices" onchange='showHideYaksServices(this);' checked> Show yaks plugins<br>
+            </form>
+            <div id="yaksbackendsconfpanel" class="subconf">
+                <b>backends</b>
+                <form id="yaks2" onsubmit="return false">
+                    <input type="radio" id="yaksbackends" name="yaksbackends" value="yaksbackendsnone" onclick='showHideYaksBackends();'> Hide all backends<br>
+                    <input type="radio" id="yaksbackends" name="yaksbackends" value="yaksbackendsselected" onclick='showHideYaksBackends();' checked> Show selected yaks backends<br>
+                    <input type="radio" id="yaksbackends" name="yaksbackends" value="yaksbackendsall" onclick='showHideYaksBackends();'> Show all backends<br><br>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div id="graph"></div>
+    <div id="data"></div>
+</div>
+
+<script type="text/javascript">
+    $.ajaxSetup({timeout:1000});
+    window.addEventListener("message", function (event) {if(event.data == "refresh"){refresh();}}, false);
+
+    var cloud = "data:image/svg+xml;charset=utf-8,"+ encodeURIComponent(
+        '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">' +
+        '<svg version="1.2" width="53.41mm" height="33.05mm" viewBox="861 1119 5341 3305" preserveAspectRatio="xMidYMid" fill-rule="evenodd" stroke-width="28.222" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" xmlns:ooo="http://xml.openoffice.org/svg/export" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:presentation="http://sun.com/xmlns/staroffice/presentation" xmlns:smil="http://www.w3.org/2001/SMIL20/" xmlns:anim="urn:oasis:names:tc:opendocument:xmlns:animation:1.0" xml:space="preserve">' +
+        ' <defs class="ClipPathGroup"><clipPath id="presentation_clip_path" clipPathUnits="userSpaceOnUse"><rect x="861" y="1119" width="5341" height="3305"/></clipPath><clipPath id="presentation_clip_path_shrink" clipPathUnits="userSpaceOnUse"><rect x="866" y="1122" width="5331" height="3299"/></clipPath></defs>' +
+        ' <defs class="TextShapeIndex"><g ooo:slide="id1" ooo:id-list="id3"/></defs>' +
+        ' <defs class="EmbeddedBulletChars">' +
+        '  <g id="bullet-char-template-57356" transform="scale(0.00048828125,-0.00048828125)"><path d="M 580,1141 L 1163,571 580,0 -4,571 580,1141 Z"/></g>' +
+        '  <g id="bullet-char-template-57354" transform="scale(0.00048828125,-0.00048828125)"><path d="M 8,1128 L 1137,1128 1137,0 8,0 8,1128 Z"/></g>' +
+        '  <g id="bullet-char-template-10146" transform="scale(0.00048828125,-0.00048828125)"><path d="M 174,0 L 602,739 174,1481 1456,739 174,0 Z M 1358,739 L 309,1346 659,739 1358,739 Z"/></g>' +
+        '  <g id="bullet-char-template-10132" transform="scale(0.00048828125,-0.00048828125)"><path d="M 2015,739 L 1276,0 717,0 1260,543 174,543 174,936 1260,936 717,1481 1274,1481 2015,739 Z"/></g>' +
+        '  <g id="bullet-char-template-10007" transform="scale(0.00048828125,-0.00048828125)"><path d="M 0,-2 C -7,14 -16,27 -25,37 L 356,567 C 262,823 215,952 215,954 215,979 228,992 255,992 264,992 276,990 289,987 310,991 331,999 354,1012 L 381,999 492,748 772,1049 836,1024 860,1049 C 881,1039 901,1025 922,1006 886,937 835,863 770,784 769,783 710,716 594,584 L 774,223 C 774,196 753,168 711,139 L 727,119 C 717,90 699,76 672,76 641,76 570,178 457,381 L 164,-76 C 142,-110 111,-127 72,-127 30,-127 9,-110 8,-76 1,-67 -2,-52 -2,-32 -2,-23 -1,-13 0,-2 Z"/></g>' +
+        '  <g id="bullet-char-template-10004" transform="scale(0.00048828125,-0.00048828125)"><path d="M 285,-33 C 182,-33 111,30 74,156 52,228 41,333 41,471 41,549 55,616 82,672 116,743 169,778 240,778 293,778 328,747 346,684 L 369,508 C 377,444 397,411 428,410 L 1163,1116 C 1174,1127 1196,1133 1229,1133 1271,1133 1292,1118 1292,1087 L 1292,965 C 1292,929 1282,901 1262,881 L 442,47 C 390,-6 338,-33 285,-33 Z"/></g>' +
+        '  <g id="bullet-char-template-9679" transform="scale(0.00048828125,-0.00048828125)"><path d="M 813,0 C 632,0 489,54 383,161 276,268 223,411 223,592 223,773 276,916 383,1023 489,1130 632,1184 813,1184 992,1184 1136,1130 1245,1023 1353,916 1407,772 1407,592 1407,412 1353,268 1245,161 1136,54 992,0 813,0 Z"/></g>' +
+        '  <g id="bullet-char-template-8226" transform="scale(0.00048828125,-0.00048828125)"><path d="M 346,457 C 273,457 209,483 155,535 101,586 74,649 74,723 74,796 101,859 155,911 209,963 273,989 346,989 419,989 480,963 531,910 582,859 608,796 608,723 608,648 583,586 532,535 482,483 420,457 346,457 Z"/></g>' +
+        '  <g id="bullet-char-template-8211" transform="scale(0.00048828125,-0.00048828125)"><path d="M -4,459 L 1135,459 1135,606 -4,606 -4,459 Z"/></g>' +
+        '  <g id="bullet-char-template-61548" transform="scale(0.00048828125,-0.00048828125)"><path d="M 173,740 C 173,903 231,1043 346,1159 462,1274 601,1332 765,1332 928,1332 1067,1274 1183,1159 1299,1043 1357,903 1357,740 1357,577 1299,437 1183,322 1067,206 928,148 765,148 601,148 462,206 346,322 231,437 173,577 173,740 Z"/></g>' +
+        ' </defs>' +
+        ' <defs class="TextEmbeddedBitmaps"/><g class="SlideGroup"><g><g id="container-id1"><g id="id1" class="Slide" clip-path="url(#presentation_clip_path)"><g class="Page"><g class="com.sun.star.drawing.ClosedBezierShape"><g id="id3"><rect class="BoundingBox" stroke="none" fill="none" x="861" y="1119" width="5342" height="3307"/><path fill="rgb(255,255,255)" stroke="none" d="M 967,3536 C 967,3147 1226,2841 1588,2769 1453,2661 1366,2491 1366,2299 1366,1959 1628,1697 1968,1697 2100,1697 2219,1738 2319,1806 2535,1453 2926,1225 3386,1225 4018,1225 4517,1654 4621,2245 4729,2175 4861,2135 5005,2135 5396,2135 5696,2434 5696,2827 5696,2962 5658,3088 5597,3194 5884,3223 6096,3455 6096,3753 6096,4055 5879,4290 5588,4315 L 5588,4318 5533,4318 1749,4318 1731,4318 C 1296,4309 967,3974 967,3536 Z"/><path fill="none" stroke="rgb(0,67,137)" stroke-width="212" stroke-linejoin="round" d="M 967,3536 C 967,3147 1226,2841 1588,2769 1453,2661 1366,2491 1366,2299 1366,1959 1628,1697 1968,1697 2100,1697 2219,1738 2319,1806 2535,1453 2926,1225 3386,1225 4018,1225 4517,1654 4621,2245 4729,2175 4861,2135 5005,2135 5396,2135 5696,2434 5696,2827 5696,2962 5658,3088 5597,3194 5884,3223 6096,3455 6096,3753 6096,4055 5879,4290 5588,4315 L 5588,4318 5533,4318 1749,4318 1731,4318 C 1296,4309 967,3974 967,3536 Z"/></g></g></g></g></g></g></g></svg>'
+    );
+
+    var tree_colors = ["#7777FF","#FF0000","#00FF00","#FFFF00","#00FFFF","#FF00FF"]
+
+    var nodes = new vis.DataSet();
+    var edges = new vis.DataSet();
+    var container = document.getElementById('graph');
+    var data = {
+        nodes: nodes,
+        edges: edges
+    };
+    var default_node_color = {background:"#7BBCFF", border:"#00356D", 
+                              highlight:{background:"#1387FF", border:"#00356D"}};
+    var default_node_text_color = "#000000";
+    var disabled_node_color = {background:"#F5F5F5", border:"#BBBBBB", 
+                               highlight:{background:"#F5F5F5", border:"#BBBBBB"}};
+    var disabled_node_text_color = "#BBBBBB";
+    var default_edge_color = {color:"grey", highlight:"grey", hover:"grey"};
+    var disabled_edge_color = {color:"#EEEEEE", highlight:"#EEEEEE", hover:"#EEEEEE"};
+    var flow_edge_color = {color:"#1387FF", highlight:"#1387FF", hover:"#1387FF"};
+
+    var default_yaks_node_color  = {background:"#00DD00", border:"#005500", 
+                                    highlight:{background:"#00BB00", border:"#005500"}};
+    var default_store_node_color = {background:"#00DD00", border:"#005500", 
+                                    highlight:{background:"#00BB00", border:"#005500"}};
+               
+    var options = {
+        edges:{font:{face:'courier', size:10, multi:"html", bold:{face:'courier bold', size:12}}, selectionWidth:0},
+        nodes:{shape:"box", heightConstraint:50, widthConstraint:60, margin:10, 
+               font:{face:'courier', size:10, multi:"html", align:'left', bold:{face:'courier bold', size:12}},
+               color:default_node_color},
+        physics:{enabled:true}
+    };
+    var network;
+
+    redraw();
+
+    function parentLinkId(from, to, tree_nb) {
+        return "" + tree_nb + "_" + from + "_" + to;
+    }
+    
+    function brokenLinkId(node1, node2) {
+        return "bk_" + (node1>node2?node1:node2) + "_" + (node1>node2?node2:node1);
+    }
+
+    function updateDataSet(set, elements) {
+        set.update(elements);
+        set.getIds().forEach(function(id) {
+            if(elements.find(function(elem){return elem.id === id}) === undefined) {
+                try{ set.remove(id); } catch(err) {}
+            }
+        });
+    }
+
+    function containsLinkBetween(edgeset, node1, node2) {
+        return edgeset.find(function (edge) {
+                return (edge.from === node1 && edge.to === node2) ||
+                    (edge.from === node2 && edge.to === node1);
+            }) !== undefined ;
+    }
+
+    function backendSVG(backend) {
+        svg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">' +
+        '<foreignObject x="0" y="0" width="100%" height="100%">' +
+        '<div xmlns="http://www.w3.org/1999/xhtml" style="' + 
+            'font-size:12px; font-family: monospace; color:#000000; height:90%; width:90%; border:1px solid #000000; background-color:#00DD00; ' + 
+            'text-align:center; padding:2px;overflow:hidden; ">' +
+            '<div style="margin:1px; padding:2px; display:block; ">' + '<span style="font-weight:bold;">' + backend[0] + '</span>';
+                if (backend[1].storage) {
+                    Object.entries(backend[1].storage).forEach( function(stEntry, stidx) {
+                        stId = stEntry[0]
+                        sel = stEntry[1].selector
+                        svg = svg +
+                        '<div style="border:1px solid #000000; margin:1px; display:block; font-size:10px; overflow:hidden;">' + 
+                            '<span style="font-weight:bold;">' + stId + '</span>' + 
+                            // '<br/>' + sel + 
+                        '</div>';
+                    });
+                }
+            svg = svg + '</div>';
+        svg = svg +    
+        '</div>' +
+        '</foreignObject>' +
+        '</svg>';
+        return svg;
+    }
+
+    function updateNodes(zServices, yServices) {
+        zNodes = Object.keys(zServices).map( function(id, idx) {
+            label = "<b>" + zServices[id].pid.substring(0, 6) + "..</b>" + "\n\n" + 
+                    "TCP:" + zServices[id].locators[0].split("/")[1].split(":")[1];
+            return {id: zServices[id].pid, label: label};
+        });
+        
+        yNodes = Object.keys(yServices).map( function(id, idx) {
+            label = "<b>" + id.substring(3, 9) + "..</b>" + "\n";
+            yNode = {id: id, label: label, color:default_yaks_node_color};
+
+            var yNodes = [];
+            Object.entries(yServices[id].backend).forEach( function(beEnrty, beidx) {
+                url = "data:image/svg+xml;charset=utf-8,"+ encodeURIComponent(backendSVG(beEnrty));
+                yNodes.push({id: id+"/backend/"+beEnrty[0], image:url, color:default_store_node_color, shape:'image', size:40});
+            });
+            yNodes.push(yNode);
+            return yNodes;
+
+        }).flat();
+
+        newNodes = zNodes.concat(yNodes);
+        updateDataSet(nodes, newNodes);
+    }
+
+    function getSessionForPeer(service, peerid) {
+        peer = service.trees.peers.find(function(peer){return (peer.pid === peerid);});
+        return service.sessions.find(function(session){return (session.sid === peer.sid);});
+    }
+
+    function updateEdges(zServices, yServices) {
+        treelinks = Object.keys(zServices).map( function(id, idx) {
+            return zServices[id].trees.tree_set
+                .filter( function (tree){ return tree.local.parent != null;})
+                .map( function (tree){ 
+                    tpup = getSessionForPeer(zServices[id], tree.local.parent).stats.out_msgs_tp;
+                    tpdwn = getSessionForPeer(zServices["/@/" + tree.local.parent], zServices[id].pid).stats.out_msgs_tp;
+                    label= "<b>" + (tpup + tpdwn).toString() + " m/s" + "</b>";
+                    if ((tpup + tpdwn) > 0)
+                    {
+                        arrows = '';
+                        if (tpup > 0) {arrows += 'to, '}
+                        if (tpdwn > 0) {arrows += 'from, '}
+                        return {
+                        id: parentLinkId(zServices[id].pid, tree.local.parent),
+                        from: zServices[id].pid, to: tree.local.parent, 
+                        label:label, arrows: arrows, 
+                        color:flow_edge_color, dashes:false, width:4};
+                    }
+                    else
+                    {
+                        return {
+                        id: parentLinkId(zServices[id].pid, tree.local.parent),
+                        from: zServices[id].pid, to: tree.local.parent, 
+                        label:label, arrows:'', 
+                        color:null, dashes:false, width:2};
+                    }
+                });
+            }).flat();
+
+        brokenLinks = Object.keys(zServices).map( function(id, idx) {
+            return zServices[id].trees.peers
+                .filter( function (peer){ return !containsLinkBetween(treelinks, zServices[id].pid, peer.pid);})
+                .map( function (peer){ 
+                    return {
+                        id: brokenLinkId(zServices[id].pid, peer.pid),
+                        from: zServices[id].pid, to: peer.pid, 
+                        label:"<b></b>", arrows:'', 
+                        color:null, dashes:true, width:1};
+                });
+            }).flat();
+        
+        yaksLinks = Object.keys(yServices).map( function(id, idx) {
+            yzLink = {
+                id: "yz_"+id+"_"+yServices[id],
+                from: id, to: id.split("/")[2],
+                dashes:true
+            }
+            var storLinks = []
+            Object.entries(yServices[id].backend).forEach( function(beEnrty, beidx) {
+                storLinks.push(
+                    {id: "ys_"+id+"_"+beEnrty[0],
+                    from: id, to: id+"/backend/"+beEnrty[0],
+                    dashes:true})
+            });
+
+            storLinks.push(yzLink)
+            return storLinks
+
+        }).flat();
+
+        links = treelinks.concat(brokenLinks).concat(yaksLinks);
+
+        updateDataSet(edges, links);
+    }
+
+    function failure(){
+        $("#message").html("Unable to contact server!");
+
+        edges.forEach(function(edge){
+            edge.label = "<b></b>";
+            edge.arrows = "";
+            edge.color = null;
+            if(edge.width > 2){edge.width = 2;};
+            edges.update(edge);
+        });
+        
+        nodes.forEach(function(node){
+            node.color = null;
+            if(node.shape == 'image'){node.image = node.image.replace(/00DD00/g, "F5F5F5").replace(/000000/g, "BBBBBB")}
+            nodes.update(node);
+        });
+
+        options.nodes.color = disabled_node_color;
+        options.edges.color = disabled_edge_color;
+        options.nodes.font.color = disabled_node_text_color;
+        options.nodes.font.bold.color = disabled_node_text_color;
+        network.setOptions(options);
+
+        $("#data").html("");
+    }
+
+    function cleanfailure(){
+        $("#message").html("");
+
+        options.nodes.color = default_node_color;
+        options.edges.color = default_edge_color;
+        options.nodes.font.color = default_node_text_color;
+        options.nodes.font.bold.color = default_node_text_color;
+        network.setOptions(options);
+    }
+
+    function update(zServices, yServices) {
+        cleanfailure();
+        updateNodes(zServices, yServices);
+        updateEdges(zServices, yServices);
+        showHideZenohServices();
+        showHideYaksServices();
+        showDetails(zServices, yServices);
+    }
+
+    function showHideZenohServices() {
+        if($("#zenohservices").prop( "checked" )){
+            try{network.openCluster('zenohCluster');}catch(error){}
+        }else{
+            var clusterOptionsByData = {
+                joinCondition:function(childOptions) {return !(childOptions.id.startsWith("/@/"));},
+                clusterNodeProperties: {id:'zenohCluster', label:'', image:cloud, shape:'image', font:{align:'center'}}
+            };
+            network.cluster(clusterOptionsByData);
+        }
+    }
+
+    function showHideYaksServices() {
+        nodes.forEach(function(node){
+            if(node.id.startsWith("/@/")){
+                if(node.id.includes("backend")){
+                    node.hidden = ($("#yaksservices").prop( "checked" ) != true)?
+                                    true:($("#yaksbackends:checked").val() == "yaksbackendsall")? 
+                                        false:($("#yaksbackends:checked").val() == "yaksbackendsnone")? 
+                                            true:(network && network.getSelectedNodes()[0] && !node.id.startsWith(network.getSelectedNodes()[0]));
+                }else{
+                    node.hidden = !$("#yaksservices").prop( "checked" );
+                }
+            }
+            nodes.update(node);
+        });
+    }
+
+    function showHideYaksBackends() {
+        nodes.forEach(function(node){
+            if(node.id.startsWith("/@/") && node.id.includes("backend")){
+                node.hidden = ($("#yaksservices").prop( "checked" ) != true)?
+                                true:($("#yaksbackends:checked").val() == "yaksbackendsall")? 
+                                    false:($("#yaksbackends:checked").val() == "yaksbackendsnone")? 
+                                        true:(network && network.getSelectedNodes()[0] && !node.id.startsWith(network.getSelectedNodes()[0]));
+                nodes.update(node);
+            }
+        });
+    }
+
+    function refresh() {
+        $.getJSON("/@/*", function(zServices) {
+            $.getJSON("/@/*/plugins/yaks", function(yServices) {
+                update(zServices, yServices);
+            }).fail(failure);
+        }).fail(failure);
+    }
+
+    function autorefresh() {
+        $("#autorefresh").toggleClass("loading");
+        if($("#autorefresh").hasClass("loading"))
+        {
+            function periodicupdate(){
+                $.getJSON("/@/*", function(zServices) {
+                    $.getJSON("/@/*/plugins/yaks", function(yServices) {
+                        update(zServices, yServices);
+                        if($("#autorefresh").hasClass("loading"))
+                        {
+                            setTimeout(periodicupdate, 500);
+                        }
+                    })
+                    .fail(function() {
+                        failure();
+                        if($("#autorefresh").hasClass("loading"))
+                        {
+                            setTimeout(periodicupdate, 500);
+                        }
+                    });
+                })
+                .fail(function() {
+                    failure();
+                    if($("#autorefresh").hasClass("loading"))
+                    {
+                        setTimeout(periodicupdate, 500);
+                    }
+                });
+            }
+            periodicupdate();
+        }
+    }
+
+    function showDetails(zServices, yServices)
+    {
+        if(network && network.getSelectedNodes()[0] && network.getSelectedNodes()[0] != "zenohCluster")
+        {
+            nodeId = ""+network.getSelectedNodes()[0]
+            
+            if(nodeId.startsWith("/@/"))
+            {
+                beIdx = nodeId.indexOf("backend"); 
+                if(beIdx >= 0){nodeId = nodeId.substring(0, beIdx - 1);}
+
+                if(yServices && yServices[nodeId])
+                {
+                    $("#data").JSONView(yServices[nodeId], { collapsed: false });
+                }
+                else
+                {
+                    $.getJSON(nodeId, function(yServices) {
+                        x = nodeId
+                        y = yServices[nodeId]
+                        $("#data").JSONView(yServices[nodeId], { collapsed: false });
+                    })
+                    .fail(failure);
+                }
+            }
+            else
+            {
+                if(zServices && zServices["/@/" + network.getSelectedNodes()[0]])
+                {
+                    $("#data").JSONView(zServices["/@/" + network.getSelectedNodes()[0]], { collapsed: false });
+                }
+                else
+                {
+                    $.getJSON("/@/" + network.getSelectedNodes()[0], function(zServices) {
+                        $("#data").JSONView(zServices["/@/" + network.getSelectedNodes()[0]], { collapsed: false });
+                    })
+                    .fail(failure);
+                }
+            }
+        }
+        else
+        {
+            $("#data").html("");
+        }
+    }
+
+    function resetgraph(){
+        network = new vis.Network(container, data, options);
+        network.on("click", function(){showDetails(); showHideYaksBackends();});
+        network.on("dragStart", function(){showDetails(); showHideYaksBackends();});
+    }
+
+    function redraw() {
+        $.getJSON("/@/*", function(zServices) {
+            $.getJSON("/@/*/plugins/yaks", function(yServices) {
+                resetgraph();
+                update(zServices, yServices);
+            })
+            .fail(function() {
+                resetgraph();
+                failure();
+            });
+        })
+        .fail(function() {
+            resetgraph();
+            failure();
+        });
+    }
+</script>
+
+</body>
+</html>
