@@ -179,7 +179,7 @@ let error_handler _ (_ : Unix.sockaddr) ?request:_ error start_response =
   Body.close_writer response_body
 
 let run port =
-  let listen_address = Unix.(ADDR_INET (inet_addr_loopback, port)) in
+  let listen_address = Unix.(ADDR_INET (inet_addr_any, port)) in
   let%lwt zenoh = Zenoh.zopen "" in
   let zprops = Zenoh.info zenoh in
   let zpid = match Properties.get "peer_pid" zprops with
