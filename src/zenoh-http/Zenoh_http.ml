@@ -51,10 +51,7 @@ let on_body_read_complete body (action:Abuf.t -> unit) =
     let chunk = Bigstringaf.substring chunk ~off ~len in
     Abuf.write_bytes (Bytes.of_string chunk) buffer;
     Body.schedule_read body ~on_eof:(on_eof buffer) ~on_read:(on_read buffer)
-  and on_eof buffer () =
-    let buffer' = Abuf.create ~grow:2 (Abuf.readable_bytes buffer + 1) in
-    Apero.encode_buf buffer buffer';
-    action buffer'
+  and on_eof buffer () = action buffer
   in
   let buffer = Abuf.create ~grow:1024 1024 in
   Body.schedule_read body ~on_eof:(on_eof buffer) ~on_read:(on_read buffer)
