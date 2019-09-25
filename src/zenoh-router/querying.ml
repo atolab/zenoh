@@ -151,7 +151,7 @@ let process_query engine tsex q =
 let process_reply engine tsex r = 
   let open Lwt.Infix in
   Guard.guarded engine @@ fun pe -> 
-  let qid = (Message.Reply.qpid r, Message.Reply.qid r) in 
+  let qid = Message.Reply.(qpid r, qid r) in 
   let%lwt pe = match QIDMap.find_opt qid pe.qmap with 
     | None -> Logs_lwt.debug (fun m -> m  "Received reply for unknown query. Ingore it!") >>= fun _ -> Lwt.return pe
     | Some qs -> 
@@ -160,13 +160,20 @@ let process_reply engine tsex r =
               Session.txid peer.tsex = (Session.txid tsex)) pe.trees.peers with 
           | Some peer -> peer.pid
           | None -> "UNKNOWN" in
-          let resource = match (Message.Reply.resource r) with 
-            | Some res -> res
-            | None -> "" in
-          m "Handling Reply Message. nid[%s] sid[%s] qpid[%s] qid[%d] res[%s]" 
+          let h = Message.Block.header r in
+          let kind, resource = match Message.Flags.
+            (hasFlag h fFlag, hasFlag h eFlag, Message.Reply.resource r) with 
+          | true, false, None -> "StorageFinal", ""
+          | true, false, Some "" -> "StorageFinal", ""
+          | true, false, Some res -> "StorageData", res
+          | true, true, None -> "EvalFinal", ""
+          | true, true, Some "" -> "EvalFinal", ""
+          | true, true, Some res -> "EvalData", res
+          | false, _, _ -> "ReplyFinal", "" in
+          m "Handling Reply Message. nid[%s] sid[%s] qpid[%s] qid[%d] %s %s" 
             nid (Id.to_string (Session.txid tsex)) 
             (Abuf.hexdump (Message.Reply.qpid r)) (Int64.to_int (Message.Reply.qid r))
-            resource) in
+            kind resource) in
       (match Message.Reply.value r with 
        | Some _ -> forward_reply_to_session pe r qs.srcFace >>= fun _ -> Lwt.return pe
        | None -> 
