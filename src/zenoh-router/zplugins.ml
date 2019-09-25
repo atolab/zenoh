@@ -15,6 +15,7 @@ let plugin_locations plugin =
     exe_dir ^ sep ^ ".." ^ sep ^ "lib" ^ sep ^ plugin;
     "~/.zenoh/lib/" ^ plugin;
     "/usr/local/lib/" ^ plugin;
+    "/usr/lib/" ^ plugin;
   ]
 
 let lookup_plugin plugin = 
@@ -33,6 +34,7 @@ let plugin_default_dirs =
     exe_dir ^ sep ^ ".." ^ sep ^ "lib";
     "~/.zenoh/lib/";
     "/usr/local/lib/";
+    "/usr/lib/";
   ]
 
 let lookup_default_plugins () = 
