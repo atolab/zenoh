@@ -142,7 +142,9 @@ let process_query engine tsex q =
         forward_query pe session.sid q >>= function
         | [] -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
         | ss -> Lwt.return @@ store_query pe session.sid ss q )
-      | Some _ -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
+      | Some _ -> 
+        let%lwt _ = Logs_lwt.debug (fun m -> m "Ignore duplicate query.") in
+        Lwt.return pe
   in
   Guard.return [] pe
 
