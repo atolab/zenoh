@@ -37,7 +37,7 @@ let forward_replies_to_session pe rs sid =
     
 let forward_query_to pe q = List.map (fun s -> forward_query_to_session pe q s)
 
-let forward_amdin_query pe sid q = 
+let forward_admin_query pe sid q = 
   let open Lwt.Infix in 
   let faces = SIDMap.bindings pe.smap 
     |> List.filter (fun (id, s) -> id <> sid && (id < Id.zero || Session.is_broker s))
@@ -105,11 +105,6 @@ let forward_user_query pe sid q =
 
   forward_query_to pe q faces |> Lwt.join >>= fun () -> Lwt.return faces
 
-let forward_query pe sid q = 
-  match Admin.is_admin q with 
-  | true -> forward_amdin_query pe sid q
-  | false -> forward_user_query pe sid q
-
 let store_query pe srcFace fwdFaces q =
   let open Query in
   let qmap = QIDMap.add (Message.Query.pid q, Message.Query.qid q) {srcFace; fwdFaces} pe.qmap in 
@@ -119,10 +114,35 @@ let find_query pe q = QIDMap.find_opt (Message.Query.pid q, Message.Query.qid q)
 
 let local_replies = Admin.replies
 
+let process_admin_query pe session q = 
+  let open Session in 
+  let open Lwt.Infix in
+  match find_query pe q with 
+  | None -> (
+    let%lwt local_replies = local_replies pe q in
+    forward_replies_to_session pe local_replies session.sid >>= fun _ ->
+    forward_admin_query pe session.sid q >>= function
+    | [] -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
+    | ss -> Lwt.return @@ store_query pe session.sid ss q )
+  | Some _ -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
+
+let process_user_query pe session q = 
+  let open Session in 
+  let open Lwt.Infix in
+  match find_query pe q with 
+  | None -> (
+    let%lwt local_replies = local_replies pe q in
+    forward_replies_to_session pe local_replies session.sid >>= fun _ ->
+    forward_user_query pe session.sid q >>= function
+    | [] -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
+    | ss -> Lwt.return @@ store_query pe session.sid ss q )
+  | Some _ -> 
+    let%lwt _ = Logs_lwt.debug (fun m -> m "Ignore duplicate query.") in
+    Lwt.return pe
+
 let process_query engine tsex q = 
   Guard.guarded engine @@ fun pe -> 
   let open Session in 
-  let open Lwt.Infix in
   let sid = Session.txid tsex in
   let session = SIDMap.find_opt sid pe.smap in 
   let%lwt pe = match session with 
@@ -135,16 +155,9 @@ let process_query engine tsex q =
           | None -> "UNKNOWN" in
           m "Handling Query Message. nid[%s] sid[%s] pid[%s] qid[%d] res[%s]" 
             nid (Id.to_string session.sid) (Abuf.hexdump (Message.Query.pid q)) (Int64.to_int (Message.Query.qid q)) (Message.Query.resource q)) in
-      match find_query pe q with 
-      | None -> (
-        let%lwt local_replies = local_replies pe q in
-        forward_replies_to_session pe local_replies session.sid >>= fun _ ->
-        forward_query pe session.sid q >>= function
-        | [] -> forward_reply_to_session pe (final_reply q) session.sid >>= fun _ -> Lwt.return pe
-        | ss -> Lwt.return @@ store_query pe session.sid ss q )
-      | Some _ -> 
-        let%lwt _ = Logs_lwt.debug (fun m -> m "Ignore duplicate query.") in
-        Lwt.return pe
+      match Admin.is_admin q with 
+        | true -> process_admin_query pe session q
+        | false -> process_user_query pe session q
   in
   Guard.return [] pe
 
