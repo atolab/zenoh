@@ -64,13 +64,17 @@ function containsLinkBetween(edgeset, node1, node2) {
 
 function updateNodes(zServices, plugins) {
     zNodes = Object.keys(zServices).map( function(id, idx) {
-        z_addr = zServices[id].locators[0].split('/').pop().split(':');
-        z_inet_addr = z_addr.shift();
-        z_port = z_addr.shift();
+        z_locator = zServices[id].locators.length > 0 
+                 ? zServices[id].locators[0].split('/').pop().split(':')
+                 : ["-", "-"];
+        z_inet_addr = z_locator.shift();
+        z_port = z_locator.shift();
         http_str = "";
         http_json = plugins["/@/" + zServices[id].pid + "/plugins/zenoh-http"];
         if(http_json) {
-            http_port = http_json.locators[0].split(':').pop();
+            http_port = http_json.locators.length > 0 
+                        ? http_json.locators[0].split(':').pop()
+                        : "-";
             http_str = "\n" +
                 "_______________" + "\n" +
                 "http:" + http_port;
