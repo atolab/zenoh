@@ -1,0 +1,32 @@
+* {font-family:sans-serif;}
+#topconfpanel {font-size: 12px; height:6vh;}
+#displaypanel {height:92vh;}
+#server {float:left;}
+#graph {
+    float:left;
+    width:   65%;
+    height: 100%;
+    border: 1px solid lightgrey;
+}
+#data {
+    float:left;
+    width:   34%;
+    height: 100%;
+    overflow:scroll;
+    border: 1px solid lightgrey;
+}
+button {
+    padding-left:30px;
+    padding-right:30px;
+}
+.loading:before { 
+    position:relative; 
+    left: -10px; top: 7px; 
+    font-size: 1px; 
+    float:left; 
+}
+#message{ 
+    color:red;
+    font-weight:bold;
+    font-size: 12px; 
+}
