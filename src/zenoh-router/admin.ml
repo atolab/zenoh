@@ -3,6 +3,7 @@ open Engine_state
 open Message
 open Apero
 
+let hostname = Unix.gethostname ()
 
 let admin_prefix = "/@/"
 
@@ -23,6 +24,7 @@ let full_broker_json pe =
   let sessions = pe.smap |> SIDMap.bindings |> List.map (fun (_, v) -> Session.to_yojson v) in
   `Assoc [ 
       ("pid",       `String (Abuf.hexdump pe.pid));
+      ("hostname",  `String hostname);
       ("locators",  `List locators);
       ("lease",     `Int (Vle.to_int pe.lease));
       ("trees",    (Spn_trees_mgr.to_yojson pe.trees));
