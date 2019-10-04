@@ -26,6 +26,7 @@ depends: [
   "zenoh-router" {= "0.2.5"}
   "httpaf" {>= "0.6.0"}
   "httpaf-lwt-unix" {>= "0.6.0"}
+  "ocp-ocamlres" {>= "0.4"}
 ]
 synopsis : "The zenoh http plugin"
 description: """
