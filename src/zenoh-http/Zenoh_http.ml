@@ -3,6 +3,7 @@ open Lwt.Infix
 open Httpaf
 open Httpaf_lwt_unix
 
+module HLC = Apero_time.HLC.Make (Apero_time.Clock_unix)
 
 let zwrite_kind_put = 0L
 let zwrite_kind_update = 1L
@@ -13,6 +14,9 @@ let encoding_raw = 0x00L
 let encoding_string = 0x02L
 let encoding_json = 0x04L
 
+let timestamp0 = HLC.Timestamp.create 
+  (Option.get @@ Uuid.of_string "00000000-0000-0000-0000-000000000000")
+  (Option.get @@ HLC.Timestamp.Time.of_string "0")
 
 let respond ?(body="") ?(headers=Headers.empty) ?(status=`OK) reqd =
   let headers = Headers.add headers "content-length" (String.length body |> string_of_int) in
@@ -185,6 +189,16 @@ let run port =
   in
   Lwt_io.establish_server_with_client_socket listen_address 
     (Server.create_connection_handler ~request_handler:(request_handler zenoh zpid) ~error_handler:(error_handler zenoh))
+  >|= fun _ ->
+  Zenoh.evaluate zenoh ("/@/" ^ zpid ^ "/plugins/zenoh-http")  (fun _ _ -> 
+    let data = Abuf.create ~grow:65536 1024 in 
+    let locators = Aunix.inet_addrs_up_nolo () 
+      |> List.map (fun addr -> `String (Printf.sprintf "http://%s:%d" (Unix.string_of_inet_addr addr) port)) in
+    let json = `Assoc [ ("locators",  `List locators); ] in
+    Abuf.write_bytes (Bytes.unsafe_of_string (Yojson.Safe.to_string json)) data;
+    let info = Ztypes.({srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=Some(timestamp0); encoding=Some 4L (* JSON *); kind=None}) in
+    Lwt.return [("/@/" ^ zpid ^ "/plugins/zenoh-http", data, info)]
+  )
   >|= fun _ ->
   Logs.info (fun m -> m "[Zhttp] listening on port tcp/0.0.0.0:%d" port)
 
