@@ -140,7 +140,12 @@ let run tcpport peers strength usersfile plugins bufn timestamp =
   let config = ZTcpConfig.make ~backlog ~max_connections ~buf_size ~svc_id locator in 
   let tx = ZTcpTransport.make config in 
   let tx_connector = ZTcpTransport.establish_session tx in 
-  let engine = ProtocolEngine.create ~bufn ~users uid lease (Locators.of_list [Locator.TcpLocator(locator)]) peers strength timestamp tx_connector in
+  let locators = Aunix.inet_addrs_up_nolo () 
+                 |> List.map (fun addr -> Locator.TcpLocator(
+                    Printf.sprintf "tcp/%s:%d" (Unix.string_of_inet_addr addr) tcpport
+                    |> Iplocator.TcpLocator.of_string
+                    |> Option.get)) in
+  let engine = ProtocolEngine.create ~bufn ~users uid lease (Locators.of_list locators) peers strength timestamp tx_connector in
 
   let open Lwt.Infix in 
 
