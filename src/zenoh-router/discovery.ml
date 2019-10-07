@@ -21,10 +21,11 @@ open Engine_state
                 let (rmap, mres) = x in
                 match res_match mres res with 
                 | true -> 
-                let mres = with_match mres res.name in 
-                let rmap = ResMap.add res.name (with_match res mres.name) rmap in 
-                (rmap, mres)
-                | false -> x) rmap (rmap, mres))
+                    let mres = with_match mres res.name in 
+                    let rmap = ResMap.add res.name (with_match res mres.name) rmap in 
+                    (rmap, mres)
+                | false -> x) 
+            rmap (rmap, mres))
         | ID _ -> (rmap, with_match mres mres.name)
 
     let update_resource_opt pe name updater = 
@@ -36,7 +37,7 @@ open Engine_state
             | None -> match_resource pe.rmap res
             | Some _ -> (pe.rmap, res) in
         let rmap = ResMap.add res'.name res' rmap in 
-        ({pe with rmap}, optres')
+            ({pe with rmap}, Some res')
         | None -> (pe, None)
 
     let update_resource pe name updater = 
