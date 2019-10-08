@@ -5,21 +5,16 @@ open Channel
 open NetService
 open R_name
 open Engine_state
-
 open Discovery
-let is_pulled pe resname = 
-  let open Resource in 
-  ResMap.bindings pe.rmap |> 
-  List.exists (fun (rname, res) -> 
-      ResName.name_match resname rname &&
-      List.exists (fun m -> m.sub = Some true) res.mappings)
 
-let store_data pe resname payload = 
-  update_resource_opt pe resname  (fun r -> match r with 
-      | Some res -> Some{res with last_value=Some payload}
-      | None -> match is_pulled pe resname with 
-        | true -> Some{name=resname; mappings=[]; matches=[]; local_id=0L; last_value=Some payload}
-        | false -> None)
+let store_data pe sid resname payload = 
+  match SIDMap.find_opt sid pe.smap with
+  | None -> pe
+  | Some s -> 
+    let pending_pull = ResMap.add resname payload s.pending_pull in
+    let s = {s with pending_pull} in
+    let smap = SIDMap.add sid s pe.smap in
+    {pe with smap}
 
 let forward_data_to_mapping pe srcresname dstres dstmapsession dstmapid reliable payload =
   let open Resource in 
@@ -57,54 +52,101 @@ let forward_batched_data_to_mapping pe srcresname dstres dstmapsession dstmapid 
     Session.add_out_msg s.stats;
     (Mcodec.ztcp_safe_write_frame_pooled s.tx_sex @@ Frame.Frame.create msgs) pe.buffer_pool >>= fun _ -> Lwt.return_unit
 
-
 let forward_data pe sid srcres reliable payload = 
   let open Resource in
-  let (_, ps) = List.fold_left (fun (sss, pss) name -> 
+  let dstsexs = List.fold_left (fun dstsexs name -> 
       match ResMap.find_opt name pe.rmap with 
-      | None -> (sss, pss)
+      | None -> dstsexs
       | Some r -> 
-        List.fold_left (fun (ss, ps) m ->
-            match (m.sub = Some false || m.sto != None) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
-            | true -> 
-              let p = forward_data_to_mapping pe srcres.name r m.session m.id reliable payload in
-              (m.session :: ss , p :: ps)
-            | false -> (ss, ps)
-          ) (sss, pss) r.mappings 
-    ) ([], []) srcres.matches in 
-  Lwt.join ps 
+        List.fold_left (fun dstsexs m ->
+          match (m.sub != None || m.sto != None) && m.session != sid with 
+          | true -> 
+            let entry = SIDMap.find_opt m.session dstsexs in
+            let newentry = match entry, (m.sub = Some false || m.sto != None) with 
+            | None, true -> (r, m, true)
+            | None, false -> (r, m, false)
+            | Some (exr, exm, expush), push -> 
+              match srcres.name = r.name, expush, push with 
+              | true, false, false -> (r, m, false)
+              | true, _, _ -> (r, m, true)
+              | false, false, false -> (exr, exm, false)
+              | _ -> (exr, exm, true)
+            in 
+            SIDMap.add m.session newentry dstsexs
+          | false -> dstsexs
+        ) dstsexs r.mappings 
+    ) SIDMap.empty srcres.matches in 
+  let pe, ps = SIDMap.fold (fun _ (r, m, push) (pe, ps) -> 
+    match push with 
+    | true -> pe, forward_data_to_mapping pe srcres.name r m.session m.id reliable payload :: ps
+    | false -> store_data pe m.session srcres.name payload, ps
+  ) dstsexs (pe, []) in
+  let%lwt _ = Lwt.join ps in 
+  Lwt.return pe
 
 let forward_batched_data pe sid srcres reliable payloads = 
   let open Resource in
-  let (_, ps) = List.fold_left (fun (sss, pss) name -> 
+  let dstsexs = List.fold_left (fun dstsexs name -> 
       match ResMap.find_opt name pe.rmap with 
-      | None -> (sss, pss)
+      | None -> dstsexs
       | Some r -> 
-        List.fold_left (fun (ss, ps) m ->
-            match (m.sub = Some false || m.sto != None) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
-            | true -> 
-              let p = forward_batched_data_to_mapping pe srcres.name r m.session m.id reliable payloads in
-              (m.session :: ss , p :: ps)
-            | false -> (ss, ps)
-          ) (sss, pss) r.mappings 
-    ) ([], []) srcres.matches in 
-  Lwt.join ps 
+        List.fold_left (fun dstsexs m ->
+          match (m.sub != None || m.sto != None) && m.session != sid with 
+          | true -> 
+            let entry = SIDMap.find_opt m.session dstsexs in
+            let newentry = match entry, (m.sub = Some false || m.sto != None) with 
+            | None, true -> (r, m, true)
+            | None, false -> (r, m, false)
+            | Some (exr, exm, expush), push -> 
+              match srcres.name = r.name, expush, push with 
+              | true, false, false -> (r, m, false)
+              | true, _, _ -> (r, m, true)
+              | false, false, false -> (exr, exm, false)
+              | _ -> (exr, exm, true)
+            in 
+            SIDMap.add m.session newentry dstsexs
+          | false -> dstsexs
+        ) dstsexs r.mappings 
+    ) SIDMap.empty srcres.matches in 
+  let pe, ps = SIDMap.fold (fun _ (r, m, push) (pe, ps) -> 
+    match push with 
+    | true -> pe, forward_batched_data_to_mapping pe srcres.name r m.session m.id reliable payloads :: ps
+    | false -> let last = List.nth payloads ((List.length payloads) - 1) in store_data pe m.session srcres.name last, ps
+  ) dstsexs (pe, []) in
+  let%lwt _ = Lwt.join ps in 
+  Lwt.return pe
 
 let forward_oneshot_data pe sid srcresname reliable payload = 
   let open Resource in 
-  let (_, ps) = ResMap.fold (fun _ res (sss, pss) -> 
-      match ResName.name_match srcresname res.name with 
-      | false -> (sss, pss)
-      | true -> 
-        List.fold_left (fun (ss, ps) m ->
-            match (m.sub = Some false || m.sto != None) && m.session != sid && not @@ List.exists (fun s -> m.session == s) ss with
-            | true -> 
-              let p = forward_data_to_mapping pe srcresname res m.session m.id reliable payload in
-              (m.session :: ss , p :: ps)
-            | false -> (ss, ps)
-          ) (sss, pss) res.mappings 
-    ) pe.rmap ([], []) in
-  Lwt.join ps 
+  let dstsexs =  ResMap.fold (fun _ r dstsexs -> 
+    match ResName.name_match srcresname r.name with 
+    | false -> dstsexs
+    | true -> 
+      List.fold_left (fun dstsexs m ->
+        match (m.sub != None || m.sto != None) && m.session != sid with 
+        | true -> 
+          let entry = SIDMap.find_opt m.session dstsexs in
+          let newentry = match entry, (m.sub = Some false || m.sto != None) with 
+          | None, true -> (r, m, true)
+          | None, false -> (r, m, false)
+          | Some (exr, exm, expush), push -> 
+            match srcresname = r.name, expush, push with 
+            | true, false, false -> (r, m, false)
+            | true, _, _ -> (r, m, true)
+            | false, false, false -> (exr, exm, false)
+            | _ -> (exr, exm, true)
+          in 
+          SIDMap.add m.session newentry dstsexs
+        | false -> dstsexs
+      ) dstsexs r.mappings 
+    ) pe.rmap SIDMap.empty in 
+  let pe, ps = SIDMap.fold (fun _ (r, m, push) (pe, ps) -> 
+    match push with 
+    | true -> pe, forward_data_to_mapping pe srcresname r m.session m.id reliable payload :: ps
+    | false -> store_data pe m.session srcresname payload, ps
+  ) dstsexs (pe, []) in
+  let%lwt _ = Lwt.join ps in 
+  Lwt.return pe
 
 let stamp_payload pe p = 
   match pe.timestamp with 
@@ -122,10 +164,10 @@ let process_user_compactdata (pe:engine_state) session msg =
         | None -> ResName.ID(rid)
         | Some (_, res) -> res.name)
     | Some name -> name in 
-  match store_data pe name (Message.CompactData.payload msg) with 
-  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
+  match ResMap.find_opt name pe.rmap with 
+  | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
-  | (pe, Some res) -> 
+  | Some res -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
             Session.txid peer.tsex = session.sid) pe.trees.peers with 
@@ -134,7 +176,7 @@ let process_user_compactdata (pe:engine_state) session msg =
         m "Handling CompactData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
     let%lwt payload = stamp_payload pe (Message.CompactData.payload msg) in
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
+    let%lwt pe = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 let process_user_streamdata (pe:engine_state) session msg =      
@@ -146,10 +188,10 @@ let process_user_streamdata (pe:engine_state) session msg =
         | None -> ResName.ID(rid)
         | Some (_, res) -> res.name)
     | Some name -> name in 
-  match store_data pe name (Message.StreamData.payload msg) with 
-  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
+  match ResMap.find_opt name pe.rmap with 
+  | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received CompactData for unknown resource %s on session %s: Ignore it!" 
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
-  | (pe, Some res) -> 
+  | Some res -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
             Session.txid peer.tsex = session.sid) pe.trees.peers with 
@@ -158,7 +200,7 @@ let process_user_streamdata (pe:engine_state) session msg =
         m "Handling StreamData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
     let%lwt payload = stamp_payload pe (Message.StreamData.payload msg) in
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
+    let%lwt pe = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 let process_user_batched_streamdata (pe:engine_state) session msg =      
@@ -171,11 +213,10 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
         | Some (_, res) -> res.name)
     | Some name -> name in 
   let bufs = Message.BatchedStreamData.payload msg in 
-  let last = List.nth bufs ((List.length bufs) - 1) in 
-  match store_data pe name last with 
-  | (pe, None) -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received BatchedData for unknown resource %s on session %s: Ignore it!" 
+  match ResMap.find_opt name pe.rmap with 
+  | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received BatchedData for unknown resource %s on session %s: Ignore it!" 
                                                 (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return (pe, [])
-  | (pe, Some res) -> 
+  | Some res -> 
     let%lwt _ = Logs_lwt.debug (fun m -> 
         let nid = match List.find_opt (fun (peer:Spn_trees_mgr.peer) -> 
             Session.txid peer.tsex = session.sid) pe.trees.peers with 
@@ -184,7 +225,7 @@ let process_user_batched_streamdata (pe:engine_state) session msg =
         m "Handling BatchedData Message. nid[%s] sid[%s] rid[%Ld] res[%s]"
           nid (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
     let%lwt stamped_bufs = Lwt_list.map_s (stamp_payload pe) bufs in
-    let%lwt _ = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) stamped_bufs in
+    let%lwt pe = forward_batched_data pe session.sid res (Message.Reliable.reliable msg) stamped_bufs in
     Lwt.return (pe, [])
 
 let process_user_writedata pe session msg =      
@@ -198,22 +239,22 @@ let process_user_writedata pe session msg =
         nid (Id.to_string session.sid) (Message.WriteData.resource msg) (Abuf.hexdump (Payload.buffer (Message.WriteData.payload msg)))) in
   let name = ResName.Path(PathExpr.of_string @@ Message.WriteData.resource msg) in
   let%lwt payload = stamp_payload pe (Message.WriteData.payload msg) in
-  match store_data pe name payload with 
-  | (pe, None) -> 
-    let%lwt _ = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) payload in
+  match ResMap.find_opt name pe.rmap with 
+  | None -> 
+    let%lwt pe = forward_oneshot_data pe session.sid name (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
-  | (pe, Some res) -> 
-    let%lwt _ = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
+  | Some res -> 
+    let%lwt pe = forward_data pe session.sid res (Message.Reliable.reliable msg) payload in
     Lwt.return (pe, [])
 
 
 let process_pull engine tsex msg =
+  Guard.guarded engine @@ fun pe ->
   let sid = Session.txid tsex in 
-  let pe = Guard.get engine in
   let session = SIDMap.find_opt sid pe.smap in 
-  match session with 
+    let%lwt pe = match session with 
   | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received Pull on unknown session %s: Ignore it!" 
-                                          (Id.to_string sid)) in Lwt.return []
+                                            (Id.to_string sid)) in Lwt.return pe
   | Some session -> 
     let rid = Message.Pull.id msg in
     let name = match VleMap.find_opt rid session.rmap with 
@@ -221,17 +262,20 @@ let process_pull engine tsex msg =
       | Some name -> name in 
     match ResMap.find_opt name pe.rmap with 
     | None -> let%lwt _ = Logs_lwt.warn (fun m -> m "Received Pull for unknown resource %s on session %s: Ignore it!" 
-                                            (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return []
+                                              (ResName.to_string name) (Id.to_string session.sid)) in Lwt.return pe
     | Some res -> 
       let%lwt _ = Logs_lwt.debug (fun m -> m "Handling Pull Message for resource: [%s:%Ld] (%s)" 
                                      (Id.to_string session.sid) rid (match res.name with Path u -> PathExpr.to_string u | ID _ -> "UNNAMED")) in
-      let%lwt _ = Lwt_list.iter_p (fun mresname -> 
-          let mres = ResMap.find mresname pe.rmap in
-          match mres.last_value with 
-          | None -> Lwt.return_unit
-          | Some v -> forward_data_to_mapping pe mres.name res sid rid true v
-        ) res.matches in Lwt.return []
-
+        let%lwt pending_pull = ResMap.bindings session.pending_pull |> Lwt_list.fold_left_s (fun pending (name, payload) -> 
+          match ResName.name_match res.name name with 
+          | true -> let%lwt _ = forward_data_to_mapping pe name res sid rid true payload in Lwt.return pending
+          | false -> Lwt.return @@ ResMap.add name payload pending
+        ) ResMap.empty in 
+        let session = {session with pending_pull} in 
+        let smap = SIDMap.add session.sid session pe.smap in 
+        Lwt.return {pe with smap}
+    in
+    Guard.return [] pe
 
 let rspace msg =       
   let open Message in 
@@ -252,8 +296,7 @@ let process_broker_data pe session msg =
   Lwt.return (pe, []) 
 
 let process_compact_data engine tsex msg =
-  Guard.guarded engine
-  @@ fun pe ->
+  Guard.guarded engine @@ fun pe ->
   let%lwt (pe, ms) = 
     let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
@@ -267,8 +310,7 @@ let process_compact_data engine tsex msg =
   in Guard.return ms pe
 
 let process_batched_stream_data engine tsex msg =
-  Guard.guarded engine
-  @@ fun pe ->
+  Guard.guarded engine @@ fun pe ->
   let%lwt (pe, ms) = 
     let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 
@@ -283,8 +325,7 @@ let process_batched_stream_data engine tsex msg =
   in Guard.return ms pe
 
 let process_write_data engine tsex msg =
-  Guard.guarded engine
-  @@ fun pe ->
+  Guard.guarded engine @@ fun pe ->
   let%lwt (pe, ms) = 
     let sid = Session.txid tsex in
     let session = SIDMap.find_opt sid pe.smap in 
@@ -298,8 +339,7 @@ let process_write_data engine tsex msg =
   in Guard.return ms pe
 
 let process_stream_data engine tsex msg =
-  Guard.guarded engine
-  @@ fun pe ->
+  Guard.guarded engine @@ fun pe ->
   let%lwt (pe, ms) = 
     let sid = Session.txid tsex in 
     let session = SIDMap.find_opt sid pe.smap in 

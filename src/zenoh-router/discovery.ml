@@ -53,7 +53,7 @@ open Engine_state
             (fun r -> match r with 
                 | Some res -> Some (Resource.update_mapping_opt res (Session.id session) updater)
                 | None -> (match updater None with 
-                    | Some m -> Some {name; mappings=[m]; matches=[name]; local_id; last_value=None}
+                    | Some m -> Some {name; mappings=[m]; matches=[name]; local_id}
                     | None -> None)) in
         match res with 
         | Some res -> 

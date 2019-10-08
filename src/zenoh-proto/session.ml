@@ -52,8 +52,6 @@ let add_out_msg s =
   update_stats s;
   s.out_msgs_tp_build <- s.out_msgs_tp_build + 1
 
-
-
 type t = {    
   tx_sex : tx_sex;      
   ic : InChannel.t;
@@ -61,6 +59,7 @@ type t = {
   rmap : ResName.t VleMap.t;
   mask : Vle.t;
   sid : Id.t;
+  pending_pull : Payload.t ResMap.t;
   stats : stats;
 } 
 
@@ -81,6 +80,7 @@ let create tx_sex mask =
     rmap = VleMap.empty; 
     mask = mask;
     sid = txid tx_sex;
+    pending_pull = ResMap.empty; 
     stats = create_stats ();
   }
 
