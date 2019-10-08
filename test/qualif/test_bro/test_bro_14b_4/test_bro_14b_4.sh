@@ -14,7 +14,7 @@ run_brokers ../../../common/graph2 $outdir
 
 sleep 1
 
-runproc zenohc_sub $outdir zenohc.exe -p tcp/127.0.0.1:8005
+runproc zenohc_sub $outdir zenohc.exe -p tcp/127.0.0.1:9005
 sub=$?
 
 echo "open" > ${proc_in[$sub]}
@@ -22,7 +22,7 @@ echo "dsub 10" > ${proc_in[$sub]}
 
 sleep 1 
 
-runproc zenohc_pub $outdir zenohc.exe -p tcp/127.0.0.1:8014
+runproc zenohc_pub $outdir zenohc.exe -p tcp/127.0.0.1:9014
 pub=$?
 
 echo "open" > ${proc_in[$pub]}

@@ -12,18 +12,18 @@ echo "-------- START test $filename"
 
 run_brokers ../../../common/graph3 $outdir
 
-sleep 1
+sleep 5
 
-runproc zenohc_sub $outdir zenohc.exe -p tcp/127.0.0.1:8022
+runproc zenohc_sub $outdir zenohc.exe -p tcp/127.0.0.1:9022
 sub=$?
 
 echo "open" > ${proc_in[$sub]}
 echo "dres 10 //test/res1" > ${proc_in[$sub]}
 echo "dsub 10" > ${proc_in[$sub]}
 
-sleep 1 
+sleep 2
 
-runproc zenohc_pub $outdir zenohc.exe -p tcp/127.0.0.1:8026
+runproc zenohc_pub $outdir zenohc.exe -p tcp/127.0.0.1:9026
 pub=$?
 
 echo "open" > ${proc_in[$pub]}

@@ -14,7 +14,7 @@ run_brokers ../../../common/graph2 $outdir
 
 sleep 1
 
-runproc zenohc_sub1 $outdir zenohc.exe -p tcp/127.0.0.1:8005
+runproc zenohc_sub1 $outdir zenohc.exe -p tcp/127.0.0.1:9005
 sub1=$?
 
 echo "open" > ${proc_in[$sub1]}
@@ -23,7 +23,7 @@ echo "dsub 10" > ${proc_in[$sub1]}
 
 sleep 1 
 
-runproc zenohc_sub2 $outdir zenohc.exe -p tcp/127.0.0.1:8011
+runproc zenohc_sub2 $outdir zenohc.exe -p tcp/127.0.0.1:9011
 sub2=$?
 
 echo "open" > ${proc_in[$sub2]}
@@ -32,7 +32,7 @@ echo "dsub 10" > ${proc_in[$sub2]}
 
 sleep 1 
 
-runproc zenohc_sub3 $outdir zenohc.exe -p tcp/127.0.0.1:8010
+runproc zenohc_sub3 $outdir zenohc.exe -p tcp/127.0.0.1:9010
 sub3=$?
 
 echo "open" > ${proc_in[$sub3]}
@@ -41,7 +41,7 @@ echo "dsub 10" > ${proc_in[$sub3]}
 
 sleep 1 
 
-runproc zenohc_sub4 $outdir zenohc.exe -p tcp/127.0.0.1:8010
+runproc zenohc_sub4 $outdir zenohc.exe -p tcp/127.0.0.1:9010
 sub4=$?
 
 echo "open" > ${proc_in[$sub4]}
@@ -50,7 +50,7 @@ echo "dsub 10" > ${proc_in[$sub4]}
 
 sleep 1 
 
-runproc zenohc_pub1 $outdir zenohc.exe -p tcp/127.0.0.1:8014
+runproc zenohc_pub1 $outdir zenohc.exe -p tcp/127.0.0.1:9014
 pub1=$?
 
 echo "open" > ${proc_in[$pub1]}
@@ -59,7 +59,7 @@ echo "dpub 5" > ${proc_in[$pub1]}
 
 sleep 1
 
-runproc zenohc_pub2 $outdir zenohc.exe -p tcp/127.0.0.1:8008
+runproc zenohc_pub2 $outdir zenohc.exe -p tcp/127.0.0.1:9008
 pub2=$?
 
 echo "open" > ${proc_in[$pub2]}
@@ -68,7 +68,7 @@ echo "dpub 5" > ${proc_in[$pub2]}
 
 sleep 1
 
-runproc zenohc_pub3 $outdir zenohc.exe -p tcp/127.0.0.1:8009
+runproc zenohc_pub3 $outdir zenohc.exe -p tcp/127.0.0.1:9009
 pub3=$?
 
 echo "open" > ${proc_in[$pub3]}
