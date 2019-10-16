@@ -22,8 +22,8 @@ let run tcpport peers strength usersfile plugins bufn timestamp style_renderer l
   Lwt_main.run @@ Zrouter.run tcpport peers strength usersfile plugins bufn timestamp
 
 let () =
-  Printexc.record_backtrace true;
-  Lwt_engine.set (new Lwt_engine.libev ());
+  Printexc.record_backtrace true;  
+  (* Lwt_engine.set (new Lwt_engine.libev ()); *)
   let env = Arg.env_var "ZENOD_VERBOSITY" in
   let _ = Term.(eval (const run $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env (), Term.info "zenohd")) in  ()
 
