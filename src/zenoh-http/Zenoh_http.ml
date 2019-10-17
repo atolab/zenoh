@@ -37,17 +37,23 @@ let respond_unsupported reqd meth path = respond reqd ~status:`Bad_request ~body
 
 
 let json_of_results (results : (string * Abuf.t * Ztypes.data_info) list) =
+  let open Ztypes in
   (* We assume the value can be decoded as a string *)
   let read_all_bytes buf = Abuf.read_bytes (Abuf.readable_bytes buf) buf in
   let string_of_buf = Apero.compose Bytes.to_string read_all_bytes in
+  let json_of_value value encoding =
+    match encoding with
+    | Some e when e=encoding_json -> value
+    | _ -> Printf.sprintf "\"%s\"" value
+  in
   results
-  |> List.map (fun (resname, buf, info) -> 
-      match Ztypes.(info.encoding) with
-      | Some e when e=encoding_json -> Printf.sprintf "\"%s\" : %s" resname  (string_of_buf buf)
-      | _ -> Printf.sprintf "\"%s\" : \"%s\"" resname  (string_of_buf buf)
+  |> List.map (fun (resname, buf, info) ->
+      Printf.sprintf "{ \"key\": \"%s\",\n  \"value\": %s,\n  \"time\": \"%s\" }"
+        resname  (json_of_value (string_of_buf buf) info.encoding)
+        Option.(get_or_default (map info.ts Timestamp.to_string) "None")
       )
   |> String.concat ",\n"
-  |> Printf.sprintf "{%s}"
+  |> Printf.sprintf "[\n%s\n]"
 
 
 let on_body_read_complete body (action:Abuf.t -> unit) =
