@@ -110,9 +110,11 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
           try begin
             (* TODO: manage "accept" header *)
             Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery on %s with predicate: %s" resname predicate);
-            Zenoh.lquery zenoh resname predicate >|= function 
+            Zenoh.lquery zenoh ~consolidation:KeepAll resname predicate >|= function
             | [] -> if not (respond_file resname reqd) then respond reqd ~body:"{}"
-            | results -> respond reqd ~body:(json_of_results results)
+            | results ->
+              Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery received %d key/values" (List.length results));
+              respond reqd ~body:(json_of_results results)
           end with
           | exn ->
             respond_internal_error reqd (Printexc.to_string exn); Lwt.return_unit

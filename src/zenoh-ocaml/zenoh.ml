@@ -503,26 +503,36 @@ let squery z ?(dest_storages=Best_match) ?(dest_evals=Best_match) resname predic
   let _ = (query z resname predicate reply_handler ~dest_storages ~dest_evals) in 
   stream
 
-type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutable qs: (string * Abuf.t * data_info) list}
+module RepliesMap = Map.Make(String)
+type lquery_context = {resolver: (string * Abuf.t * data_info) list Lwt.u; mutable map: (Abuf.t * data_info) list RepliesMap.t}
 
-let lquery z ?(dest_storages=Best_match) ?(dest_evals=Best_match) resname predicate =   
+let lquery z ?(dest_storages=Best_match) ?(dest_evals=Best_match) ?(consolidation=LatestValue) resname predicate =
   let promise,resolver = Lwt.wait () in 
-  let ctx = {resolver; qs = []} in  
+  let ctx = {resolver; map = RepliesMap.empty} in
+  let add_reply resname data info =
+    match RepliesMap.find_opt resname ctx.map , consolidation with
+    | Some replies , LatestValue ->
+      let _, info' = List.hd replies in
+      (match info.ts, info'.ts with
+      | _, None -> ctx.map <- RepliesMap.add resname [(data,info)] ctx.map
+      | Some ts, Some ts' when Timestamp.compare ts ts' > 0 ->
+        ctx.map <- RepliesMap.add resname [(data,info)] ctx.map
+      | _ , _ -> ())
+    | Some replies , KeepAll -> ctx.map <- RepliesMap.add resname ((data,info)::replies) ctx.map
+    | None , _ -> ctx.map <- RepliesMap.add resname [(data,info)] ctx.map
+  in
   let reply_handler = function
-    | StorageData {stoid=_; rsn=_; resname; data; info} -> 
-      (* TODO: Eventually we should check the timestamp *)
-      (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 
-      | Some _ -> Lwt.return_unit
-      | None  -> ctx.qs <- (resname, data, info)::ctx.qs; Lwt.return_unit)
-    | EvalData {stoid=_; rsn=_; resname; data; info} -> 
-      (* TODO: Eventually we should check the timestamp *)
-      (match List.find_opt (fun (k,_,_) -> k = resname) ctx.qs with 
-      | Some _ -> Lwt.return_unit
-      | None  -> ctx.qs <- (resname, data, info)::ctx.qs; Lwt.return_unit)
-    | StorageFinal {stoid=_;rsn=_} -> Lwt.return_unit
+    | StorageData {stoid=_; rsn=_; resname; data; info}
+    | EvalData {stoid=_; rsn=_; resname; data; info} -> add_reply resname data info; Lwt.return_unit
+    | StorageFinal {stoid=_;rsn=_}
     | EvalFinal {stoid=_;rsn=_} -> Lwt.return_unit
-    | ReplyFinal ->       
-      Lwt.wakeup_later ctx.resolver ctx.qs; Lwt.return_unit
+    | ReplyFinal ->
+      let result = RepliesMap.fold (fun resname replies result ->
+          (List.map (fun (buf, info) -> (resname, buf, info)) replies ) @ result
+        ) ctx.map []
+      in
+      Lwt.wakeup_later ctx.resolver result;
+      Lwt.return_unit
   in
   let _ = (query z resname predicate reply_handler ~dest_storages ~dest_evals) in 
   promise

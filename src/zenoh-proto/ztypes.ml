@@ -7,6 +7,10 @@ type query_dest =
 | Complete of int
 | All
 
+type replies_consolidation =
+| KeepAll
+| LatestValue
+
 type data_info = {
   srcid:    Abuf.t option;
   srcsn:    int64 option;

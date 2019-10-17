@@ -56,8 +56,10 @@ val squery : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_d
 (* [lquery] returns a stream that will allow to asynchronously iterate through the 
 replies of the query *)
 
-val lquery : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_dest -> string -> string -> (string * Abuf.t * data_info) list Lwt.t
-(* [lquery] consolidates the results of a query and returns them into a list of key values *)
+val lquery : t -> ?dest_storages:Ztypes.query_dest -> ?dest_evals:Ztypes.query_dest -> ?consolidation:replies_consolidation -> string -> string -> (string * Abuf.t * data_info) list Lwt.t
+(* [lquery] consolidates the results of a query and returns them into a list of key values.
+   The consolidation strategy is specified via the [consolidation] parameter.
+ *)
 
 val unstore : t -> storage -> unit Lwt.t
 
