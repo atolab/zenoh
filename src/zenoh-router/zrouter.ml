@@ -215,3 +215,4 @@ let users = Arg.(value & opt (some string) None & info ["u"; "users"] ~docv:"USE
 let bufn = Arg.(value & opt int 8 & info ["w"; "wbufn"] ~docv:"BUFN" ~doc:"Number of write buffers")
 let plugins = Arg.(value & opt_all string [] & info ["P"; "plugin"] ~docv:"PLUGIN" ~doc:"Plugin to load at startup. PLUGIN must be an absolute or relative path to a cma library eventually followed by space separated arguments. Example : -P \"plugins/plugin.cma arg1\".")
 let timestamp = Arg.(value & opt bool true & info ["T"; "timestamp"] ~docv:"true|false" ~doc:"If true, the zenoh router will timestamp all data received with no timestamp.")
+let disco = Arg.(value & opt string "" & info ["d"; "discovery"] ~docv:"<ip-addr>" ~doc: "The interface address on which to run the scouting protocol.") 
