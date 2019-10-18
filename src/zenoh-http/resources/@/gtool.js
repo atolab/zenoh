@@ -177,6 +177,13 @@ function cleanfailure(){
     network.setOptions(options);
 }
 
+function transform(values) {
+    return values.reduce(function(dict, val){
+        dict[val.key] = val.value;
+        return dict;
+    }, {});
+}
+
 function update(zServices, plugins) {
     cleanfailure();
     updateNodes(zServices, plugins);
@@ -187,7 +194,7 @@ function update(zServices, plugins) {
 function refresh() {
     $.getJSON("/@/*", zServices => {
         $.getJSON("/@/*/plugins/*", plugins => {
-            update(zServices, plugins);
+            update(transform(zServices), transform(plugins));
         }).fail(failure);
     }).fail(failure);
 }
@@ -199,7 +206,7 @@ function autorefresh() {
         function periodicupdate(){
             $.getJSON("/@/*", zServices => {
                 $.getJSON("/@/*/plugins/*", plugins => {
-                    update(zServices, plugins);
+                    update(transform(zServices), transform(plugins));
                     if($("#autorefresh").hasClass("loading"))
                     {
                         setTimeout(periodicupdate, 500);
@@ -240,9 +247,9 @@ function showDetails(zServices, plugins) {
         } else {
             $.getJSON("/@/" + network.getSelectedNodes()[0], zServices => {
                 $.getJSON("/@/" + network.getSelectedNodes()[0] + "/plugins/*", plugins => {
-                    pluginseditor.update(mapkeys(plugins, key => key.split('/').pop()));
+                    pluginseditor.update(mapkeys(transform(plugins), key => key.split('/').pop()));
                 });
-                routereditor.update(zServices["/@/" + nodeid]);
+                routereditor.update(transform(zServices)["/@/" + nodeid]);
             })
             .fail(failure);
         }
@@ -262,7 +269,7 @@ function redraw() {
     $.getJSON("/@/*", zServices => {
         $.getJSON("/@/*/plugins/*", plugins => {
             resetgraph();
-            update(zServices, plugins);
+            update(transform(zServices), transform(plugins));
         })
         .fail(() => {
             resetgraph();

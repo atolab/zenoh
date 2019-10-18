@@ -42,6 +42,13 @@
             </div>
         </div>
         <script>
+            function transform(values) {
+                return values.reduce(function(dict, val){
+                    dict[val.key] = val.value;
+                    return dict;
+                }, {});
+            }
+
             const localrouter = new JSONEditor(
                 document.getElementById('localrouter'), 
                 {mode: 'view'});
@@ -57,16 +64,16 @@
 
             const tabs = {
                 "": function () {
-                    $.get("/@/local", function(json) {localrouter.updateText(json);});
-                    $.get("/@/local/plugins/*", function(json) {localplugins.updateText(json);});
+                    $.getJSON("/@/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/local/plugins/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-localrouter": function () {
-                    $.get("/@/local", function(json) {localrouter.updateText(json);});
-                    $.get("/@/local/plugins/*", function(json) {localplugins.updateText(json);});
+                    $.getJSON("/@/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/local/plugins/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-allrouters": function () {
-                    $.get("/@/*", function(json) {allrouters.updateText(json);});
-                    $.get("/@/*/plugins/*", function(json) {allplugins.updateText(json);});
+                    $.getJSON("/@/*", function(json) {allrouters.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/*/plugins/*", function(json) {allplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-gtool": function () {
                     if($('#frame-gtool').attr('src') == "") {
