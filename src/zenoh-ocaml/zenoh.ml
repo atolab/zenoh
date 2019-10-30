@@ -298,6 +298,10 @@ let safe_run_decode_loop resolver t =
     | _ -> 
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
 
+let zscout ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) () = 
+  if mask = Message.ScoutFlags.scoutBroker && tries = 3 then Lwt.return Locators.empty 
+  else Lwt.return Locators.empty 
+
 let zopen ?username ?password peer = 
   let%lwt local_sex = Zenoh_local_router.open_local_session () in
   match local_sex with 
