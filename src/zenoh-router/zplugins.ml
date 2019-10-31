@@ -1,4 +1,12 @@
+module PluginsArgs = Map.Make(String)
+
+let add_plugin_arg plugin arg pluginargs =
+  match PluginsArgs.find_opt plugin pluginargs with
+  | None -> PluginsArgs.add plugin [arg] pluginargs
+  | Some args -> PluginsArgs.add plugin (arg::args) pluginargs
+
 let sep = Filename.dir_sep
+let sepchar = String.get sep 0
 let exe_dir = Filename.dirname Sys.executable_name
 
 let get_plugin plugin = 
@@ -57,7 +65,15 @@ let lookup_default_plugins () =
   | Some ls -> ls
   
 
-let load_plugins = function 
+let plugin_name_of_file f =
+  let startidx = match String.rindex_opt f sepchar with
+    | Some i -> i+1
+    | None -> 0
+  in
+  let suffixlen = String.length "-plugin.cmxs" in
+  String.sub f startidx (String.length f -startidx-suffixlen)
+
+let load_plugins plugins plugins_args = match plugins with 
     | ["None"] -> ()
     | ["none"] -> ()
     | plugins -> 
@@ -69,8 +85,13 @@ let load_plugins = function
         (try
             match lookup_plugin args.(0) with
             | Some plugin ->
-            Logs.info (fun m -> m "Loading plugin '%s' ..." plugin);
-            Dynload.loadfile plugin args
+              let plugin_name = plugin_name_of_file plugin in
+              let args = match PluginsArgs.find_opt plugin_name plugins_args with
+                | Some pargs -> Array.append args (Array.of_list pargs)
+                | None -> args
+              in
+              Logs.info (fun m -> m "Loading plugin '%s' from '%s' with args: '%s'..." plugin_name plugin (String.concat " " @@ Array.to_list args));
+              Dynload.loadfile plugin args
             | None -> Logs.warn (fun m -> m "Unable to find plugin %s !" plugin)
         with e -> Logs.warn (fun m -> m "Unable to load plugin %s ! Error: %s" plugin (Printexc.to_string e)));
         Lwt.return_unit
