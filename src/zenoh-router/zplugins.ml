@@ -70,7 +70,10 @@ let plugin_name_of_file f =
     | Some i -> i+1
     | None -> 0
   in
-  let suffixlen = String.length "-plugin.cmxs" in
+  let suffixlen = if Apero.Astring.is_suffix ~affix:"-plugin.cmxs" f then
+    String.length "-plugin.cmxs"
+    else String.length ".cmxs"
+  in
   String.sub f startidx (String.length f -startidx-suffixlen)
 
 let load_plugins plugins plugins_args = match plugins with 
