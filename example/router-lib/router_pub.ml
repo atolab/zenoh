@@ -3,7 +3,7 @@ open Apero
 
 let run tcpport peers strength usersfile plugins bufn timestamp = 
   Lwt_main.run (
-    let _ = Zrouter.run tcpport peers strength usersfile plugins bufn timestamp in
+    let _ = Zrouter.run tcpport peers strength usersfile plugins Zplugins.PluginsArgs.empty bufn timestamp in
     let%lwt z = zopen "" in 
     let%lwt pub = publish z "/home2" in 
     let rec publish i = 

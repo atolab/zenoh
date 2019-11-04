@@ -48,9 +48,13 @@ let json_of_results (results : (string * Abuf.t * Ztypes.data_info) list) =
   in
   results
   |> List.map (fun (resname, buf, info) ->
+      let time = match info.ts with
+        | None -> "None"
+        | Some ts when ts=timestamp0 -> "None"
+        | Some ts -> Timestamp.Time.to_rfc3339 @@ Timestamp.get_time ts
+      in
       Printf.sprintf "{ \"key\": \"%s\",\n  \"value\": %s,\n  \"time\": \"%s\" }"
-        resname  (json_of_value (string_of_buf buf) info.encoding)
-        Option.(get_or_default (map info.ts Timestamp.to_string) "None")
+        resname  (json_of_value (string_of_buf buf) info.encoding) time
       )
   |> String.concat ",\n"
   |> Printf.sprintf "[\n%s\n]"

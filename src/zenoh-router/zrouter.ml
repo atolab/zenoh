@@ -120,7 +120,7 @@ let rec read_users ic =
 
 module ZEngine = Engine(MVar_lwt)
 
-let run tcpport peers strength usersfile plugins bufn timestamp = 
+let run tcpport peers strength usersfile plugins plugin_args bufn timestamp = 
   let open ZEngine in 
   let%lwt _ = Logs_lwt.info (fun m -> m "Zenoh router starting ...") in
   let users = 
@@ -199,7 +199,7 @@ let run tcpport peers strength usersfile plugins bufn timestamp =
       Scouting.add_session engine tx_sex 0L >>= fun _ -> Lwt.return_unit);
   in
 
-  Zplugins.load_plugins plugins;
+  Zplugins.load_plugins plugins plugin_args;
 
   Lwt.join [ZTcpTransport.start tx (fun _ -> 
                                     let rbuf1 = Abuf.create ~grow:4096 buf_size in 

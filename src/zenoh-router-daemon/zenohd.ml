@@ -95,13 +95,39 @@ let run_disco disco =
     | _ -> let _ = Logs.warn (fun m -> m "Invalid scouting interface %s" disco) in Lwt.return_unit
     
 
-let run tcpport peers strength usersfile plugins bufn timestamp style_renderer level disco =
+let run plugins_args plugins_opt_ignored tcpport peers strength usersfile plugins bufn timestamp style_renderer level disco =
+  ignore plugins_opt_ignored;
   setup_log style_renderer level;
-  Lwt_main.run @@ Lwt.join [Zrouter.run tcpport peers strength usersfile plugins bufn timestamp; run_disco disco]
+  Lwt_main.run @@ Lwt.join [Zrouter.run tcpport peers strength usersfile plugins plugins_args bufn timestamp; run_disco disco]
+
+let extract_plugins_args () =
+  let open Zplugins in
+  let regex = Str.regexp "^--\\(.*\\)\\.\\(.*\\)$" in
+  Array.fold_left (fun (plugin_args, argv) arg ->
+    if (Str.string_match regex arg 0) then (
+      let plugin = Str.matched_group 1 arg in
+      let parg = "--"^(Str.matched_group 2 arg) in
+      let plugin_args' = match PluginsArgs.find_opt plugin plugin_args with
+        | None -> PluginsArgs.add plugin [parg] plugin_args
+        | Some pargs -> PluginsArgs.add plugin (parg::pargs) plugin_args
+      in
+      (plugin_args',  argv)
+    )
+    else (plugin_args,  argv@[arg])
+  ) (PluginsArgs.empty, []) Sys.argv
 
 let () =
   Printexc.record_backtrace true;  
   (* Lwt_engine.set (new Lwt_engine.libev ()); *)
   let env = Arg.env_var "ZENOD_VERBOSITY" in
-  let _ = Term.(eval (const run $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level ~env () $ Zrouter.disco, Term.info "zenohd")) in  ()
+  (* NOTE: the plugin_opt below is declared only for the description in --help.
+     the effective plugin options are extracted from argv (in plugin_args) before passing to Term.eval,
+     since Cmdliner cannot understand such pattern of options.
+  *)
+  let plugins_opt = Arg.(value & opt string "" & info ["<plugin_name>.<plugin_option>"] ~docv:"<option_value>"
+    ~doc:"Pass to the plugin with name '<plugin_name>' the option --<plugin_option>=<option_value>.
+          Example of usage: --yaks.storage=/demo/example/**  --zenoh-http.httpport=8080")
+  in
+  let (plugins_args, argv) = extract_plugins_args () in
+  let _ = Term.(eval ~argv:(Array.of_list argv) (const (run plugins_args) $ plugins_opt $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level~env () $ Zrouter.disco, Term.info "zenohd")) in  ()
 
