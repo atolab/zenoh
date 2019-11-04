@@ -78,22 +78,23 @@ let run_scouting iface locator =
   scout_loop socket hello_buf
       
       
-
+let auto_select_iface () =   
+  let ifs = Aunix.inet_addrs_up_nolo () in 
+  List.iteri (fun i addr -> Printf.printf "%d - %s\n" i (Unix.string_of_inet_addr addr)) ifs ;  
+  Unix.string_of_inet_addr @@ List.hd ifs
 
 let run_disco disco = 
-  match disco with
-  | "" -> 
-    let _ = Logs.info (fun m -> m "Scouting disabled, run with `--discovery <iface>` to enable it\n") 
-    in Lwt.return_unit
-  | _ -> 
-    let open Locator in 
-    match Locator.of_string ("tcp/" ^ disco ^ ":" ^ (string_of_int(scout_port))) with
-    | Some locator ->       
-      let _ = Logs.info (fun m -> m "Running scouting on interface %s\n" disco) in 
-      let iface = Unix.inet_addr_of_string disco in         
-      run_scouting iface locator
-    | _ -> let _ = Logs.warn (fun m -> m "Invalid scouting interface %s" disco) in Lwt.return_unit
-    
+  let addr = match disco with 
+    | "auto" ->  auto_select_iface ()     
+    | _ -> disco in 
+  let open Locator in 
+  match Locator.of_string ("tcp/" ^ addr ^ ":" ^ (string_of_int(scout_port))) with
+  | Some locator ->       
+    let _ = Logs.info (fun m -> m "Running scouting on interface %s\n" disco) in 
+    let iface = Unix.inet_addr_of_string addr in         
+    run_scouting iface locator
+  | _ -> let _ = Logs.warn (fun m -> m "Invalid scouting interface %s" disco) in Lwt.return_unit
+  
 
 let run plugins_args plugins_opt_ignored tcpport peers strength usersfile plugins bufn timestamp style_renderer level disco =
   ignore plugins_opt_ignored;
