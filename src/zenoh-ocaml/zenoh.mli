@@ -16,9 +16,10 @@ type query_handler = string -> string -> (string * Abuf.t * data_info) list Lwt.
 type submode
 type t
 
-val zscout : ?mask: Int64.t -> ?tries:int -> unit -> Locator.Locators.t Lwt.t
-(** [zscout ?mask ?tries ()] scouts for at least *tries* times the entities described
-by the *mask*. By default it tries at most three times to scout a broker. *)
+val zscout : string -> ?mask:Int64.t -> ?tries:int -> ?period:float ->  unit -> Locator.Locators.t Lwt.t
+(** [zscout iface ?mask ?tries ()] scouts on the interface with address iface for at least 
+*tries* times the entities described by the *mask*. By default it tries at most three times to 
+scout a broker. *)
 
 val zopen : ?username:string -> ?password:string -> string -> t Lwt.t
 (* [zopen locator] opens a zenoh session with a zenoh router and returns a zenoh handle. 

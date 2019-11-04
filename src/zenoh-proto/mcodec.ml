@@ -26,7 +26,7 @@ let decode_scout header =
 
 let encode_scout scout buf =
   let open Scout in
-  Logs.debug (fun m -> m "Writring Scout") ;
+  Logs.debug (fun m -> m "Writring Scout\n") ;
   Abuf.write_byte (header scout) buf;
   fast_encode_vle (mask scout) buf;
   encode_properties (properties scout) buf

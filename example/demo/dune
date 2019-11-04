@@ -1,4 +1,10 @@
 (executable
+  (name       demo_scout)
+  (modules    demo_scout)
+  (libraries  zenoh-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
   (name       demo_sub)
   (modules    demo_sub)
   (libraries  zenoh-ocaml)
