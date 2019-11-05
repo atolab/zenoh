@@ -81,8 +81,12 @@ let run_scouting iface locator =
 let auto_select_iface () =   
   let ifs = Aunix.inet_addrs_up_nolo () in 
   List.iteri (fun i addr -> Printf.printf "%d - %s\n" i (Unix.string_of_inet_addr addr)) ifs ;  
-  Unix.string_of_inet_addr @@ List.hd ifs
-
+  Unix.string_of_inet_addr  
+  @@ match ifs with 
+  | [] -> Unix.inet_addr_loopback
+          (* If no interface are active we can only be reached through loopback *)
+  | h::_ -> h
+  
 let run_disco disco = 
   let addr = match disco with 
     | "auto" ->  auto_select_iface ()     

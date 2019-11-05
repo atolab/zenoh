@@ -28,9 +28,10 @@ type resource = {rid: Vle.t; name: PathExpr.t; matches: Vle.t list; subs: insub 
 type query = {qid: Vle.t; listener:reply_handler;}
 
 let scout_port = 7447 
-let scout_addr = Unix.ADDR_INET (Unix.inet_addr_of_string "239.255.0.1", scout_port)
+let mcast_scout_addr = Unix.ADDR_INET (Unix.inet_addr_of_string "239.255.0.1", scout_port)
 let max_scout_msg_size = 1024
-
+let local_scout_period = 0.3
+let local_scout_tries = 2
 
 let with_match res mrid = 
   {res with matches = mrid :: List.filter (fun r -> r != mrid) res.matches}
@@ -303,32 +304,7 @@ let safe_run_decode_loop resolver t =
     | _ -> 
       fail @@ Exception (`ClosedSession (`Msg (Printexc.to_string x)))
 
-let zscout iface ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.5) () = 
-  let scout_period = period in 
-  let s = Message.Scout(Scout.create mask []) in   
-  let sbuf = Bytes.create max_scout_msg_size in 
-  let hbuf = Bytes.create max_scout_msg_size in 
-  let _ = Logs.debug (fun m -> m "Wrapping bytes in Abyte\n")  in 
-  let asbuf = Abuf.from_bytes sbuf in   
-  let ahbuf = Abuf.from_bytes hbuf in     
-  let _ = Logs_lwt.debug (fun m -> m "Encoding Scout message\n")  in 
-  Abuf.clear asbuf;
-  Mcodec.encode_msg_element s asbuf ;
-  let _ = Logs_lwt.debug (fun m -> m "Encoded Scout message\n")  in 
-  let ifaddr = Unix.inet_addr_of_string iface in 
-  let saddr = Unix.ADDR_INET (ifaddr, 0) in 
-  let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in 
-  let _ = Lwt_unix.bind socket saddr in 
-  
-  let rec scout_loop n locators =  
-    if n = 0 then Lwt.return (Locators.of_list locators)
-    else 
-      begin 
-    let _ = Logs_lwt.debug (fun m -> m "Scouting loop...\n")  in 
-    let  _ = Lwt_unix.sendto socket sbuf 0 (Abuf.w_pos asbuf) [] scout_addr in 
-
-    let handle_data nb = 
-      Abuf.clear ahbuf;
+let handle_scout_data ahbuf locators n tries nb =       
       let _ = Logs.debug (fun m -> m "Scouting loop -- received %d bytes\n" nb)  in 
       Abuf.set_w_pos nb ahbuf ; 
       let msg = Mcodec.decode_msg ahbuf in 
@@ -344,21 +320,60 @@ let zscout iface ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.5)
       match locs with 
       | [] when n < tries -> Lwt.return @@ `ContinueScouting locs 
       | _ -> Lwt.return @@ `DoneScouting locs
-    in 
-    let handle_timeout _ =
-      let _ = Logs.debug (fun m -> m "Scouting timed-out\n") in  
-      Lwt.return @@ `ContinueScouting locators
-    in 
-    match%lwt 
-      (Lwt.try_bind 
-        (fun () -> (Lwt_unix.with_timeout scout_period (fun () -> Lwt_unix.recv socket hbuf 0 max_scout_msg_size [])))
-        handle_data
-        handle_timeout) with 
-    | `ContinueScouting locs -> scout_loop (n-1) locs
-    | `DoneScouting locs -> Lwt.return @@ Locators.of_list locs
+
+let scouting socket sbuf_ctx tries scout_addr scout_period = 
+  let hbuf = Bytes.create max_scout_msg_size in 
+  let ahbuf = Abuf.from_bytes hbuf in     
+  let rec scout_loop n locators =    
+    if n = 0 then Lwt.return locators
+    else 
+      begin 
+        let (sbuf, offset, len) = sbuf_ctx in 
+      let _ = Logs_lwt.debug (fun m -> m "Scouting loop...\n")  in 
+      let  _ = Lwt_unix.sendto socket sbuf offset len [] scout_addr in 
+    
+      let handle_timeout _ =
+        let _ = Logs.debug (fun m -> m "Scouting timed-out\n") in  
+        Lwt.return @@ `ContinueScouting locators
+      in 
+      match%lwt 
+        (Lwt.try_bind 
+          (fun () -> (Lwt_unix.with_timeout scout_period (fun () -> Lwt_unix.recv socket hbuf 0 max_scout_msg_size [])))
+          (handle_scout_data ahbuf locators n tries)
+          handle_timeout) with 
+      | `ContinueScouting locs -> scout_loop (n-1) locs
+      | `DoneScouting locs -> Lwt.return locs
     end
-            
-  in scout_loop tries []
+  in scout_loop tries [] 
+
+let zscout iface ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.0) () = 
+  let remote_scout_period = period in 
+  let s = Message.Scout(Scout.create mask []) in   
+  let sbuf = Bytes.create max_scout_msg_size in   
+  let _ = Logs.debug (fun m -> m "Wrapping bytes in Abyte\n")  in 
+  let asbuf = Abuf.from_bytes sbuf in   
+  let _ = Logs_lwt.debug (fun m -> m "Encoding Scout message\n")  in 
+  Abuf.clear asbuf;
+  Mcodec.encode_msg_element s asbuf ;
+  let _ = Logs_lwt.debug (fun m -> m "Encoded Scout message\n")  in 
+  let ifaddr = Unix.inet_addr_of_string iface in 
+  let saddr = Unix.ADDR_INET (ifaddr, 0) in 
+  let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in 
+  let _ = Lwt_unix.bind socket saddr in 
+  let sbuf_ctx = (sbuf, 0, Abuf.w_pos asbuf) in 
+
+  (* Check if a broker is available on the current node *)
+  let local_scout_address = Unix.ADDR_INET(Unix.inet_addr_loopback , scout_port) in 
+  match%lwt scouting socket sbuf_ctx local_scout_tries local_scout_address local_scout_period with 
+  | [] -> 
+    (* If we can't scout a local broker than look around *)
+    let%lwt locs = scouting socket sbuf_ctx tries mcast_scout_addr remote_scout_period in 
+    Lwt.return @@ Locators.of_list locs 
+  | ls -> 
+    Printf.printf "Found non-empty locator list...\n";
+    Lwt.return @@ Locators.of_list ls
+  
+  
     
 let zopen ?username ?password peer = 
   let%lwt local_sex = Zenoh_local_router.open_local_session () in

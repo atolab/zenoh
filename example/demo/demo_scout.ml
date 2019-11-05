@@ -32,7 +32,7 @@ let scouting style_renderer level iface  =
     let open Locator in 
     let _ = match (Locators.to_list locs) with 
     | [] -> print_endline "no locator found"
-    | ls -> List.iteri (fun i l -> Printf.printf "%d-th locator %s" i (Locator.to_string l)) ls 
+    | ls -> List.iteri (fun i l -> Printf.printf "%d-th locator %s\n" i (Locator.to_string l)) ls 
     in  Lwt.return_unit)
 
 let () = 
