@@ -8,7 +8,7 @@ let run tcpport peers strength usersfile plugins bufn timestamp =
     let%lwt pub = publish z "/home2" in 
     let rec publish i = 
       let buf = Abuf.create 1024 in
-      encode_string ("HOME2_MSG" ^ Pervasives.string_of_int i) buf;
+      encode_string ("HOME2_MSG" ^ Stdlib.string_of_int i) buf;
       let%lwt _ = stream pub buf in
       let%lwt _ = Lwt_unix.sleep 1.0 in
       publish (i + 1)

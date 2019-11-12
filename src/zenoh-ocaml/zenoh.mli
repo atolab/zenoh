@@ -16,7 +16,7 @@ type query_handler = string -> string -> (string * Abuf.t * data_info) list Lwt.
 type submode
 type t
 
-val zscout : string -> ?mask:Int64.t -> ?tries:int -> ?period:float ->  unit -> Locator.Locators.t Lwt.t
+val zscout : ?iface:string -> ?mask:Int64.t -> ?tries:int -> ?period:float ->  unit -> Locator.Locators.t Lwt.t
 (** [zscout iface ?mask ?tries ()] scouts on the interface with address iface for at least 
 *tries* times the entities described by the *mask*. By default it tries at most three times to 
 scout a broker. *)

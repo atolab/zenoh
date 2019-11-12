@@ -1,4 +1,4 @@
-open Pervasives
+open Stdlib
 open Spn_tree
 open Spn_tree.Node
 

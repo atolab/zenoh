@@ -346,7 +346,20 @@ let scouting socket sbuf_ctx tries scout_addr scout_period =
     end
   in scout_loop tries [] 
 
-let zscout iface ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.0) () = 
+let select_iface iface =   
+  match iface with 
+  | "auto" ->
+    (let ifs = Aunix.inet_addrs_up_nolo () in 
+    List.iteri (fun i addr -> Printf.printf "%d - %s\n" i (Unix.string_of_inet_addr addr)) ifs ;  
+    Unix.string_of_inet_addr  
+    @@ match ifs with 
+    | [] -> Unix.inet_addr_loopback
+            (* If no interface are active we can only be reached through loopback *)
+    | h::_ -> h)
+  | _ -> iface
+
+let zscout ?(iface="auto") ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.0) () = 
+  let addr = Unix.inet_addr_of_string @@ select_iface iface in 
   let remote_scout_period = period in 
   let s = Message.Scout(Scout.create mask []) in   
   let sbuf = Bytes.create max_scout_msg_size in   
@@ -356,8 +369,9 @@ let zscout iface ?(mask=Message.ScoutFlags.scoutBroker) ?(tries=3) ?(period=1.0)
   Abuf.clear asbuf;
   Mcodec.encode_msg_element s asbuf ;
   let _ = Logs_lwt.debug (fun m -> m "Encoded Scout message\n")  in 
-  let ifaddr = Unix.inet_addr_of_string iface in 
-  let saddr = Unix.ADDR_INET (ifaddr, 0) in 
+  (* let ifaddr = Unix.inet_addr_of_string iface in  *)
+  (* let saddr = Unix.ADDR_INET (ifaddr, 0) in  *)
+  let saddr = Unix.ADDR_INET (addr, 0) in 
   let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in 
   let _ = Lwt_unix.bind socket saddr in 
   let sbuf_ctx = (sbuf, 0, Abuf.w_pos asbuf) in 

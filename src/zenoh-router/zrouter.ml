@@ -126,7 +126,7 @@ let run tcpport peers strength usersfile plugins plugin_args bufn timestamp =
   let users = 
     try match usersfile with 
       | None -> None 
-      | Some file -> Some (read_users @@ Pervasives.open_in file)
+      | Some file -> Some (read_users @@ Stdlib.open_in file)
     with e -> Printf.printf "%s\n%!" (Printexc.to_string e); exit 1
   in
   let peers = String.split_on_char ',' peers 

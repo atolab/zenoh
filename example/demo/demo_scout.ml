@@ -20,14 +20,14 @@ let setup_log style_renderer level =
   ()
 
 
-let iface = Arg.(value & opt string "127.0.0.1"  & info ["i"; "iface"] ~docv:"INTERFACE" ~doc:"interface")
+let iface = Arg.(value & opt string "auto"  & info ["i"; "iface"] ~docv:"INTERFACE" ~doc:"interface")
 
 
 let scouting style_renderer level iface  =  
   let open Lwt.Infix in 
   setup_log style_renderer level;
   print_endline "scouting...." ;
-  Lwt_main.run @@ (zscout iface ~tries:10 ~period:3.0 () >>= fun locs -> 
+  Lwt_main.run @@ (zscout ~iface ~tries:10 ~period:3.0 () >>= fun locs -> 
     print_endline "Resolved Locators done with scouting";
     let open Locator in 
     let _ = match (Locators.to_list locs) with 
