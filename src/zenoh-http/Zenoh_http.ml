@@ -218,5 +218,12 @@ let port = Cmdliner.Arg.(value & opt int 8000 & info ["h"; "httpport"] ~docv:"HT
 
 let _ = 
   Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list Sys.argv |> String.concat " "));
-  Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http-plugin"))
-
+  match Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http-plugin")) with
+  | `Ok _ -> ()
+  | `Help -> exit 0
+  | `Error `Parse ->
+    Logs.err (fun m -> m "Error parsing zenoh-http options: %s" (Array.to_list Sys.argv |> String.concat " "));
+    exit 1
+  | `Error `Term -> exit 2 (* by default term eval error is written to err by Term.eval *)
+  | `Error `Exn -> exit 3 (* by default exception is caught and written to err by Term.eval *)
+  | _ -> exit 4
