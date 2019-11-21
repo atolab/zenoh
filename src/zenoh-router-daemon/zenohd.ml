@@ -68,15 +68,18 @@ let rec scout_loop socket hello_buf =
 
 
 let run_scouting iface locator = 
-  
-  let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in     
-  let saddr = Unix.ADDR_INET (Unix.inet_addr_any, scout_port) in 
-  let%lwt () = Lwt_unix.bind socket saddr in 
-  let _ = Logs.info (fun m -> m "Joining MCast group") in  
-  let  () = Lwt_unix.mcast_add_membership socket ~ifname:iface scout_mcast_addr in 
-  let hello_buf = make_hello_buf locator in 
-  scout_loop socket hello_buf
-      
+  try
+    let socket = Lwt_unix.socket Unix.PF_INET Unix.SOCK_DGRAM 0 in 
+    Lwt_unix.setsockopt socket Unix.SO_REUSEADDR true;
+    let saddr = Unix.ADDR_INET (Unix.inet_addr_any, scout_port) in 
+    let%lwt () = Lwt_unix.bind socket saddr in 
+    let _ = Logs.info (fun m -> m "Joining MCast group") in  
+    let  () = Lwt_unix.mcast_add_membership socket ~ifname:iface scout_mcast_addr in 
+    let hello_buf = make_hello_buf locator in 
+    scout_loop socket hello_buf
+  with e ->
+    Logs.warn (fun m -> m "Problem running scouting : %s" (Printexc.to_string e));
+    Lwt.return_unit
       
 let auto_select_iface () =   
   let ifs = Aunix.inet_addrs_up_nolo () in 
