@@ -178,10 +178,12 @@ function cleanfailure(){
 }
 
 function transform(values) {
-    return values.reduce(function(dict, val){
-        dict[val.key] = val.value;
-        return dict;
-    }, {});
+    try {
+        return values.reduce(function(dict, val){
+            dict[val.key] = val.value;
+            return dict;
+        }, {});
+    } catch(error){ return {}; }
 }
 
 function update(zServices, plugins) {
@@ -238,12 +240,18 @@ function mapkeys(dict, fun) {
         {});
 }
 
+function filterkeys(dict, fun) {
+    return Object.keys(dict).reduce(
+        (accu, current) => {if (fun(current) == true) { accu[current] = dict[current];} return accu;}, 
+        {});
+}
+
 function showDetails(zServices, plugins) {
     if(network && network.getSelectedNodes()[0]) {
         nodeid = ""+network.getSelectedNodes()[0]
         if(zServices && zServices["/@/" + nodeid]) {
             routereditor.update(zServices["/@/" + nodeid]);
-            pluginseditor.update(mapkeys(plugins, (key) => key.split('/').pop()));
+            pluginseditor.update(mapkeys(filterkeys(plugins, key => key.startsWith("/@/" + nodeid)), key => key.split('/').pop()));
         } else {
             $.getJSON("/@/" + network.getSelectedNodes()[0], zServices => {
                 $.getJSON("/@/" + network.getSelectedNodes()[0] + "/plugins/*", plugins => {
