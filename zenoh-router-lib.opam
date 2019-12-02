@@ -6,7 +6,7 @@ bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git+https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version:"0.3.0"
+version:"0.3.1"
 license: "Apache-2.0"
 
 build: [
@@ -25,7 +25,7 @@ depends: [
   "lwt" {>= "4.1.0"}
   "apero-core" {>= "0.4.5"}
   "apero-net" {>= "0.4.5"}
-  "zenoh-proto" {= "0.3.0"}
+  "zenoh-proto" {= "0.3.1"}
 ]
 synopsis : "The zenoh router library"
 description: """
