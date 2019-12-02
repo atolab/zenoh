@@ -1,3 +1,13 @@
+## 0.3.0 (2019-12-02)
+
+- Plugins support : the zenoh router can load and run zenoh applications as plugins.
+- zenoh-http plugin : the zenoh-http plugin allows data to be published/queried through a REST API.
+- Timestamps : zenoh routers automatically (and optionally) timestamp all data it routes that is not already timestamped.
+- login/password : zenoh routers can restrict access to sessions providing registered login/password.
+- UDP multicast scouting : zenoh routers can discover each other and can be discovered by zenoh applications through UDP multicast. 
+- Support for Evals.
+- Bug fixes.
+
 ## 0.2.6 (2019-05-14)
 
 - Zenoh Router Lib : Applications can run the zenoh router as a library and interract with it through the same API as client applications.
