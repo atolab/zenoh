@@ -1,35 +1,35 @@
 (executable
   (name       demo_scout)
   (modules    demo_scout)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       demo_sub)
   (modules    demo_sub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       demo_pub)
   (modules    demo_pub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       demo_storage)
   (modules    demo_storage)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       demo_eval)
   (modules    demo_eval)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       demo_query)
   (modules    demo_query)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))

@@ -28,8 +28,8 @@ depends: [
   "apero-net" {>= "0.4.5"}
   "zenoh-proto" {= "0.3.1"}
 ]
-synopsis : "The zenoh ocaml API"
+synopsis : "The zenoh-net ocaml API"
 description: """
-zenoh is a high-level and extremely wire-efficient named-data protocol
+zenoh-net is a high-level and extremely wire-efficient named-data protocol
 that nicely combines data streaming with distributed data quering.
-This package provides OCaml API for developing zenoh applications."""
+This package provides OCaml API for developing zenoh-net applications."""

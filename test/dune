@@ -1,0 +1,11 @@
+(executable
+  (name      test_zenoh)
+  (modules   test_zenoh test_zenoh_common test_selector)
+  (libraries zenoh_common alcotest)
+  (preprocess
+    (pps ppx_monadic)))
+
+(alias
+ (name runtest)
+  (deps test_zenoh.exe)
+  (action (run %{exe:test_zenoh.exe} -q --color=always)))

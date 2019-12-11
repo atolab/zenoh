@@ -1,6 +1,6 @@
 (library
-  (name            zenoh_ocaml)
-  (public_name     zenoh-ocaml)
+  (name            zenoh_net_ocaml)
+  (public_name     zenoh-net-ocaml)
   (wrapped         false)
   (libraries       apero-core apero-net zenoh-proto lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord str)
   (preprocess      (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

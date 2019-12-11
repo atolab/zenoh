@@ -1,23 +1,23 @@
 (executable
   (name       throughput_sub)
   (modules    throughput_sub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       throughput_pub)
   (modules    throughput_pub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       bthroughput_sub)
   (modules    bthroughput_sub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))
 
 (executable
   (name       bthroughput_pub)
   (modules    bthroughput_pub)
-  (libraries  zenoh-ocaml)
+  (libraries  zenoh-net-ocaml)
   (preprocess (pps lwt_ppx)))

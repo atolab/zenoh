@@ -5,7 +5,7 @@ let locator = match Array.length Sys.argv with
   | _ -> Sys.argv.(1)
 
 let uri = match Array.length Sys.argv with 
-  | 1 | 2 -> "/demo/example/zenoh-ocaml-stream"
+  | 1 | 2 -> "/demo/example/zenoh-net-ocaml-stream"
   | _ -> Sys.argv.(2)
 
 let value = match Array.length Sys.argv with 

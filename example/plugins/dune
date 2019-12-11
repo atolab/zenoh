@@ -4,7 +4,7 @@
   (name            z_storage)
   (modules         z_storage)
   (public_name     z_storage)
-  (libraries       zenoh-ocaml dynload-sys)
+  (libraries       zenoh-net-ocaml dynload-sys)
   (preprocess      (pps lwt_ppx)))
 
 (rule
@@ -16,6 +16,6 @@
                   -linkpkg
                   -thread
                   -dontlink apero-core
-                  -dontlink zenoh-ocaml
+                  -dontlink zenoh-net-ocaml
                   -package z_storage
                   -o %{targets})))
