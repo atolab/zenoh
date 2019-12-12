@@ -1,0 +1,35 @@
+(executable
+  (name       zn_stream)
+  (modules    zn_stream)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_write)
+  (modules    zn_write)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_sub)
+  (modules    zn_sub)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_storage)
+  (modules    zn_storage)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_eval)
+  (modules    zn_eval)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_query)
+  (modules    zn_query)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))

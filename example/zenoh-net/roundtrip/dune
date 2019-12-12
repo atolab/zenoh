@@ -1,0 +1,11 @@
+(executable
+  (name       zn_roundtrip_ping)
+  (modules    zn_roundtrip_ping)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_roundtrip_pong)
+  (modules    zn_roundtrip_pong)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))

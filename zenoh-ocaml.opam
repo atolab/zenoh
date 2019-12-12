@@ -16,19 +16,16 @@ build: [
 
 
 depends: [
-  "ocaml" {>= "4.03.0"}
   "dune"
   "fmt"
   "logs"
   "lwt"
   "ppx_deriving"
-  "ppx_cstruct"
   "lwt_ppx"
-  "apero-core" {>= "0.4.5"}
-  "apero-time" {>= "0.4.5"}
-  "zenoh-net-ocaml" {= "0.3.0"}
+  "apero-core" {>= "0.4.4"}
+  "zenoh-common" {= "0.3.0"}
 ]
 
-synopsis : "zenoh common OCaml library"
+synopsis : "Zenoh OCaml API"
 description: """
-An OCaml library used by both zenoh-net-ocaml API and zenoh-storages plugin."""
+The Zenoh API binding for OCaml."""

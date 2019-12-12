@@ -73,7 +73,7 @@ let query_timedvalues zenoh ?hlc selector =
   in
   let resname = Selector.path selector in
   let predicate = Selector.optional_part selector in
-  Zenoh.lquery zenoh resname predicate
+  Zenoh_net.lquery zenoh resname predicate
   >>= Lwt_list.map_p reply_to_ktv
 
 let query_values zenoh selector =
@@ -86,11 +86,11 @@ let query_values zenoh selector =
   in
   let resname = Selector.path selector in
   let predicate = Selector.optional_part selector in
-  Zenoh.lquery zenoh resname predicate
+  Zenoh_net.lquery zenoh resname predicate
   >|= List.map reply_to_kv
 
 let squery_values zenoh selector =
-  let qreply_to_kv (qreply:Zenoh.queryreply) = match qreply with
+  let qreply_to_kv (qreply:Zenoh_net.queryreply) = match qreply with
     | StorageData {stoid=_; rsn=_; resname; data; info} ->
       let path = Path.of_string resname in
       let encoding = encoding_of_flag info.encoding in
@@ -100,7 +100,7 @@ let squery_values zenoh selector =
   in
   let resname = Selector.path selector in
   let predicate = Selector.optional_part selector in
-  Zenoh.squery zenoh resname predicate
+  Zenoh_net.squery zenoh resname predicate
   |> Lwt_stream.filter_map qreply_to_kv
 
 let write_put zenoh ?timestamp path (value:Value.t) =
@@ -108,43 +108,43 @@ let write_put zenoh ?timestamp path (value:Value.t) =
   let buf = encode_value value in
   let encoding = encoding_to_flag value in
     Logs.warn (fun m -> m "[Yapi]: PUT on %s : %s" (Path.to_string path) (Abuf.hexdump buf));
-  Zenoh.write zenoh res ?timestamp ~encoding buf
+  Zenoh_net.write zenoh res ?timestamp ~encoding buf
 
 let write_update zenoh ?timestamp path (value:Value.t) =
   let res = Path.to_string path in
   let buf = encode_value value in
   let encoding = encoding_to_flag value in
-  Zenoh.write zenoh res ?timestamp ~encoding ~kind:kind_update buf
+  Zenoh_net.write zenoh res ?timestamp ~encoding ~kind:kind_update buf
 
 let write_remove zenoh ?timestamp  path =
   let res = Path.to_string path in
-  Zenoh.write zenoh res ?timestamp ~kind:kind_remove empty_buf
+  Zenoh_net.write zenoh res ?timestamp ~kind:kind_remove empty_buf
 
 let stream_put pub ?timestamp (value:Value.t) =
   let buf = encode_value value in
   let encoding = encoding_to_flag value in
-  Zenoh.stream pub ?timestamp ~encoding buf
+  Zenoh_net.stream pub ?timestamp ~encoding buf
 
 let stream_update pub ?timestamp (value:Value.t) =
   let buf = encode_value value in
   let encoding = encoding_to_flag value in
-  Zenoh.stream pub ?timestamp ~encoding ~kind:kind_update buf
+  Zenoh_net.stream pub ?timestamp ~encoding ~kind:kind_update buf
 
 let stream_remove ?timestamp pub =
-  Zenoh.stream pub ?timestamp ~kind:kind_remove empty_buf
+  Zenoh_net.stream pub ?timestamp ~kind:kind_remove empty_buf
 
 
-let subscribe zenoh ?hlc ?listener selector =
+let subscribe zns ?hlc ?listener selector =
   let open Lwt.Infix in
   let (zmode, zlistener) = match listener with
-    | None -> (Zenoh.pull_mode, fun _ _ -> Lwt.return_unit)
+    | None -> (Zenoh_net.pull_mode, fun _ _ -> Lwt.return_unit)
     | Some callback -> 
-      (Zenoh.push_mode, 
+      (Zenoh_net.push_mode, 
       fun resname samples -> match Path.of_string_opt resname with
         | Some path -> decode_changes ?hlc samples >>= callback path
-        | None -> Logs.err (fun m -> m "[YZu]: Subscriber received data via Zenoh for an invalid path: %s" resname); Lwt.return_unit
+        | None -> Logs.err (fun m -> m "[YZu]: Subscriber received data via zenoh-net for an invalid path: %s" resname); Lwt.return_unit
       )
   in
-  Zenoh.subscribe zenoh (Selector.to_string selector) zlistener ~mode:zmode
+  Zenoh_net.subscribe zns (Selector.to_string selector) zlistener ~mode:zmode
 
-let unsubscribe = Zenoh.unsubscribe
+let unsubscribe = Zenoh_net.unsubscribe
