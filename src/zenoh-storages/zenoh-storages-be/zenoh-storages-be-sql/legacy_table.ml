@@ -46,7 +46,7 @@ let remove_sql_table storage_info path time =
         Remove operation used to be on Selectors with a query (see commented code below).
         But now that a Path is given as argument, there is no longer a query part, and thus
         we can't decide which ro to remove in the SQL table.
-        What we need is really to expose the SQL keys of the table in the Yaks path (similarly to KV tables below) 
+        What we need is really to expose the SQL keys of the table in the zenoh path (similarly to KV tables below) 
     *)
     (*
     Logs.debug (fun m -> m "[SQL]: remove(%s) from legacy table %s"

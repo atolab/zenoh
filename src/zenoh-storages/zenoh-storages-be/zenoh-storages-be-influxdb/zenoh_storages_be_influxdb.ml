@@ -109,7 +109,7 @@ module InfluxBE = struct
         Lwt.return_unit 
 
     let make_db_name () =
-      "Yaks_db_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
+      "Zenoh_db_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
 
     let create_storage selector props =
       let props = Properties.union (fun _ _ v2 -> Some v2) properties props in

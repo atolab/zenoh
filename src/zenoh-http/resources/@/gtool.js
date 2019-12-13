@@ -79,15 +79,15 @@ function updateNodes(zServices, plugins) {
                 "_______________" + "\n" +
                 "http:" + http_port;
         }
-        yaks_str = "";
-        yaks_json = plugins["/@/" + zServices[id].pid + "/plugins/yaks"];
-        if(yaks_json) {
-            yaks_str = "\n" +
+        storages_str = "";
+        storages_json = plugins["/@/" + zServices[id].pid + "/plugins/zenoh-storages"];
+        if(storages_json) {
+            storages_str = "\n" +
                 "_______________" + "\n" +
-                "YAKS";
+                "storages";
         }
         label = "<b>" + zServices[id].hostname.substring(0, 12) + "</b>\n" + 
-                z_inet_addr + "\n" + "tcp:" + z_port + http_str + yaks_str + "\n" +
+                z_inet_addr + "\n" + "tcp:" + z_port + http_str + storages_str + "\n" +
                 "_______________";
         return {id: zServices[id].pid, label: label};
     });

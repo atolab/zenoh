@@ -2,7 +2,7 @@ open Apero
 open Lwt.Infix
 open Zenoh_types
 
-type yid = string
+type zid = string
 type feid = string
 type beid = string
 type stid = string
@@ -143,48 +143,48 @@ end
 module Admin = struct
   type t =
    { admin : Workspace.t
-   ; yaksid : yid }
+   ; zid : zid }
 
   let properties_of_value v = match v with
     | Value.PropertiesValue p -> p
     | _ -> Properties.singleton "value" (Value.to_string v)
 
-  let add_backend ?yaks beid props t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let path = Printf.sprintf "/@/%s/plugins/yaks/backend/%s" yaks beid in
+  let add_backend ?zid beid props t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
     Workspace.put ~quorum:1 (Path.of_string path) (Value.PropertiesValue props) t.admin
 
-  let get_backends ?yaks t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let sel = Printf.sprintf "/@/%s/plugins/yaks/backend/*" yaks in
+  let get_backends ?zid t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*" zid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= List.map (fun (p, v) ->
       let beid = Astring.with_range ~first:(String.length sel-1) (Path.to_string p) in
       let prop = properties_of_value v in
       (beid, prop))
 
-  let get_backend ?yaks beid t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let sel = Printf.sprintf "/@/%s/plugins/yaks/backend/%s" yaks beid in
+  let get_backend ?zid beid t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= (fun l -> Option.map (List.nth_opt l 0) (fun (_,v) -> properties_of_value v))
 
-  let remove_backend ?yaks beid t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let path = Printf.sprintf "/@/%s/plugins/yaks/backend/%s" yaks beid in
+  let remove_backend ?zid beid t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
     Workspace.remove ~quorum:1 (Path.of_string path) t.admin
 
 
-  let add_storage ?yaks stid ?backend props t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
+  let add_storage ?zid stid ?backend props t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
     let beid = Option.get_or_default backend "auto" in
-    let path = Printf.sprintf "/@/%s/plugins/yaks/backend/%s/storage/%s" yaks beid stid in
+    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s/storage/%s" zid beid stid in
     Workspace.put ~quorum:1 (Path.of_string path) (Value.PropertiesValue props) t.admin
 
-  let get_storages ?yaks ?backend t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
+  let get_storages ?zid ?backend t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
     let beid = Option.get_or_default backend "*" in
-    let sel = Printf.sprintf "/@/%s/plugins/yaks/backend/%s/storage/*" yaks beid in
+    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s/storage/*" zid beid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= List.map (fun (p, v) ->
       let path = Path.to_string p in
@@ -193,15 +193,15 @@ module Admin = struct
       let prop = properties_of_value v in
       (stoid, prop))
 
-  let get_storage ?yaks stid t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let sel = Printf.sprintf "/@/%s/plugins/yaks/backend/*/storage/%s" yaks stid in
+  let get_storage ?zid stid t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*/storage/%s" zid stid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= (fun l -> Option.map (List.nth_opt l 0) (fun (_,v) -> properties_of_value v))
 
-  let remove_storage ?yaks stid t =
-    let yaks = match yaks with | Some id -> id | None -> t.yaksid in
-    let sel = Printf.sprintf "/@/%s/plugins/yaks/backend/*/storage/%s" yaks stid in
+  let remove_storage ?zid stid t =
+    let zid = match zid with | Some id -> id | None -> t.zid in
+    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*/storage/%s" zid stid in
     let path = 
       Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
       >|= (fun l -> Option.map (List.nth_opt l 0) (fun (p,_) -> p))
@@ -223,14 +223,14 @@ end
 
 type t =
   { zns : Zenoh_net.t
-  ; yaksid : string
+  ; zid : string
   ; properties : properties }
 
 let login endpoint properties =
   let%lwt zns = Zenoh_net.zopen endpoint in
   let zinfo = Zenoh_net.info zns in
   match Properties.get "peer_pid" zinfo with
-  | Some zid -> Lwt.return { zns; yaksid=zid; properties; }
+  | Some zid -> Lwt.return { zns; zid=zid; properties; }
   | None -> raise @@ Zenoh_common_errors.YException (`InternalError (`Msg ("Connected zenohd doesn't provide the property 'peer_pid'")))
 
 let logout t =
@@ -238,7 +238,7 @@ let logout t =
   (* TODO: explicit close session...   unsubscribe? unstore? *)
   Lwt.return_unit
 
-let get_id t = t.yaksid
+let get_id t = t.zid
 
 let workspace path t : Workspace.t Lwt.t =
   (* TODO in sync with Zenoh: register path as a resource and use resource_id + relative_path in workspace *)
@@ -251,5 +251,5 @@ let workspace path t : Workspace.t Lwt.t =
 
 let admin t : Admin.t Lwt.t = 
   let%lwt w = workspace (Path.of_string "/@/") t in
-  let a : Admin.t = { admin=w; yaksid=t.yaksid } in
+  let a : Admin.t = { admin=w; zid=t.zid } in
   Lwt.return a

@@ -39,7 +39,7 @@ module SQLBE = struct
         fun () -> Lwt.return_unit 
 
     let make_kv_table_name () =
-      "Yaks_kv_table_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
+      "Zenoh_kv_table_"^(Uuid.make () |> Uuid.to_string |> String.map (function | '-' -> '_' | c -> c))
 
     let compare_schema (cols, types) (cols', types') =
       (List.for_all2 (=) cols cols') && (Dyntype.equal types types')

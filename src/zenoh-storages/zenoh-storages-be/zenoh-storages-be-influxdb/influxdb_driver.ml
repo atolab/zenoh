@@ -82,7 +82,7 @@ let serie_to_timedvalues serie =
              result
     ) [] serie.values
   ) else (
-    Logs.err (fun m -> m "[Infx] Serie %s has invalid tags and fields for a Yaks value: %s (serie ignored)"
+    Logs.err (fun m -> m "[Infx] Serie %s has invalid tags and fields for a zenoh value: %s (serie ignored)"
       serie.name (String.concat " , " serie.columns));
     []
   )

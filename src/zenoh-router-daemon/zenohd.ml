@@ -134,7 +134,7 @@ let () =
   *)
   let plugins_opt = Arg.(value & opt string "" & info ["<plugin_name>.<plugin_option>"] ~docv:"<option_value>"
     ~doc:"Pass to the plugin with name '<plugin_name>' the option --<plugin_option>=<option_value>.
-          Example of usage: --yaks.storage=/demo/example/**  --zenoh-http.httpport=8080")
+          Example of usage: --zenoh-storages.storage=/demo/example/**  --zenoh-http.httpport=8080")
   in
   let (plugins_args, argv) = extract_plugins_args () in
   let _ = Term.(eval ~argv:(Array.of_list argv) (const (run plugins_args) $ plugins_opt $ Zrouter.tcpport $ Zrouter.peers $ Zrouter.strength $ Zrouter.users $ Zrouter.plugins $ Zrouter.bufn $ Zrouter.timestamp $ Fmt_cli.style_renderer () $ Logs_cli.level~env () $ Zrouter.disco, Term.info "zenohd")) in  ()
