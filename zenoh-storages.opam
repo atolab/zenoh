@@ -1,0 +1,30 @@
+opam-version: "2.0"
+maintainer:   ["contact@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Julien Enoch" "Olivier Hecart" "Gabriele Baldoni"]
+homepage:     "https://zenoh.io"
+bug-reports:  "https://github.com/atolab/zenoh/issues/"
+dev-repo:     "git+https://github.com/atolab/zenoh.git"
+tags:         ["zenoh"]
+
+version:"0.3.0"
+license: "Apache-2.0"
+
+build: [
+ ["dune" "subst"] {pinned}
+ ["dune" "-p" name "-j" jobs]
+]
+
+install: [
+  ["dune" "build" "@install"]
+  ["dune" "install" name]
+]
+
+
+depends: [
+  "ocaml" {>= "4.03.0"}
+  "dune"
+  "zenoh-router" {= "0.3.0"}
+  "zenoh-common"  {= "0.3.0"}
+  "zenoh-storages-be-mm"  {= "0.3.0"}
+  "zenoh-storages-be-sql"  {= "0.3.0"}
+]

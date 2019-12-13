@@ -1,0 +1,7 @@
+(library
+  (name            zenoh_storages_be_lib)
+  (public_name     zenoh-storages-be-lib)
+  (wrapped         false)
+  (libraries       zenoh-common str lwt lwt.unix logs logs.lwt ppx_deriving.show ppx_deriving.ord re)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))

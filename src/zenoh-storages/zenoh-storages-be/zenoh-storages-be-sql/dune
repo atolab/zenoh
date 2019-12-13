@@ -1,0 +1,50 @@
+(library
+  (name           zenoh_storages_be_sql)
+  (public_name    zenoh-storages-be-sql)
+  (wrapped        false)
+  (libraries      zenoh-storages-be-lib caqti caqti-lwt
+                  )
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(rule
+  (targets    zenoh-storages-be-sqlite3.cmxs)
+  (deps       (package zenoh-storages-be-sql))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-storages-be-lib
+                  -package zenoh-storages-be-sql
+                  -package caqti-driver-sqlite3
+                  -o %{targets}
+  )))
+
+(rule
+  (targets    zenoh-storages-be-mariadb.cmxs)
+  (deps       (package zenoh-storages-be-sql))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-storages-be-lib
+                  -package zenoh-storages-be-sql
+                  -package caqti-driver-mariadb
+                  -o %{targets}
+  )))
+
+(rule
+  (targets    zenoh-storages-be-postgresql.cmxs)
+  (deps       (package zenoh-storages-be-sql))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-storages-be-lib
+                  -package zenoh-storages-be-sql
+                  -package caqti-driver-postgresql
+                  -o %{targets}
+  )))

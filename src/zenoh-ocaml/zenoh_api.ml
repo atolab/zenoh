@@ -27,18 +27,18 @@ module RegisteredPath = struct
 
   let put ?quorum value t =
     ignore quorum;
-    Logs.debug (fun m -> m "[Yapi]: PUT (stream) on %s" (Path.to_string t.path));
-    Zenoh_zutils.stream_put t.pub value
+    Logs.debug (fun m -> m "[Zapi]: PUT (stream) on %s" (Path.to_string t.path));
+    Zenoh_netutils.stream_put t.pub value
 
   let update ?quorum value t =
     ignore quorum;
-    Logs.debug (fun m -> m "[Yapi]: UPDATE (stream) on %s" (Path.to_string t.path));
-    Zenoh_zutils.stream_update t.pub value
+    Logs.debug (fun m -> m "[Zapi]: UPDATE (stream) on %s" (Path.to_string t.path));
+    Zenoh_netutils.stream_update t.pub value
 
   let remove ?quorum t =
     ignore quorum;
-    Logs.debug (fun m -> m "[Yapi]: REMOVE (stream) on %s" (Path.to_string t.path));
-    Zenoh_zutils.stream_remove t.pub
+    Logs.debug (fun m -> m "[Zapi]: REMOVE (stream) on %s" (Path.to_string t.path));
+    Zenoh_netutils.stream_remove t.pub
 end
 
 module Workspace = struct
@@ -62,60 +62,60 @@ module Workspace = struct
   let get ?quorum ?encoding ?fallback selector t =
     ignore quorum; ignore encoding; ignore fallback;
     let selector = absolute_selector selector t in
-    Logs.debug (fun m -> m "[Yapi]: GET on %s" (Selector.to_string selector));
-    Zenoh_zutils.query_values t.zns selector
+    Logs.debug (fun m -> m "[Zapi]: GET on %s" (Selector.to_string selector));
+    Zenoh_netutils.query_values t.zns selector
 
   let sget ?quorum ?encoding ?fallback selector t =
     ignore quorum; ignore encoding; ignore fallback;
     let selector = absolute_selector selector t in
-    Logs.debug (fun m -> m "[Yapi]: GET on %s" (Selector.to_string selector));
-    Zenoh_zutils.squery_values t.zns selector
+    Logs.debug (fun m -> m "[Zapi]: GET on %s" (Selector.to_string selector));
+    Zenoh_netutils.squery_values t.zns selector
 
   let put ?quorum path value t =
     ignore quorum;
     let path = absolute_path path t in
-    Logs.debug (fun m -> m "[Yapi]: PUT on %s : %s" (Path.to_string path) (Value.to_string value));
-    Zenoh_zutils.write_put t.zns path value
+    Logs.debug (fun m -> m "[Zapi]: PUT on %s : %s" (Path.to_string path) (Value.to_string value));
+    Zenoh_netutils.write_put t.zns path value
 
   let update ?quorum path value t =
     ignore quorum;
     let path = absolute_path path t in
-    Logs.debug (fun m -> m "[Yapi]: UPDATE on %s" (Path.to_string path));
-    Zenoh_zutils.write_update t.zns path value
+    Logs.debug (fun m -> m "[Zapi]: UPDATE on %s" (Path.to_string path));
+    Zenoh_netutils.write_update t.zns path value
 
   let remove ?quorum path t =
     ignore quorum;
     let path = absolute_path path t in
-    Logs.debug (fun m -> m "[Yapi]: REMOVE on %s" (Path.to_string path));
-    Zenoh_zutils.write_remove t.zns path
+    Logs.debug (fun m -> m "[Zapi]: REMOVE on %s" (Path.to_string path));
+    Zenoh_netutils.write_remove t.zns path
 
   let subscribe ?listener selector t =
     let selector = absolute_selector selector t in
-    Logs.debug (fun m -> m "[Yapi]: SUB on %s" (Selector.to_string selector));
+    Logs.debug (fun m -> m "[Zapi]: SUB on %s" (Selector.to_string selector));
     let listener = match listener with
       | Some l -> Some (fun path changes -> List.map (fun change -> (path, change)) changes |> l)
       | None -> None
     in
-    Zenoh_zutils.subscribe t.zns ?listener selector
+    Zenoh_netutils.subscribe t.zns ?listener selector
 
   let unsubscribe subid t =
-    Logs.debug (fun m -> m "[Yapi]: UNSUB");
-    Zenoh_zutils.unsubscribe t.zns subid
+    Logs.debug (fun m -> m "[Zapi]: UNSUB");
+    Zenoh_netutils.unsubscribe t.zns subid
 
 
   let register_eval path (eval_callback:eval_callback_t) t =
     let path = absolute_path path t in
     let zpath = Path.to_string path in
-    Logs.debug (fun m -> m "[Yapi]: REG_EVAL %s" zpath);
+    Logs.debug (fun m -> m "[Zapi]: REG_EVAL %s" zpath);
     let on_query resname predicate =
-      Logs.debug (fun m -> m "[Yapi]: Handling remote Zenoh query on eval '%s' for '%s?%s'" zpath resname predicate);
+      Logs.debug (fun m -> m "[Zapi]: Handling remote Zenoh query on eval '%s' for '%s?%s'" zpath resname predicate);
       let s = Selector.of_string ((Path.to_string path)^"?"^predicate) in
       let props = Option.map (Selector.properties s) Properties.of_string in
       eval_callback path (Option.get_or_default props Properties.empty)
       >|= fun value ->
-        let encoding = Some(Zenoh_zutils.encoding_to_flag value) in
+        let encoding = Some(Zenoh_netutils.encoding_to_flag value) in
         let data_info = { Ztypes.empty_data_info with encoding; ts=None } in
-        let buf = Zenoh_zutils.encode_value value in
+        let buf = Zenoh_netutils.encode_value value in
         [(zpath, buf, data_info)]
     in
     Guard.guarded t.evals
@@ -129,7 +129,7 @@ module Workspace = struct
 
   let unregister_eval path t =
     let path = absolute_path path t in
-    Logs.debug (fun m -> m "[Yapi]: UNREG_EVAL %s" (Path.to_string path));
+    Logs.debug (fun m -> m "[Zapi]: UNREG_EVAL %s" (Path.to_string path));
     Guard.guarded t.evals
       @@ fun evals ->
       let%lwt () = match EvalMap.find_opt path evals with
