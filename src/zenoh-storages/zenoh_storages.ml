@@ -310,7 +310,7 @@ let () =
       | Some pid -> pid
       | None -> Uuid.make () |> Uuid.to_string
     in
-    let admin_prefix = "/@/"^zpid^"/plugins/storages" in
+    let admin_prefix = "/@/router/"^zpid^"/plugin/storages" in
     let (t:t) = Guard.create { zns; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
     Logs.info (fun m -> m "[Zstorages] create storages admin space on %s/**" admin_prefix);
     let on_changes path changes =

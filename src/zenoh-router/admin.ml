@@ -32,7 +32,7 @@ let full_broker_json pe =
     ]
 
 
-let broker_path_str pe = String.concat "" [admin_prefix; Abuf.hexdump pe.pid]
+let broker_path_str pe = String.concat "" [admin_prefix; "router/"; Abuf.hexdump pe.pid]
 let broker_path pe = Path.of_string @@ broker_path_str pe
 (* let router_path pe = Path.of_string (String.concat "" [broker_path_str pe; "/routing"])
 let resource_path pe res_name = Path.of_string @@ String.concat "" [broker_path_str pe; R_name.ResName.to_string res_name]  *)

@@ -151,12 +151,12 @@ module Admin = struct
 
   let add_backend ?zid beid props t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
+    let path = Printf.sprintf "/@/router/%s/plugin/storages/backend/%s" zid beid in
     Workspace.put ~quorum:1 (Path.of_string path) (Value.PropertiesValue props) t.admin
 
   let get_backends ?zid t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*" zid in
+    let sel = Printf.sprintf "/@/router/%s/plugin/storages/backend/*" zid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= List.map (fun (p, v) ->
       let beid = Astring.with_range ~first:(String.length sel-1) (Path.to_string p) in
@@ -165,26 +165,26 @@ module Admin = struct
 
   let get_backend ?zid beid t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
+    let sel = Printf.sprintf "/@/router/%s/plugin/storages/backend/%s" zid beid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= (fun l -> Option.map (List.nth_opt l 0) (fun (_,v) -> properties_of_value v))
 
   let remove_backend ?zid beid t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s" zid beid in
+    let path = Printf.sprintf "/@/router/%s/plugin/storages/backend/%s" zid beid in
     Workspace.remove ~quorum:1 (Path.of_string path) t.admin
 
 
   let add_storage ?zid stid ?backend props t =
     let zid = match zid with | Some id -> id | None -> t.zid in
     let beid = Option.get_or_default backend "auto" in
-    let path = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s/storage/%s" zid beid stid in
+    let path = Printf.sprintf "/@/router/%s/plugin/storages/backend/%s/storage/%s" zid beid stid in
     Workspace.put ~quorum:1 (Path.of_string path) (Value.PropertiesValue props) t.admin
 
   let get_storages ?zid ?backend t =
     let zid = match zid with | Some id -> id | None -> t.zid in
     let beid = Option.get_or_default backend "*" in
-    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/%s/storage/*" zid beid in
+    let sel = Printf.sprintf "/@/router/%s/plugin/storages/backend/%s/storage/*" zid beid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= List.map (fun (p, v) ->
       let path = Path.to_string p in
@@ -195,13 +195,13 @@ module Admin = struct
 
   let get_storage ?zid stid t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*/storage/%s" zid stid in
+    let sel = Printf.sprintf "/@/router/%s/plugin/storages/backend/*/storage/%s" zid stid in
     Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
     >|= (fun l -> Option.map (List.nth_opt l 0) (fun (_,v) -> properties_of_value v))
 
   let remove_storage ?zid stid t =
     let zid = match zid with | Some id -> id | None -> t.zid in
-    let sel = Printf.sprintf "/@/%s/plugins/zenoh-storages/backend/*/storage/%s" zid stid in
+    let sel = Printf.sprintf "/@/router/%s/plugin/storages/backend/*/storage/%s" zid stid in
     let path = 
       Workspace.get ~quorum:1 (Selector.of_string sel) t.admin
       >|= (fun l -> Option.map (List.nth_opt l 0) (fun (p,_) -> p))

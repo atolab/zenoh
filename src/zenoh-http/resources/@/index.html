@@ -64,16 +64,16 @@
 
             const tabs = {
                 "": function () {
-                    $.getJSON("/@/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
-                    $.getJSON("/@/local/plugins/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/local/plugin/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-localrouter": function () {
-                    $.getJSON("/@/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
-                    $.getJSON("/@/local/plugins/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/local", function(json) {localrouter.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/local/plugin/*", function(json) {localplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-allrouters": function () {
-                    $.getJSON("/@/*", function(json) {allrouters.updateText(JSON.stringify(transform(json)));});
-                    $.getJSON("/@/*/plugins/*", function(json) {allplugins.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/*", function(json) {allrouters.updateText(JSON.stringify(transform(json)));});
+                    $.getJSON("/@/router/*/plugin/*", function(json) {allplugins.updateText(JSON.stringify(transform(json)));});
                 },
                 "tabs1-gtool": function () {
                     if($('#frame-gtool').attr('src') == "") {

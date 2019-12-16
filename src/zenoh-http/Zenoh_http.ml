@@ -108,8 +108,8 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
                                   Headers.pp_hum req.headers);
   let resname, predicate = Astring.span ~sat:(fun c -> c <> '?') req.target in
   let resname =
-    if Astring.is_prefix ~affix:"/@/local" resname
-    then "/@/"^zpid^(Astring.with_index_range ~first:8 resname)
+    if Astring.is_prefix ~affix:"/@/router/local" resname
+    then "/@/router/"^zpid^(Astring.with_index_range ~first:15 resname)
     else resname
   in
   let predicate = Astring.with_range ~first:1 predicate in
@@ -202,14 +202,14 @@ let run port =
   Lwt_io.establish_server_with_client_socket listen_address 
     (Server.create_connection_handler ~request_handler:(request_handler zns zpid) ~error_handler:(error_handler zns))
   >|= fun _ ->
-  Zenoh_net.evaluate zns ("/@/" ^ zpid ^ "/plugins/http")  (fun _ _ -> 
+  Zenoh_net.evaluate zns ("/@/router/" ^ zpid ^ "/plugin/http")  (fun _ _ -> 
     let data = Abuf.create ~grow:65536 1024 in 
     let locators = Aunix.inet_addrs_up_nolo () 
       |> List.map (fun addr -> `String (Printf.sprintf "http://%s:%d" (Unix.string_of_inet_addr addr) port)) in
     let json = `Assoc [ ("locators",  `List locators); ] in
     Abuf.write_bytes (Bytes.unsafe_of_string (Yojson.Safe.to_string json)) data;
     let info = Ztypes.({srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=Some(timestamp0); encoding=Some 4L (* JSON *); kind=None}) in
-    Lwt.return [("/@/" ^ zpid ^ "/plugins/http", data, info)]
+    Lwt.return [("/@/router/" ^ zpid ^ "/plugin/http", data, info)]
   )
   >|= fun _ ->
   Logs.info (fun m -> m "[Zhttp] listening on port tcp/0.0.0.0:%d" port)
