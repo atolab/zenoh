@@ -7,7 +7,7 @@
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (rule
-  (targets    zenoh-storages-plugin.cmxs)
+  (targets    zenoh-plugin-storages.cmxs)
   (deps       (package zenoh-storages))
   (action (run ocamlfind ocamlopt
                   -shared

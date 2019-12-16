@@ -9,33 +9,29 @@ let sep = Filename.dir_sep
 let sepchar = String.get sep 0
 let exe_dir = Filename.dirname Sys.executable_name
 
-let get_plugin plugin = 
-  List.find_opt (fun file -> Sys.file_exists file)
-    [
-      plugin;
-      plugin ^ ".cmxs";
-      plugin ^ "-plugin.cmxs";
-    ] 
-
-let plugin_locations plugin = 
+let plugin_filenames plugin = 
   [
     plugin;
-    exe_dir ^ sep ^ ".." ^ sep ^ "lib" ^ sep ^ plugin;
-    "~/.zenoh/lib/" ^ plugin;
-    "/usr/local/lib/" ^ plugin;
-    "/usr/lib/" ^ plugin;
+    plugin ^ ".cmxs";
+    "zenoh-plugin-" ^ plugin ^ ".cmxs";
+  ] 
+
+let plugin_locations = 
+  [
+    "";
+    exe_dir ^ sep ^ ".." ^ sep ^ "lib" ^ sep;
+    "~/.zenoh/lib/";
+    "/usr/local/lib/";
+    "/usr/lib/";
   ]
 
 let lookup_plugin plugin = 
-  let rec lookup plugins = 
-    match plugins with 
-    | [] -> None
-    | plugin::plugins -> 
-      match get_plugin plugin with 
-      | Some plugin -> Some plugin 
-      | None -> lookup plugins
-  in
-  lookup @@ plugin_locations plugin
+  List.map (fun plugin_location -> 
+    List.map (fun plugin_filename -> plugin_location ^ plugin_filename)
+             (plugin_filenames plugin))
+    plugin_locations
+  |> List.flatten 
+  |> List.find_opt Sys.file_exists
 
 let plugin_default_dirs = 
   [
@@ -52,8 +48,9 @@ let lookup_default_plugins () =
     | dir::dirs -> 
       match Sys.file_exists dir with 
       | true -> (Sys.readdir dir |> Array.to_list
-                |> List.filter (fun file -> String.length file > 12 
-                                         && String.equal (Str.last_chars file 12) "-plugin.cmxs")
+                |> List.filter (fun file -> String.length file > 18 
+                                         && String.equal (Str.last_chars file 5) ".cmxs"
+                                         && String.equal (Str.first_chars file 13) "zenoh-plugin-")
                 |> List.map (fun file -> dir ^ sep ^file)
                 |> function 
                 | [] -> lookup dirs 
@@ -66,17 +63,16 @@ let lookup_default_plugins () =
   
 
 let plugin_name_of_file f =
-  let startidx = match String.rindex_opt f sepchar with
-    | Some i -> i+1
-    | None -> 0
-  in
-  let suffixlen = if Apero.Astring.is_suffix ~affix:"-plugin.cmxs" f then
-    String.length "-plugin.cmxs"
-    else String.length ".cmxs"
-  in
-  String.sub f startidx (String.length f -startidx-suffixlen)
+  String.split_on_char sepchar f |> List.rev |> List.hd 
+  |> (function str -> Apero.Astring.is_prefix ~affix:"zenoh-plugin-" str |> function 
+  | true ->  String.sub str 13 (String.length str - 13)
+  | false -> str )
+  |> (function str -> Apero.Astring.is_suffix ~affix:".cmxs" str |> function 
+  | true ->  String.sub str 0 (String.length str - 5)
+  | false -> str)
 
-let load_plugins plugins plugins_args = match plugins with 
+let load_plugins plugins plugins_args = 
+    match plugins with 
     | ["None"] -> ()
     | ["none"] -> ()
     | plugins -> 

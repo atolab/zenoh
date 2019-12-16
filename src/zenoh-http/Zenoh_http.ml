@@ -202,14 +202,14 @@ let run port =
   Lwt_io.establish_server_with_client_socket listen_address 
     (Server.create_connection_handler ~request_handler:(request_handler zns zpid) ~error_handler:(error_handler zns))
   >|= fun _ ->
-  Zenoh_net.evaluate zns ("/@/" ^ zpid ^ "/plugins/zenoh-http")  (fun _ _ -> 
+  Zenoh_net.evaluate zns ("/@/" ^ zpid ^ "/plugins/http")  (fun _ _ -> 
     let data = Abuf.create ~grow:65536 1024 in 
     let locators = Aunix.inet_addrs_up_nolo () 
       |> List.map (fun addr -> `String (Printf.sprintf "http://%s:%d" (Unix.string_of_inet_addr addr) port)) in
     let json = `Assoc [ ("locators",  `List locators); ] in
     Abuf.write_bytes (Bytes.unsafe_of_string (Yojson.Safe.to_string json)) data;
     let info = Ztypes.({srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=Some(timestamp0); encoding=Some 4L (* JSON *); kind=None}) in
-    Lwt.return [("/@/" ^ zpid ^ "/plugins/zenoh-http", data, info)]
+    Lwt.return [("/@/" ^ zpid ^ "/plugins/http", data, info)]
   )
   >|= fun _ ->
   Logs.info (fun m -> m "[Zhttp] listening on port tcp/0.0.0.0:%d" port)
@@ -218,7 +218,7 @@ let port = Cmdliner.Arg.(value & opt int 8000 & info ["h"; "httpport"] ~docv:"HT
 
 let _ = 
   Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list Sys.argv |> String.concat " "));
-  match Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http-plugin")) with
+  match Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http")) with
   | `Ok _ -> ()
   | `Help -> exit 0
   | `Error `Parse ->

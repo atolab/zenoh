@@ -100,7 +100,7 @@ let add_loaded_backend state be time =
   let module BE = (val be: Backend) in
   let id = BeId.to_string BE.id in
   let backend = { beModule = be; storages = StorageMap.empty } in
-  Logs.debug (fun m -> m "[zenoh-storages] add_backend : %s" id);
+  Logs.debug (fun m -> m "[Zstorages] add_backend : %s" id);
   let kvs = kvmap_add
     (Path.of_string @@ Printf.sprintf "%s/backend/%s/" state.admin_prefix id)
     (Value.PropertiesValue BE.properties) time state.kvs
@@ -118,8 +118,8 @@ let add_backend t beid properties time =
     let lib = Properties.get_or_default "lib" ~default:beid properties in
     match lookup_be_lib lib with
     | Some file -> begin
-      Logs.debug (fun m -> m "[zenoh-storages] load backend %s with lib=%s : library found at %s" beid lib file );
-      Logs.debug (fun m -> m "[zenoh-storages] load backend %s with properties: %s" beid (Properties.to_string properties));
+      Logs.debug (fun m -> m "[Zstorages] load backend %s with lib=%s : library found at %s" beid lib file );
+      Logs.debug (fun m -> m "[Zstorages] load backend %s with properties: %s" beid (Properties.to_string properties));
       try
         begin
           Dynlink.loadfile @@ Dynlink.adapt_filename file;
@@ -143,12 +143,12 @@ let remove_backend t beid time =
 let find_compatible_backend backends properties =
   BackendMap.filter (fun beid be ->
     let module BE = (val be.beModule: Backend) in
-    Logs.debug (fun m -> m "[zenoh-storages]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string);
+    Logs.debug (fun m -> m "[Zstorages]:    try Backend %s (%s)" (BeId.to_string beid) BE.to_string);
     Properties.not_conflicting properties BE.properties) backends
   |> BackendMap.choose_opt
 
 let create_storage t ?beid stid properties time =
-  Logs.debug (fun m -> m "[zenoh-storages] create_storage %s with %s" stid (Properties.to_string properties));
+  Logs.debug (fun m -> m "[Zstorages] create_storage %s with %s" stid (Properties.to_string properties));
   (* get "selector" from properties *)
   let%lwt selector = match Properties.find_opt "selector" properties with
     | None -> Lwt.fail @@ YException (`InternalError (`Msg ("create_storage "^stid^" without 'selector' in properties")))
@@ -157,7 +157,7 @@ let create_storage t ?beid stid properties time =
       | Some s' -> Lwt.return s')
   in
   let storageId = StorageId.of_string stid in
-  Logs.debug (fun m -> m "[zenoh-storages] create_storage %s on %s" stid (Selector.to_string selector));
+  Logs.debug (fun m -> m "[Zstorages] create_storage %s on %s" stid (Selector.to_string selector));
   Guard.guarded t
   @@ fun self ->
   (* get backend from beid or a compatible one if beid is not set *)
@@ -179,7 +179,7 @@ let create_storage t ?beid stid properties time =
   else
     (* create storage (in backend and in Zenoh) and add it to self state *)
     let module BE = (val be.beModule: Backend) in
-    Logs.debug (fun m -> m "[zenoh-storages]: create_storage %s using Backend %s" stid (BE.to_string));
+    Logs.debug (fun m -> m "[Zstorages]: create_storage %s using Backend %s" stid (BE.to_string));
     let%lwt storage = BE.create_storage selector properties in
     let%lwt zenoh_storage =
       let open LwtM.InfixM in
@@ -197,7 +197,7 @@ let create_storage t ?beid stid properties time =
 let remove_storage t beid stid time =
   let beid' = BeId.of_string beid in
   let stid' = StorageId.of_string stid in
-  Logs.debug (fun m -> m "[zenoh-storages] remove_storage %s/%s" beid stid);
+  Logs.debug (fun m -> m "[Zstorages] remove_storage %s/%s" beid stid);
   Guard.guarded t
   @@ fun self ->
   let%lwt be = match BackendMap.find_opt beid' self.backends with
@@ -214,14 +214,14 @@ let remove_storage t beid stid time =
     in
     Guard.return () { self with backends = BackendMap.add beid' be' self.backends; kvs }
   | None -> 
-    Logs.debug (fun m -> m "[zenoh-storages] storage %s/%s not found... ignore remove request" beid stid);
+    Logs.debug (fun m -> m "[Zstorages] storage %s/%s not found... ignore remove request" beid stid);
     Guard.return () self
 
 (*****************************)
 (* get/put/remove operations *)
 (*****************************)
 let get t selector =
-  Logs.debug (fun m -> m "[zenoh-storages]: get %s" (Selector.to_string selector));
+  Logs.debug (fun m -> m "[Zstorages]: get %s" (Selector.to_string selector));
   let self = Guard.get t in 
   Lwt.return @@ match Selector.as_unique_path selector with 
   | Some path ->
@@ -234,7 +234,7 @@ let get t selector =
       |> KVMap.bindings
 
 let put t path (tv:TimedValue.t) =
-  Logs.debug (fun m -> m "[zenoh-storages]: put %s : %s" (Path.to_string path) (Value.to_string tv.value));
+  Logs.debug (fun m -> m "[Zstorages]: put %s : %s" (Path.to_string path) (Value.to_string tv.value));
   let time = tv.time in
   let%lwt properties = 
     let open Value in
@@ -261,7 +261,7 @@ let put t path (tv:TimedValue.t) =
     Lwt.fail @@ YException (`InternalError (`Msg ("put on remote zenoh-storages admin not yet implemented")))
 
 let remove t path time =
-  Logs.debug (fun m -> m "[zenoh-storages]: remove %s" (Path.to_string path));
+  Logs.debug (fun m -> m "[Zstorages]: remove %s" (Path.to_string path));
   let self = Guard.get t in 
   if Astring.is_prefix ~affix:self.admin_prefix (Path.to_string path) then
     match String.split_on_char '/' @@ Astring.with_range ~first:(String.length self.admin_prefix+1) (Path.to_string path) with
@@ -281,7 +281,7 @@ let memory_beid = "Memory"
 let add_memory_backend t =
   Guard.guarded t
   @@ fun self ->
-    Logs.debug (fun m -> m "[zenoh-storages] add memory backend ");
+    Logs.debug (fun m -> m "[Zstorages] add memory backend ");
     Zenoh_storages_be_mm.MainMemoryBEF.make (BeId.of_string memory_beid) Properties.empty >>= fun m ->
     let module BE = (val m: Backend) in
     Guard.return () @@ add_loaded_backend self (module BE) Zenoh_storages_netutils.timestamp0
@@ -290,7 +290,7 @@ let add_storages t =
   Lwt_list.iteri_s (fun i sel ->
     let storage_name = Printf.sprintf "mem-storage-%d" i in
     let props = Properties.singleton "selector" sel in
-    Logs.debug (fun m -> m "[zenoh-storages] add initial memory storage %s on %s" storage_name sel);
+    Logs.debug (fun m -> m "[Zstorages] add initial memory storage %s on %s" storage_name sel);
     create_storage t ~beid:memory_beid storage_name props Zenoh_storages_netutils.timestamp0
   )
 
@@ -301,7 +301,7 @@ let storages = Arg.(value & opt_all string [] & info ["s"; "storage"] ~docv:"<se
         This option can be used more than once to create several storages.")
 
 let () = 
-  Logs.debug (fun m -> m "[zenoh-storages] starting with args: %s\n%!" (Array.to_list Sys.argv |> String.concat " "));
+  Logs.debug (fun m -> m "[Zstorages] starting with args: %s\n%!" (Array.to_list Sys.argv |> String.concat " "));
   let run no_backend storages =
     Lwt.async @@ fun () ->
     let%lwt zns = Zenoh_net.zopen "" in
@@ -310,14 +310,14 @@ let () =
       | Some pid -> pid
       | None -> Uuid.make () |> Uuid.to_string
     in
-    let admin_prefix = "/@/"^zpid^"/plugins/zenoh-storages" in
+    let admin_prefix = "/@/"^zpid^"/plugins/storages" in
     let (t:t) = Guard.create { zns; admin_prefix; backends=BackendMap.empty;  kvs=KVMap.empty } in
-    Logs.info (fun m -> m "[zenoh-storages] create zenoh-storages admin space on %s/**" admin_prefix);
+    Logs.info (fun m -> m "[Zstorages] create storages admin space on %s/**" admin_prefix);
     let on_changes path changes =
       Lwt_list.iter_s (function
         | Put(tv)      -> put t path tv
         | Remove(time) -> remove t path time
-        | Update(_)    -> Logs.warn (fun m -> m "[zenoh-storages]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
+        | Update(_)    -> Logs.warn (fun m -> m "[Zstorages]: Received update for %s : only put or remove are supported by Admin space" (Path.to_string path)); Lwt.return_unit
       ) changes
     in
         Zenoh_storages_netutils.store zns (Selector.of_string @@ admin_prefix^"/**") on_changes (get t)

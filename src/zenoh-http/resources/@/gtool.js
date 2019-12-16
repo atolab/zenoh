@@ -70,7 +70,7 @@ function updateNodes(zServices, plugins) {
         z_inet_addr = z_locator.shift();
         z_port = z_locator.shift();
         http_str = "";
-        http_json = plugins["/@/" + zServices[id].pid + "/plugins/zenoh-http"];
+        http_json = plugins["/@/" + zServices[id].pid + "/plugins/http"];
         if(http_json) {
             http_port = http_json.locators.length > 0 
                         ? http_json.locators[0].split(':').pop()
@@ -80,7 +80,7 @@ function updateNodes(zServices, plugins) {
                 "http:" + http_port;
         }
         storages_str = "";
-        storages_json = plugins["/@/" + zServices[id].pid + "/plugins/zenoh-storages"];
+        storages_json = plugins["/@/" + zServices[id].pid + "/plugins/storages"];
         if(storages_json) {
             storages_str = "\n" +
                 "_______________" + "\n" +
