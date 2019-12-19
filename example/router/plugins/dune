@@ -17,5 +17,5 @@
                   -thread
                   -dontlink apero-core
                   -dontlink zenoh-net-ocaml
-                  -package z_storage
+                  -package zn_storage
                   -o %{targets})))
