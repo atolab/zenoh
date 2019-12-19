@@ -63,7 +63,7 @@ module Storage = struct
     let%lwt tmp_sub = NetUtils.subscribe zenoh ~listener selector in
 
     (* query the remote storages (to get historical data) *)
-    let%lwt kvs = NetUtils.query_timedvalues zenoh selector in
+    let%lwt kvs = NetUtils.query_timedvalues zenoh ~dest_evals:No selector in
     let%lwt () = List.map (fun (path, (tv:TimedValue.t)) ->
       if Astring.is_prefix ~affix:"/@" (Path.to_string path) then Lwt.return_unit
       else put s path tv)

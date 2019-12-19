@@ -64,7 +64,7 @@ let decode_changes ?hlc samples =
     (fun e -> Logs.err (fun m -> m "[Znu]: INTERNAL ERROR receiving data via Zenoh: %s" (Printexc.to_string e)); Lwt.return acc)
   ) []
 
-let query_timedvalues zenoh ?hlc selector =
+let query_timedvalues zenoh ?hlc ?dest_storages ?dest_evals selector =
   let open Lwt.Infix in
   let reply_to_ktv (resname, buf, (info:Ztypes.data_info)) =
     let path = Path.of_string resname in
@@ -73,7 +73,7 @@ let query_timedvalues zenoh ?hlc selector =
   in
   let resname = Selector.path selector in
   let predicate = Selector.optional_part selector in
-  Zenoh_net.lquery zenoh resname predicate
+  Zenoh_net.lquery zenoh ?dest_storages ?dest_evals resname predicate
   >>= Lwt_list.map_p reply_to_ktv
 
 let query_values zenoh selector =
