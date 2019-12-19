@@ -2,7 +2,7 @@
   (name            zenoh_storages)
   (public_name     zenoh-storages)
   (wrapped         false)
-  (libraries       zenoh-router zenoh-common zenoh-storages-be-lib zenoh-storages-be-mm dynload-sys)
+  (libraries       zenoh-router zenoh-common zenoh-storages-be-lib zenoh-storages-be-memory dynload-sys)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 

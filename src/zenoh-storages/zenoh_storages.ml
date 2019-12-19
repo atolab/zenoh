@@ -276,7 +276,7 @@ let remove t path time =
 (*****************************)
 (* initialisation operations *)
 (*****************************)
-let memory_beid = "Memory"
+let memory_beid = "memory"
 
 let add_memory_backend t =
   Guard.guarded t

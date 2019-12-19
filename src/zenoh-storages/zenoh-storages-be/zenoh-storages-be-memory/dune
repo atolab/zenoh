@@ -1,20 +1,20 @@
 (library
-  (name            zenoh_storages_be_mm)
-  (public_name     zenoh-storages-be-mm)
+  (name            zenoh_storages_be_memory)
+  (public_name     zenoh-storages-be-memory)
   (wrapped         false)
   (libraries       zenoh-storages-be-lib)
   (preprocess
     (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
 
 (rule
-  (targets    zenoh-storages-be-mm.cmxs)
-  (deps       (package zenoh-storages-be-mm))
+  (targets    zenoh-storages-be-memory.cmxs)
+  (deps       (package zenoh-storages-be-memory))
   (action (run ocamlfind ocamlopt
                   -shared
                   -linkall
                   -linkpkg
                   -thread
                   -dontlink zenoh-storages-be-lib
-                  -package zenoh-storages-be-mm
+                  -package zenoh-storages-be-memory
                   -o %{targets}
   )))

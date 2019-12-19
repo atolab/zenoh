@@ -25,6 +25,6 @@ depends: [
   "dune"
   "zenoh-router" {= "0.3.0"}
   "zenoh-common"  {= "0.3.0"}
-  "zenoh-storages-be-mm"  {= "0.3.0"}
+  "zenoh-storages-be-memory"  {= "0.3.0"}
   "zenoh-storages-be-sql"  {= "0.3.0"}
 ]
