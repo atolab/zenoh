@@ -1,0 +1,7 @@
+(copy_files ../../src/zenoh-http/zenoh-plugin-http.cmxs)
+(copy_files ../../src/zenoh-storages/zenoh-plugin-storages.cmxs)
+
+(copy_files ../../src/zenoh-storages/zenoh-storages-be/zenoh-storages-be-sql/zenoh-storages-be-sqlite3.cmxs)
+(copy_files ../../src/zenoh-storages/zenoh-storages-be/zenoh-storages-be-sql/zenoh-storages-be-mariadb.cmxs)
+(copy_files ../../src/zenoh-storages/zenoh-storages-be/zenoh-storages-be-sql/zenoh-storages-be-postgresql.cmxs)
+(copy_files ../../src/zenoh-storages/zenoh-storages-be/zenoh-storages-be-influxdb/zenoh-storages-be-influxdb.cmxs)
