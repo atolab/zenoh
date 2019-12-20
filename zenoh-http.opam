@@ -27,6 +27,7 @@ depends: [
   "httpaf" {>= "0.6.0"}
   "httpaf-lwt-unix" {>= "0.6.0"}
   "ocp-ocamlres" {>= "0.4"}
+  "dynload-sys"
 ]
 synopsis : "The zenoh http plugin"
 description: """
