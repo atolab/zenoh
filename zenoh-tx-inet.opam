@@ -25,7 +25,7 @@ depends: [
   "lwt" {>= "4.1.0"}
   "apero-core" {>= "0.4.5"}
   "apero-net" {>= "0.4.5"}
-  "zenoh-proto" {= "0.3.1"}
+  "zenoh-proto" {= "0.4.0"}
 ]
 synopsis : "The zenoh transport framework"
 description: """

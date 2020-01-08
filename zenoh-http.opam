@@ -23,7 +23,7 @@ depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
   "lwt" {>= "4.1.0"}
-  "zenoh-router" {= "0.3.1"}
+  "zenoh-router" {= "0.4.0"}
   "httpaf" {>= "0.6.0"}
   "httpaf-lwt-unix" {>= "0.6.0"}
   "ocp-ocamlres" {>= "0.4"}
