@@ -90,7 +90,7 @@ let load_plugins plugins plugins_args =
                 | None -> args
               in
               Logs.info (fun m -> m "Loading plugin '%s' from '%s' with args: '%s'..." plugin_name plugin (String.concat " " @@ Array.to_list args));
-              Dynload.loadfile plugin args
+              Dynload.loadfile_private plugin args
             | None -> Logs.warn (fun m -> m "Unable to find plugin %s !" plugin)
         with e -> Logs.warn (fun m -> m "Unable to load plugin %s ! Error: %s" plugin (Printexc.to_string e)));
         Lwt.return_unit

@@ -17,7 +17,7 @@ build: [
 depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
-  "lwt" {>= "4.1.0"}
+  "lwt" {>= "4.1.0" & < "5.0.0"}
   "apero-core" {>= "0.4.5"}
   "apero-net" {>= "0.4.5"}
   "zenoh-proto" {= "0.4.0"}

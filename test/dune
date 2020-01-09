@@ -1,9 +1,7 @@
 (executable
   (name      test_zenoh)
   (modules   test_zenoh test_zenoh_common test_selector)
-  (libraries zenoh_common alcotest)
-  (preprocess
-    (pps ppx_monadic)))
+  (libraries zenoh_common alcotest))
 
 (alias
  (name runtest)

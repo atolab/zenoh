@@ -19,10 +19,10 @@ depends: [
   "dune"
   "fmt"
   "logs"
-  "lwt"
+  "lwt" {< "5.0.0"}
   "ppx_deriving"
   "lwt_ppx"
-  "apero-core" {>= "0.4.4"}
+  "apero-core" {>= "0.4.5"}
   "zenoh-common" {= "0.3.0"}
 ]
 

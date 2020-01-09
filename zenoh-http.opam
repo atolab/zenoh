@@ -22,7 +22,7 @@ install: [
 depends: [
   "ocaml" {>= "4.03.0" }
   "dune"
-  "lwt" {>= "4.1.0"}
+  "lwt" {>= "4.1.0" & < "5.0.0"}
   "zenoh-router" {= "0.4.0"}
   "httpaf" {>= "0.6.0"}
   "httpaf-lwt-unix" {>= "0.6.0"}
