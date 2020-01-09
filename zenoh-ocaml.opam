@@ -1,35 +1,31 @@
 opam-version: "2.0"
-maintainer:   ["angelo@adlink-labs.tech" "olivier@adlink-labs.tech"]
-authors:      ["Angelo Corsaro" "Olivier Hecart"]
+maintainer:   ["contact@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Julien Enoch" "Olivier Hecart" "Gabriele Baldoni"]
 homepage:     "https://zenoh.io"
 bug-reports:  "https://github.com/atolab/zenoh/issues/"
 dev-repo:     "git+https://github.com/atolab/zenoh.git"
 tags:         ["zenoh"]
 
-version:"0.3.1"
+version:"0.4.0"
 license: "Apache-2.0"
 
 build: [
 ["dune" "subst"] {pinned}
- ["dune" "-p" name "-j" jobs]
-]
-
-install: [
-  ["dune" "build" "-p" name "@install"]
-  ["dune" "install" name]
+  ["dune" "build" "-p" name "-j" jobs]
 ]
 
 
 depends: [
-  "ocaml" {>= "4.03.0" }
   "dune"
-  "lwt" {>= "4.1.0"}
-  "apero-core" {>= "0.4.5"}
-  "apero-net" {>= "0.4.5"}
-  "zenoh-proto" {= "0.3.1"}
+  "fmt"
+  "logs"
+  "lwt"
+  "ppx_deriving"
+  "lwt_ppx"
+  "apero-core" {>= "0.4.4"}
+  "zenoh-common" {= "0.3.0"}
 ]
-synopsis : "The zenoh ocaml API"
+
+synopsis : "Zenoh OCaml API"
 description: """
-zenoh is a high-level and extremely wire-efficient named-data protocol
-that nicely combines data streaming with distributed data quering.
-This package provides OCaml API for developing zenoh applications."""
+The Zenoh API binding for OCaml."""

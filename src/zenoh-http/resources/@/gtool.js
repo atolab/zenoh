@@ -70,7 +70,7 @@ function updateNodes(zServices, plugins) {
         z_inet_addr = z_locator.shift();
         z_port = z_locator.shift();
         http_str = "";
-        http_json = plugins["/@/" + zServices[id].pid + "/plugins/zenoh-http"];
+        http_json = plugins["/@/router/" + zServices[id].pid + "/plugin/http"];
         if(http_json) {
             http_port = http_json.locators.length > 0 
                         ? http_json.locators[0].split(':').pop()
@@ -79,15 +79,15 @@ function updateNodes(zServices, plugins) {
                 "_______________" + "\n" +
                 "http:" + http_port;
         }
-        yaks_str = "";
-        yaks_json = plugins["/@/" + zServices[id].pid + "/plugins/yaks"];
-        if(yaks_json) {
-            yaks_str = "\n" +
+        storages_str = "";
+        storages_json = plugins["/@/router/" + zServices[id].pid + "/plugin/storages"];
+        if(storages_json) {
+            storages_str = "\n" +
                 "_______________" + "\n" +
-                "YAKS";
+                "storages";
         }
         label = "<b>" + zServices[id].hostname.substring(0, 12) + "</b>\n" + 
-                z_inet_addr + "\n" + "tcp:" + z_port + http_str + yaks_str + "\n" +
+                z_inet_addr + "\n" + "tcp:" + z_port + http_str + storages_str + "\n" +
                 "_______________";
         return {id: zServices[id].pid, label: label};
     });
@@ -105,7 +105,7 @@ function updateEdges(zServices, plugins) {
             .filter( function (tree){ return tree.local.parent != null;})
             .map( function (tree){ 
                 tpup = getSessionForPeer(zServices[id], tree.local.parent).stats.out_msgs_tp;
-                tpdwn = getSessionForPeer(zServices["/@/" + tree.local.parent], zServices[id].pid).stats.out_msgs_tp;
+                tpdwn = getSessionForPeer(zServices["/@/router/" + tree.local.parent], zServices[id].pid).stats.out_msgs_tp;
                 label= "<b>" + (tpup + tpdwn).toString() + " m/s" + "</b>";
                 if ((tpup + tpdwn) > 0)
                 {
@@ -194,8 +194,8 @@ function update(zServices, plugins) {
 }
 
 function refresh() {
-    $.getJSON("/@/*", zServices => {
-        $.getJSON("/@/*/plugins/*", plugins => {
+    $.getJSON("/@/router/*", zServices => {
+        $.getJSON("/@/router/*/plugin/*", plugins => {
             update(transform(zServices), transform(plugins));
         }).fail(failure);
     }).fail(failure);
@@ -206,8 +206,8 @@ function autorefresh() {
     if($("#autorefresh").hasClass("loading"))
     {
         function periodicupdate(){
-            $.getJSON("/@/*", zServices => {
-                $.getJSON("/@/*/plugins/*", plugins => {
+            $.getJSON("/@/router/*", zServices => {
+                $.getJSON("/@/router/*/plugin/*", plugins => {
                     update(transform(zServices), transform(plugins));
                     if($("#autorefresh").hasClass("loading"))
                     {
@@ -249,15 +249,15 @@ function filterkeys(dict, fun) {
 function showDetails(zServices, plugins) {
     if(network && network.getSelectedNodes()[0]) {
         nodeid = ""+network.getSelectedNodes()[0]
-        if(zServices && zServices["/@/" + nodeid]) {
-            routereditor.update(zServices["/@/" + nodeid]);
-            pluginseditor.update(mapkeys(filterkeys(plugins, key => key.startsWith("/@/" + nodeid)), key => key.split('/').pop()));
+        if(zServices && zServices["/@/router/" + nodeid]) {
+            routereditor.update(zServices["/@/router/" + nodeid]);
+            pluginseditor.update(mapkeys(filterkeys(plugins, key => key.startsWith("/@/router/" + nodeid)), key => key.split('/').pop()));
         } else {
-            $.getJSON("/@/" + network.getSelectedNodes()[0], zServices => {
-                $.getJSON("/@/" + network.getSelectedNodes()[0] + "/plugins/*", plugins => {
+            $.getJSON("/@/router/" + network.getSelectedNodes()[0], zServices => {
+                $.getJSON("/@/router/" + network.getSelectedNodes()[0] + "/plugin/*", plugins => {
                     pluginseditor.update(mapkeys(transform(plugins), key => key.split('/').pop()));
                 });
-                routereditor.update(transform(zServices)["/@/" + nodeid]);
+                routereditor.update(transform(zServices)["/@/router/" + nodeid]);
             })
             .fail(failure);
         }
@@ -274,8 +274,8 @@ function resetgraph(){
 }
 
 function redraw() {
-    $.getJSON("/@/*", zServices => {
-        $.getJSON("/@/*/plugins/*", plugins => {
+    $.getJSON("/@/router/*", zServices => {
+        $.getJSON("/@/router/*/plugin/*", plugins => {
             resetgraph();
             update(transform(zServices), transform(plugins));
         })

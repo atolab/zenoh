@@ -1,0 +1,5 @@
+(executable
+  (name       router_pub)
+  (modules    router_pub)
+  (libraries  zenoh-net-ocaml zenoh-router cmdliner)
+  (preprocess (pps lwt_ppx)))

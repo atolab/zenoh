@@ -1,0 +1,34 @@
+opam-version: "2.0"
+maintainer:   ["contact@adlink-labs.tech"]
+authors:      ["Angelo Corsaro" "Julien Enoch" "Olivier Hecart" "Gabriele Baldoni"]
+homepage:     "https://zenoh.io"
+bug-reports:  "https://github.com/atolab/zenoh/issues/"
+dev-repo:     "git+https://github.com/atolab/zenoh.git"
+tags:         ["zenoh"]
+
+version:"0.4.0"
+license: "Apache-2.0"
+
+build: [
+["dune" "subst"] {pinned}
+  ["dune" "build" "-p" name "-j" jobs]
+]
+
+
+depends: [
+  "ocaml" {>= "4.03.0"}
+  "dune"
+  "fmt"
+  "logs"
+  "lwt"
+  "ppx_deriving"
+  "ppx_cstruct"
+  "lwt_ppx"
+  "apero-core" {>= "0.4.5"}
+  "apero-time" {>= "0.4.5"}
+  "zenoh-net-ocaml" {= "0.3.0"}
+]
+
+synopsis : "zenoh common OCaml library"
+description: """
+An OCaml library used by both zenoh-net-ocaml API and zenoh-storages plugin."""

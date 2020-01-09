@@ -1,0 +1,22 @@
+(library
+  (name            zenoh_storages)
+  (public_name     zenoh-storages)
+  (wrapped         false)
+  (libraries       zenoh-router zenoh-common zenoh-storages-be-lib zenoh-storages-be-memory dynload-sys)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx)))
+
+(rule
+  (targets    zenoh-plugin-storages.cmxs)
+  (deps       (package zenoh-storages))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-router
+                  -dontlink apero-core
+                  -package zenoh-storages
+                  -o %{targets}
+  )))
+

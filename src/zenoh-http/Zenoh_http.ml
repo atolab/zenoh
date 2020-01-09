@@ -108,8 +108,8 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
                                   Headers.pp_hum req.headers);
   let resname, predicate = Astring.span ~sat:(fun c -> c <> '?') req.target in
   let resname =
-    if Astring.is_prefix ~affix:"/@/local" resname
-    then "/@/"^zpid^(Astring.with_index_range ~first:8 resname)
+    if Astring.is_prefix ~affix:"/@/router/local" resname
+    then "/@/router/"^zpid^(Astring.with_index_range ~first:15 resname)
     else resname
   in
   let predicate = Astring.with_range ~first:1 predicate in
@@ -120,7 +120,7 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
           try begin
             (* TODO: manage "accept" header *)
             Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery on %s with predicate: %s" resname predicate);
-            Zenoh.lquery zenoh ~consolidation:KeepAll resname predicate >|= function
+            Zenoh_net.lquery zenoh ~consolidation:KeepAll resname predicate >|= function
             | [] -> if not (respond_file resname reqd) then respond reqd ~body:"{}"
             | results ->
               Logs.debug (fun m -> m "[Zhttp] Zenoh.lquery received %d key/values" (List.length results));
@@ -137,7 +137,7 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
                 Lwt.async (fun _ ->
                   let encoding = encoding_of_content_type @@ Headers.get req.headers "content-type" in
                   Logs.debug (fun m -> m "[Zhttp] Zenoh.write put on %s %d bytes with encoding %Ld" resname (Abuf.readable_bytes buf) encoding);
-                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_put ~encoding >|= fun _ ->
+                  Zenoh_net.write zenoh resname buf ~kind:zwrite_kind_put ~encoding >|= fun _ ->
                   respond reqd ~status:`No_content)
             )
           end with
@@ -151,7 +151,7 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
                 Lwt.async (fun _ ->
                   let encoding = encoding_of_content_type @@ Headers.get req.headers "content-type" in
                   Logs.debug (fun m -> m "[Zhttp] Zenoh.write update on %s %d bytes with encoding %Ld" resname (Abuf.readable_bytes buf) encoding);
-                  Zenoh.write zenoh resname buf ~kind:zwrite_kind_update ~encoding >|= fun _ ->
+                  Zenoh_net.write zenoh resname buf ~kind:zwrite_kind_update ~encoding >|= fun _ ->
                   respond reqd ~status:`No_content)
             )
           end with
@@ -161,8 +161,8 @@ let request_handler zenoh zpid (_ : Unix.sockaddr) reqd =
       | `DELETE -> begin
         Lwt.async (fun _ ->
           try begin
-            Logs.debug (fun m -> m "[Zhttp] Zenoh.write remove on %s" resname);
-            Zenoh.write zenoh resname empty_buf ~kind:zwrite_kind_remove >|= fun _ ->
+            Logs.debug (fun m -> m "[Zhttp] Zenoh_net.write remove on %s" resname);
+            Zenoh_net.write zenoh resname empty_buf ~kind:zwrite_kind_remove >|= fun _ ->
             respond reqd ~status:`No_content
           end with
           | exn ->
@@ -193,23 +193,23 @@ let error_handler _ (_ : Unix.sockaddr) ?request:_ error start_response =
 
 let run port =
   let listen_address = Unix.(ADDR_INET (inet_addr_any, port)) in
-  let%lwt zenoh = Zenoh.zopen "" in
-  let zprops = Zenoh.info zenoh in
+  let%lwt zns = Zenoh_net.zopen "" in
+  let zprops = Zenoh_net.info zns in
   let zpid = match Properties.get "peer_pid" zprops with
     | Some pid -> pid
     | None -> Uuid.make () |> Uuid.to_string
   in
   Lwt_io.establish_server_with_client_socket listen_address 
-    (Server.create_connection_handler ~request_handler:(request_handler zenoh zpid) ~error_handler:(error_handler zenoh))
+    (Server.create_connection_handler ~request_handler:(request_handler zns zpid) ~error_handler:(error_handler zns))
   >|= fun _ ->
-  Zenoh.evaluate zenoh ("/@/" ^ zpid ^ "/plugins/zenoh-http")  (fun _ _ -> 
+  Zenoh_net.evaluate zns ("/@/router/" ^ zpid ^ "/plugin/http")  (fun _ _ -> 
     let data = Abuf.create ~grow:65536 1024 in 
     let locators = Aunix.inet_addrs_up_nolo () 
       |> List.map (fun addr -> `String (Printf.sprintf "http://%s:%d" (Unix.string_of_inet_addr addr) port)) in
     let json = `Assoc [ ("locators",  `List locators); ] in
     Abuf.write_bytes (Bytes.unsafe_of_string (Yojson.Safe.to_string json)) data;
     let info = Ztypes.({srcid=None; srcsn=None; bkrid=None; bkrsn=None; ts=Some(timestamp0); encoding=Some 4L (* JSON *); kind=None}) in
-    Lwt.return [("/@/" ^ zpid ^ "/plugins/zenoh-http", data, info)]
+    Lwt.return [("/@/router/" ^ zpid ^ "/plugin/http", data, info)]
   )
   >|= fun _ ->
   Logs.info (fun m -> m "[Zhttp] listening on port tcp/0.0.0.0:%d" port)
@@ -218,7 +218,7 @@ let port = Cmdliner.Arg.(value & opt int 8000 & info ["h"; "httpport"] ~docv:"HT
 
 let _ = 
   Logs.debug (fun m -> m "[Zhttp] starting with args: %s" (Array.to_list Sys.argv |> String.concat " "));
-  match Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http-plugin")) with
+  match Cmdliner.Term.(eval ~argv:Sys.argv (const run $ port, Cmdliner.Term.info "zenoh-http")) with
   | `Ok _ -> ()
   | `Help -> exit 0
   | `Error `Parse ->

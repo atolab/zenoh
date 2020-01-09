@@ -6,7 +6,7 @@
   (preprocess      (pps lwt_ppx)))
 
 (rule
-  (targets    zenoh-http-plugin.cmxs)
+  (targets    zenoh-plugin-http.cmxs)
   (deps       (package zenoh-http))
   (action (run ocamlfind ocamlopt
                   -shared

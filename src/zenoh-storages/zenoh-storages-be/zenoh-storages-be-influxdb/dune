@@ -1,0 +1,20 @@
+(library
+  (name           zenoh_storages_be_influxdb)
+  (public_name    zenoh-storages-be-influxdb)
+  (wrapped        false)
+  (libraries      zenoh-storages-be-lib cohttp-lwt-unix yojson ppx_deriving_yojson.runtime)
+  (preprocess
+    (pps ppx_deriving.show ppx_deriving.ord lwt_ppx ppx_deriving_yojson)))
+
+(rule
+  (targets    zenoh-storages-be-influxdb.cmxs)
+  (deps       (package zenoh-storages-be-influxdb))
+  (action (run ocamlfind ocamlopt
+                  -shared
+                  -linkall
+                  -linkpkg
+                  -thread
+                  -dontlink zenoh-storages-be-lib
+                  -package zenoh-storages-be-influxdb
+                  -o %{targets}
+  )))

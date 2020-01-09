@@ -1,0 +1,23 @@
+(executable
+  (name       zn_throughput_sub)
+  (modules    zn_throughput_sub)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_throughput_pub)
+  (modules    zn_throughput_pub)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_bthroughput_sub)
+  (modules    zn_bthroughput_sub)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name       zn_bthroughput_pub)
+  (modules    zn_bthroughput_pub)
+  (libraries  zenoh-net-ocaml)
+  (preprocess (pps lwt_ppx)))
