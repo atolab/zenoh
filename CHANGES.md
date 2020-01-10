@@ -1,3 +1,7 @@
+## 0.4.0 (2020-01-10)
+ - Merge of all Yaks (https://github.com/atolab/yaks) features into zenoh as a new "storages" plugin.
+ - New Admin Space organisation (see http://zenoh.io/docs/manual/abstractions/#admin-space).
+
 ## 0.3.0 (2019-12-02)
 
 - Plugins support : the zenoh router can load and run zenoh applications as plugins.
