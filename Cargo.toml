@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+  "zenoh-router",
+  "zenoh-protocol",
+]
