@@ -6,20 +6,14 @@ use super::decl;
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
         self.write_decl_frag(&msg.kind)?;
-        // @Julien, why don't we keep a boolean on the message that is set to true
-        // as soon as we have at least one decorator. That way, when we do not
-        // have decorators -- which is the common case -- we have only one check
-        // to do as opposed to 3. 
-        if msg.cid != 0 {
-            self.write_decl_conduit(msg.cid)?;
-        }
 
-        if let Some(reply) = &msg.reply_context {
-            self.write_decl_reply(reply)?;
-        }
-
-        if let Some(props) = &msg.properties {
-            self.write_decl_properties(&props)?;
+        if msg.has_decorators {
+            if msg.cid != 0 {
+                self.write_decl_conduit(msg.cid)?;
+            }
+            if let Some(props) = &msg.properties {
+                self.write_decl_properties(&props)?;
+            }
         }
 
         self.write(msg.header)?;
@@ -80,6 +74,10 @@ impl RWBuf {
             }
 
             Body::Data { reliable:_, sn, key, info, payload } => {
+                if let Some(reply) = &msg.reply_context {
+                    self.write_decl_reply(reply)?;
+                }
+        
                 self.write_zint(*sn)?;
                 self.write_reskey(&key)?;
                 if let Some(i) = info {

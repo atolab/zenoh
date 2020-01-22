@@ -28,28 +28,6 @@ impl RWBuf {
     Ok(())
   }
 
-pub fn write_zint2(& mut self, v: core::ZInt) -> Result<(), OutOfBounds> {
-    if v <= 0x7f {
-      self.write(v as u8)      
-    } else if v <= 0x3fff_ffff {
-      self.write((v & 0xff) as u8)?;
-      self.write((v >> 7) as u8)
-    } else if v <= 0x1fff_ffff_ffff {
-      self.write((v & 0xff) as u8)?;
-      self.write(((v >> 7) & 0xff) as u8)?;
-      self.write(((v >> 14) & 0xff) as u8)
-    }
-    else { Ok(()) }
-    // let mut c = v;
-    // let mut b : u8 = (c & 0xff) as u8;
-    // while c > 0x7f {
-    //   self.write(b | 0x80)?;
-    //   c = c >> 7;
-    //   b = (c & 0xff) as u8;
-    // }
-    // self.write(b)?;
-    // Ok(self)
-}
   pub fn read_zint(&mut self) -> Result<core::ZInt, OutOfBounds> {
     let mut v : core::ZInt = 0;
     let mut b = self.read()?;

@@ -405,12 +405,14 @@ impl ReplyContext {
 
 #[derive(Debug, Clone)]
 pub struct Message {
+    pub (in super) has_decorators: bool,
     pub(in super) cid: ZInt,
     pub(in super) header: u8,
     pub(in super) body: Body,
     pub(in super) kind: MessageKind,
     pub(in super) reply_context: Option<ReplyContext>,
     pub(in super) properties: Option<Arc<Vec<Property>>>
+    
 }
 
 impl Message {
@@ -420,12 +422,14 @@ impl Message {
             None => id::SCOUT
         };
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Scout { what },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps            
+        }
     }
 
     pub fn make_hello(whatami: Option<ZInt>, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -433,12 +437,13 @@ impl Message {
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::HELLO | wflag | lflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Hello { whatami, locators },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps        }
     }
 
     pub fn make_open(version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -446,23 +451,27 @@ impl Message {
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::OPEN | wflag | lflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Open { version, whatami, pid, lease, locators },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps            
+        }
     }
-
+    
     pub fn make_accept(opid: PeerId, apid: PeerId, lease: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::ACCEPT;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Accept { opid, apid, lease },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+         }
     }
 
     pub fn make_close(pid: Option<PeerId>, reason: u8, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -471,37 +480,42 @@ impl Message {
             None    => id::CLOSE,
         };
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Close { pid, reason },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps    
+        }
     }
-
     pub fn make_keep_alive(pid: Option<PeerId>, reply_context: Option<ReplyContext>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = match pid {
             Some(_) => id::KEEP_ALIVE | flag::P,
             None    => id::KEEP_ALIVE,
         };
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::KeepAlive { pid },
             kind: MessageKind::FullMessage,
             reply_context,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_declare(sn: ZInt, declarations: Vec<decl::Declaration>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::DECLARE;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Declare { sn, declarations },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_data(
@@ -519,12 +533,14 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::DATA | iflag | rflag | cflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Data { reliable, sn, key, info, payload },
             kind: MessageKind::FullMessage,
             reply_context,
-            properties: ps }
+            properties: ps    
+        }
     }
 
     pub fn make_pull(is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -533,12 +549,14 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::PULL | fflag | nflag | cflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Pull { sn, key, pull_id, max_samples },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps    
+        }
     }
 
     pub fn make_query(sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -546,34 +564,40 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::QUERY | tflag | cflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Query { sn, key, predicate, qid, target, consolidation },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_ping(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::PING_PONG | flag::P;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Ping { hash },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_pong(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::PING_PONG;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Pong { hash },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_sync(reliable: bool, sn: ZInt, count: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -581,12 +605,14 @@ impl Message {
         let cflag = if count.is_some() { flag::C } else { 0 };
         let header = id::SYNC | rflag | cflag;
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Sync { sn, count },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     pub fn make_ack_nack(sn: ZInt, mask: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
@@ -595,18 +621,24 @@ impl Message {
             None    => id::ACK_NACK,
         };
         Message {
+            has_decorators: cid.is_some() | ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::AckNack { sn, mask },
             kind: MessageKind::FullMessage,
             reply_context: None,
-            properties: ps }
+            properties: ps
+        }
     }
 
     //@TODO: Add other constructors that impose message invariants
 
+    pub fn has_decorators(&self) -> bool {
+        self.has_decorators
+    }
+    
     // -- Message Predicates
-    fn is_reliable(&self) -> bool {
+    pub fn is_reliable(&self) -> bool {
         match self.body {
             Body::Data { reliable: _, sn: _, key: _, info: _, payload: _ } =>
                 if self.header & flag::R == 0 { false } else { true },
@@ -616,19 +648,19 @@ impl Message {
             _ => false
         }
     }
-    fn is_fragment(&self) -> bool {
+    pub fn is_fragment(&self) -> bool {
         match self.kind {
             MessageKind::FullMessage => false,
             _ => true
         }
     }
 
-    fn is_reply(&self) -> bool {
+    pub fn is_reply(&self) -> bool {
         self.reply_context.is_some()
     }
 
     // -- Accessor
-    fn get_properties(&self) -> Option<Arc<Vec<Property>>> {
+    pub fn get_properties(&self) -> Option<Arc<Vec<Property>>> {
         match self.properties {
             Some(ref ps) => Some(ps.clone()),
             None => None
