@@ -6,7 +6,10 @@ use super::decl;
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
         self.write_decl_frag(&msg.kind)?;
-        
+        // @Julien, why don't we keep a boolean on the message that is set to true
+        // as soon as we have at least one decorator. That way, when we do not
+        // have decorators -- which is the common case -- we have only one check
+        // to do as opposed to 3. 
         if msg.cid != 0 {
             self.write_decl_conduit(msg.cid)?;
         }
@@ -189,13 +192,13 @@ impl RWBuf {
     fn write_decl_reply(&mut self, reply: &ReplyContext) -> Result<(), OutOfBounds> {
         let fflag = if reply.is_final { flag::F } else { 0 };
         let eflag = match &reply.source {
-            Eval => flag::E,
-            Storage => 0
+            ReplySource::Eval => flag::E,
+            ReplySource::Storage => 0
         };
         self.write(id::REPLY | fflag | eflag)?;
-        self.write_zint(reply.qid);
+        self.write_zint(reply.qid)?;
         if let Some(pid) = &reply.replier_id {
-            self.write_bytes(&pid.id);
+            self.write_bytes(&pid.id)?;
         } 
         Ok(())
     }
