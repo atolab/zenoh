@@ -195,7 +195,6 @@ pub enum Body {
 	/// +---------------+
     Open { version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>> },
 
-
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
     /// |X|X|X|  ACCEPT |
@@ -363,12 +362,15 @@ pub enum Body {
     /// ~   replier-id  ~ if not F
     /// +---------------+
     ///
-    /// E -> end of the query
-    /// F -> storage has finished to send data
+    /// E -> the message comes from an eval
+    /// F -> the message is a REPLY_FINAL 
     ///
-    /// The **Reply** is a message decorator for the **Data** messages that result
-    /// from a query. The **replier-id** (eval or storage id) is represented as a byte-array.
-    // Reply { qid: ZInt, storage_id: ZInt }
+    /// The **Reply** is a message decorator for eithr:
+    ///   - the **Data** messages that result from a query
+    ///   - or a **KeepAlive** message in case the message is a
+    ///     STORAGE_FINAL, EVAL_FINAL or REPLY_FINAL.
+    ///  The **replier-id** (eval or storage id) is represented as a byte-array.
+    // Reply { is_final: bool, qid: ZInt, source: ReplySource, replier_id: Option<PeerId> }
 
 
 // The MessageKind is used to provide additional information concerning the message
@@ -383,8 +385,22 @@ pub enum MessageKind {
 
 #[derive(Debug, Clone)]
 pub struct ReplyContext {
+    pub(in super) is_final: bool,
     pub(in super) qid: ZInt,
-    pub(in super) replier: Option<PeerId>
+    pub(in super) source: ReplySource,
+    pub(in super) replier_id: Option<PeerId>
+}
+
+impl ReplyContext {
+    // Note: id replier_id=None flag F is set, meaning it's a REPLY_FINAL
+    pub fn make(qid: ZInt, source: ReplySource, replier_id: Option<PeerId>) -> ReplyContext {
+        ReplyContext {
+            is_final: replier_id.is_none(),
+            qid,
+            source,
+            replier_id
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -463,7 +479,7 @@ impl Message {
             properties: ps }
     }
 
-    pub fn make_keep_alive(pid: Option<PeerId>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+    pub fn make_keep_alive(pid: Option<PeerId>, reply_context: Option<ReplyContext>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = match pid {
             Some(_) => id::KEEP_ALIVE | flag::P,
             None    => id::KEEP_ALIVE,
@@ -473,7 +489,7 @@ impl Message {
             header,
             body: Body::KeepAlive { pid },
             kind: MessageKind::FullMessage,
-            reply_context: None,
+            reply_context,
             properties: ps }
     }
 
@@ -488,7 +504,16 @@ impl Message {
             properties: ps }
     }
 
-    pub fn make_data(reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>> ) -> Message {
+    pub fn make_data(
+        reliable: bool,
+        sn: ZInt,
+        key: ResKey,
+        info: Option<Arc<Vec<u8>>>,
+        payload: Arc<Vec<u8>>,
+        cid: Option<ZInt>,
+        reply_context: Option<ReplyContext>,
+        ps: Option<Arc<Vec<Property>>> ) -> Message
+    {
         let iflag = if info.is_some() { flag::I } else { 0 };
         let rflag = if reliable { flag::R } else { 0 };
         let cflag = if key.is_numerical() { flag::C } else { 0 };
@@ -498,22 +523,7 @@ impl Message {
             header,
             body: Body::Data { reliable, sn, key, info, payload },
             kind: MessageKind::FullMessage,
-            reply_context: None,
-            properties: ps }
-    }
-
-    // Replies are always reliable.
-    pub fn make_reply(reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>>, reply_context: ReplyContext, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>> ) -> Message {
-        let iflag = if info.is_some() { flag::I } else { 0 };
-        let rflag = if reliable { flag::R } else { 0 };
-        let cflag = if key.is_numerical() { flag::C } else { 0 };
-        let header = id::DATA | iflag | rflag | cflag;
-        Message {
-            cid: cid.unwrap_or(0),
-            header,
-            body: Body::Data { reliable, sn, key, info, payload },
-            kind: MessageKind::FullMessage,
-            reply_context: Some(reply_context),
+            reply_context,
             properties: ps }
     }
 

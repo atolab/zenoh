@@ -187,9 +187,17 @@ impl RWBuf {
     }
 
     fn write_decl_reply(&mut self, reply: &ReplyContext) -> Result<(), OutOfBounds> {
-        // @TODO: complete...
-        self.write(id::REPLY)?;
-        self.write_zint(reply.qid)
+        let fflag = if reply.is_final { flag::F } else { 0 };
+        let eflag = match &reply.source {
+            Eval => flag::E,
+            Storage => 0
+        };
+        self.write(id::REPLY | fflag | eflag)?;
+        self.write_zint(reply.qid);
+        if let Some(pid) = &reply.replier_id {
+            self.write_bytes(&pid.id);
+        } 
+        Ok(())
     }
 
     fn write_decl_properties(&mut self, props: &[Property]) -> Result<(), OutOfBounds> {
