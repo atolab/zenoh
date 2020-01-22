@@ -2,6 +2,8 @@ use std::convert::From;
 use uuid::Uuid;
 use std::fmt;
 
+pub mod rname;
+
 pub type ZInt = u64;
 pub const ZINT_MAX_BYTES : usize = 10;
   
