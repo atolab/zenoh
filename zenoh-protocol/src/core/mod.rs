@@ -6,7 +6,7 @@ pub mod rname;
 
 pub type ZInt = u64;
 pub const ZINT_MAX_BYTES : usize = 10;
-  
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum ResKey {
   ResId { id: ZInt},
@@ -46,7 +46,7 @@ pub struct Property {
     pub key:   ZInt,
     pub value: Vec<u8>
 }
-  
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct PeerId {
     pub id: Vec<u8>
@@ -54,8 +54,8 @@ pub struct PeerId {
 
 #[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TimeStamp {
-  time: u64,
-  id: Uuid
+  pub time: u64,
+  pub id: Uuid
 }
 
 impl fmt::Display for TimeStamp {

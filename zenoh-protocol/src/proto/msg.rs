@@ -22,20 +22,21 @@ pub mod id {
     pub const QUERY         :   u8  = 0x08;
     pub const PULL          :   u8  = 0x09;
 
-    pub const SYNC  	    :	u8	= 0x10;
-    pub const ACK_NACK      :   u8  = 0x11;
+    pub const SYNC  	    :	u8	= 0x0a;
+    pub const ACK_NACK      :   u8  = 0x0b;
 
-    pub const KEEP_ALIVE    :   u8  = 0x12;
+    pub const KEEP_ALIVE    :   u8  = 0x0c;
 
-    pub const PING_PONG     :   u8 	= 0x13;
+    pub const PING_PONG     :   u8 	= 0x0d;
 
     // Decorators
-    pub const REPLY         :   u8 =  0x14;
-    pub const BATCH         :   u8  = 0x15;
-    pub const FRAGMENT      :   u8  = 0x16;
-    pub const CONDUIT	    :   u8	= 0x17;
-    pub const MIGRATE	    :   u8	= 0x18;
-    pub const R_SPACE       :   u8  = 0x19;
+    pub const REPLY         :   u8 =  0x10;
+    pub const BATCH         :   u8  = 0x11;
+    pub const FRAGMENT      :   u8  = 0x12;
+    pub const CONDUIT	    :   u8	= 0x13;
+    pub const MIGRATE	    :   u8	= 0x14;
+    pub const R_SPACE       :   u8  = 0x15;
+    pub const PROPERTIES    :   u8  = 0x16;
 
     pub const MID_MAX	    :   u8	= 0x1f;
 }
@@ -50,6 +51,7 @@ pub mod flag {
     pub const L        :   u8  = 0x40;
     pub const N        :   u8  = 0x40;
     pub const R        :   u8  = 0x40;
+    pub const T        :   u8  = 0x40;
 
     pub const F        :   u8  = 0x80;
     pub const I        :   u8  = 0x80;
@@ -65,15 +67,25 @@ pub mod flag {
     pub const PUSH_PULL_READ		: u8 	=  0x05;
 
     pub const BROKER                : u8    =  0x01;
-    pub const PEER                  : u8    =  0x02;
-    pub const CLIENT                : u8    =  0x04;
-
-
+    pub const ROUTER                : u8    =  0x02;
+    pub const PEER                  : u8    =  0x04;
+    pub const CLIENT                : u8    =  0x08;
 
     pub fn is_r_set(rsb: u8) -> bool { rsb & R != 0}
     pub fn has_flag(header: u8, flag: u8) -> bool { header & flag != 0 }
     pub fn mid(header: u8) -> u8 { header & MID_MASK}
     pub fn flags(header: u8) -> u8 {header & HEADER_MASK}
+}
+
+// Flags used for DataInfo
+pub mod info_flag {
+    pub const SRCID : u8 = 0x01;
+    pub const SRCSN : u8 = 0x02;
+    pub const BKRID : u8 = 0x04;
+    pub const BKRSN : u8 = 0x08;
+    pub const TS    : u8 = 0x10;
+    pub const KIND  : u8 = 0x20;
+    pub const ENC   : u8 = 0x40;
 }
 
 pub enum Whatami {
@@ -89,18 +101,15 @@ pub enum SessionMode {
 }
 
 #[derive(Debug, Clone)]
-pub struct SourceInfo {
-    id: PeerId,
-    sn: ZInt
-}
-
-#[derive(Debug, Clone)]
 pub struct DataInfo {
-    source: Option<SourceInfo>,
-    fist_broker: Option<SourceInfo>,
-    timestamp: Option<TimeStamp>,
-    kind: Option<ZInt>,
-    encoding: Option<ZInt>,
+    pub(in super) header: u8,
+    pub(in super) source_id: Option<PeerId>,
+    pub(in super) source_sn: Option<ZInt>,
+    pub(in super) fist_broker_id: Option<PeerId>,
+    pub(in super) fist_broker_sn: Option<ZInt>,
+    pub(in super) timestamp: Option<TimeStamp>,
+    pub(in super) kind: Option<ZInt>,
+    pub(in super) encoding: Option<ZInt>,
 }
 
 #[derive(Debug, Clone)]
@@ -119,12 +128,17 @@ pub enum QueryConsolidation {
 
 // @TODO: The query target is incomplete
 #[derive(Debug, Clone)]
-pub enum Target { None, All, BestMatching, Complete {n: ZInt} }
+pub enum Target {
+    BestMatching,
+    Complete {n: ZInt},
+    All,
+    None,
+}
 
 #[derive(Debug, Clone)]
 pub struct QueryTarget {
-    storage: Target,
-    eval: Target,
+    pub(in super) storage: Target,
+    pub(in super) eval: Target,
     // @TODO: finalise
 }
 #[derive(Debug, Clone)]
@@ -162,7 +176,7 @@ pub enum Body {
 	/// +---------------+
     /// ~    Locators   ~ if (L==1) -- otherwise src-address is the locator
     /// +-+-+-+-+-+-+-+-+
-    Hello { whatami: Option<ZInt>,  locators: Option<Vec<String>>},
+    Hello { whatami: Option<ZInt>, locators: Option<Vec<String>>},
 
 
     ///  7 6 5 4 3 2 1 0
@@ -179,7 +193,7 @@ pub enum Body {
 	/// +---------------+
     /// ~    Locators   ~ if (L==1)
 	/// +---------------+
-    Open { version: u8, pid: PeerId, lease: ZInt, locators: Vec<String> },
+    Open { version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>> },
 
 
     ///  7 6 5 4 3 2 1 0
@@ -203,7 +217,7 @@ pub enum Body {
     /// |     Reason    |
     /// +---------------+
     ///
-    Close{ pid: PeerId, reason: u8 },
+    Close{ pid: Option<PeerId>, reason: u8 },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -211,8 +225,7 @@ pub enum Body {
     /// +---------------+
     /// ~      PID      ~ -- If P == 1
     /// +---------------+
-
-    KeepAlive { pid: PeerId },
+    KeepAlive { pid: Option<PeerId> },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -223,7 +236,6 @@ pub enum Body {
     /// ~ [Declaration] ~
     /// +---------------+
     Declare {sn: ZInt, declarations: Vec<decl::Declaration> },
-
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -239,7 +251,7 @@ pub enum Body {
     /// +---------------+
     ///
     /// The message is sent on the reliable channel if R==1 best-effort otherwise.
-    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<DataInfo>, payload: Arc<Vec<u8>> },
+    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>> },
 
     /// +-+-+-+---------+
     /// |F|N|C|  PULL   |
@@ -252,10 +264,10 @@ pub enum Body {
     /// +---------------+
     /// ~  maxSamples   ~ if N
     /// +---------------+
-    Pull { sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: ZInt},
+    Pull { sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>},
 
     /// +-+-+-+---------+
-    /// |X|X|C|  QUERY  |
+    /// |X|T|C|  QUERY  |
     /// +-+-+-+---------+
     /// ~      sn       ~
     /// +---------------+
@@ -265,11 +277,11 @@ pub enum Body {
     /// +---------------+
     /// ~      qid      ~
     /// +---------------+
-    /// ~     target    ~
+    /// ~     target    ~ if T==1
     /// +---------------+
     /// ~ consolidation ~
     /// +---------------+
-    Query {sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation },
+    Query {sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation },
 
     /// +-+-+-+---------+
     /// |X|X|P| PingPong|
@@ -386,37 +398,199 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn make_scout(what: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+    pub fn make_scout(what: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = match what {
             Some(_) => id::SCOUT | flag::W,
             None => id::SCOUT
         };
-        Message { cid: 0, header, body: Body::Scout { what }, kind: MessageKind::FullMessage, reply_context: None, properties: ps }
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Scout { what },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
     }
 
-    pub fn make_data(reliable: bool, cid: Option<ZInt>, sn: ZInt, key: ResKey, info: Option<DataInfo>, payload: Arc<Vec<u8>>, properties: Option<Arc<Vec<Property>>> ) -> Message {
-        let id = match cid {
-            Some(id) => id,
-            None => 0
+    pub fn make_hello(whatami: Option<ZInt>, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let wflag = if whatami.is_some() { flag::W } else { 0 };
+        let lflag = if locators.is_some() { flag::L } else { 0 };
+        let header = id::HELLO | wflag | lflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Hello { whatami, locators },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_open(version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let wflag = if whatami.is_some() { flag::W } else { 0 };
+        let lflag = if locators.is_some() { flag::L } else { 0 };
+        let header = id::OPEN | wflag | lflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Open { version, whatami, pid, lease, locators },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_accept(opid: PeerId, apid: PeerId, lease: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = id::ACCEPT;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Accept { opid, apid, lease },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_close(pid: Option<PeerId>, reason: u8, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = match pid {
+            Some(_) => id::CLOSE | flag::P,
+            None    => id::CLOSE,
         };
-        let cflag = if key.is_numerical() { flag::C } else { 0 };
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Close { pid, reason },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_keep_alive(pid: Option<PeerId>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = match pid {
+            Some(_) => id::KEEP_ALIVE | flag::P,
+            None    => id::KEEP_ALIVE,
+        };
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::KeepAlive { pid },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_declare(sn: ZInt, declarations: Vec<decl::Declaration>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = id::DECLARE;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Declare { sn, declarations },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_data(reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>> ) -> Message {
         let iflag = if info.is_some() { flag::I } else { 0 };
-        let header = id::DATA | cflag | iflag;
-        let body = Body::Data { reliable, sn, key, info, payload};
-        Message {cid: id, header, body, kind: MessageKind::FullMessage, reply_context: None, properties }
+        let rflag = if reliable { flag::R } else { 0 };
+        let cflag = if key.is_numerical() { flag::C } else { 0 };
+        let header = id::DATA | iflag | rflag | cflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Data { reliable, sn, key, info, payload },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
     }
 
     // Replies are always reliable.
-    pub fn make_reply(cid: Option<ZInt>, sn: ZInt, key: ResKey, info: Option<DataInfo>, payload: Arc<Vec<u8>>, reply_context: ReplyContext, properties: Option<Arc<Vec<Property>>> ) -> Message {
-        let id = match cid {
-            Some(id) => id,
-            None => 0
-        };
-        let cflag = if key.is_numerical() { flag::C } else { 0 };
+    pub fn make_reply(reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>>, reply_context: ReplyContext, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>> ) -> Message {
         let iflag = if info.is_some() { flag::I } else { 0 };
-        let header = id::DATA | cflag | iflag;
-        let body = Body::Data { reliable: true, sn, key, info, payload};
-        Message {cid: id, header, body, kind: MessageKind::FullMessage, reply_context: Some(reply_context), properties }
+        let rflag = if reliable { flag::R } else { 0 };
+        let cflag = if key.is_numerical() { flag::C } else { 0 };
+        let header = id::DATA | iflag | rflag | cflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Data { reliable, sn, key, info, payload },
+            kind: MessageKind::FullMessage,
+            reply_context: Some(reply_context),
+            properties: ps }
+    }
+
+    pub fn make_pull(is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let fflag = if is_final { flag::F } else { 0 };
+        let nflag = if max_samples.is_some() { flag::N } else { 0 };
+        let cflag = if key.is_numerical() { flag::C } else { 0 };
+        let header = id::PULL | fflag | nflag | cflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Pull { sn, key, pull_id, max_samples },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_query(sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let tflag = if target.is_some() { flag::T } else { 0 };
+        let cflag = if key.is_numerical() { flag::C } else { 0 };
+        let header = id::QUERY | tflag | cflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Query { sn, key, predicate, qid, target, consolidation },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_ping(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = id::PING_PONG | flag::P;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Ping { hash },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_pong(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = id::PING_PONG;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Pong { hash },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_sync(reliable: bool, sn: ZInt, count: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let rflag = if reliable { flag::R } else { 0 };
+        let cflag = if count.is_some() { flag::C } else { 0 };
+        let header = id::SYNC | rflag | cflag;
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Sync { sn, count },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
+    }
+
+    pub fn make_ack_nack(sn: ZInt, mask: Option<ZInt>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let header = match mask {
+            Some(_) => id::ACK_NACK | flag::M,
+            None    => id::ACK_NACK,
+        };
+        Message {
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::AckNack { sn, mask },
+            kind: MessageKind::FullMessage,
+            reply_context: None,
+            properties: ps }
     }
 
     //@TODO: Add other constructors that impose message invariants

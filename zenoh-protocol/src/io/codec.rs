@@ -39,7 +39,7 @@ impl RWBuf {
   /// Integers of 2 or more bytes are encoded using little endian. 
   
   
-  pub fn write_one_c3(&mut self, a: u64) -> Result<&mut Self, OutOfBounds> {    
+  pub fn write_one_c3(&mut self, a: u64) -> Result<(), OutOfBounds> {    
     let s = compute_size(a);
     let mask : u8  =  s | 1;
     self.write(mask)?;
@@ -71,7 +71,7 @@ impl RWBuf {
     Ok(n)
   }
 
-  pub fn write_two_c3(&mut self, ns: &[u64;2]) -> Result<&mut Self, OutOfBounds> {      
+  pub fn write_two_c3(&mut self, ns: &[u64;2]) -> Result<(), OutOfBounds> {      
     let s0 = compute_size(ns[0]);
     let s1 = compute_size(ns[1]);    
     let mask : u8  = (s1 << 2) | s0 | 2;          
@@ -94,7 +94,7 @@ impl RWBuf {
     }
   }
 
-  pub fn write_three_c3(&mut self, ns: &[u64;3]) -> Result<&mut Self, OutOfBounds> {
+  pub fn write_three_c3(&mut self, ns: &[u64;3]) -> Result<(), OutOfBounds> {
     let s0 = compute_size(ns[0]);
     let s1 = compute_size(ns[1]);
     let s2 = compute_size(ns[2]);    
@@ -127,7 +127,7 @@ impl RWBuf {
   /// This the traditional VByte encoding, in which an arbirary integer
   /// is encoded as a sequence  of 
   /// 
-  pub fn write_zint(& mut self, v: core::ZInt) -> Result<&mut Self, OutOfBounds> {
+  pub fn write_zint(& mut self, v: core::ZInt) -> Result<(), OutOfBounds> {
     let mut c = v;
     let mut b : u8 = (c & 0xff) as u8;
     while c > 0x7f {
@@ -136,23 +136,21 @@ impl RWBuf {
       b = (c & 0xff) as u8;
     }
     self.write(b)?;
-    Ok(self)
+    Ok(())
   }
 
-pub fn write_zint2(& mut self, v: core::ZInt) -> Result<&mut Self, OutOfBounds> {
+pub fn write_zint2(& mut self, v: core::ZInt) -> Result<(), OutOfBounds> {
     if v <= 0x7f {
       self.write(v as u8)      
     } else if v <= 0x3fff_ffff {
-      self
-        .write((v & 0xff) as u8)?
-        .write((v >> 7) as u8)      
+      self.write((v & 0xff) as u8)?;
+      self.write((v >> 7) as u8)
     } else if v <= 0x1fff_ffff_ffff {
-       self
-        .write((v & 0xff) as u8)?
-        .write(((v >> 7) & 0xff) as u8)?     
-        .write(((v >> 14) & 0xff) as u8)
+      self.write((v & 0xff) as u8)?;
+      self.write(((v >> 7) & 0xff) as u8)?;
+      self.write(((v >> 14) & 0xff) as u8)
     }
-    else { Ok(self) }
+    else { Ok(()) }
     // let mut c = v;
     // let mut b : u8 = (c & 0xff) as u8;
     // while c > 0x7f {
@@ -184,9 +182,22 @@ pub fn write_zint2(& mut self, v: core::ZInt) -> Result<&mut Self, OutOfBounds> 
     }
   }
 
-  pub fn write_string(&mut self, s: &str) -> Result<&mut Self, OutOfBounds> { 
-    self
-      .write_zint(s.len() as core::ZInt)?
-      .write_bytes(s.as_bytes())  
+  // Same as write_bytes but with array length before the bytes.
+  pub fn write_bytes_array(&mut self, s: &[u8]) -> Result<(), OutOfBounds> {
+    self.write_zint(s.len() as core::ZInt)?;
+    self.write_bytes(s)
+  }
+
+  // Same as write_bytes but with array length before the bytes.
+  pub fn read_bytes_array(&mut self) -> Result<Vec<u8>, OutOfBounds> {
+    let len = self.read_zint()?;
+    let mut buf = Vec::with_capacity(len as usize);
+    self.read_bytes(buf.as_mut_slice())?;
+    Ok(buf)
+  }
+  
+  pub fn write_string(&mut self, s: &str) -> Result<(), OutOfBounds> { 
+    self.write_zint(s.len() as core::ZInt)?;
+    self.write_bytes(s.as_bytes())  
   }
 }

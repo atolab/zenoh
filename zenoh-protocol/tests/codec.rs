@@ -14,9 +14,8 @@ fn test_zint_codec_for<T>(n: usize) -> Result<(), OutOfBounds>
   let mut buf = RWBuf::new(512);
   for _ in 0..n {
     let a: u64 = u64::from(rand::random::<T>());    
-    let b : u64 = buf
-      .write_zint(a)?
-      .read_zint()?;        
+    buf.write_zint(a)?;
+    let b : u64 = buf.read_zint()?;        
     buf.clear();
     assert_eq!(a, b);
   }
@@ -33,9 +32,8 @@ fn test_one_c3_codec_for<T>(n: usize) -> Result<(), OutOfBounds>
   let mut ns : [u64; 4] = [0u64; 4];
   for _ in 0..n {
     let a: u64 = u64::from(rand::random::<T>());    
-    let len = buf
-      .write_one_c3(a)?
-      .read_c3(&mut ns)?;        
+    buf.write_one_c3(a)?;
+    let len = buf.read_c3(&mut ns)?;        
     buf.clear();
     assert_eq!(len, 1);
     assert_eq!(a, ns[0]);
@@ -52,9 +50,8 @@ fn test_two_c3_codec_for<T>(n: usize) -> Result<(), OutOfBounds>
   let rs: [u64;2] = [u64::from(rand::random::<T>()), u64::from(rand::random::<T>())];
   let mut ns : [u64; 4] = [0u64; 4];
   for _ in 0..n {    
-    let len = buf
-      .write_two_c3(&rs)?
-      .read_c3(&mut ns)?;        
+    buf.write_two_c3(&rs)?;
+    let len = buf.read_c3(&mut ns)?;        
     buf.clear();
     assert_eq!(len, 2);
     assert_eq!(rs[0], ns[0]);

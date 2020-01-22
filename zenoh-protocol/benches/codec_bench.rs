@@ -1,11 +1,10 @@
 #[macro_use]
 extern crate criterion;
-extern crate zenoh;
 extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use zenoh::io::rwbuf::{RWBuf,OutOfBounds};
+use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
 use rand::distributions::{Distribution, Standard};
 
 
@@ -21,75 +20,77 @@ fn bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {
 }
 
 fn bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf
-    .write_zint(v[0])?
-    .write_zint(v[1])
-    .map(|_| ())
+  buf.write_zint(v[0])?;
+  buf.write_zint(v[1])
 }
 
 fn bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf
-    .write_zint(v[0])?
-    .write_zint(v[1])?
-    .write_zint(v[2])
-    .map(|_| ())
+  buf.write_zint(v[0])?;
+  buf.write_zint(v[1])?;
+  buf.write_zint(v[2])
 }
 
 fn bench_write_one_c3((n, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {
-  buf.write_one_c3(n).map(|_| ())
+  buf.write_one_c3(n)
 }
 
 fn bench_write_two_c3((xs, buf): (&[u64;2], &mut RWBuf)) -> Result<(), OutOfBounds> {
-  buf.write_two_c3(xs).map(|_| ())
+  buf.write_two_c3(xs)
 }
 
 fn bench_write_three_c3((xs, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfBounds> {
-  buf.write_three_c3(xs).map(|_| ())
+  buf.write_three_c3(xs)
 }
 
 fn bench_one_zint_codec((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf
-    .write_zint(v)?
-    .read_zint().map(|_| ())  
+  buf.write_zint(v)?;
+  buf.read_zint().map(|_| ())
 }
 
 fn bench_two_zint_codec((v, buf): (&[u64;2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  let _ = buf
-    .write_zint(v[0])?
-    .write_zint(v[1])?
-    .read_zint()?;
-    
-    buf.read_zint().map(|_| ())  
+  buf.write_zint(v[0])?;
+  buf.write_zint(v[1])?;
+  let _ = buf.read_zint()?;
+  buf.read_zint().map(|_| ())  
 }
 
 fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  let _ = buf
-    .write_zint(v[0])?
-    .write_zint(v[1])?
-    .write_zint(v[2])?
-    .read_zint()?;
-    
-    let _ = buf.read_zint()?;
-    
-    buf.read_zint().map(|_| ())  
+  buf.write_zint(v[0])?;
+  buf.write_zint(v[1])?;
+  buf.write_zint(v[2])?;
+  let _ = buf.read_zint()?;
+  let _ = buf.read_zint()?;
+  buf.read_zint().map(|_| ())  
 }
 
 fn bench_one_c3_codec((v, ns, buf): (u64, &mut [u64;4], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf.write_one_c3(v)?    
-  .read_c3(ns).map(|_| ())  
+  buf.write_one_c3(v)?;  
+  buf.read_c3(ns).map(|_| ())  
 }
 
 fn bench_two_c3_codec((vs, ns, buf): (&[u64;2], &mut[u64;4], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf.write_two_c3(vs)?
-  .read_c3(ns).map(|_| ())  
+  buf.write_two_c3(vs)?;
+  buf.read_c3(ns).map(|_| ())  
 }
 
 fn bench_three_c3_codec((vs, ns, buf): (&[u64;3], &mut[u64;4], &mut RWBuf)) -> Result<(), OutOfBounds> {  
-  buf.write_three_c3(vs)?
-  .read_c3(ns).map(|_| ())  
+  buf.write_three_c3(vs)?;
+  buf.read_c3(ns).map(|_| ())  
 }
 
-
+fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), OutOfBounds> {
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  buf.write(v)?;
+  Ok(())
+}
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut buf = RWBuf::new(32);     
@@ -406,6 +407,13 @@ fn criterion_benchmark(c: &mut Criterion) {
     //   let _ = bench_zint_codec(black_box((a, &mut buf)));
     //   buf.clear();
     //   }));
+
+    let r4 = rand::random::<u8>();
+    c.bench_function("bench_write_10bytes1", |b| b.iter(|| {
+      let _ = bench_write_10bytes1(black_box((r4, &mut buf)));
+      buf.clear();
+      }));
+              
 }
 
 criterion_group!(benches, criterion_benchmark);

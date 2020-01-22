@@ -38,10 +38,10 @@ impl RWBuf {
     self.r_pos
   }
   
-  pub fn set_read_pos(&mut self, pos: usize) -> Result<&mut Self, OutOfBounds> {
+  pub fn set_read_pos(&mut self, pos: usize) -> Result<(), OutOfBounds> {
     if pos <=self.buf.capacity() {
       self.r_pos = pos;
-      Ok(self)
+      Ok(())
     } else {
       Err(OutOfBounds {
         msg : format!("Read position {} our of range [0, {}].", pos, self.buf.capacity())
@@ -49,10 +49,10 @@ impl RWBuf {
     }
   }
 
-  pub fn set_write_pos(&mut self, pos: usize) -> Result<&mut Self, OutOfBounds> {
+  pub fn set_write_pos(&mut self, pos: usize) -> Result<(), OutOfBounds> {
     if pos <=self.buf.capacity() {
       self.w_pos = pos;
-      Ok(self)
+      Ok(())
     } else {
       Err(OutOfBounds {
         msg : format!("Write position {} our of range [0, {}].", pos, self.buf.capacity())
@@ -74,17 +74,17 @@ impl RWBuf {
     self.buf.capacity() - self.w_pos
   }
 
-  pub fn write(&mut self, b: u8) -> Result<&mut Self, OutOfBounds> {
+  pub fn write(&mut self, b: u8) -> Result<(), OutOfBounds> {
     if self.w_pos < self.buf.capacity() {
       self.buf[self.w_pos] = b;
       self.w_pos += 1;
-      Ok(self)
+      Ok(())
     } else {
       Err(OutOfBounds {
         msg : format!("Write position {} beyond limits (size is {}).", self.w_pos, self.buf.capacity())})
     }    
   } 
-  
+    
   pub fn read(&mut self) -> Result<u8, OutOfBounds> {
     if self.r_pos < self.w_pos {
       let b = self.buf[self.r_pos];
@@ -96,12 +96,14 @@ impl RWBuf {
       })
     }
   }
-  pub fn write_bytes(&mut self, s: &[u8]) -> Result<&mut Self, OutOfBounds> {
+
+  // Write all the bytes, without the length.
+  pub fn write_bytes(&mut self, s: &[u8]) -> Result<(), OutOfBounds> {
     let l = s.len();
     if l <= self.writable() {      
       self.buf[self.w_pos..(self.w_pos+l)].copy_from_slice(s);
       self.w_pos += l;
-      Ok(self)    
+      Ok(())
     } else {
       Err(OutOfBounds {
         msg : format!("Out of bounds write bytes -- slice len = {}, writable: {}).", s.len(), self.writable())
@@ -109,6 +111,7 @@ impl RWBuf {
     }
   }
 
+  // Read all the bytes to fill bs, without reading any length.
   pub fn read_bytes(&mut self, bs: &mut [u8]) -> Result<&mut Self, OutOfBounds> {
     let l = bs.len();
     if self.readable() >= l {
@@ -120,7 +123,8 @@ impl RWBuf {
       })  
     }
   }
-  pub fn write_u16(&mut self, n: u16) -> Result<&mut Self, OutOfBounds> {
+  
+  pub fn write_u16(&mut self, n: u16) -> Result<(), OutOfBounds> {
     if self.writable() >= 2 {      
       unsafe {
         let bs = std::mem::transmute::<&u16, &[u8;2]>(&n);
@@ -144,7 +148,7 @@ impl RWBuf {
     self.r_pos += 2;
     Ok(n)
   }
-  pub fn write_u32(&mut self, n: u32) -> Result<&mut Self, OutOfBounds> {
+  pub fn write_u32(&mut self, n: u32) -> Result<(), OutOfBounds> {
     if self.writable() >= 2 {      
       unsafe {
         let bs = std::mem::transmute::<&u32, &[u8;4]>(&n);
@@ -169,7 +173,7 @@ impl RWBuf {
     Ok(n)
   }
 
-  pub fn write_u64(&mut self, n: u64) -> Result<&mut Self, OutOfBounds> {
+  pub fn write_u64(&mut self, n: u64) -> Result<(), OutOfBounds> {
     if self.writable() >= 2 {      
       unsafe {
         let bs = std::mem::transmute::<&u64, &[u8;8]>(&n);
