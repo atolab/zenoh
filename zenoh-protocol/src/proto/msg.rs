@@ -667,6 +667,7 @@ impl Message {
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct MalformedMessage { pub msg: String }
 
