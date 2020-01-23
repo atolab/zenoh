@@ -1,3 +1,4 @@
+(lang dune 1.11.1)
 ;
 ; Copyright (c) 2017, 2020 ADLINK Technology Inc.
 ;
@@ -12,5 +13,4 @@
 ;   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 ;
 
-(lang dune 1.11.1)
 (name zenoh)
