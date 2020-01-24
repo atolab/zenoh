@@ -1,9 +1,10 @@
+use std::fmt;
 
 /// This is a non owning buffer that maintains read and write indexes.
 /// The invariant preserved by this buffer is that the read position will
 /// always be smaller or equal to the write position.
 /// 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RWBuf {
   r_pos: usize,
   w_pos: usize,
@@ -112,16 +113,43 @@ impl RWBuf {
   }
 
   // Read all the bytes to fill bs, without reading any length.
-  pub fn read_bytes(&mut self, bs: &mut [u8]) -> Result<&mut Self, OutOfBounds> {
+  pub fn read_bytes(&mut self, bs: &mut [u8]) -> Result<(), OutOfBounds> {
     let l = bs.len();
     if self.readable() >= l {
       bs.copy_from_slice(&self.buf[self.r_pos..(self.r_pos+l)]);
-      Ok(self)
+      self.r_pos += l;
+      Ok(())
     } else {
       Err(OutOfBounds {
-        msg : format!("Out of bounds read byres -- slice len = {}, readable: {}).", bs.len(), self.readable())
+        msg : format!("Out of bounds read bytes -- slice len = {}, readable: {}).", bs.len(), self.readable())
       })  
     }
   }
 
+  pub fn read_slice(&mut self, len: usize) -> Result<&[u8], OutOfBounds> {
+    if self.readable() >= len {
+      self.r_pos += len;
+      Ok(&self.buf[self.r_pos..(self.r_pos+len)])
+    } else {
+      Err(OutOfBounds {
+        msg : format!("Out of bounds read bytes -- slice len = {}, readable: {}).", len, self.readable())
+      })  
+    }
+  }
+}
+
+impl fmt::Display for RWBuf {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      write!(f, "RWBuf(cap:{}, r_pos:{}, w_pos:{})",
+        self.buf.capacity(), self.r_pos, self.w_pos)
+  }
+}
+
+impl fmt::Debug for RWBuf {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "RWBuf {{ cap: {}, r_pos: {}, w_pos:{}, buf:\n {:02x?} \n}}",
+      self.buf.capacity(), self.r_pos, self.w_pos,
+      &self.buf[0..self.w_pos]
+    )
+  }
 }

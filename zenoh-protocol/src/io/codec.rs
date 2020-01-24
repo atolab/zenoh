@@ -67,4 +67,11 @@ impl RWBuf {
     self.write_zint(s.len() as core::ZInt)?;
     self.write_bytes(s.as_bytes())  
   }
+
+  pub fn read_string(&mut self) -> Result<String, OutOfBounds> { 
+    let len = self.read_zint()?;
+    let bytes = self.read_slice(len as usize)?;
+    Ok(String::from(String::from_utf8_lossy(bytes)))
+  }
+
 }

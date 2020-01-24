@@ -11,8 +11,11 @@ impl RWBuf {
             if msg.cid != 0 {
                 self.write_decl_conduit(msg.cid)?;
             }
+            if let Some(reply) = &msg.reply_context {
+                self.write_decl_reply(reply)?;
+            }
             if let Some(props) = &msg.properties {
-                self.write_decl_properties(&props)?;
+                    self.write_decl_properties(&props)?;
             }
         }
 
@@ -40,7 +43,7 @@ impl RWBuf {
                 if let Some(w) = whatami {
                     self.write_zint(*w)?;
                 }
-                self.write_bytes(&pid.id)?;
+                self.write_bytes_array(&pid.id)?;
                 self.write_zint(*lease)?;
                 if let Some(l) = locators {
                     self.write_locators(l)?;
@@ -49,21 +52,21 @@ impl RWBuf {
             }
 
             Body::Accept { opid, apid, lease } => {
-                self.write_bytes(&opid.id)?;
-                self.write_bytes(&apid.id)?;
+                self.write_bytes_array(&opid.id)?;
+                self.write_bytes_array(&apid.id)?;
                 self.write_zint(*lease)
             }
 
             Body::Close { pid, reason } => {
                 if let Some(p) = pid {
-                    self.write_bytes(&p.id)?;
+                    self.write_bytes_array(&p.id)?;
                 }
                 self.write(*reason)
             }
 
             Body::KeepAlive { pid } => {
                 if let Some(p) = pid {
-                    self.write_bytes(&p.id)?;
+                    self.write_bytes_array(&p.id)?;
                 }
                 Ok(())
             }
@@ -74,10 +77,6 @@ impl RWBuf {
             }
 
             Body::Data { reliable:_, sn, key, info, payload } => {
-                if let Some(reply) = &msg.reply_context {
-                    self.write_decl_reply(reply)?;
-                }
-        
                 self.write_zint(*sn)?;
                 self.write_reskey(&key)?;
                 if let Some(i) = info {
@@ -133,13 +132,13 @@ impl RWBuf {
     pub fn write_datainfo(&mut self, info: &DataInfo) -> Result<(), OutOfBounds> {
         self.write(info.header)?;
         if let Some(pid) = &info.source_id {
-            self.write_bytes(&pid.id)?;
+            self.write_bytes_array(&pid.id)?;
         }
         if let Some(sn) = &info.source_sn {
             self.write_zint(*sn)?;
         }
         if let Some(pid) = &info.fist_broker_id {
-            self.write_bytes(&pid.id)?;
+            self.write_bytes_array(&pid.id)?;
         }
         if let Some(sn) = &info.fist_broker_sn {
             self.write_zint(*sn)?;
@@ -196,7 +195,7 @@ impl RWBuf {
         self.write(id::REPLY | fflag | eflag)?;
         self.write_zint(reply.qid)?;
         if let Some(pid) = &reply.replier_id {
-            self.write_bytes(&pid.id)?;
+            self.write_bytes_array(&pid.id)?;
         } 
         Ok(())
     }
@@ -213,7 +212,7 @@ impl RWBuf {
 
     fn write_property(&mut self, p: &Property) -> Result<(), OutOfBounds> {
         self.write_zint(p.key)?;
-        self.write_bytes(&p.value)
+        self.write_bytes_array(&p.value)
     }
 
     fn write_locators(&mut self, locators: &[String]) -> Result<(), OutOfBounds> {
