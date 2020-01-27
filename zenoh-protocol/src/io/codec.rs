@@ -58,7 +58,7 @@ impl RWBuf {
   // Same as write_bytes but with array length before the bytes.
   pub fn read_bytes_array(&mut self) -> Result<Vec<u8>, OutOfBounds> {
     let len = self.read_zint()?;
-    let mut buf = Vec::with_capacity(len as usize);
+    let mut buf = vec![0; len as usize];
     self.read_bytes(buf.as_mut_slice())?;
     Ok(buf)
   }

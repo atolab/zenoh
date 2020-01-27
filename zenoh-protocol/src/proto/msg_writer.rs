@@ -235,6 +235,7 @@ impl RWBuf {
                 self.write_zint(*id)
             }
             ResKey::ResName { name } => {
+                self.write_zint(0 as ZInt)?;
                 self.write_string(name)
             }
             ResKey::ResGenId{ id, suffix} => {

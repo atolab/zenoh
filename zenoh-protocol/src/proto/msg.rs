@@ -375,7 +375,7 @@ pub enum Body {
 
 // The MessageKind is used to provide additional information concerning the message
 // that is often provided through message decorators.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum MessageKind {
     FullMessage,
     FirstFragment {n: Option<ZInt>},
@@ -412,7 +412,6 @@ pub struct Message {
     pub(in super) kind: MessageKind,
     pub(in super) reply_context: Option<ReplyContext>,
     pub(in super) properties: Option<Arc<Vec<Property>>>
-    
 }
 
 impl Message {

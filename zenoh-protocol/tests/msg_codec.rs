@@ -9,7 +9,6 @@ const BUFFER_SIZE: usize = 1024;
 const PROPS_LENGTH: usize = 3;
 const PROP_MAX_SIZE: usize = 64;
 
-
 fn gen_rand_zint() -> ZInt {
   thread_rng().gen()
 }
@@ -39,10 +38,23 @@ fn gen_rand_props(len: usize, max_size: usize) -> Option<Arc<Vec<Property>>> {
 fn test_scout(with_decorators: bool, what: Option<ZInt>)
 {
   let expected = if with_decorators {
-    // Message::make_scout(what, gen_rand_cid(), gen_rand_props(PROPS_LENGTH, PROP_MAX_SIZE))
-    Message::make_scout(what, gen_rand_cid(), None)
+    Message::make_scout(what, gen_rand_cid(), gen_rand_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_scout(what, None, None)
+  };
+  let mut buf = RWBuf::new(BUFFER_SIZE);
+  buf.write_message(&expected).unwrap();
+  let msg = buf.read_message().unwrap();
+
+  assert_eq!(expected.has_decorators(), msg.has_decorators());
+}
+
+fn test_hello(with_decorators: bool, whatami: Option<ZInt>, locators: Option<Vec<String>>)
+{
+  let expected = if with_decorators {
+    Message::make_hello(whatami, locators, gen_rand_cid(), gen_rand_props(PROPS_LENGTH, PROP_MAX_SIZE))
+  } else {
+    Message::make_hello(whatami, locators, None, None)
   };
   let mut buf = RWBuf::new(BUFFER_SIZE);
   buf.write_message(&expected).unwrap();
@@ -58,5 +70,13 @@ fn scout_tests() {
   test_scout(true, None);
   test_scout(false, Some(gen_rand_zint()));
   test_scout(true, Some(gen_rand_zint()));
+}
+
+#[test]
+fn hello_tests() {
+  test_hello(false, None, None);
+  test_hello(true, None, None);
+  test_hello(false, Some(gen_rand_zint()), Some(vec!["tcp/1.2.3.4".to_string(), "udp/4.5.6.7".to_string()]));
+  test_hello(true, Some(gen_rand_zint()), Some(vec!["tcp/1.2.3.4".to_string(), "udp/4.5.6.7".to_string()]));
 }
 

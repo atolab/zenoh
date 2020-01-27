@@ -15,7 +15,6 @@ impl RWBuf {
 
         loop {
             let header = self.read()?;
-            println!("---- header: {:#02x?} , mid: {:#02x?}", header, flag::mid(header));
             match flag::mid(header) {
                 id::FRAGMENT => {
                     kind = self.read_decl_frag(header)?;
@@ -225,12 +224,16 @@ impl RWBuf {
     }
 
     fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, OutOfBounds> {
+        let id = self.read_zint()?;
         if is_numeric {
-            let id = self.read_zint()?;
             Ok(ResKey::ResId{ id })
         } else {
-            //@TODO
-            panic!("Don't know if ResKey is a ResName or ResGenId !!")
+            let s = self.read_string()?;
+            if id == 0 {
+                Ok(ResKey::ResName{ name: s })
+            } else {
+                Ok(ResKey::ResGenId{ id, suffix: s })
+            }
         }
     }
 
