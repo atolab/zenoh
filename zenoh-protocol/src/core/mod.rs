@@ -7,11 +7,18 @@ pub mod rname;
 pub type ZInt = u64;
 pub const ZINT_MAX_BYTES : usize = 10;
 
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// ~      id       — if ResName{name} : id=0
+/// +-+-+-+-+-+-+-+-+
+/// ~  name/suffix  ~ if flag C!=1 in Message's header
+/// +---------------+
+///
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum ResKey {
   ResId { id: ZInt},
   ResName { name: String},
-  ResGenId{ id: ZInt, suffix: String},  // Generalised I
+  ResGenId{ id: ZInt, suffix: String},  // id cannot be 0 in this case
 }
 
 impl From<ZInt> for ResKey {
@@ -28,6 +35,7 @@ impl From<String> for ResKey {
 
 impl From<(ZInt, String)> for ResKey {
   fn from((id, suffix): (ZInt, String)) -> ResKey {
+    if id == 0 { panic!("For a ResKey::ResGenId id cannot be 0") }
     ResKey::ResGenId { id, suffix }
   }
 }
@@ -41,7 +49,7 @@ impl ResKey {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Property {
     pub key:   ZInt,
     pub value: Vec<u8>

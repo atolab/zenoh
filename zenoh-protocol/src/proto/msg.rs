@@ -112,13 +112,13 @@ pub struct DataInfo {
     pub(in super) encoding: Option<ZInt>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ReplySource {
     Eval,
     Storage
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QueryConsolidation {
     None,
     LastBroker,
@@ -127,7 +127,7 @@ pub enum QueryConsolidation {
 }
 
 // @TODO: The query target is incomplete
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Target {
     BestMatching,
     Complete {n: ZInt},
@@ -135,13 +135,14 @@ pub enum Target {
     None,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QueryTarget {
-    pub(in super) storage: Target,
-    pub(in super) eval: Target,
+    pub storage: Target,
+    pub eval: Target,
     // @TODO: finalise
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Body {
 
     /// The SCOUT message can be sent at any point in time to solicit HELLO messages from
@@ -375,7 +376,7 @@ pub enum Body {
 
 // The MessageKind is used to provide additional information concerning the message
 // that is often provided through message decorators.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageKind {
     FullMessage,
     FirstFragment {n: Option<ZInt>},
@@ -383,7 +384,7 @@ pub enum MessageKind {
     LastFragment,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReplyContext {
     pub(in super) is_final: bool,
     pub(in super) qid: ZInt,
@@ -403,7 +404,7 @@ impl ReplyContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Message {
     pub (in super) has_decorators: bool,
     pub(in super) cid: ZInt,
@@ -421,7 +422,7 @@ impl Message {
             None => id::SCOUT
         };
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Scout { what },
@@ -436,7 +437,7 @@ impl Message {
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::HELLO | wflag | lflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Hello { whatami, locators },
@@ -450,7 +451,7 @@ impl Message {
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::OPEN | wflag | lflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Open { version, whatami, pid, lease, locators },
@@ -463,7 +464,7 @@ impl Message {
     pub fn make_accept(opid: PeerId, apid: PeerId, lease: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::ACCEPT;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Accept { opid, apid, lease },
@@ -479,7 +480,7 @@ impl Message {
             None    => id::CLOSE,
         };
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Close { pid, reason },
@@ -494,7 +495,7 @@ impl Message {
             None    => id::KEEP_ALIVE,
         };
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::KeepAlive { pid },
@@ -507,7 +508,7 @@ impl Message {
     pub fn make_declare(sn: ZInt, declarations: Vec<decl::Declaration>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::DECLARE;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Declare { sn, declarations },
@@ -523,8 +524,8 @@ impl Message {
         key: ResKey,
         info: Option<Arc<Vec<u8>>>,
         payload: Arc<Vec<u8>>,
-        cid: Option<ZInt>,
         reply_context: Option<ReplyContext>,
+        cid: Option<ZInt>,
         ps: Option<Arc<Vec<Property>>> ) -> Message
     {
         let iflag = if info.is_some() { flag::I } else { 0 };
@@ -532,7 +533,7 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::DATA | iflag | rflag | cflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Data { reliable, sn, key, info, payload },
@@ -548,7 +549,7 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::PULL | fflag | nflag | cflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Pull { sn, key, pull_id, max_samples },
@@ -563,7 +564,7 @@ impl Message {
         let cflag = if key.is_numerical() { flag::C } else { 0 };
         let header = id::QUERY | tflag | cflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Query { sn, key, predicate, qid, target, consolidation },
@@ -576,7 +577,7 @@ impl Message {
     pub fn make_ping(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::PING_PONG | flag::P;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Ping { hash },
@@ -589,7 +590,7 @@ impl Message {
     pub fn make_pong(hash: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::PING_PONG;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Pong { hash },
@@ -604,7 +605,7 @@ impl Message {
         let cflag = if count.is_some() { flag::C } else { 0 };
         let header = id::SYNC | rflag | cflag;
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::Sync { sn, count },
@@ -620,7 +621,7 @@ impl Message {
             None    => id::ACK_NACK,
         };
         Message {
-            has_decorators: cid.is_some() | ps.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::AckNack { sn, mask },

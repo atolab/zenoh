@@ -102,7 +102,7 @@ impl RWBuf {
                         Some(Arc::new(self.read_bytes_array()?))
                     } else { None };
                     let payload = Arc::new(self.read_bytes_array()?);
-                    return Ok(Message::make_data(reliable, sn, key, info, payload, cid, reply_context, properties))
+                    return Ok(Message::make_data(reliable, sn, key, info, payload, reply_context, cid, properties))
                 }
 
                 id::PULL => {
@@ -258,7 +258,12 @@ impl RWBuf {
     }
 
     fn read_consolidation(&mut self) -> Result<QueryConsolidation, OutOfBounds> {
-        panic!("NOT YET IMPLEMENTED: read_consolidation")
+        match self.read_zint()? {
+            0 => Ok(QueryConsolidation::None),
+            1 => Ok(QueryConsolidation::LastBroker),
+            2 => Ok(QueryConsolidation::Incremental),
+            x => panic!("UNEXPECTED VALUE FOR QueryConsolidation: {}", x)  //@TODO: return error
+        }
     }
 
     fn read_timestamp(&mut self) -> Result<TimeStamp, OutOfBounds> {

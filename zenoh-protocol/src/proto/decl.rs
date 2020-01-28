@@ -15,7 +15,7 @@ pub mod id {
   pub const FORGET_EVAL         :  u8 =  0x15;      
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SubMode {
     Push,
     Pull,
@@ -23,7 +23,7 @@ pub enum SubMode {
     PeriodicPull { origin: ZInt, period: ZInt, duration: ZInt }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+

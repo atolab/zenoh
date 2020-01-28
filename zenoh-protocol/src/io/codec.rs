@@ -63,9 +63,9 @@ impl RWBuf {
     Ok(buf)
   }
   
-  pub fn write_string(&mut self, s: &str) -> Result<(), OutOfBounds> { 
+  pub fn write_string(&mut self, s: &str) -> Result<(), OutOfBounds> {
     self.write_zint(s.len() as core::ZInt)?;
-    self.write_bytes(s.as_bytes())  
+    self.write_bytes(s.as_bytes())
   }
 
   pub fn read_string(&mut self) -> Result<String, OutOfBounds> { 
@@ -73,5 +73,4 @@ impl RWBuf {
     let bytes = self.read_slice(len as usize)?;
     Ok(String::from(String::from_utf8_lossy(bytes)))
   }
-
 }

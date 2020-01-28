@@ -128,8 +128,9 @@ impl RWBuf {
 
   pub fn read_slice(&mut self, len: usize) -> Result<&[u8], OutOfBounds> {
     if self.readable() >= len {
+      let result = &self.buf[self.r_pos..(self.r_pos+len)];
       self.r_pos += len;
-      Ok(&self.buf[self.r_pos..(self.r_pos+len)])
+      Ok(result)
     } else {
       Err(OutOfBounds {
         msg : format!("Out of bounds read bytes -- slice len = {}, readable: {}).", len, self.readable())

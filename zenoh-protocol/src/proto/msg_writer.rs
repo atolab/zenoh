@@ -5,17 +5,17 @@ use super::decl;
 
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
-        self.write_decl_frag(&msg.kind)?;
+        self.write_deco_frag(&msg.kind)?;
 
         if msg.has_decorators {
             if msg.cid != 0 {
-                self.write_decl_conduit(msg.cid)?;
+                self.write_deco_conduit(msg.cid)?;
             }
             if let Some(reply) = &msg.reply_context {
-                self.write_decl_reply(reply)?;
+                self.write_deco_reply(reply)?;
             }
             if let Some(props) = &msg.properties {
-                    self.write_decl_properties(&props)?;
+                    self.write_deco_properties(&props)?;
             }
         }
 
@@ -155,7 +155,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_decl_frag(&mut self, kind: &MessageKind) -> Result<(), OutOfBounds> {
+    fn write_deco_frag(&mut self, kind: &MessageKind) -> Result<(), OutOfBounds> {
         match kind {
             MessageKind::FullMessage => {
                 Ok(())    // No decorator in this case
@@ -176,7 +176,7 @@ impl RWBuf {
         }
     }
 
-    fn write_decl_conduit(&mut self, cid: ZInt) -> Result<(), OutOfBounds> {
+    fn write_deco_conduit(&mut self, cid: ZInt) -> Result<(), OutOfBounds> {
         if cid <= 4 {
             let hl = ((cid-1) <<5) as u8;
             self.write(flag::Z | hl | id::CONDUIT)
@@ -186,7 +186,7 @@ impl RWBuf {
         }
     }
 
-    fn write_decl_reply(&mut self, reply: &ReplyContext) -> Result<(), OutOfBounds> {
+    fn write_deco_reply(&mut self, reply: &ReplyContext) -> Result<(), OutOfBounds> {
         let fflag = if reply.is_final { flag::F } else { 0 };
         let eflag = match &reply.source {
             ReplySource::Eval => flag::E,
@@ -200,7 +200,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_decl_properties(&mut self, props: &[Property]) -> Result<(), OutOfBounds> {
+    fn write_deco_properties(&mut self, props: &[Property]) -> Result<(), OutOfBounds> {
         self.write(id::PROPERTIES)?;
         let len = props.len() as ZInt;
         self.write_zint(len)?;
@@ -268,8 +268,12 @@ impl RWBuf {
         }
     }
 
-    fn write_consolidation(&mut self, _: &QueryConsolidation) -> Result<(), OutOfBounds> {
-        panic!("NOT YET IMPLEMENTED: write_consolidation")
+    fn write_consolidation(&mut self, consolidation: &QueryConsolidation) -> Result<(), OutOfBounds> {
+        match consolidation {
+            QueryConsolidation::None        => self.write_zint(0),
+            QueryConsolidation::LastBroker  => self.write_zint(1),
+            QueryConsolidation::Incremental => self.write_zint(2),
+        }
     }
 
     fn write_timestamp(&mut self, tstamp: &TimeStamp) -> Result<(), OutOfBounds> {
