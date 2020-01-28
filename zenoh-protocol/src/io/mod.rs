@@ -1,4 +1,4 @@
 pub mod rwbuf;
 pub mod codec;
 
-pub use crate::proto::msg::*;
+pub use crate::proto::*;

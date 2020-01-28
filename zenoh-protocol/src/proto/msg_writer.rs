@@ -1,7 +1,7 @@
 use crate::io::rwbuf::{RWBuf, OutOfBounds};
-use crate::core::*;
+use crate::core::{ZInt, Property, ResKey, TimeStamp};
 use super::msg::*;
-use super::decl;
+use super::decl::Declaration;
 
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
@@ -224,7 +224,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_declarations(&mut self, declarations: &[decl::Declaration]) -> Result<(), OutOfBounds> {
+    fn write_declarations(&mut self, declarations: &[Declaration]) -> Result<(), OutOfBounds> {
         // @TODO !!
         Ok(())
     }

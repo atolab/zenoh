@@ -1,6 +1,7 @@
-use crate::core::*;
-use super::decl;
+use crate::core::{ZInt, PeerId, Property, ResKey, TimeStamp};
+use super::decl::Declaration;
 use std::sync::Arc;
+
 //
 // @TODO: Update declare messages to include rid and postfix.
 //
@@ -235,7 +236,7 @@ pub enum Body {
     /// +---------------+
     /// ~ [Declaration] ~
     /// +---------------+
-    Declare {sn: ZInt, declarations: Vec<decl::Declaration> },
+    Declare {sn: ZInt, declarations: Vec<Declaration> },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -505,7 +506,7 @@ impl Message {
         }
     }
 
-    pub fn make_declare(sn: ZInt, declarations: Vec<decl::Declaration>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+    pub fn make_declare(sn: ZInt, declarations: Vec<Declaration>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = id::DECLARE;
         Message {
             has_decorators: cid.is_some() || ps.is_some(),

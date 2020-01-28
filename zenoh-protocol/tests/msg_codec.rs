@@ -1,7 +1,6 @@
 
 use zenoh_protocol::io::rwbuf::RWBuf;
-use zenoh_protocol::proto::msg::*;
-use zenoh_protocol::proto::decl::*;
+use zenoh_protocol::proto::*;
 use zenoh_protocol::core::*;
 use std::sync::Arc;
 use rand::*;

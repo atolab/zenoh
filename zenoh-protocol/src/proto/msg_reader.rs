@@ -1,14 +1,14 @@
 use crate::io::rwbuf::{RWBuf, OutOfBounds};
-use crate::core::*;
+use crate::core::{ZInt, PeerId, Property, ResKey, TimeStamp};
 use super::msg::*;
-use super::decl;
+use super::decl::Declaration;
 use std::sync::Arc;
 use std::convert::TryInto;
 
 impl RWBuf {
 
     pub fn read_message(&mut self) -> Result<Message, OutOfBounds> {
-        let mut kind = MessageKind::FullMessage;
+        let mut _kind = MessageKind::FullMessage;
         let mut cid = None;
         let mut reply_context = None;
         let mut properties : Option<Arc<Vec<Property>>> = None;
@@ -17,7 +17,7 @@ impl RWBuf {
             let header = self.read()?;
             match flag::mid(header) {
                 id::FRAGMENT => {
-                    kind = self.read_decl_frag(header)?;
+                    _kind = self.read_decl_frag(header)?;
                     continue;
                 }
 
@@ -218,7 +218,7 @@ impl RWBuf {
         Ok(vec)
     }
 
-    fn read_declarations(&mut self) -> Result<Vec<decl::Declaration>, OutOfBounds> {
+    fn read_declarations(&mut self) -> Result<Vec<Declaration>, OutOfBounds> {
         // @TODO
         Ok(Vec::new())
     }
