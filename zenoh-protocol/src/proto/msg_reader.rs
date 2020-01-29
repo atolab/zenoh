@@ -1,13 +1,15 @@
 use crate::io::rwbuf::{RWBuf, OutOfBounds};
 use crate::core::{ZInt, PeerId, Property, ResKey, TimeStamp};
 use super::msg::*;
-use super::decl::Declaration;
+use super::decl::{Declaration, SubMode};
 use std::sync::Arc;
 use std::convert::TryInto;
 
 impl RWBuf {
 
     pub fn read_message(&mut self) -> Result<Message, OutOfBounds> {
+        use super::msg::id::*;
+
         let mut _kind = MessageKind::FullMessage;
         let mut cid = None;
         let mut reply_context = None;
@@ -16,34 +18,34 @@ impl RWBuf {
         loop {
             let header = self.read()?;
             match flag::mid(header) {
-                id::FRAGMENT => {
+                FRAGMENT => {
                     _kind = self.read_decl_frag(header)?;
                     continue;
                 }
 
-                id::CONDUIT => {
+                CONDUIT => {
                     cid = Some(self.read_decl_conduit(header)?);
                     continue;
                 }
 
-                id::REPLY => {
+                REPLY => {
                     reply_context = Some(self.read_decl_reply(header)?);
                     continue;
                 }
 
-                id::PROPERTIES => {
+                PROPERTIES => {
                     properties = Some(Arc::new(self.read_decl_properties(header)?));
                     continue;
                 }
 
-                id::SCOUT => {
+                SCOUT => {
                     let what = if flag::has_flag(header, flag::W) {
                         Some(self.read_zint()?)
                     } else { None };
                     return Ok(Message::make_scout(what, cid, properties));
                 }
 
-                id::HELLO => {
+                HELLO => {
                     let whatami = if flag::has_flag(header, flag::W) {
                         Some(self.read_zint()?)
                     } else { None };
@@ -53,7 +55,7 @@ impl RWBuf {
                     return Ok(Message::make_hello(whatami, locators, cid, properties));
                 }
 
-                id::OPEN => {
+                OPEN => {
                     let version = self.read()?;
                     let whatami = if flag::has_flag(header, flag::W) {
                         Some(self.read_zint()?)
@@ -66,14 +68,14 @@ impl RWBuf {
                     return Ok(Message::make_open(version, whatami, pid, lease, locators, cid, properties));
                 }
 
-                id::ACCEPT => {
+                ACCEPT => {
                     let opid = self.read_peerid()?;
                     let apid = self.read_peerid()?;
                     let lease = self.read_zint()?;
                     return Ok(Message::make_accept(opid, apid, lease, cid, properties));
                 }
 
-                id::CLOSE => {
+                CLOSE => {
                     let pid = if flag::has_flag(header, flag::P) {
                         Some(self.read_peerid()?)
                     } else { None };
@@ -81,20 +83,20 @@ impl RWBuf {
                     return Ok(Message::make_close(pid, reason, cid, properties));
                 }
 
-                id::KEEP_ALIVE => {
+                KEEP_ALIVE => {
                     let pid = if flag::has_flag(header, flag::P) {
                         Some(self.read_peerid()?)
                     } else { None };
                     return Ok(Message::make_keep_alive(pid, reply_context, cid, properties));
                 }
 
-                id::DECLARE => {
+                DECLARE => {
                     let sn = self.read_zint()?;
                     let declarations = self.read_declarations()?;
                     return Ok(Message::make_declare(sn, declarations, cid, properties));
                 }
 
-                id::DATA => {
+                DATA => {
                     let reliable = flag::has_flag(header, flag::R);
                     let sn = self.read_zint()?;
                     let key = self.read_reskey(flag::has_flag(header, flag::C))?;
@@ -105,7 +107,7 @@ impl RWBuf {
                     return Ok(Message::make_data(reliable, sn, key, info, payload, reply_context, cid, properties))
                 }
 
-                id::PULL => {
+                PULL => {
                     let is_final = flag::has_flag(header, flag::F);
                     let sn = self.read_zint()?;
                     let key = self.read_reskey(flag::has_flag(header, flag::C))?;
@@ -116,7 +118,7 @@ impl RWBuf {
                     return Ok(Message::make_pull(is_final, sn, key, pull_id, max_samples, cid, properties))
                 }
 
-                id::QUERY => {
+                QUERY => {
                     let sn = self.read_zint()?;
                     let key = self.read_reskey(flag::has_flag(header, flag::C))?;
                     let predicate = self.read_string()?;
@@ -128,7 +130,7 @@ impl RWBuf {
                     return Ok(Message::make_query(sn, key, predicate, qid, target, consolidation, cid, properties))
                 }
 
-                id::PING_PONG => {
+                PING_PONG => {
                     let hash = self.read_zint()?;
                     if flag::has_flag(header, flag::P) {
                         return Ok(Message::make_ping(hash, cid, properties))
@@ -137,7 +139,7 @@ impl RWBuf {
                     }
                 }
 
-                id::SYNC => {
+                SYNC => {
                     let reliable = flag::has_flag(header, flag::R);
                     let sn = self.read_zint()?;
                     let count = if flag::has_flag(header, flag::C) {
@@ -146,7 +148,7 @@ impl RWBuf {
                     return Ok(Message::make_sync(reliable, sn, count, cid, properties))
                 }
 
-                id::ACK_NACK => {
+                ACK_NACK => {
                     let sn = self.read_zint()?;
                     let mask = if flag::has_flag(header, flag::M) {
                         Some(self.read_zint()?)
@@ -154,7 +156,7 @@ impl RWBuf {
                     return Ok(Message::make_ack_nack(sn, mask, cid, properties))
                 }
 
-                mid @ _ => panic!("UNEXPECTED MESSAGE ID: {:#02x}", mid)
+                id => panic!("UNEXPECTED ID FOR Message: {}", id)   //@TODO: return error
             }
         }
     }
@@ -219,8 +221,81 @@ impl RWBuf {
     }
 
     fn read_declarations(&mut self) -> Result<Vec<Declaration>, OutOfBounds> {
-        // @TODO
-        Ok(Vec::new())
+        let len = self.read_zint()?;
+        let mut vec: Vec<Declaration> = Vec::new();
+        for _ in 0..len {
+            vec.push(self.read_declaration()?);
+        }
+        Ok(vec)
+    }
+
+    fn read_declaration(&mut self) -> Result<Declaration, OutOfBounds> {
+        use super::decl::{Declaration::*, id::*};
+
+        macro_rules! read_key_delc {
+            ($buf:ident, $header:ident, $type:ident) => {{
+                Ok($type{ 
+                    key: $buf.read_reskey(flag::has_flag($header, flag::C))?
+                })
+            }}
+        }
+
+        let header = self.read()?;
+        match flag::mid(header) {
+            RESOURCE => {
+                let rid = self.read_zint()?;
+                let key = self.read_reskey(flag::has_flag(header, flag::C))?;
+                Ok(Resource{ rid, key })
+            }
+
+            FORGET_RESOURCE => {
+                let rid = self.read_zint()?;
+                Ok(ForgetResource{ rid })
+            }
+
+            SUBSCRIBER => {
+                let key = self.read_reskey(flag::has_flag(header, flag::C))?;
+                let mode = if flag::has_flag(header, flag::S) {
+                    self.read_submode()?
+                } else {
+                    SubMode::Push
+                };
+                Ok(Subscriber{ key, mode })
+            }
+
+            FORGET_SUBSCRIBER => read_key_delc!(self, header, ForgetSubscriber),
+            PUBLISHER => read_key_delc!(self, header, Publisher),
+            FORGET_PUBLISHER => read_key_delc!(self, header, ForgetPublisher),
+            STORAGE => read_key_delc!(self, header, Storage),
+            FORGET_STORAGE => read_key_delc!(self, header, ForgetStorage),
+            EVAL => read_key_delc!(self, header, Eval),
+            FORGET_EVAL => read_key_delc!(self, header, ForgetEval),
+
+            id => panic!("UNEXPECTED ID FOR Declaration: {}", id)   //@TODO: return error
+        }
+    }
+
+    fn read_submode(&mut self) -> Result<SubMode, OutOfBounds> {
+        use super::decl::{SubMode::*, id::*};
+        match self.read_zint()? {
+            MODE_PUSH => Ok(Push),
+            MODE_PULL => Ok(Pull),
+            MODE_PERIODIC_PUSH => {
+                Ok(PeriodicPush {
+                    origin:   self.read_zint()?,
+                    period:   self.read_zint()?,
+                    duration: self.read_zint()?
+                })
+            }
+            MODE_PERIODIC_PULL => {
+                Ok(PeriodicPull {
+                    origin:   self.read_zint()?,
+                    period:   self.read_zint()?,
+                    duration: self.read_zint()?
+                })
+            }
+            id => panic!("UNEXPECTED ID FOR SubMode: {}", id)   //@TODO: return error
+        }
     }
 
     fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, OutOfBounds> {
@@ -253,7 +328,7 @@ impl RWBuf {
             },
             2 => Ok(Target::All),
             3 => Ok(Target::None),
-            _ => panic!("UNEXPECTED VALUE FOR TARGET: {}", t)  //@TODO: return error
+            id => panic!("UNEXPECTED ID FOR Target: {}", id)   //@TODO: return error
         }
     }
 
@@ -262,7 +337,7 @@ impl RWBuf {
             0 => Ok(QueryConsolidation::None),
             1 => Ok(QueryConsolidation::LastBroker),
             2 => Ok(QueryConsolidation::Incremental),
-            x => panic!("UNEXPECTED VALUE FOR QueryConsolidation: {}", x)  //@TODO: return error
+            id => panic!("UNEXPECTED ID FOR QueryConsolidation: {}", id)   //@TODO: return error
         }
     }
 

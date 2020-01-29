@@ -50,8 +50,25 @@ fn gen_reply_context(is_final: bool) -> ReplyContext {
 }
 
 fn gen_declarations() -> Vec<Declaration> {
-  // @TODO
-  Vec::new()
+  use zenoh_protocol::proto::Declaration::*;
+  use zenoh_protocol::proto::SubMode::*;
+  let mut decls = Vec::new();
+  decls.push(Resource         { rid: gen!(ZInt), key: gen_key() });
+  decls.push(ForgetResource   { rid: gen!(ZInt) });
+  decls.push(Publisher        { key: gen_key() });
+  decls.push(ForgetPublisher  { key: gen_key() });
+  decls.push(Subscriber       { key: gen_key(), mode: Push });
+  decls.push(Subscriber       { key: gen_key(), mode: Pull  });
+  decls.push(Subscriber       { key: gen_key(), mode:
+    PeriodicPush { origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt) } });
+  decls.push(Subscriber       { key: gen_key(), mode:
+    PeriodicPull { origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt) } });
+  decls.push(ForgetSubscriber { key: gen_key() });
+  decls.push(Storage          { key: gen_key() });
+  decls.push(ForgetStorage    { key: gen_key() });
+  decls.push(Eval             { key: gen_key() });
+  decls.push(ForgetEval       { key: gen_key() });  
+  decls
 }
 
 fn gen_key() -> ResKey {
@@ -85,18 +102,27 @@ fn gen_consolidation() -> QueryConsolidation {
   }
 }
 
+fn test_write_read_message(msg: Message)
+{
+  let mut buf = RWBuf::new(BUFFER_SIZE);
+  println!("Write message: {:?}", msg);
+  buf.write_message(&msg).unwrap();
+  println!("Read message from: {:?}", buf);
+  let result = buf.read_message().unwrap();
+  println!("Message read: {:?}", result);
+
+  assert_eq!(msg, result);
+}
+
+
 fn test_scout(with_decorators: bool, what: Option<ZInt>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_scout(what, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_scout(what, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -109,16 +135,12 @@ fn scout_tests() {
 
 fn test_hello(with_decorators: bool, whatami: Option<ZInt>, locators: Option<Vec<String>>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_hello(whatami, locators, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_hello(whatami, locators, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -132,16 +154,12 @@ fn hello_tests() {
 
 fn test_open(with_decorators: bool, version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_open(version, whatami, pid, lease, locators, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_open(version, whatami, pid, lease, locators, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -155,16 +173,12 @@ fn open_tests() {
 
 fn test_accept(with_decorators: bool, opid: PeerId, apid: PeerId, lease: ZInt)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_accept(opid, apid, lease, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_accept(opid, apid, lease, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -175,16 +189,12 @@ fn accept_tests() {
 
 fn test_close(with_decorators: bool, pid: Option<PeerId>, reason: u8)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_close(pid, reason, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_close(pid, reason, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -197,16 +207,12 @@ fn close_tests() {
 
 fn test_keep_alive(with_decorators: bool, pid: Option<PeerId>, reply_context: Option<ReplyContext>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_keep_alive(pid, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_keep_alive(pid, reply_context, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -221,16 +227,12 @@ fn keep_alive_tests() {
 
 fn test_declare(with_decorators: bool, sn: ZInt, declarations: Vec<Declaration>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_declare(sn, declarations, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_declare(sn, declarations, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -247,18 +249,12 @@ fn test_data(with_decorators: bool,
   payload: Arc<Vec<u8>>,
   reply_context: Option<ReplyContext>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_data(reliable, sn, key, info, payload, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_data(reliable, sn, key, info, payload, reply_context, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  println!("WRITE {:?}", expected);
-  buf.write_message(&expected).unwrap();
-  println!("READ FROM {:?}", buf);
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -275,16 +271,12 @@ fn data_tests() {
 
 fn test_pull(with_decorators: bool, is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_pull(is_final, sn, key, pull_id, max_samples, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_pull(is_final, sn, key, pull_id, max_samples, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -297,16 +289,12 @@ fn pull_tests() {
 
 fn test_query(with_decorators: bool, sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_query(sn, key, predicate, qid, target, consolidation, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_query(sn, key, predicate, qid, target, consolidation, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -321,16 +309,12 @@ fn query_tests() {
 
 fn test_ping(with_decorators: bool, hash: ZInt)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_ping(hash, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_ping(hash, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -341,16 +325,12 @@ fn ping_tests() {
 
 fn test_pong(with_decorators: bool, hash: ZInt)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_pong(hash, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_pong(hash, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -361,16 +341,12 @@ fn pong_tests() {
 
 fn test_sync(with_decorators: bool, reliable: bool, sn: ZInt, count: Option<ZInt>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_sync(reliable, sn, count, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_sync(reliable, sn, count, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]
@@ -383,16 +359,12 @@ fn sync_tests() {
 
 fn test_ack_nack(with_decorators: bool, sn: ZInt, mask: Option<ZInt>)
 {
-  let expected = if with_decorators {
+  let msg = if with_decorators {
     Message::make_ack_nack(sn, mask, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
     Message::make_ack_nack(sn, mask, None, None)
   };
-  let mut buf = RWBuf::new(BUFFER_SIZE);
-  buf.write_message(&expected).unwrap();
-  let msg = buf.read_message().unwrap();
-
-  assert_eq!(expected, msg);
+  test_write_read_message(msg);
 }
 
 #[test]

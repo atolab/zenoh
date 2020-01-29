@@ -9,6 +9,7 @@ use std::sync::Arc;
 // zenoh's protocol messages IDs
 //
 pub mod id {
+    // Messages
     pub const SCOUT         :   u8 	= 0x01;
     pub const HELLO         :   u8 	= 0x02;
 
@@ -53,6 +54,7 @@ pub mod flag {
     pub const N        :   u8  = 0x40;
     pub const R        :   u8  = 0x40;
     pub const T        :   u8  = 0x40;
+    pub const S        :   u8  = 0x40;
 
     pub const F        :   u8  = 0x80;
     pub const I        :   u8  = 0x80;
@@ -60,12 +62,6 @@ pub mod flag {
 
     pub const MID_MASK      :   u8  = 0x1f;
     pub const HEADER_MASK   :   u8  = 0xe0;
-
-    pub const PUSH_READ				: u8 	=  0x01;
-    pub const PULL_READ				: u8	=  0x02;
-    pub const PERIODIC_PUSH_READ	: u8 	=  0x03;
-    pub const PERIODIC_PULL_READ	: u8 	=  0x04;
-    pub const PUSH_PULL_READ		: u8 	=  0x05;
 
     pub const BROKER                : u8    =  0x01;
     pub const ROUTER                : u8    =  0x02;

@@ -1,7 +1,10 @@
 
-use crate::core::{ZInt, ResKey };
+use crate::core::{ZInt, ResKey};
 
 pub mod id {
+  use crate::core::ZInt;
+
+  // Declarations
   pub const RESOURCE            :  u8 =  0x01;
   pub const PUBLISHER           :  u8 =  0x02;
   pub const SUBSCRIBER          :  u8 =  0x03;
@@ -12,7 +15,13 @@ pub mod id {
   pub const FORGET_PUBLISHER    :  u8 =  0x12;
   pub const FORGET_SUBSCRIBER   :  u8 =  0x13;
   pub const FORGET_STORAGE      :  u8 =  0x14;
-  pub const FORGET_EVAL         :  u8 =  0x15;      
+  pub const FORGET_EVAL         :  u8 =  0x15;
+  
+  // SubModes
+  pub const MODE_PUSH           : ZInt = 0x00;
+  pub const MODE_PULL           : ZInt = 0x01;
+  pub const MODE_PERIODIC_PUSH  : ZInt = 0x02;
+  pub const MODE_PERIODIC_PULL  : ZInt = 0x03;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,11 +36,11 @@ pub enum SubMode {
 pub enum Declaration {
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X| RESOURCE|
+    /// |X|X|C| RESOURCE|
     /// +---------------+
     /// ~      RID      ~
     /// +---------------+
-    /// ~ Resource Key ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     ///    
     /// @Olivier, the idea would be to be able to declare a 
@@ -56,9 +65,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|   PUB   |
+    /// |X|X|C|   PUB   |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     Publisher {
         key: ResKey
@@ -66,9 +75,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|   F_PUB   |
+    /// |X|X|C|  F_PUB  |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     ForgetPublisher {
         key: ResKey
@@ -76,11 +85,11 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|M|   SUB   |
+    /// |X|S|C|   SUB   |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
-    /// ~    SubMode    ~ if M==1
+    /// ~    SubMode    ~ if S==1. Otherwise: SubMode=Push
     /// +---------------+
     Subscriber {
         key: ResKey,
@@ -89,9 +98,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|   F_SUB   |
+    /// |X|X|C|  F_SUB  |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     ForgetSubscriber {
         key: ResKey
@@ -99,9 +108,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|  STORE  |
+    /// |X|X|C|  STORE  |
     /// +---------------+
-    /// ~     ResKey    ~
+    /// ~     ResKey    ~ if  C==1 then only numerical id
     /// +---------------+
     Storage {
         key: ResKey
@@ -109,9 +118,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X| F_STORE |
+    /// |X|X|C| F_STORE |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     ForgetStorage {
         key: ResKey
@@ -119,9 +128,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|  EVAL   |
+    /// |X|X|C|  EVAL   |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     Eval {
         key: ResKey
@@ -131,7 +140,7 @@ pub enum Declaration {
     /// +-+-+-+-+-+-+-+-+
     /// |X|X|X| F_EVAL  |
     /// +---------------+
-    /// ~      ResKey   ~
+    /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
     ForgetEval {
         key: ResKey

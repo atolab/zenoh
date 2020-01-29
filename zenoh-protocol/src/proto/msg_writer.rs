@@ -1,7 +1,7 @@
 use crate::io::rwbuf::{RWBuf, OutOfBounds};
 use crate::core::{ZInt, Property, ResKey, TimeStamp};
 use super::msg::*;
-use super::decl::Declaration;
+use super::decl::{Declaration, SubMode};
 
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
@@ -225,8 +225,76 @@ impl RWBuf {
     }
 
     fn write_declarations(&mut self, declarations: &[Declaration]) -> Result<(), OutOfBounds> {
-        // @TODO !!
+        let len = declarations.len() as ZInt;
+        self.write_zint(len)?;
+        for l in declarations {
+            self.write_declaration(l)?;
+        }
         Ok(())
+    }
+
+    fn write_declaration(&mut self, declaration: &Declaration) -> Result<(), OutOfBounds> {
+        use super::decl::{Declaration::*, id::*};
+
+        macro_rules! write_key_delc {
+            ($buf:ident, $flag:ident, $key:ident) => {{
+                $buf.write($flag | (if $key.is_numerical() { flag::C } else { 0 }))?;
+                $buf.write_reskey($key)
+            }}
+        }
+          
+        match declaration {
+            Resource { rid, key } => {
+                let cflag = if key.is_numerical() { flag::C } else { 0 };
+                self.write(RESOURCE | cflag)?;
+                self.write_zint(*rid)?;
+                self.write_reskey(key)
+            }
+
+            ForgetResource { rid } => {
+                self.write(FORGET_RESOURCE)?;
+                self.write_zint(*rid)
+            }
+
+            Subscriber { key, mode } =>  {
+                let sflag = if let SubMode::Push = mode { 0 } else { flag::S };
+                let cflag = if key.is_numerical() { flag::C } else { 0 };
+                self.write(SUBSCRIBER | sflag | cflag)?;
+                self.write_reskey(key)?;
+                if sflag != 0 {
+                    self.write_submode(mode)?;
+                }
+                Ok(())
+            }
+
+            ForgetSubscriber { key } => write_key_delc!(self, FORGET_SUBSCRIBER, key),
+            Publisher { key }        => write_key_delc!(self, PUBLISHER, key),
+            ForgetPublisher { key }  => write_key_delc!(self, FORGET_PUBLISHER, key),
+            Storage { key }          => write_key_delc!(self, STORAGE, key),
+            ForgetStorage { key }    => write_key_delc!(self, FORGET_STORAGE, key),
+            Eval { key }             => write_key_delc!(self, EVAL, key),
+            ForgetEval { key }       => write_key_delc!(self, FORGET_EVAL, key),
+        }
+    }
+
+    fn write_submode(&mut self, mode: &SubMode) -> Result<(), OutOfBounds> {
+        use super::decl::{SubMode::*, id::*};
+        match mode {
+            Push => self.write_zint(MODE_PUSH),
+            Pull => self.write_zint(MODE_PULL),
+            PeriodicPush{ origin, period, duration } => {
+                self.write_zint(MODE_PERIODIC_PUSH)?;
+                self.write_zint(*origin)?;
+                self.write_zint(*period)?;
+                self.write_zint(*duration)
+            }
+            PeriodicPull{ origin, period, duration } => {
+                self.write_zint(MODE_PERIODIC_PULL)?;
+                self.write_zint(*origin)?;
+                self.write_zint(*period)?;
+                self.write_zint(*duration)
+            }
+        }
     }
 
     fn write_reskey(&mut self, key: &ResKey) -> Result<(), OutOfBounds> {
