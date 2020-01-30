@@ -516,6 +516,7 @@ impl Message {
     }
 
     pub fn make_data(
+        kind: MessageKind,
         reliable: bool,
         sn: ZInt,
         key: ResKey,
@@ -534,7 +535,7 @@ impl Message {
             cid: cid.unwrap_or(0),
             header,
             body: Body::Data { reliable, sn, key, info, payload },
-            kind: MessageKind::FullMessage,
+            kind,
             reply_context,
             properties: ps    
         }

@@ -10,7 +10,7 @@ impl RWBuf {
     pub fn read_message(&mut self) -> Result<Message, OutOfBounds> {
         use super::msg::id::*;
 
-        let mut _kind = MessageKind::FullMessage;
+        let mut kind = MessageKind::FullMessage;
         let mut cid = None;
         let mut reply_context = None;
         let mut properties : Option<Arc<Vec<Property>>> = None;
@@ -19,7 +19,7 @@ impl RWBuf {
             let header = self.read()?;
             match flag::mid(header) {
                 FRAGMENT => {
-                    _kind = self.read_decl_frag(header)?;
+                    kind = self.read_decl_frag(header)?;
                     continue;
                 }
 
@@ -104,7 +104,7 @@ impl RWBuf {
                         Some(Arc::new(self.read_bytes_array()?))
                     } else { None };
                     let payload = Arc::new(self.read_bytes_array()?);
-                    return Ok(Message::make_data(reliable, sn, key, info, payload, reply_context, cid, properties))
+                    return Ok(Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties))
                 }
 
                 PULL => {

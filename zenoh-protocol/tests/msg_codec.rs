@@ -104,6 +104,7 @@ fn gen_consolidation() -> QueryConsolidation {
 
 fn test_write_read_message(msg: Message)
 {
+  println!("-------------------------");
   let mut buf = RWBuf::new(BUFFER_SIZE);
   println!("Write message: {:?}", msg);
   buf.write_message(&msg).unwrap();
@@ -242,6 +243,7 @@ fn declare_tests() {
 }
 
 fn test_data(with_decorators: bool,
+  kind: MessageKind,
   reliable: bool,
   sn: ZInt,
   key: ResKey,
@@ -250,23 +252,31 @@ fn test_data(with_decorators: bool,
   reply_context: Option<ReplyContext>)
 {
   let msg = if with_decorators {
-    Message::make_data(reliable, sn, key, info, payload, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
+    Message::make_data(kind, reliable, sn, key, info, payload, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
-    Message::make_data(reliable, sn, key, info, payload, reply_context, None, None)
+    Message::make_data(kind, reliable, sn, key, info, payload, reply_context, None, None)
   };
   test_write_read_message(msg);
 }
 
 #[test]
 fn data_tests() {
+  use MessageKind::*;
   let info = Arc::new(gen_buffer(MAX_INFO_SIZE));
   let payload = Arc::new(gen_buffer(MAX_PAYLOAD_SIZE));
-  test_data(false, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
-  test_data(true, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
-  test_data(false, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));
-  test_data(true, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));
-  test_data(false, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(true)));
-  test_data(true, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(true)));
+  test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+  test_data(true, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+  test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));
+  test_data(true, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));
+  test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(true)));
+  test_data(true, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(true)));
+
+  test_data(true, FirstFragment{n: None}, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+  test_data(true, FirstFragment{n: Some(gen!(ZInt))}, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+  test_data(true, InbetweenFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+  test_data(true, LastFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+
+  assert_eq!(false, true);
 }
 
 fn test_pull(with_decorators: bool, is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>)

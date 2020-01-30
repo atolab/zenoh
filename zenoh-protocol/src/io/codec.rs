@@ -1,6 +1,6 @@
 
 use crate::io::rwbuf::{RWBuf, OutOfBounds};
-use crate::core;
+use crate::core::{ZInt, ZINT_MAX_BYTES};
 
 pub fn compute_size(n: u64) -> u8 {
     // Note that the sizes are already shifted by 2 bits
@@ -12,11 +12,10 @@ pub fn compute_size(n: u64) -> u8 {
 
 impl RWBuf {
 
-
   /// This the traditional VByte encoding, in which an arbirary integer
   /// is encoded as a sequence  of 
   /// 
-  pub fn write_zint(& mut self, v: core::ZInt) -> Result<(), OutOfBounds> {
+  pub fn write_zint(& mut self, v: ZInt) -> Result<(), OutOfBounds> {
     let mut c = v;
     let mut b : u8 = (c & 0xff) as u8;
     while c > 0x7f {
@@ -28,19 +27,19 @@ impl RWBuf {
     Ok(())
   }
 
-  pub fn read_zint(&mut self) -> Result<core::ZInt, OutOfBounds> {
-    let mut v : core::ZInt = 0;
+  pub fn read_zint(&mut self) -> Result<ZInt, OutOfBounds> {
+    let mut v : ZInt = 0;
     let mut b = self.read()?;
     let mut i = 0;
-    let mut k = core::ZINT_MAX_BYTES;
+    let mut k = ZINT_MAX_BYTES;
     while b > 0x7f && k > 0 {
-      v |= ((b & 0x7f) as core::ZInt)  << i;
+      v |= ((b & 0x7f) as ZInt)  << i;
       i += 7;
       b = self.read()?;
       k -=1;
     }
     if k > 0 {
-      v |= ((b & 0x7f) as core::ZInt)  << i;
+      v |= ((b & 0x7f) as ZInt)  << i;
       Ok(v)
     } else {
       Err(OutOfBounds {
@@ -51,7 +50,7 @@ impl RWBuf {
 
   // Same as write_bytes but with array length before the bytes.
   pub fn write_bytes_array(&mut self, s: &[u8]) -> Result<(), OutOfBounds> {
-    self.write_zint(s.len() as core::ZInt)?;
+    self.write_zint(s.len() as ZInt)?;
     self.write_bytes(s)
   }
 
@@ -64,7 +63,7 @@ impl RWBuf {
   }
   
   pub fn write_string(&mut self, s: &str) -> Result<(), OutOfBounds> {
-    self.write_zint(s.len() as core::ZInt)?;
+    self.write_zint(s.len() as ZInt)?;
     self.write_bytes(s.as_bytes())
   }
 
