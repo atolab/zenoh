@@ -7,8 +7,7 @@ use criterion::{Criterion, black_box};
 use std::sync::Arc;
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
-use zenoh_protocol::proto::msg::Message;
-use zenoh_protocol::proto::msg_writer;
+use zenoh_protocol::proto::{Message, MessageKind};
 use rand::distributions::{Distribution, Standard};
 
 
@@ -49,7 +48,7 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfB
 }
 
 fn bench_make_data(payload: Arc<Vec<u8>>) -> Result<(), OutOfBounds> {
-  let _  = Message::make_data(false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
+  let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
   Ok(())
 }
 
@@ -86,7 +85,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // reply_context: Option<ReplyContext>,
     // ps: Option<Arc<Vec<Property>>> 
     let payload = Arc::new(vec![0u8, 32]);
-    let data = Message::make_data(false, 42, ResKey::ResId { id: 10 }, None, payload.clone(), None, None, None);
+    let data = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload.clone(), None, None, None);
 
     c.bench_function(&format!("bench_one_zint_codec {}", len), |b| b.iter(|| {
       let _ = bench_one_zint_codec(black_box((rs3[0], &mut buf)));

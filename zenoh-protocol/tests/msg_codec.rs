@@ -104,7 +104,6 @@ fn gen_consolidation() -> QueryConsolidation {
 
 fn test_write_read_message(msg: Message)
 {
-  println!("-------------------------");
   let mut buf = RWBuf::new(BUFFER_SIZE);
   println!("Write message: {:?}", msg);
   buf.write_message(&msg).unwrap();
@@ -275,8 +274,6 @@ fn data_tests() {
   test_data(true, FirstFragment{n: Some(gen!(ZInt))}, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, InbetweenFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, LastFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
-
-  assert_eq!(false, true);
 }
 
 fn test_pull(with_decorators: bool, is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>)
