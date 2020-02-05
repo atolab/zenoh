@@ -239,32 +239,45 @@ impl Tables {
         Tables::get_best_key_(prefix, suffix, sid, true)
     }
 
+    #[inline]
+    fn indirect_route_data(root: &Arc<RwLock<Resource>>, prefix: &Arc<RwLock<Resource>>, suffix: &str) 
+    -> Option<HashMap<u64, (Weak<RwLock<Session>>, u64, String)>> {
+        let matches = match Resource::get_resource(prefix, suffix) {
+            Some(res) => {res.upgrade().unwrap().read().matches.clone()} //TODO
+            None => {Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), root)}
+        };
+        let mut sexs = HashMap::new();
+        for res in matches {
+            let rres = res.read();
+            for (sid, context) in &rres.contexts {
+                let rcontext = context.read();
+                if let Some(_) = rcontext.subs {
+                    let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
+                    sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                }
+            }
+        }
+        Some(sexs)
+    }
+
     pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: &u64, suffix: &str) 
     -> Option<HashMap<u64, (Weak<RwLock<Session>>, u64, String)>> {
         let t = tables.read();
         match sex.upgrade() {
             Some(sex) => {
-                match sex.read().routes.get(rid) {
-                    Some(route) => {Some(route.clone())}
+                let rsex = sex.read();
+                match rsex.routes.get(rid) {
+                    Some(route) => {
+                        match suffix {
+                            "" => {Some(route.clone())}
+                            suffix => {
+                                Tables::indirect_route_data(&t.root_res, rsex.mappings.get(rid).unwrap(), suffix)
+                            }
+                        }
+                    }
                     None => {
                         if *rid == 0 {
-                            let prefix = &t.root_res;
-                            let matches = match Resource::get_resource(prefix, suffix) {
-                                Some(res) => {res.upgrade().unwrap().read().matches.clone()} //TODO
-                                None => {Tables::get_matches_from(suffix, &t.root_res)}
-                            };
-                            let mut sexs = HashMap::new();
-                            for res in matches {
-                                let rres = res.read();
-                                for (sid, context) in &rres.contexts {
-                                    let rcontext = context.read();
-                                    if let Some(_) = rcontext.subs {
-                                        let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
-                                        sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
-                                    }
-                                }
-                            }
-                            Some(sexs)
+                            Tables::indirect_route_data(&t.root_res, &t.root_res, suffix)
                         } else {
                             println!("Route data with unknown rid {}!", rid); None
                         }
