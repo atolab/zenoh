@@ -8,19 +8,17 @@ use std::sync::Arc;
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
 use zenoh_protocol::proto::{Message, MessageKind};
-use rand::distributions::{Distribution, Standard};
 
-
-fn bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
   buf.write_zint(v).map(|_| ())
 }
 
-fn bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])
 }
 
-fn bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   buf.write_zint(v[2])
@@ -72,10 +70,10 @@ fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), OutOfBounds> {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut buf = RWBuf::new(32);     
-    let mut rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
-    let mut rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
-    let mut ns: [u64;4] = [0; 4];
-    let mut len = String::from("u8");
+    let rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
+    let rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
+    let _ns: [u64;4] = [0; 4];
+    let len = String::from("u8");
     // // reliable: bool,
     // sn: ZInt,
     // key: ResKey,

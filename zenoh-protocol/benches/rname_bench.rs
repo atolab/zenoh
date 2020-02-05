@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate criterion;
 
-use criterion::{Criterion, black_box};
+use criterion::{Criterion};
 
 use zenoh_protocol::core::rname::intersect;
 
