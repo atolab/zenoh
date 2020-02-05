@@ -63,23 +63,23 @@ impl Tables {
     fn make_and_match_resource(from: &Arc<RwLock<Resource>>, prefix: &Arc<RwLock<Resource>>, suffix: &str) -> Arc<RwLock<Resource>> {
         let res = Resource::make_resource(prefix, suffix);
         let matches = Tables::get_matches_from(suffix, from);
+
+        fn matches_contain(matches: &Vec<Arc<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
+            for match_ in matches {
+                if match_.read().name() == res.read().name() {
+                    return true;
+                }
+            }
+            return false;
+        }
         
         for match_ in &matches {
-            if ! Tables::matches_contain(&match_.read().matches, &res) {
+            if ! matches_contain(&match_.read().matches, &res) {
                 match_.write().matches.push(res.clone());
             }
         }
         res.write().matches = matches;
         res
-    }
-
-    fn matches_contain(matches: &Vec<Arc<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
-        for match_ in matches {
-            if match_.read().name() == res.read().name() {
-                return true;
-            }
-        }
-        return false;
     }
 
     pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, rname: &str) {
@@ -215,54 +215,59 @@ impl Tables {
         Tables::get_matches_from(rname, &t.root_res)
     }
 
-    fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &u64, checkchilds: bool) -> (u64, String) {
-        let rprefix = prefix.read();
-        if checkchilds && ! suffix.is_empty() {
-            let (chunk, rest) = Tables::fst_chunk(suffix);
-            if let Some(child) = rprefix.childs.get(chunk) {
-                return Tables::get_best_key_(child, rest, sid, true)
-            }
-        }
-        if let Some(ctx) = rprefix.contexts.get(sid) {
-            if let Some(rid) = ctx.read().rid {
-                return (rid, suffix.to_string())
-            }
-        }
-        match &rprefix.parent {
-            Some(parent) => {Tables::get_best_key_(&parent, &[&rprefix.suffix, suffix].concat(), sid, false)}
-            None => {(0, suffix.to_string())}
-        }
-    }
-
     #[inline]
     fn get_best_key(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &u64) -> (u64, String) {
-        Tables::get_best_key_(prefix, suffix, sid, true)
-    }
-
-    #[inline]
-    fn indirect_route_data(root: &Arc<RwLock<Resource>>, prefix: &Arc<RwLock<Resource>>, suffix: &str) 
-    -> Option<HashMap<u64, (Weak<RwLock<Session>>, u64, String)>> {
-        let matches = match Resource::get_resource(prefix, suffix) {
-            Some(res) => {res.upgrade().unwrap().read().matches.clone()} //TODO
-            None => {Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), root)}
-        };
-        let mut sexs = HashMap::new();
-        for res in matches {
-            let rres = res.read();
-            for (sid, context) in &rres.contexts {
-                let rcontext = context.read();
-                if let Some(_) = rcontext.subs {
-                    let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
-                    sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+        fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &u64, checkchilds: bool) -> (u64, String) {
+            let rprefix = prefix.read();
+            if checkchilds && ! suffix.is_empty() {
+                let (chunk, rest) = Tables::fst_chunk(suffix);
+                if let Some(child) = rprefix.childs.get(chunk) {
+                    return get_best_key_(child, rest, sid, true)
                 }
             }
+            if let Some(ctx) = rprefix.contexts.get(sid) {
+                if let Some(rid) = ctx.read().rid {
+                    return (rid, suffix.to_string())
+                }
+            }
+            match &rprefix.parent {
+                Some(parent) => {get_best_key_(&parent, &[&rprefix.suffix, suffix].concat(), sid, false)}
+                None => {(0, suffix.to_string())}
+            }
         }
-        Some(sexs)
+        get_best_key_(prefix, suffix, sid, true)
     }
 
     pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: &u64, suffix: &str) 
     -> Option<HashMap<u64, (Weak<RwLock<Session>>, u64, String)>> {
+
         let t = tables.read();
+
+        let build_route = |prefix: &Arc<RwLock<Resource>>, suffix: &str| {
+            let consolidate = |matches: &Vec<Arc<RwLock<Resource>>>| {
+                let mut sexs = HashMap::new();
+                for res in matches {
+                    let rres = res.read();
+                    for (sid, context) in &rres.contexts {
+                        let rcontext = context.read();
+                        if let Some(_) = rcontext.subs {
+                            if ! sexs.contains_key(sid)
+                            {
+                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
+                                sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                            }
+                        }
+                    }
+                };
+                sexs
+            };
+    
+            Some(match Resource::get_resource(prefix, suffix) {
+                Some(res) => {consolidate(&res.upgrade().unwrap().read().matches)}
+                None => {consolidate(&Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), &t.root_res))}
+            })
+        };
+
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
@@ -271,13 +276,13 @@ impl Tables {
                         match suffix {
                             "" => {Some(route.clone())}
                             suffix => {
-                                Tables::indirect_route_data(&t.root_res, rsex.mappings.get(rid).unwrap(), suffix)
+                                build_route(rsex.mappings.get(rid).unwrap(), suffix)
                             }
                         }
                     }
                     None => {
                         if *rid == 0 {
-                            Tables::indirect_route_data(&t.root_res, &t.root_res, suffix)
+                            build_route(&t.root_res, suffix)
                         } else {
                             println!("Route data with unknown rid {}!", rid); None
                         }
