@@ -11,4 +11,7 @@ mod msg_reader;
 pub use msg_reader::*;
 
 mod locator;
-pub use locator::Locator;
+pub use locator::*;
+
+mod serializer;
+pub use serializer::*;

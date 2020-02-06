@@ -1,7 +1,7 @@
 use zenoh_protocol::core::rname::intersect;
 
 #[test]
-fn test() {
+fn rname_test() {
     assert!(   intersect("/", "/"));
     assert!(   intersect("/a", "/a"));
     assert!(   intersect("/a/", "/a"));

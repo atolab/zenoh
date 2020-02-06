@@ -91,6 +91,29 @@ fn client_test() {
     assert_eq!(suffix, "/z1_wr1");
 
     
+    let result_opt = Tables::route_data(&tables, &sex0, &11, "/z1_wr2"); 
+    assert!(result_opt.is_some());
+    let result = result_opt.unwrap();
+
+    let opt_sex = result.get(&0);
+    assert!(opt_sex.is_some());
+    let (_, id, suffix) = opt_sex.unwrap();
+    assert_eq!(*id, 11);
+    assert_eq!(suffix, "/z1_wr2");
+
+    let opt_sex = result.get(&1);
+    assert!(opt_sex.is_some());
+    let (_, id, suffix) = opt_sex.unwrap();
+    assert_eq!(*id, 21);
+    assert_eq!(suffix, "/z1_wr2");
+
+    let opt_sex = result.get(&2);
+    assert!(opt_sex.is_some());
+    let (_, id, suffix) = opt_sex.unwrap();
+    assert_eq!(*id, 31);
+    assert_eq!(suffix, "/z1_wr2");
+
+    
     let result_opt = Tables::route_data(&tables, &sex1, &0, "/test/client/**"); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();

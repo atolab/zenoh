@@ -1,35 +1,40 @@
 #[macro_use]
 extern crate criterion;
 extern crate zenoh_router;
-use criterion::{Criterion};
+use criterion::{Criterion, BenchmarkId};
 use zenoh_router::routing::tables::Tables;
 
-fn criterion_benchmark(c: &mut Criterion) {
-    let tables = Tables::new();
+fn tables_bench(c: &mut Criterion) {
+  let tables = Tables::new();
 
-    let sex0 = Tables::declare_session(&tables, 0);
-    Tables::declare_resource(&tables, &sex0, 11, "/test/client");
-    Tables::declare_subscription(&tables, &sex0, 11, "/**");
-    Tables::declare_resource(&tables, &sex0, 12, "/test/client/z1_pub1");
+  let sex0 = Tables::declare_session(&tables, 0);
+  Tables::declare_resource(&tables, &sex0, 1, "/bench/tables");
+  Tables::declare_resource(&tables, &sex0, 2, "/bench/tables/*");
 
-    let sex1 = Tables::declare_session(&tables, 1);
-    Tables::declare_resource(&tables, &sex1, 21, "/test/client");
-    Tables::declare_subscription(&tables, &sex1, 21, "/**");
-    Tables::declare_resource(&tables, &sex1, 22, "/test/client/z2_pub1");
+  let sex1 = Tables::declare_session(&tables, 1);
 
-    let sex2 = Tables::declare_session(&tables, 2);
-    Tables::declare_resource(&tables, &sex2, 31, "/test/client");
-    Tables::declare_subscription(&tables, &sex2, 31, "/**");
+  let mut tables_bench = c.benchmark_group("tables_bench");
 
+  for p in [8, 32, 256, 1024, 8192].iter() {
+    for i in 1..(*p) {
+      Tables::declare_resource(&tables, &sex1, i, &["/bench/tables/AA", &i.to_string()].concat());
+      Tables::declare_subscription(&tables, &sex1, i, "");
+    }
+
+    tables_bench.bench_function(BenchmarkId::new("direct_route", p), |b| b.iter(|| {
+      Tables::route_data(&tables, &sex0, &2, "")
+    }));
     
-    c.bench_function("bench_route_data_1", |b| b.iter(|| {
-      let _ = Tables::route_data(&tables, &sex0, &0, "/test/client/z1_wr1");
-      }));
+    tables_bench.bench_function(BenchmarkId::new("known_resource", p), |b| b.iter(|| {
+      Tables::route_data(&tables, &sex0, &0, "/bench/tables/*")
+    }));
     
-    c.bench_function("bench_route_data_2", |b| b.iter(|| {
-      let _ = Tables::route_data(&tables, &sex0, &12, "");
-      }));
+    tables_bench.bench_function(BenchmarkId::new("matches_lookup", p), |b| b.iter(|| {
+      Tables::route_data(&tables, &sex0, &0, "/bench/tables/A*")
+    }));
+  }
+  tables_bench.finish();
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(benches, tables_bench);
 criterion_main!(benches);

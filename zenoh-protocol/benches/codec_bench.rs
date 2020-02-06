@@ -5,41 +5,38 @@ extern crate rand;
 use criterion::{Criterion, black_box};
 
 use std::sync::Arc;
-use zenoh_protocol::core::ResKey;
-use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
-use zenoh_protocol::proto::msg::Message;
-use zenoh_protocol::proto::msg_writer;
-use rand::distributions::{Distribution, Standard};
+use zenoh_protocol::core::{ZError, ResKey};
+use zenoh_protocol::io::RWBuf;
+use zenoh_protocol::proto::{Message, MessageKind};
 
-
-fn bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v).map(|_| ())
 }
 
-fn bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])
 }
 
-fn bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   buf.write_zint(v[2])
 }
 
-fn bench_one_zint_codec((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_one_zint_codec((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v)?;
   buf.read_zint().map(|_| ())
 }
 
-fn bench_two_zint_codec((v, buf): (&[u64;2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_two_zint_codec((v, buf): (&[u64;2], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   let _ = buf.read_zint()?;
   buf.read_zint().map(|_| ())  
 }
 
-fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   buf.write_zint(v[2])?;
@@ -48,16 +45,16 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfB
   buf.read_zint().map(|_| ())  
 }
 
-fn bench_make_data(payload: Arc<Vec<u8>>) -> Result<(), OutOfBounds> {
-  let _  = Message::make_data(false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
+fn bench_make_data(payload: Arc<Vec<u8>>) -> Result<(), ZError> {
+  let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
   Ok(())
 }
 
-fn bench_write_data(buf: &mut RWBuf, data: &Message) -> Result<(), OutOfBounds> {
+fn bench_write_data(buf: &mut RWBuf, data: &Message) -> Result<(), ZError> {
   buf.write_message(data)?;  
   Ok(())
 }
-fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), OutOfBounds> {
+fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), ZError> {
   buf.write(v)?;
   buf.write(v)?;
   buf.write(v)?;
@@ -73,10 +70,10 @@ fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), OutOfBounds> {
 
 fn criterion_benchmark(c: &mut Criterion) {
     let mut buf = RWBuf::new(32);     
-    let mut rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
-    let mut rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
-    let mut ns: [u64;4] = [0; 4];
-    let mut len = String::from("u8");
+    let rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
+    let rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
+    let _ns: [u64;4] = [0; 4];
+    let len = String::from("u8");
     // // reliable: bool,
     // sn: ZInt,
     // key: ResKey,
@@ -86,7 +83,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // reply_context: Option<ReplyContext>,
     // ps: Option<Arc<Vec<Property>>> 
     let payload = Arc::new(vec![0u8, 32]);
-    let data = Message::make_data(false, 42, ResKey::ResId { id: 10 }, None, payload.clone(), None, None, None);
+    let data = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload.clone(), None, None, None);
 
     c.bench_function(&format!("bench_one_zint_codec {}", len), |b| b.iter(|| {
       let _ = bench_one_zint_codec(black_box((rs3[0], &mut buf)));

@@ -16,7 +16,13 @@ macro_rules! DEFINE_INTERSECT {
             if($end(c1)  && $end(c2))  {return true;}
             if($wild(c1) && $end(c2))  {return $name($next(c1), c2);}
             if($end(c1)  && $wild(c2)) {return $name(c1, $next(c2));}
-            if($wild(c1) || $wild(c2)) {
+            if($wild(c1)) {
+                if($end($next(c1))) {return true;}
+                if($name($next(c1), c2)) {return true;}
+                else {return $name(c1, $next(c2));}
+            }
+            if($wild(c2)) {
+                if($end($next(c2))) {return true;}
                 if($name($next(c1), c2)) {return true;}
                 else {return $name(c1, $next(c2));}
             }

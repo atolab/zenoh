@@ -1,11 +1,11 @@
 
-use zenoh_protocol::io::rwbuf::RWBuf;
+use zenoh_protocol::io::RWBuf;
 use zenoh_protocol::proto::*;
 use zenoh_protocol::core::*;
 use std::sync::Arc;
 use rand::*;
 
-const BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: usize = 1000;
 const PROPS_LENGTH: usize = 3;
 const PID_MAX_SIZE: usize = 128;
 const PROP_MAX_SIZE: usize = 64;
@@ -104,7 +104,6 @@ fn gen_consolidation() -> QueryConsolidation {
 
 fn test_write_read_message(msg: Message)
 {
-  println!("-------------------------");
   let mut buf = RWBuf::new(BUFFER_SIZE);
   println!("Write message: {:?}", msg);
   buf.write_message(&msg).unwrap();
@@ -275,8 +274,6 @@ fn data_tests() {
   test_data(true, FirstFragment{n: Some(gen!(ZInt))}, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, InbetweenFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, LastFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
-
-  assert_eq!(false, true);
 }
 
 fn test_pull(with_decorators: bool, is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>)

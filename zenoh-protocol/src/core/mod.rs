@@ -2,6 +2,9 @@ use std::convert::From;
 use uuid::Uuid;
 use std::fmt;
 
+mod zerror;
+pub use zerror::*;
+
 pub mod rname;
 
 pub type ZInt = u64;

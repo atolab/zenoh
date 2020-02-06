@@ -28,3 +28,11 @@ criterion = "0.3.0"
 [[bench]]
 name = "codec_bench"
 harness = false
+
+[[bench]]
+name = "rwbuf_bench"
+harness = false
+
+[[bench]]
+name = "rname_bench"
+harness = false
