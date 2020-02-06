@@ -9,6 +9,3 @@ pub use msg_writer::*;
 
 mod msg_reader;
 pub use msg_reader::*;
-
-mod serializer;
-pub use serializer::*;
