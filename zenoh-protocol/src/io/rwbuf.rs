@@ -27,12 +27,26 @@ impl RWBuf {
     self.w_pos = 0;
   }
 
-  pub fn slice(& self) -> &[u8] {
+  pub fn slice(&self) -> &[u8] {
     &self.buf[..]
   }
   
-  pub fn mut_slice(&mut self) -> &mut [u8] {    
-    &mut self.buf[..]
+  /// When writing directly on the buffer slice it is imperative to manually
+  /// update the writing position index by calling the "set_write_pos" method
+  /// 
+  /// # Example: 
+  /// ```
+  ///   use std::io::prelude::*;
+  ///   use std::net::TcpStream;
+  ///   
+  ///   let mut socket = TcpStream::connect("127.0.0.1:12345")?;
+  ///   let mut buff = RWBuf::new(8_192);
+  ///   let n = socket.read(&mut buff.writable_slice());
+  ///   // n is the number of read (and consequently written) bytes
+  ///   buff.set_write_pos(buff.write_pos() + n).unwrap();
+  /// ```
+  pub fn writable_slice(&mut self) -> &mut [u8] {    
+    &mut self.buf[self.w_pos..]
   }
 
   pub fn read_pos(& self) -> usize {
@@ -40,7 +54,7 @@ impl RWBuf {
   }
   
   pub fn set_read_pos(&mut self, pos: usize) -> Result<(), OutOfBounds> {
-    if pos <=self.buf.capacity() {
+    if pos <= self.buf.capacity() {
       self.r_pos = pos;
       Ok(())
     } else {
@@ -51,7 +65,7 @@ impl RWBuf {
   }
 
   pub fn set_write_pos(&mut self, pos: usize) -> Result<(), OutOfBounds> {
-    if pos <=self.buf.capacity() {
+    if pos <= self.buf.capacity() {
       self.w_pos = pos;
       Ok(())
     } else {
@@ -61,17 +75,17 @@ impl RWBuf {
     }
   }
 
-  pub fn write_pos(& self) -> usize {
+  pub fn write_pos(&self) -> usize {
     self.w_pos
   }
   
   #[inline]
-  pub fn readable(& self) -> usize {
+  pub fn readable(&self) -> usize {
     self.w_pos - self.r_pos
   }
   
   #[inline]
-  pub fn writable(& self) -> usize {
+  pub fn writable(&self) -> usize {
     self.buf.capacity() - self.w_pos
   }
 
@@ -101,7 +115,7 @@ impl RWBuf {
   // Write all the bytes, without the length.
   pub fn write_bytes(&mut self, s: &[u8]) -> Result<(), OutOfBounds> {
     let l = s.len();
-    if l <= self.writable() {      
+    if l <= self.writable() {
       self.buf[self.w_pos..(self.w_pos+l)].copy_from_slice(s);
       self.w_pos += l;
       Ok(())

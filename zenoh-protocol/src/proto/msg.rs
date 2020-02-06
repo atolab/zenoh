@@ -403,13 +403,13 @@ impl ReplyContext {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Message {
-    pub (in super) has_decorators: bool,
-    pub(in super) cid: ZInt,
-    pub(in super) header: u8,
-    pub(in super) body: Body,
-    pub(in super) kind: MessageKind,
-    pub(in super) reply_context: Option<ReplyContext>,
-    pub(in super) properties: Option<Arc<Vec<Property>>>
+    pub(crate) has_decorators: bool,
+    pub(crate) cid: ZInt,
+    pub(crate) header: u8,
+    pub(crate) body: Body,
+    pub(crate) kind: MessageKind,
+    pub(crate) reply_context: Option<ReplyContext>,
+    pub(crate) properties: Option<Arc<Vec<Property>>>
 }
 
 impl Message {
