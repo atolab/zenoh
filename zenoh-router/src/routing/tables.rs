@@ -33,30 +33,26 @@ impl Tables {
     }
 
     fn build_direct_tables(res: &Arc<RwLock<Resource>>) {
-        for context in res.read().contexts.values() {
-            let lctx = context.read();
-            if let Some(_rid) = lctx.rid {
-                let mut wsex = lctx.session.write();
-                let mut dests = HashMap::new();
-                for match_ in &res.read().matches {
-                    let rmatch_ = match_.read();
-                    for (sid, context) in &rmatch_.contexts {
-                        let rcontext = context.read();
-                        if let Some(_) = rcontext.subs {
-                            let (rid, suffix) = Tables::get_best_key(res, "", sid);
-                            dests.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
-                        }
-                    }
+        let mut dests = HashMap::new();
+        for match_ in &res.read().matches {
+            let rmatch_ = match_.read();
+            for (sid, context) in &rmatch_.contexts {
+                let rcontext = context.read();
+                if let Some(_) = rcontext.subs {
+                    let (rid, suffix) = Tables::get_best_key(res, "", sid);
+                    dests.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
                 }
-                wsex.routes.insert(_rid, dests);
             }
         }
+        res.write().route = dests;
     }
 
     fn build_matches_direct_tables(res: &Arc<RwLock<Resource>>) {
         Tables::build_direct_tables(&res);
         for match_ in &res.read().matches {
-            Tables::build_direct_tables(match_);
+            if ! Arc::ptr_eq(match_, res) {
+                Tables::build_direct_tables(match_);
+            }
         }
     }
 
@@ -66,7 +62,7 @@ impl Tables {
 
         fn matches_contain(matches: &Vec<Arc<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
-                if match_.read().name() == res.read().name() {
+                if Arc::ptr_eq(match_, res) {
                     return true;
                 }
             }
@@ -263,7 +259,7 @@ impl Tables {
             };
     
             Some(match Resource::get_resource(prefix, suffix) {
-                Some(res) => {consolidate(&res.upgrade().unwrap().read().matches)}
+                Some(res) => {res.upgrade().unwrap().read().route.clone()}
                 None => {consolidate(&Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), &t.root_res))}
             })
         };
@@ -271,10 +267,10 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
-                match rsex.routes.get(rid) {
-                    Some(route) => {
+                match rsex.mappings.get(rid) {
+                    Some(res) => {
                         match suffix {
-                            "" => {Some(route.clone())}
+                            "" => {Some(res.read().route.clone())}
                             suffix => {
                                 build_route(rsex.mappings.get(rid).unwrap(), suffix)
                             }

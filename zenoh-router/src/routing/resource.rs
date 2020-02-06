@@ -11,6 +11,7 @@ pub struct Resource {
     pub(super) childs: HashMap<String, Arc<RwLock<Resource>>>,
     pub(super) contexts: HashMap<u64, Arc<RwLock<Context>>>,
     pub(super) matches: Vec<Arc<RwLock<Resource>>>,
+    pub(super) route: HashMap<u64, (Weak<RwLock<Session>>, u64, String)>
 }
 
 impl Resource {
@@ -31,6 +32,7 @@ impl Resource {
             childs: HashMap::new(),
             contexts: HashMap::new(),
             matches: Vec::new(),
+            route: HashMap::new(),
         }
     }
 
@@ -53,6 +55,7 @@ impl Resource {
             childs: HashMap::new(),
             contexts: HashMap::new(),
             matches: Vec::new(),
+            route: HashMap::new(),
         }))
     }
 
