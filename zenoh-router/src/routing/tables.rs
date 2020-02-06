@@ -3,7 +3,6 @@ use spin::RwLock;
 use std::collections::{HashMap};
 use crate::routing::resource::*;
 use crate::routing::session::Session;
-use crate::opt_match;
 use zenoh_protocol::core::rname::intersect;
 
 pub struct Tables {
@@ -82,7 +81,8 @@ impl Tables {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
-                opt_match!( sex.read().mappings.get(&rid) ;
+                let rsex = sex.read();
+                match rsex.mappings.get(&rid) {
                     Some(_res) => {
                         // if _res.read().name() != rname {
                         //     // TODO : mapping change 
@@ -91,7 +91,6 @@ impl Tables {
                     None => {
                         let res = Tables::make_and_match_resource(&t.root_res, &t.root_res, rname);
                         {
-                            let rsex = sex.read();
                             let mut wres = res.write();
                             match wres.contexts.get(&rsex.id) {
                                 Some(_ctx) => {}
@@ -106,10 +105,11 @@ impl Tables {
                                 }
                             }
                         }
+                        drop(rsex);
                         Tables::build_matches_direct_tables(&res);
                         sex.write().mappings.insert(rid, res);
                     }
-                )
+                }
             }
             None => println!("Declare resource for closed session!")
         }

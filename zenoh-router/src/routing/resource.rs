@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use spin::RwLock;
 use crate::routing::session::Session;
-use crate::opt_match;
 
 pub struct Resource {
     pub(super) parent: Option<Arc<RwLock<Resource>>>,
@@ -80,35 +79,39 @@ impl Resource {
                     None => (suffix, "")
                 };
         
-                opt_match!(from.read().childs.get(chunk) ;
+                let rfrom = from.read();
+                match rfrom.childs.get(chunk) {
                     Some(res) => {Resource::make_resource(res, rest)}
                     None => {
+                        drop(rfrom);
                         let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
                         let res = Resource::make_resource(&new, rest);
                         from.write().childs.insert(String::from(chunk), new);
                         res
                     }
-                )
+                }
             } else {
-                opt_match!(&from.read().parent ;
-                    Some(parent) => {Resource::make_resource(&parent, &[&from.read().suffix, suffix].concat())}
+                let rfrom = from.read();
+                match &rfrom.parent {
+                    Some(parent) => {Resource::make_resource(&parent, &[&rfrom.suffix, suffix].concat())}
                     None => {
                         let (chunk, rest) = match suffix[1..].find('/') {
                             Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
                             None => (suffix, "")
                         };
 
-                        opt_match!(from.read().childs.get(chunk) ;
+                        match rfrom.childs.get(chunk) {
                             Some(res) => {Resource::make_resource(res, rest)}
                             None => {
+                                drop(rfrom);
                                 let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
                                 let res = Resource::make_resource(&new, rest);
                                 from.write().childs.insert(String::from(chunk), new);
                                 res
                             }
-                        )
+                        }
                     }
-                )
+                }
             }
         }
     }
@@ -123,25 +126,26 @@ impl Resource {
                     None => (suffix, "")
                 };
         
-                opt_match!(from.read().childs.get(chunk) ;
+                match from.read().childs.get(chunk) {
                     Some(res) => {Resource::get_resource(res, rest)}
                     None => {None}
-                )
+                }
             } else {
-                opt_match!(&from.read().parent ;
-                    Some(parent) => {Resource::get_resource(&parent, &[&from.read().suffix, suffix].concat())}
+                let rfrom = from.read();
+                match &rfrom.parent {
+                    Some(parent) => {Resource::get_resource(&parent, &[&rfrom.suffix, suffix].concat())}
                     None => {
                         let (chunk, rest) = match suffix[1..].find('/') {
                             Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
                             None => (suffix, "")
                         };
                 
-                        opt_match!(from.read().childs.get(chunk) ;
+                        match rfrom.childs.get(chunk) {
                             Some(res) => {Resource::get_resource(res, rest)}
                             None => {None}
-                        )
+                        }
                     }
-                )
+                }
             }
         }
     }
