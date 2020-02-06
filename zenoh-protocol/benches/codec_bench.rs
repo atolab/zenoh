@@ -5,38 +5,38 @@ extern crate rand;
 use criterion::{Criterion, black_box};
 
 use std::sync::Arc;
-use zenoh_protocol::core::ResKey;
-use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
+use zenoh_protocol::core::{ZError, ResKey};
+use zenoh_protocol::io::RWBuf;
 use zenoh_protocol::proto::{Message, MessageKind};
 
-fn _bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v).map(|_| ())
 }
 
-fn _bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_two((v, buf): (&[u64; 2], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])
 }
 
-fn _bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn _bench_zint_write_three((v, buf): (&[u64; 3], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   buf.write_zint(v[2])
 }
 
-fn bench_one_zint_codec((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_one_zint_codec((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v)?;
   buf.read_zint().map(|_| ())
 }
 
-fn bench_two_zint_codec((v, buf): (&[u64;2], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_two_zint_codec((v, buf): (&[u64;2], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   let _ = buf.read_zint()?;
   buf.read_zint().map(|_| ())  
 }
 
-fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v[0])?;
   buf.write_zint(v[1])?;
   buf.write_zint(v[2])?;
@@ -45,16 +45,16 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut RWBuf)) -> Result<(), OutOfB
   buf.read_zint().map(|_| ())  
 }
 
-fn bench_make_data(payload: Arc<Vec<u8>>) -> Result<(), OutOfBounds> {
+fn bench_make_data(payload: Arc<Vec<u8>>) -> Result<(), ZError> {
   let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
   Ok(())
 }
 
-fn bench_write_data(buf: &mut RWBuf, data: &Message) -> Result<(), OutOfBounds> {
+fn bench_write_data(buf: &mut RWBuf, data: &Message) -> Result<(), ZError> {
   buf.write_message(data)?;  
   Ok(())
 }
-fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), OutOfBounds> {
+fn bench_write_10bytes1((v, buf): (u8, &mut RWBuf)) -> Result<(), ZError> {
   buf.write(v)?;
   buf.write(v)?;
   buf.write(v)?;

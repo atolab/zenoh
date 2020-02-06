@@ -1,12 +1,13 @@
 
-use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
+use zenoh_protocol::core::ZError;
+use zenoh_protocol::io::RWBuf;
 use rand::distributions::{Distribution, Standard};
 
 const N : usize = 1_000_000;
 
 
 
-fn test_zint_codec_for<T>(n: usize) -> Result<(), OutOfBounds>
+fn test_zint_codec_for<T>(n: usize) -> Result<(), ZError>
   where T: Copy + PartialEq + std::fmt::Debug,
         Standard: Distribution<T> ,
         u64: std::convert::From<T> 
@@ -24,7 +25,7 @@ fn test_zint_codec_for<T>(n: usize) -> Result<(), OutOfBounds>
 
 
 #[test]
-fn test_zint_codec() -> Result<(), OutOfBounds> {  
+fn test_zint_codec() -> Result<(), ZError> {  
   test_zint_codec_for::<u8>(N)?;
   test_zint_codec_for::<u16>(N)?;
   test_zint_codec_for::<u32>(N)?;

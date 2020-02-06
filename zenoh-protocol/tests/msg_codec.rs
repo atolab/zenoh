@@ -1,11 +1,11 @@
 
-use zenoh_protocol::io::rwbuf::RWBuf;
+use zenoh_protocol::io::RWBuf;
 use zenoh_protocol::proto::*;
 use zenoh_protocol::core::*;
 use std::sync::Arc;
 use rand::*;
 
-const BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: usize = 1000;
 const PROPS_LENGTH: usize = 3;
 const PID_MAX_SIZE: usize = 128;
 const PROP_MAX_SIZE: usize = 64;

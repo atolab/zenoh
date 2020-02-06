@@ -4,9 +4,10 @@ extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use zenoh_protocol::io::rwbuf::{RWBuf,OutOfBounds};
+use zenoh_protocol::core::ZError;
+use zenoh_protocol::io::RWBuf;
 
-fn bench_foo((v, buf): (u64, &mut RWBuf)) -> Result<(), OutOfBounds> {  
+fn bench_foo((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
   buf.write_zint(v).map(|_| ())
 }
 

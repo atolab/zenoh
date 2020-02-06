@@ -1,10 +1,10 @@
-use crate::io::rwbuf::{RWBuf, OutOfBounds};
-use crate::core::{ZInt, Property, ResKey, TimeStamp};
+use crate::io::RWBuf;
+use crate::core::{ZError, ZInt, Property, ResKey, TimeStamp};
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
 
 impl RWBuf {
-    pub fn write_message(&mut self, msg: &Message) -> Result<(), OutOfBounds> {
+    pub fn write_message(&mut self, msg: &Message) -> Result<(), ZError> {
         self.write_deco_frag(&msg.kind)?;
 
         if msg.has_decorators {
@@ -129,7 +129,7 @@ impl RWBuf {
         }
     }
 
-    pub fn write_datainfo(&mut self, info: &DataInfo) -> Result<(), OutOfBounds> {
+    pub fn write_datainfo(&mut self, info: &DataInfo) -> Result<(), ZError> {
         self.write(info.header)?;
         if let Some(pid) = &info.source_id {
             self.write_bytes_array(&pid.id)?;
@@ -155,7 +155,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_deco_frag(&mut self, kind: &MessageKind) -> Result<(), OutOfBounds> {
+    fn write_deco_frag(&mut self, kind: &MessageKind) -> Result<(), ZError> {
         match kind {
             MessageKind::FullMessage => {
                 Ok(())    // No decorator in this case
@@ -176,7 +176,7 @@ impl RWBuf {
         }
     }
 
-    fn write_deco_conduit(&mut self, cid: ZInt) -> Result<(), OutOfBounds> {
+    fn write_deco_conduit(&mut self, cid: ZInt) -> Result<(), ZError> {
         if cid <= 4 {
             let hl = ((cid-1) <<5) as u8;
             self.write(flag::Z | hl | id::CONDUIT)
@@ -186,7 +186,7 @@ impl RWBuf {
         }
     }
 
-    fn write_deco_reply(&mut self, reply: &ReplyContext) -> Result<(), OutOfBounds> {
+    fn write_deco_reply(&mut self, reply: &ReplyContext) -> Result<(), ZError> {
         let fflag = if reply.is_final { flag::F } else { 0 };
         let eflag = match &reply.source {
             ReplySource::Eval => flag::E,
@@ -200,7 +200,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_deco_properties(&mut self, props: &[Property]) -> Result<(), OutOfBounds> {
+    fn write_deco_properties(&mut self, props: &[Property]) -> Result<(), ZError> {
         self.write(id::PROPERTIES)?;
         let len = props.len() as ZInt;
         self.write_zint(len)?;
@@ -210,12 +210,12 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_property(&mut self, p: &Property) -> Result<(), OutOfBounds> {
+    fn write_property(&mut self, p: &Property) -> Result<(), ZError> {
         self.write_zint(p.key)?;
         self.write_bytes_array(&p.value)
     }
 
-    fn write_locators(&mut self, locators: &[String]) -> Result<(), OutOfBounds> {
+    fn write_locators(&mut self, locators: &[String]) -> Result<(), ZError> {
         let len = locators.len() as ZInt;
         self.write_zint(len)?;
         for l in locators {
@@ -224,7 +224,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_declarations(&mut self, declarations: &[Declaration]) -> Result<(), OutOfBounds> {
+    fn write_declarations(&mut self, declarations: &[Declaration]) -> Result<(), ZError> {
         let len = declarations.len() as ZInt;
         self.write_zint(len)?;
         for l in declarations {
@@ -233,7 +233,7 @@ impl RWBuf {
         Ok(())
     }
 
-    fn write_declaration(&mut self, declaration: &Declaration) -> Result<(), OutOfBounds> {
+    fn write_declaration(&mut self, declaration: &Declaration) -> Result<(), ZError> {
         use super::decl::{Declaration::*, id::*};
 
         macro_rules! write_key_delc {
@@ -277,7 +277,7 @@ impl RWBuf {
         }
     }
 
-    fn write_submode(&mut self, mode: &SubMode) -> Result<(), OutOfBounds> {
+    fn write_submode(&mut self, mode: &SubMode) -> Result<(), ZError> {
         use super::decl::{SubMode::*, id::*};
         match mode {
             Push => self.write_zint(MODE_PUSH),
@@ -297,7 +297,7 @@ impl RWBuf {
         }
     }
 
-    fn write_reskey(&mut self, key: &ResKey) -> Result<(), OutOfBounds> {
+    fn write_reskey(&mut self, key: &ResKey) -> Result<(), ZError> {
         match key {
             ResKey::ResId { id } => {
                 self.write_zint(*id)
@@ -313,12 +313,12 @@ impl RWBuf {
         }
     }
 
-    fn write_query_target(&mut self, target: &QueryTarget) -> Result<(), OutOfBounds> {
+    fn write_query_target(&mut self, target: &QueryTarget) -> Result<(), ZError> {
         self.write_target(&target.storage)?;
         self.write_target(&target.eval)
     }
 
-    fn write_target(&mut self, target: &Target) -> Result<(), OutOfBounds> {
+    fn write_target(&mut self, target: &Target) -> Result<(), ZError> {
         match target {
             Target::BestMatching => {
                 self.write_zint(0 as ZInt)
@@ -336,7 +336,7 @@ impl RWBuf {
         }
     }
 
-    fn write_consolidation(&mut self, consolidation: &QueryConsolidation) -> Result<(), OutOfBounds> {
+    fn write_consolidation(&mut self, consolidation: &QueryConsolidation) -> Result<(), ZError> {
         match consolidation {
             QueryConsolidation::None        => self.write_zint(0),
             QueryConsolidation::LastBroker  => self.write_zint(1),
@@ -344,7 +344,7 @@ impl RWBuf {
         }
     }
 
-    fn write_timestamp(&mut self, tstamp: &TimeStamp) -> Result<(), OutOfBounds> {
+    fn write_timestamp(&mut self, tstamp: &TimeStamp) -> Result<(), ZError> {
         self.write_zint(tstamp.time)?;
         self.write_bytes(tstamp.id.as_bytes())
     }

@@ -1,5 +1,5 @@
-use crate::io::rwbuf::{RWBuf, OutOfBounds};
-use crate::core::{ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::io::RWBuf;
+use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp};
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use std::convert::TryInto;
 
 impl RWBuf {
 
-    pub fn read_message(&mut self) -> Result<Message, OutOfBounds> {
+    pub fn read_message(&mut self) -> Result<Message, ZError> {
         use super::msg::id::*;
 
         let mut kind = MessageKind::FullMessage;
@@ -161,7 +161,7 @@ impl RWBuf {
         }
     }
 
-    fn read_decl_frag(&mut self, header: u8) -> Result<MessageKind, OutOfBounds> {
+    fn read_decl_frag(&mut self, header: u8) -> Result<MessageKind, ZError> {
         if flag::has_flag(header, flag::F) {
             if flag::has_flag(header, flag::C) {
                 let n = self.read_zint()?;
@@ -176,7 +176,7 @@ impl RWBuf {
         }
     }
 
-    fn read_decl_conduit(&mut self, header: u8) -> Result<ZInt, OutOfBounds> {
+    fn read_decl_conduit(&mut self, header: u8) -> Result<ZInt, ZError> {
         if flag::has_flag(header, flag::Z) {
             let hl = ((flag::flags(header) ^ flag::Z)) >> 5;
             Ok(hl as ZInt)
@@ -186,7 +186,7 @@ impl RWBuf {
         }
     }
 
-    fn read_decl_reply(&mut self, header: u8) -> Result<ReplyContext, OutOfBounds> {
+    fn read_decl_reply(&mut self, header: u8) -> Result<ReplyContext, ZError> {
         let is_final = flag::has_flag(header, flag::F);
         let source = if flag::has_flag(header, flag::E) { ReplySource::Eval } else { ReplySource::Storage };
         let qid = self.read_zint()?;
@@ -196,7 +196,7 @@ impl RWBuf {
         Ok(ReplyContext{ is_final, qid, source, replier_id })
     }
 
-    fn read_decl_properties(&mut self, _: u8) -> Result<Vec<Property> , OutOfBounds> {
+    fn read_decl_properties(&mut self, _: u8) -> Result<Vec<Property> , ZError> {
         let len = self.read_zint()?;
         let mut vec: Vec<Property> = Vec::new();
         for _ in 0..len {
@@ -205,13 +205,13 @@ impl RWBuf {
         Ok(vec)
     }
 
-    fn read_property(&mut self) -> Result<Property , OutOfBounds> {
+    fn read_property(&mut self) -> Result<Property , ZError> {
         let key = self.read_zint()?;
         let value = self.read_bytes_array()?;
         Ok(Property{ key, value })
     }
 
-    fn read_locators(&mut self) -> Result<Vec<String>, OutOfBounds> {
+    fn read_locators(&mut self) -> Result<Vec<String>, ZError> {
         let len = self.read_zint()?;
         let mut vec: Vec<String> = Vec::new();
         for _ in 0..len {
@@ -220,7 +220,7 @@ impl RWBuf {
         Ok(vec)
     }
 
-    fn read_declarations(&mut self) -> Result<Vec<Declaration>, OutOfBounds> {
+    fn read_declarations(&mut self) -> Result<Vec<Declaration>, ZError> {
         let len = self.read_zint()?;
         let mut vec: Vec<Declaration> = Vec::new();
         for _ in 0..len {
@@ -229,7 +229,7 @@ impl RWBuf {
         Ok(vec)
     }
 
-    fn read_declaration(&mut self) -> Result<Declaration, OutOfBounds> {
+    fn read_declaration(&mut self) -> Result<Declaration, ZError> {
         use super::decl::{Declaration::*, id::*};
 
         macro_rules! read_key_delc {
@@ -275,7 +275,7 @@ impl RWBuf {
         }
     }
 
-    fn read_submode(&mut self) -> Result<SubMode, OutOfBounds> {
+    fn read_submode(&mut self) -> Result<SubMode, ZError> {
         use super::decl::{SubMode::*, id::*};
         match self.read_zint()? {
             MODE_PUSH => Ok(Push),
@@ -298,7 +298,7 @@ impl RWBuf {
         }
     }
 
-    fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, OutOfBounds> {
+    fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, ZError> {
         let id = self.read_zint()?;
         if is_numeric {
             Ok(ResKey::ResId{ id })
@@ -312,13 +312,13 @@ impl RWBuf {
         }
     }
 
-    fn read_query_target(&mut self) -> Result<QueryTarget, OutOfBounds> {
+    fn read_query_target(&mut self) -> Result<QueryTarget, ZError> {
         let storage = self.read_target()?;
         let eval = self.read_target()?;
         Ok(QueryTarget{ storage, eval })
     }
 
-    fn read_target(&mut self) -> Result<Target, OutOfBounds> {
+    fn read_target(&mut self) -> Result<Target, ZError> {
         let t = self.read_zint()?;
         match t {
             0 => Ok(Target::BestMatching),
@@ -332,7 +332,7 @@ impl RWBuf {
         }
     }
 
-    fn read_consolidation(&mut self) -> Result<QueryConsolidation, OutOfBounds> {
+    fn read_consolidation(&mut self) -> Result<QueryConsolidation, ZError> {
         match self.read_zint()? {
             0 => Ok(QueryConsolidation::None),
             1 => Ok(QueryConsolidation::LastBroker),
@@ -341,14 +341,14 @@ impl RWBuf {
         }
     }
 
-    fn read_timestamp(&mut self) -> Result<TimeStamp, OutOfBounds> {
+    fn read_timestamp(&mut self) -> Result<TimeStamp, ZError> {
         let time = self.read_zint()?;
         let bytes : [u8; 16] = self.read_slice(16)?.try_into().expect("SHOULDN'T HAPPEN");
         let id = uuid::Builder::from_bytes(bytes).build();
         Ok(TimeStamp { time, id })
     }
 
-    fn read_peerid(&mut self) -> Result<PeerId, OutOfBounds> {
+    fn read_peerid(&mut self) -> Result<PeerId, ZError> {
         let id = self.read_bytes_array()?;
         Ok(PeerId { id })
     }
