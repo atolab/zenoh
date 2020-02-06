@@ -16,7 +16,7 @@ use crate::{
     ArcSelf,
     impl_arc_self
 };
-use crate::io::rwbuf::RWBuf;
+use crate::io::RWBuf;
 use crate::proto::{
     Locator,
     Message
@@ -77,15 +77,15 @@ impl Link for LinkUdp {
 
     #[inline]
     async fn send(&self, message: Arc<Message>) -> async_std::io::Result<()> {
-        let mut buff = RWBuf::new(self.buff_size);
-        match buff.write_message(&message) {
-            Ok(_) => {
-                // Need to ensure that send_to is atomic and writes the whole buffer
-                (&self.socket).send_to(buff.slice(), &self.remote).await?;
-                return Ok(())
-            },
-            Err(_) => {}
-        }
+        // let mut buff = RWBuf::new(self.buff_size);
+        // match buff.write_message(&message) {
+        //     Ok(_) => {
+        //         // Need to ensure that send_to is atomic and writes the whole buffer
+        //         (&self.socket).send_to(buff.slice(), &self.remote).await?;
+        //         return Ok(())
+        //     },
+        //     Err(_) => {}
+        // }
         Ok(())
     }
 
@@ -150,21 +150,22 @@ impl ManagerUdp {
     }
 }
 
+#[async_trait]
 impl LinkManager for ManagerUdp {
-    fn start(&self) -> async_std::io::Result<()> {
-        let a_self =  self.get_arc_self();
-        task::spawn(async move {
-            receive_loop(a_self).await
-        });
+    async fn new_link(&self, locator: &Locator) -> async_std::io::Result<()> {
         Ok(())
     }
 
-    fn stop(&self) -> async_std::io::Result<()> {
-        unimplemented!("Not yet implemented! => It should stop the accept_loop");
+    async fn del_link(&self, locator: &Locator) -> Option<Arc<dyn Link + Send + Sync>> {
+        None
     }
 
-    fn get_locator(&self) -> Locator {
-        Locator::Udp(self.addr)
+    async fn new_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
+        Ok(())
+    }
+
+    async fn del_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
+        Ok(())
     }
 }
 

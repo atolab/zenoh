@@ -61,7 +61,7 @@ impl RWBuf {
       })
     }
   }
-
+*/
   pub fn set_write_pos(&mut self, pos: usize) -> Result<(), ZError> {
     if pos <=self.buf.capacity() {
       self.w_pos = pos;
@@ -72,7 +72,7 @@ impl RWBuf {
       })
     }
   }
-*/
+
   pub fn write_pos(& self) -> usize {
     self.w_pos
   }

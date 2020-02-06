@@ -48,7 +48,7 @@ impl SessionCallback for EmptyCallback {
 pub struct SessionManager {
     weak_self: RwLock<Weak<Self>>,
     callback: Arc<dyn SessionCallback + Send + Sync>,
-    locator: RwLock<HashMap<Locator, Arc<dyn LinkManager + Send + Sync>>>,
+    listener: RwLock<HashMap<Locator, Arc<dyn LinkManager + Send + Sync>>>,
     session: RwLock<HashMap<usize, Arc<Session>>>
 }
 
@@ -58,7 +58,7 @@ impl SessionManager {
         Self {
             weak_self: RwLock::new(Weak::new()),
             callback: callback,
-            locator: RwLock::new(HashMap::new()),
+            listener: RwLock::new(HashMap::new()),
             session: RwLock::new(HashMap::new())
         }  
     }
@@ -79,21 +79,21 @@ impl SessionManager {
     #[inline]
     pub async fn add_locator(&self, locator: &Locator, limit: Option<usize>) -> Option<Arc<dyn LinkManager + Send + Sync>> {
         let link_manager = self.new_link_manager(locator, limit).await;
-        let old = self.locator.write().await.insert(link_manager.get_locator(), link_manager.clone());
-        match link_manager.start() {
-            Ok(_) => (),
-            Err(_) => ()
-        };
+        let old = self.listener.write().await.insert(locator.clone(), link_manager.clone());
+        // match link_manager.start() {
+        //     Ok(_) => (),
+        //     Err(_) => ()
+        // };
         old
     }
 
     pub async fn del_locator(&self, locator: &Locator) -> Option<Arc<dyn LinkManager + Send + Sync>> {
-        let mut guard = self.locator.write().await;
+        let mut guard = self.listener.write().await;
         if let Some(manager) = guard.get_mut(&locator) {
-            match manager.stop() {
-                Ok(_) => (),
-                Err(_) => ()
-            };
+            // match manager.stop() {
+            //     Ok(_) => (),
+            //     Err(_) => ()
+            // };
             return guard.remove(&locator)
         }
         return None

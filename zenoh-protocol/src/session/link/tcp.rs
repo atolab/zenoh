@@ -22,7 +22,7 @@ use crate::{
     ArcSelf,
     impl_arc_self
 };
-use crate::io::rwbuf::RWBuf;
+use crate::io::RWBuf;
 use crate::proto::{
     Locator,
     Message
@@ -70,13 +70,13 @@ impl Link for LinkTcp {
     
     #[inline(always)]
     async fn send(&self, message: Arc<Message>) -> async_std::io::Result<()> {
-        let mut buff = RWBuf::new(self.buff_size);
-        match buff.write_message(&message) {
-            Ok(_) => {
-                return (&self.socket).write_all(&buff.slice()).await
-            },
-            Err(_) => {}
-        };
+        // let mut buff = RWBuf::new(self.buff_size);
+        // match buff.write_message(&message) {
+        //     Ok(_) => {
+        //         return (&self.socket).write_all(&buff.slice()).await
+        //     },
+        //     Err(_) => {}
+        // };
         Ok(())
     }
 
@@ -126,12 +126,12 @@ async fn receive_loop(link: Arc<LinkTcp>) -> async_std::io::Result<()> {
                 println!("NEXT: {}", next.id);
                 *session = next;
             }
-            match buff.read_message() {
-                Ok(message) => {
-                    session.receive_message(&locator, message).await;
-                },
-                Err(_) => {}
-            }
+            // match buff.read_message() {
+            //     Ok(message) => {
+            //         session.receive_message(&locator, message).await;
+            //     },
+            //     Err(_) => {}
+            // }
         }
     }
     Ok(())
@@ -190,23 +190,27 @@ impl ManagerTcp {
 
 #[async_trait]
 impl LinkManager for ManagerTcp  {  
-    async fn new_link(&self, locator: &Locator) -> Result<Arc<LinkTcp>, ()> {
-        let addr = match locator {
-            Locator::Tcp(addr) => addr,
-            _ => return Err(())
-        };
-        let stream = match TcpStream::connect(addr).await {
-            Ok(stream) => stream,
-            Err(_) => return Err(())
-        };
-        let link = Arc::new(LinkTcp::new(stream, addr.clone(), self.session.clone(), self.get_arc_self()));
-        match self.add_link(link.clone()).await {
-            Ok(_) => {
-                self.session.add_link(link.clone()).await;
-            },
-            Err(_) => return Err(())
-        }
-        Ok(link)
+    async fn new_link(&self, locator: &Locator) -> async_std::io::Result<()> {
+        // let addr = match locator {
+        //     Locator::Tcp(addr) => addr,
+        //     _ => return Err(())
+        // };
+        // let stream = match TcpStream::connect(addr).await {
+        //     Ok(stream) => stream,
+        //     Err(_) => return Err(())
+        // };
+        // let link = Arc::new(LinkTcp::new(stream, addr.clone(), self.session.clone(), self.get_arc_self()));
+        // match self.add_link(link.clone()).await {
+        //     Ok(_) => {
+        //         self.session.add_link(link.clone()).await;
+        //     },
+        //     Err(_) => return Err(())
+        // }
+        Ok(())
+    }
+
+    async fn del_link(&self, locator: &Locator) -> Option<Arc<dyn Link + Send + Sync>> {
+        None
     }
 
     async fn new_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
@@ -214,6 +218,10 @@ impl LinkManager for ManagerTcp  {
         task::spawn(async move {
             accept_loop(a_self).await
         });
+        Ok(())
+    }
+
+    async fn del_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
         Ok(())
     }
   
@@ -226,10 +234,11 @@ async fn accept_loop(manager: Arc<ManagerTcp>) -> async_std::io::Result<()> {
         let (stream, src) = socket.accept().await?;
         let link = Arc::new(LinkTcp::new(stream, src, manager.session.clone(), manager.get_arc_self()));
         // Spawn the receiving loop for the task if 
+        let l_clone = link.clone();
         match manager.add_link(link.clone()).await {
             Ok(_) => {
                 task::spawn(async move {
-                    match receive_loop(link).await {
+                    match receive_loop(l_clone).await {
                         Ok(_) => (),
                         Err(_) => ()
                     }
