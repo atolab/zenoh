@@ -22,7 +22,7 @@ pub trait ArcSelf {
 }
 
 #[macro_export]
-macro_rules! impl_arc_self {
+macro_rules! zarcself {
     /***********/
     /* 
         $name MUST declare the following field in its struct

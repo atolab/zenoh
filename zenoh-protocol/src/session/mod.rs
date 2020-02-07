@@ -11,6 +11,7 @@ pub(crate) use queue::QueueError;
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
+use crate::core::ZError;
 use crate::proto::Locator;
 use crate::proto::Message;
 
@@ -19,7 +20,7 @@ use crate::proto::Message;
 /*************************************/
 #[async_trait]
 pub trait Link {
-    async fn close(&self) -> async_std::io::Result<()>;
+    async fn close(&self) -> Result<(), ZError>;
 
     fn get_mtu(&self) -> usize;
 
@@ -29,9 +30,9 @@ pub trait Link {
 
     fn is_reliable(&self) -> bool;
 
-    async fn send(&self, msg: Arc<Message>) -> async_std::io::Result<()>;
+    async fn send(&self, msg: Arc<Message>) -> Result<(), ZError>;
 
-    async fn set_session(&self, session: Arc<Session>);
+    async fn set_session(&self, session: Arc<Session>) -> Result<(), ZError>;
 }
 
 /*************************************/
@@ -39,13 +40,13 @@ pub trait Link {
 /*************************************/
 #[async_trait]
 pub trait LinkManager {
-    async fn new_link(&self, locator: &Locator) -> async_std::io::Result<()>;
+    async fn new_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
 
-    async fn del_link(&self, locator: &Locator) -> Option<Arc<dyn Link + Send + Sync>>;
+    async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
 
-    async fn new_listener(&self, locator: &Locator) -> async_std::io::Result<()>;
+    async fn new_listener(&self, locator: &Locator) -> Result<(), ZError>;
 
-    async fn del_listener(&self, locator: &Locator) -> async_std::io::Result<()>;
+    async fn del_listener(&self, locator: &Locator) -> Result<(), ZError>;
 }
 
 /*********************************************************/

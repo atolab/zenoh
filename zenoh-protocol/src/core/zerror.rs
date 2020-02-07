@@ -6,6 +6,7 @@ pub enum ZErrorKind {
     BufferOverflow { missing: usize },
     BufferUnderflow { missing: usize },
     InvalidMessage { reason: String },
+    InvalidLocator { reason: String },
     Other { msg: String }
 }
 
@@ -19,6 +20,8 @@ impl fmt::Display for ZErrorKind {
                   (if *missing == 0 {"some".to_string()} else { missing.to_string() })),
             ZErrorKind::InvalidMessage { reason } =>
                 write!(f, "Invalid message ({})", reason),
+            ZErrorKind::InvalidLocator { reason } =>
+                write!(f, "Invalid locator ({})", reason),
             ZErrorKind::Other { msg } =>
                 write!(f, "zenoh error: \"{}\"", msg),
         }
@@ -48,20 +51,11 @@ impl ZError {
     }
 }
 
+unsafe impl Send for ZError {}
+
 impl std::error::Error for ZError {
     fn source(&self) -> Option<&'_(dyn std::error::Error + 'static)> {
         self.source.as_ref().map(|bx| bx.as_ref())
-
-        // let x = &self.source;
-        // x.as_ref().map(|bx| bx.as_ref())
-
-        // match &self.source {
-        //     None => None,
-        //     Some(bx) => {
-        //         let e = bx.as_ref();
-        //         Some(e)
-        //     }
-        // }
     }
 }
 

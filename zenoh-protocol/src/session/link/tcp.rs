@@ -20,7 +20,12 @@ use std::net::Shutdown;
 
 use crate::{
     ArcSelf,
-    impl_arc_self
+    zarcself,
+    zerror
+};
+use crate::core::{
+    ZError,
+    ZErrorKind
 };
 use crate::io::RWBuf;
 use crate::proto::{
@@ -39,7 +44,7 @@ use crate::session::{
 pub struct LinkTcp {
     locator: Locator,
     socket: TcpStream,
-    remote: SocketAddr,
+    addr: SocketAddr,
     buff_size: usize,
     session: Mutex<Arc<Session>>,
     next_session: Mutex<Option<Arc<Session>>>,
@@ -47,11 +52,11 @@ pub struct LinkTcp {
 }
 
 impl LinkTcp {
-    fn new(socket: TcpStream, remote: SocketAddr, session: Arc<Session>, manager: Arc<ManagerTcp>) -> Self {
+    fn new(socket: TcpStream, addr: SocketAddr, session: Arc<Session>, manager: Arc<ManagerTcp>) -> Self {
         Self {
-            locator: Locator::Tcp(remote),
+            locator: Locator::Tcp{ addr: addr },
             socket: socket,
-            remote: remote,
+            addr: addr,
             buff_size: 8_192,
             session: Mutex::new(session),
             next_session: Mutex::new(None),
@@ -62,14 +67,19 @@ impl LinkTcp {
 
 #[async_trait]
 impl Link for LinkTcp {
-    async fn close(&self) -> async_std::io::Result<()> {
-        self.socket.shutdown(Shutdown::Both)?;
-        self.manager.del_link(&self.get_locator()).await;
+    async fn close(&self) -> Result<(), ZError> {
+        match self.socket.shutdown(Shutdown::Both) {
+            Ok(_) => (),
+            Err(e) => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("{}", e)
+            }))
+        };
+        self.manager.del_link(&self.addr).await;
         Ok(())
     }
     
     #[inline(always)]
-    async fn send(&self, message: Arc<Message>) -> async_std::io::Result<()> {
+    async fn send(&self, message: Arc<Message>) -> Result<(), ZError> {
         // let mut buff = RWBuf::new(self.buff_size);
         // match buff.write_message(&message) {
         //     Ok(_) => {
@@ -81,8 +91,9 @@ impl Link for LinkTcp {
     }
 
     #[inline(always)]
-    async fn set_session(&self, session: Arc<Session>) {
+    async fn set_session(&self, session: Arc<Session>) -> Result<(), ZError> {
         *self.next_session.lock().await = Some(session);
+        Ok(())
     }
 
     #[inline(always)]
@@ -106,7 +117,7 @@ impl Link for LinkTcp {
     }
 }
 
-async fn receive_loop(link: Arc<LinkTcp>) -> async_std::io::Result<()> {
+async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
     let locator = link.get_locator();
     let mut buff = RWBuf::new(link.buff_size);
     loop {
@@ -144,12 +155,12 @@ pub struct ManagerTcp {
     weak_self: RwLock<Weak<Self>>,
     addr: SocketAddr,
     session: Arc<Session>,
-    listener: RwLock<HashSet<Locator>>,
-    link: RwLock<HashMap<Locator, Arc<LinkTcp>>>,
+    listener: RwLock<HashSet<SocketAddr>>,
+    link: RwLock<HashMap<SocketAddr, Arc<LinkTcp>>>,
     link_limit: Option<usize>
 }
 
-impl_arc_self!(ManagerTcp);
+zarcself!(ManagerTcp);
 impl ManagerTcp {
     pub fn new(addr: SocketAddr, session: Arc<Session>, limit: Option<usize>) -> Self {  
         Self {
@@ -163,57 +174,74 @@ impl ManagerTcp {
     }
 
     #[inline]
-    async fn add_link(&self, link: Arc<LinkTcp>) -> Result<Option<Arc<LinkTcp>>, ()> {
+    async fn add_link(&self, link: Arc<LinkTcp>) -> Result<Option<Arc<LinkTcp>>, ZError> {
         if let Some(limit) = self.link_limit {
             if self.link.read().await.len() >= limit {
-                return Err(())
+                return Err(zerror!(ZErrorKind::Other{
+                    msg: format!("Reached maximum number of TCP connections: {}", limit)
+                }))
             }
         }
-        Ok(self.link.write().await.insert(link.get_locator(), link))
+        Ok(self.link.write().await.insert(link.addr, link))
     }
 
     #[inline]
-    async fn del_link(&self, locator: &Locator) -> Option<Arc<LinkTcp>> {
-        self.link.write().await.remove(locator)
+    async fn del_link(&self, addr: &SocketAddr) -> Option<Arc<LinkTcp>> {
+        self.link.write().await.remove(addr)
     }
 
     #[inline]
-    async fn add_listener(&self, locator: &Locator) -> Result<bool, ()> {
-        Ok(self.listener.write().await.insert(locator.clone()))
+    async fn add_listener(&self, addr: &SocketAddr) -> Result<bool, ()> {
+        Ok(self.listener.write().await.insert(addr.clone()))
     }
 
     #[inline]
-    async fn del_listener(&self, locator: &Locator) -> bool {
-        self.listener.write().await.remove(locator)
+    async fn del_listener(&self, addr: &SocketAddr) -> bool {
+        self.listener.write().await.remove(addr)
     }
 }
 
 #[async_trait]
 impl LinkManager for ManagerTcp  {  
-    async fn new_link(&self, locator: &Locator) -> async_std::io::Result<()> {
-        // let addr = match locator {
-        //     Locator::Tcp(addr) => addr,
-        //     _ => return Err(())
-        // };
-        // let stream = match TcpStream::connect(addr).await {
-        //     Ok(stream) => stream,
-        //     Err(_) => return Err(())
-        // };
-        // let link = Arc::new(LinkTcp::new(stream, addr.clone(), self.session.clone(), self.get_arc_self()));
-        // match self.add_link(link.clone()).await {
-        //     Ok(_) => {
-        //         self.session.add_link(link.clone()).await;
-        //     },
-        //     Err(_) => return Err(())
-        // }
-        Ok(())
+    async fn new_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+        let addr = match locator {
+            Locator::Tcp{ addr } => addr,
+            _ => return Err(zerror!(ZErrorKind::InvalidLocator{
+                reason: format!("Not a TCP locator: {}", locator)
+            }))
+        };
+        let stream = match TcpStream::connect(addr).await {
+            Ok(stream) => stream,
+            Err(e) => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("{}", e)
+            }))
+        };
+        let link = Arc::new(LinkTcp::new(stream, addr.clone(), self.session.clone(), self.get_arc_self()));
+        match self.add_link(link.clone()).await {
+            Ok(_) => {
+                self.session.add_link(link.clone()).await;
+            },
+            Err(e) => return Err(e)
+        }
+        Ok(link)
     }
 
-    async fn del_link(&self, locator: &Locator) -> Option<Arc<dyn Link + Send + Sync>> {
-        None
+    async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+        let addr = match locator {
+            Locator::Tcp{ addr } => addr,
+            _ => return Err(zerror!(ZErrorKind::InvalidLocator{
+                reason: format!("Not a TCP locator: {}", locator)
+            }))
+        };
+        match self.del_link(addr).await {
+            Some(link) => return Ok(link),
+            None => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("No active TCP link with: {}", addr)
+            }))
+        }
     }
 
-    async fn new_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
+    async fn new_listener(&self, locator: &Locator) -> Result<(), ZError> {
         let a_self = self.get_arc_self();
         task::spawn(async move {
             accept_loop(a_self).await
@@ -221,17 +249,27 @@ impl LinkManager for ManagerTcp  {
         Ok(())
     }
 
-    async fn del_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
+    async fn del_listener(&self, locator: &Locator) -> Result<(), ZError> {
         Ok(())
     }
   
 }
 
-async fn accept_loop(manager: Arc<ManagerTcp>) -> async_std::io::Result<()> {
-    let socket = TcpListener::bind(manager.addr).await?; 
-    println!("Listening on: tcp://{}", socket.local_addr()?);
+async fn accept_loop(manager: Arc<ManagerTcp>) -> Result<(), ZError> {
+    let socket = match TcpListener::bind(manager.addr).await {
+        Ok(socket) => socket,
+        Err(e) => return Err(zerror!(ZErrorKind::Other{
+            msg: format!("{}", e)
+        }))
+    }; 
+    println!("Listening on: tcp://{}", manager.addr);
     loop {
-        let (stream, src) = socket.accept().await?;
+        let (stream, src) = match socket.accept().await {
+            Ok((stream, src)) => (stream, src),
+            Err(e) => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("{}", e)
+            }))
+        };
         let link = Arc::new(LinkTcp::new(stream, src, manager.session.clone(), manager.get_arc_self()));
         // Spawn the receiving loop for the task if 
         let l_clone = link.clone();

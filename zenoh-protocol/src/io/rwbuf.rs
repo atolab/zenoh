@@ -67,9 +67,9 @@ impl RWBuf {
       self.w_pos = pos;
       Ok(())
     } else {
-      Err(ZError {
+      Err(zerror!(ZErrorKind::Other {
         msg : format!("Write position {} our of range [0, {}].", pos, self.buf.capacity())
-      })
+      }))
     }
   }
 

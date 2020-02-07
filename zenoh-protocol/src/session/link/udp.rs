@@ -14,7 +14,12 @@ use std::collections::HashMap;
 
 use crate::{
     ArcSelf,
-    impl_arc_self
+    zarcself,
+    zerror
+};
+use crate::core::{
+    ZError,
+    ZErrorKind
 };
 use crate::io::RWBuf;
 use crate::proto::{
@@ -33,7 +38,7 @@ use crate::session::{
 pub struct LinkUdp {
     locator: Locator,
     socket: Arc<UdpSocket>,
-    remote: SocketAddr,
+    addr: SocketAddr,
     buff_size: usize,
     session: Mutex<Arc<Session>>,
     next_session: Mutex<Option<Arc<Session>>>,
@@ -41,11 +46,11 @@ pub struct LinkUdp {
 }
 
 impl LinkUdp {
-    fn new(socket: Arc<UdpSocket>, remote: SocketAddr, session: Arc<Session>, manager: Arc<ManagerUdp>) -> Self {
+    fn new(socket: Arc<UdpSocket>, addr: SocketAddr, session: Arc<Session>, manager: Arc<ManagerUdp>) -> Self {
         Self {
-            locator: Locator::Udp(remote),
+            locator: Locator::Udp{ addr: addr },
             socket: socket,
-            remote: remote,
+            addr: addr,
             buff_size: 8_192,
             session: Mutex::new(session),
             next_session: Mutex::new(None),
@@ -70,13 +75,13 @@ impl LinkUdp {
 
 #[async_trait]
 impl Link for LinkUdp {
-    async fn close(&self) -> async_std::io::Result<()> {
-        self.manager.del_link(&self.get_locator()).await;
+    async fn close(&self) -> Result<(), ZError> {
+        self.manager.del_link(&self.addr).await;
         Ok(())
     }
 
     #[inline]
-    async fn send(&self, message: Arc<Message>) -> async_std::io::Result<()> {
+    async fn send(&self, message: Arc<Message>) -> Result<(), ZError> {
         // let mut buff = RWBuf::new(self.buff_size);
         // match buff.write_message(&message) {
         //     Ok(_) => {
@@ -90,8 +95,9 @@ impl Link for LinkUdp {
     }
 
     #[inline]
-    async fn set_session(&self, session: Arc<Session>) {
+    async fn set_session(&self, session: Arc<Session>) -> Result<(), ZError> {
         *self.next_session.lock().await = Some(session);
+        Ok(())
     }
 
     #[inline]
@@ -123,11 +129,11 @@ pub struct ManagerUdp {
     weak_self: RwLock<Weak<Self>>,
     addr: SocketAddr,
     session: Arc<Session>,
-    link: RwLock<HashMap<Locator, Arc<LinkUdp>>>,
+    link: RwLock<HashMap<SocketAddr, Arc<LinkUdp>>>,
     limit: Option<usize>
 }
 
-impl_arc_self!(ManagerUdp);
+zarcself!(ManagerUdp);
 impl ManagerUdp {
     pub fn new(addr: SocketAddr, session: Arc<Session>, limit: Option<usize>) -> Self {  
         Self {
@@ -141,37 +147,46 @@ impl ManagerUdp {
 
     #[inline]
     async fn add_link(&self, link: Arc<LinkUdp>) -> Option<Arc<LinkUdp>> {
-        self.link.write().await.insert(link.get_locator(), link.clone())
+        self.link.write().await.insert(link.addr, link.clone())
     }
 
     #[inline]
-    async fn del_link(&self, locator: &Locator) -> Option<Arc<LinkUdp>> {
-        self.link.write().await.remove(locator)
+    async fn del_link(&self, addr: &SocketAddr) -> Option<Arc<LinkUdp>> {
+        self.link.write().await.remove(addr)
     }
 }
 
 #[async_trait]
 impl LinkManager for ManagerUdp {
-    async fn new_link(&self, locator: &Locator) -> async_std::io::Result<()> {
+    async fn new_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+        Err(zerror!(ZErrorKind::Other{
+            msg: format!("")
+        }))
+    }
+
+    async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+        Err(zerror!(ZErrorKind::Other{
+            msg: format!("")
+        }))
+    }
+
+    async fn new_listener(&self, locator: &Locator) -> Result<(), ZError> {
         Ok(())
     }
 
-    async fn del_link(&self, locator: &Locator) -> Option<Arc<dyn Link + Send + Sync>> {
-        None
-    }
-
-    async fn new_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
-        Ok(())
-    }
-
-    async fn del_listener(&self, locator: &Locator) -> async_std::io::Result<()> {
+    async fn del_listener(&self, locator: &Locator) -> Result<(), ZError> {
         Ok(())
     }
 }
 
-async fn receive_loop(manager: Arc<ManagerUdp>) -> async_std::io::Result<()> {
-    let socket = Arc::new(UdpSocket::bind(manager.addr).await?); 
-    println!("Listening on: udp://{}", socket.local_addr()?);
+async fn receive_loop(manager: Arc<ManagerUdp>) -> Result<(), ZError> {
+    let socket = match UdpSocket::bind(manager.addr).await {
+        Ok(socket) => Arc::new(socket),
+        Err(e) => return Err(zerror!(ZErrorKind::Other{
+            msg: format!("{}", e)
+        }))
+    }; 
+    println!("Listening on: udp://{}", manager.addr);
     let mut buff = RWBuf::new(8_192);
     loop {
         // Wait for incoming traffic
@@ -185,10 +200,9 @@ async fn receive_loop(manager: Arc<ManagerUdp>) -> async_std::io::Result<()> {
                 continue
             }
         }
-        let locator = Locator::Udp(peer);
         // Add a new link if not existing
         let r_guard = manager.link.read().await;
-        if !r_guard.contains_key(&locator) {
+        if !r_guard.contains_key(&peer) {
             if let Some(limit) = manager.limit {
                 // Add a new link only if limit of connections is not exceeded
                 if r_guard.len() >= limit {
@@ -206,7 +220,7 @@ async fn receive_loop(manager: Arc<ManagerUdp>) -> async_std::io::Result<()> {
         }
         // Retrieve the link, this operation is expected to always succeed
         let r_guard = manager.link.read().await;
-        let link = match r_guard.get(&locator) {
+        let link = match r_guard.get(&peer) {
             Some(link) => link,
             None => continue
         };

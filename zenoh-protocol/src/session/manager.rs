@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::{
     ArcSelf,
-    impl_arc_self
+    zarcself
 };
 use crate::proto::{
     Locator,
@@ -52,7 +52,7 @@ pub struct SessionManager {
     session: RwLock<HashMap<usize, Arc<Session>>>
 }
 
-impl_arc_self!(SessionManager);
+zarcself!(SessionManager);
 impl SessionManager {
     pub fn new(callback: Arc<dyn SessionCallback + Send + Sync>) -> Self {
         Self {
@@ -102,13 +102,13 @@ impl SessionManager {
     async fn new_link_manager(&self, locator: &Locator, limit: Option<usize>) -> Arc<dyn LinkManager + Send + Sync> {
         let session = self.session.read().await.get(&MANAGER_SID).unwrap().clone();
         let listener: Arc<dyn LinkManager + Send + Sync> = match locator {
-            Locator::Tcp(socket_addr) => {
-                let l = Arc::new(ManagerTcp::new(socket_addr.clone(), session, limit));
+            Locator::Tcp{ addr } => {
+                let l = Arc::new(ManagerTcp::new(addr.clone(), session, limit));
                 l.set_arc_self(&l);
                 l
             },
-            Locator::Udp(socket_addr) => {
-                let l = Arc::new(ManagerUdp::new(socket_addr.clone(), session, limit));
+            Locator::Udp{ addr } => {
+                let l = Arc::new(ManagerUdp::new(addr.clone(), session, limit));
                 l.set_arc_self(&l);
                 l
             }
