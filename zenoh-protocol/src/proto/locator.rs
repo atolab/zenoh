@@ -1,9 +1,6 @@
 use async_std::net::SocketAddr;
 use std::fmt;
-use std::hash::{
-    Hash,
-    Hasher
-};
+use std::hash::Hash;
 use std::str::FromStr;
 
 use crate::core::{
@@ -15,7 +12,23 @@ use crate::zerror;
 /*************************************/
 /*          LOCATOR                  */
 /*************************************/
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LocatorProtocol {
+    Tcp,
+    Udp
+}
+
+impl fmt::Display for LocatorProtocol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LocatorProtocol::Tcp => write!(f, "TCP")?,
+            LocatorProtocol::Udp => write!(f, "UDP")?,
+        };
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Locator {
     Tcp { addr: SocketAddr },
     Udp { addr: SocketAddr }
@@ -64,11 +77,11 @@ impl fmt::Display for Locator {
     }
 }
 
-impl Hash for Locator {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl Locator {
+    pub fn get_proto(&self) -> LocatorProtocol {
         match self {
-            Locator::Tcp { addr } => ("tcp", addr).hash(state),
-            Locator::Udp { addr } => ("udp", addr).hash(state)
+            Locator::Tcp { addr } => LocatorProtocol::Tcp,
+            Locator::Udp { addr } => LocatorProtocol::Udp
         }
     }
 }

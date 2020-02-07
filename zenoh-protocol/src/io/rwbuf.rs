@@ -47,6 +47,10 @@ impl RWBuf {
     &mut self.buf[self.w_pos..]
   }
 
+  pub fn readable_slice(&self) -> &[u8] {    
+    &self.buf[self.r_pos..self.w_pos]
+  }
+
   pub fn read_pos(& self) -> usize {
     self.r_pos
   }

@@ -44,9 +44,11 @@ pub trait LinkManager {
 
     async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
 
-    async fn new_listener(&self, locator: &Locator) -> Result<(), ZError>;
+    async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> Result<(), ZError>;
 
     async fn del_listener(&self, locator: &Locator) -> Result<(), ZError>;
+
+    async fn get_listeners(&self) -> Vec<Locator>;
 }
 
 /*********************************************************/
@@ -54,7 +56,7 @@ pub trait LinkManager {
 /*********************************************************/
 #[async_trait]
 pub trait SessionCallback {
-    async fn receive_message(&self, msg: Message) -> async_std::io::Result<()>;
+    async fn receive_message(&self, msg: Message) -> Result<(), ZError>;
 
     async fn new_session(&self, session: Arc<Session>);
 }
