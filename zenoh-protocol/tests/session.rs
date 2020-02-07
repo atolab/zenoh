@@ -40,8 +40,7 @@ async fn router(locator: Vec<Locator>) -> Result<(), Box<dyn Error>> {
     // Create the transport session manager
     let manager = Arc::new(SessionManager::new(routing.clone()));
     // Initialize the transport session manager
-    manager.set_arc_self(&manager);
-    manager.initialize().await;
+    manager.initialize(&manager).await;
     let limit = Some(2);
     // Create and start the listeners
     for l in locator.iter() {
@@ -78,8 +77,7 @@ async fn client(locator: Vec<Locator>) -> Result<(), Box<dyn Error>> {
     // Create the transport session manager
     let manager = Arc::new(SessionManager::new(client.clone()));
     // Initialize the transport session manager
-    manager.set_arc_self(&manager);
-    manager.initialize().await;
+    manager.initialize(&manager).await;
     // Create and start the listeners
     for l in locator.iter() {
         println!("Connecting to: {}", l);

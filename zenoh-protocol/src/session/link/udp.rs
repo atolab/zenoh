@@ -136,17 +136,15 @@ impl Link for LinkUdp {
 /*************************************/
 pub struct ManagerUdp {
     weak_self: RwLock<Weak<Self>>,
-    session: Arc<Session>,
     listener: RwLock<HashMap<SocketAddr, Arc<LinkUdp>>>,
     link: RwLock<HashMap<SocketAddr, Arc<LinkUdp>>>,
 }
 
 zarcself!(ManagerUdp);
 impl ManagerUdp {
-    pub fn new(session: Arc<Session>) -> Self {  
+    pub fn new() -> Self {  
         Self {
             weak_self: RwLock::new(Weak::new()),
-            session: session,
             listener: RwLock::new(HashMap::new()),
             link: RwLock::new(HashMap::new())
         }
@@ -155,7 +153,7 @@ impl ManagerUdp {
 
 #[async_trait]
 impl LinkManager for ManagerUdp {
-    async fn new_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn new_link(&self, locator: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
         // Check if the locator is a UDP locator
         let addr = match locator {
             Locator::Udp{ addr } => addr,
@@ -173,9 +171,9 @@ impl LinkManager for ManagerUdp {
         };
         
         // Create a new link object
-        let link = Arc::new(LinkUdp::new(socket, addr.clone(), self.session.clone(), self.get_arc_self()));
+        let link = Arc::new(LinkUdp::new(socket, addr.clone(), session.clone(), self.get_arc_self()));
         self.link.write().await.insert(link.addr, link.clone());
-        self.session.add_link(link.clone()).await;
+        session.add_link(link.clone()).await;
 
         Ok(link)
     }
@@ -257,11 +255,11 @@ async fn receive_loop(manager: Arc<ManagerUdp>, addr: SocketAddr, limit: Option<
                     continue
                 } else {
                     // Create a new LinkUdp instance
-                    let link = Arc::new(LinkUdp::new(socket.clone(), peer.clone(), manager.session.clone(), manager.clone()));
+                    // let link = Arc::new(LinkUdp::new(socket.clone(), peer.clone(), manager.session.clone(), manager.clone()));
                     // Drop the read guard in order to allow the add_link to gain the write guard
-                    drop(r_guard);
+                    // drop(r_guard);
                     // Add the new LinkUdp instance to the manager
-                    manager.link.write().await.insert(link.addr, link);
+                    // manager.link.write().await.insert(link.addr, link);
                 }
             }
         }

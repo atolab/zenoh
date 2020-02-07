@@ -34,7 +34,9 @@ use crate::proto::{
     Message
 };
 use crate::session::{
+    EmptyCallback,
     Session,
+    SessionManager,
     Link,
     LinkManager
 };
@@ -141,8 +143,9 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
         let mut session = link.session.lock().await;
         loop {
             if let Some(next) = link.next_session.lock().await.take() {
-                // println!("NEXT: {}", next.get_id());
+                session.del_link(&link.get_locator()).await;
                 *session = next;
+                session.add_link(link.clone()).await;
             }
             match buff.read_message() {
                 Ok(message) => {
@@ -160,17 +163,17 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
 /*************************************/
 pub struct ManagerTcp {
     weak_self: RwLock<Weak<Self>>,
-    session: Arc<Session>,
+    manager: Arc<SessionManager>,
     listener: RwLock<HashMap<SocketAddr, Arc<TcpListener>>>,
     link: RwLock<HashMap<SocketAddr, Arc<LinkTcp>>>,
 }
 
 zarcself!(ManagerTcp);
 impl ManagerTcp {
-    pub fn new(session: Arc<Session>) -> Self {  
+    pub fn new(manager: Arc<SessionManager>) -> Self {  
         Self {
             weak_self: RwLock::new(Weak::new()),
-            session: session,
+            manager: manager,
             listener: RwLock::new(HashMap::new()),
             link: RwLock::new(HashMap::new()),
         }
@@ -179,7 +182,7 @@ impl ManagerTcp {
 
 #[async_trait]
 impl LinkManager for ManagerTcp  {
-    async fn new_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn new_link(&self, locator: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
         // Check if the locator is a TCP locator
         let addr = match locator {
             Locator::Tcp{ addr } => addr,
@@ -197,9 +200,9 @@ impl LinkManager for ManagerTcp  {
         };
         
         // Create a new link object
-        let link = Arc::new(LinkTcp::new(stream, addr.clone(), self.session.clone(), self.get_arc_self()));
+        let link = Arc::new(LinkTcp::new(stream, addr.clone(), session.clone(), self.get_arc_self()));
         self.link.write().await.insert(link.addr, link.clone());
-        self.session.add_link(link.clone()).await;
+        session.add_link(link.clone()).await;
         
         // Spawn the receive loop for the new link
         let a_link = link.clone();
@@ -309,14 +312,18 @@ async fn accept_loop(manager: Arc<ManagerTcp>, addr: SocketAddr, limit: Option<u
             }
         }
 
+        // Create a temporary Session 
+        let callback = Arc::new(EmptyCallback::new());
+        let session = Arc::new(Session::new(0, manager.manager.clone(), callback));
+        session.initialize(&session).await;
         // Create the new link object
-        let link = Arc::new(LinkTcp::new(stream, src, manager.session.clone(), manager.get_arc_self()));
+        let link = Arc::new(LinkTcp::new(stream, src, session.clone(), manager.get_arc_self()));
 
         // Store a reference to the link into the manger
         manager.link.write().await.insert(src.clone(), link.clone());
 
         // Store a reference to the link into the session
-        manager.session.add_link(link.clone()).await;
+        session.add_link(link.clone()).await;
 
         // Spawn the receive loop for the new link
         let a_link = link.clone();

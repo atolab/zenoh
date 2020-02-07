@@ -81,7 +81,8 @@ impl Session {
         }
     }
 
-    pub async fn initialize(&self) {
+    pub async fn initialize(&self, arc_self: &Arc<Self>) {
+        self.set_arc_self(arc_self);
         let a_self = self.get_arc_self();
         task::spawn(async move {
             consume_loop(a_self).await;
@@ -186,7 +187,7 @@ impl Session {
     async fn receive_full_message(&self, locator: &Locator, message: Message) {
         match &message.body {
             Body::Accept{opid, apid, lease} => {
-                self.manager.process_message(self.id, locator, message).await;
+                self.manager.process_message(self.get_arc_self(), locator, message).await;
             },
             Body::AckNack{sn, mask} => {},
             Body::Close{pid, reason} => {},
@@ -197,7 +198,7 @@ impl Session {
             Body::Hello{whatami, locators} => {},
             Body::KeepAlive{pid} => {},
             Body::Open{version, whatami, pid, lease, locators} => {
-                self.manager.process_message(self.id, locator, message).await;
+                self.manager.process_message(self.get_arc_self(), locator, message).await;
             },
             Body::Ping{hash} => {},
             Body::Pong{hash} => {},

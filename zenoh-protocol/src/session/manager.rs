@@ -33,33 +33,12 @@ use crate::proto::{
     Message
 };
 use crate::session::{
-    Session,
+    EmptyCallback,
     LinkManager,
+    Session,
     SessionCallback
 };
 use crate::session::link::*;
-
-
-const MANAGER_SID: usize = 0;
-
-// Define an empty SessionCallback for the listener session
-struct EmptyCallback {}
-
-impl EmptyCallback {
-    fn new() -> Self {
-        Self {}
-    }
-}
-
-#[async_trait]
-impl SessionCallback for EmptyCallback {
-    async fn receive_message(&self, _message: Message) -> Result<(), ZError> {
-        Ok(())
-    }
-
-    async fn new_session(&self, _session: Arc<Session>) {
-    }
-}
 
 
 pub struct SessionManager {
@@ -85,15 +64,8 @@ impl SessionManager {
     /*************************************/
     /*               INIT                */
     /*************************************/
-    pub async fn initialize(&self) {
-        // Create the default session for the listeners
-        let empty_callback = Arc::new(EmptyCallback::new());
-        // Create and initialize a new session
-        let session = Arc::new(Session::new(MANAGER_SID, self.get_arc_self(), empty_callback));
-        session.set_arc_self(&session);
-        session.initialize().await;
-        // Store the new session
-        self.session.write().await.insert(MANAGER_SID, session);
+    pub async fn initialize(&self, arc_self: &Arc<Self>) {
+        self.set_arc_self(arc_self);
     }
 
     /*************************************/
@@ -136,18 +108,18 @@ impl SessionManager {
     /*            LINK MANAGER           */
     /*************************************/
     async fn new_manager(&self, protocol: &LocatorProtocol) -> Result<(), ZError> {
-        let session = self.session.read().await.get(&MANAGER_SID).unwrap().clone();
+        // let session = self.session.read().await.get(&MANAGER_SID).unwrap().clone();
         let r_guard = self.manager.read().await;
         match protocol {
             LocatorProtocol::Tcp => if !r_guard.contains_key(&LocatorProtocol::Tcp) {
                 drop(r_guard);
-                let m = Arc::new(ManagerTcp::new(session));
+                let m = Arc::new(ManagerTcp::new(self.get_arc_self()));
                 m.set_arc_self(&m);
                 self.manager.write().await.insert(LocatorProtocol::Tcp, m);
             },
             LocatorProtocol::Udp => if !r_guard.contains_key(&LocatorProtocol::Udp) {
                 drop(r_guard);
-                let m = Arc::new(ManagerUdp::new(session));
+                let m = Arc::new(ManagerUdp::new());
                 m.set_arc_self(&m);
                 self.manager.write().await.insert(LocatorProtocol::Udp, m);
             }
@@ -186,8 +158,7 @@ impl SessionManager {
         let id = guard.len();
         // Create and initialize a new session
         let session = Arc::new(Session::new(id, self.get_arc_self(), self.callback.clone()));
-        session.set_arc_self(&session);
-        session.initialize().await;
+        session.initialize(&session).await;
         // Store the new session
         guard.insert(session.get_id(), session.clone());
         return session
@@ -202,8 +173,11 @@ impl SessionManager {
         match self.manager.read().await.get(&locator.get_proto()) {
             Some(manager) => {
                 // Create a new link
+                let callback = Arc::new(EmptyCallback::new());
+                let session = Arc::new(Session::new(0, self.get_arc_self(), callback));
+                session.initialize(&session).await;
                 // The real session is only created after the Open/Accept message exchange
-                match manager.new_link(locator).await {
+                match manager.new_link(locator, session).await {
                     Ok(link) => {
                         // Create a channel for knowing when a session is open
                         let (sender, receiver) = bounded::<Arc<Session>>(0);
@@ -213,21 +187,16 @@ impl SessionManager {
                         let message = Arc::new(Message::make_open(
                             0, None, PeerId{id: Vec::new()}, 0, None, None, None
                         ));
-                        let res = match link.send(message.clone()).await {
+                        match link.send(message.clone()).await {
                             Ok(_) => {
                                 // Wait the accept message to finalize the session
                                 let session = receiver.recv().unwrap();
                                 // Set the session on the link
                                 link.set_session(session.clone()).await.unwrap();
-                                // Add the link to the session
-                                session.add_link(link.clone()).await;
-                                Ok(session)
+                                return Ok(session)
                             },
-                            Err(e) => Err(e)
+                            Err(e) => return Err(e)
                         };
-                        // Remove the link from the listener session
-                        self.session.read().await.get(&MANAGER_SID).unwrap().del_link(locator).await;
-                        return res
                     },
                     Err(e) => return Err(e)
                 }
@@ -241,19 +210,13 @@ impl SessionManager {
     /*************************************/
     /*              PROCESS              */
     /*************************************/
-    pub async fn process_message(&self, session: usize, locator: &Locator, message: Message) -> Result<(), ZError> {
-        let session = match self.session.read().await.get(&session) {
-            Some(session) => session.clone(),
-            None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Received a message from a session that does not exist!")
-            }))
-        };
+    pub async fn process_message(&self, session: Arc<Session>, locator: &Locator, message: Message) -> Result<(), ZError> {
         // Process the message
         match &message.body {
             Body::Accept{ opid, apid, lease } => {
                 match self.pending.write().await.remove(locator) {
                     Some(sender) => {
-                        // println!("ACCEPT from {}", locator);
+                        println!("ACCEPT from {}", locator);
                         // Need to fix the PeerID look up
                         // For the time being a create a new session for each accept
                         // In the feature a link could be added to an existing session
@@ -272,7 +235,7 @@ impl SessionManager {
             },
             Body::Close{ pid, reason } => {},
             Body::Open{ version, whatami, pid, lease, locators } => {
-                // println!("OPEN from {}", locator);
+                println!("OPEN from {}", locator);
                 // TODO: fix the make_accept message parameters
                 let message = Arc::new(Message::make_accept(PeerId{id: Vec::new()}, PeerId{id: Vec::new()}, 0, None, None));
                 session.schedule(message).await;
