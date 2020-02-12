@@ -1,6 +1,9 @@
 use async_std::sync::{
     Arc,
+    channel,
+    Receiver,
     RwLock,
+    Sender,
     Weak
 };
 use async_std::task::{
@@ -9,11 +12,11 @@ use async_std::task::{
     Waker
 };
 use async_trait::async_trait;
-use crossbeam::channel::{
-    bounded,
-    Sender,
-    Receiver
-};
+// use crossbeam::channel::{
+//     bounded,
+//     Sender,
+//     Receiver
+// };
 use std::collections::HashMap;
 
 use crate::{
@@ -46,7 +49,7 @@ pub struct SessionManager {
     callback: Arc<dyn SessionCallback + Send + Sync>,
     manager: RwLock<HashMap<LocatorProtocol, Arc<dyn LinkManager + Send + Sync>>>,
     session: RwLock<HashMap<usize, Arc<Session>>>,
-    pending: RwLock<HashMap<Locator, Sender<Arc<Session>>>>
+    pending: RwLock<HashMap<Locator, Sender<Option<Arc<Session>>>>>
 }
 
 zarcself!(SessionManager);
@@ -179,8 +182,9 @@ impl SessionManager {
                 // The real session is only created after the Open/Accept message exchange
                 match manager.new_link(locator, session).await {
                     Ok(link) => {
+                        println!("LINK CREATED!");
                         // Create a channel for knowing when a session is open
-                        let (sender, receiver) = bounded::<Arc<Session>>(0);
+                        let (sender, receiver) = channel::<Option<Arc<Session>>>(1);
                         self.pending.write().await.insert(locator.clone(), sender);
                         // Send the Open Message
                         // TODO: fix the make_open message parameters
@@ -190,10 +194,17 @@ impl SessionManager {
                         match link.send(message.clone()).await {
                             Ok(_) => {
                                 // Wait the accept message to finalize the session
-                                let session = receiver.recv().unwrap();
+                                let session = receiver.recv().await.unwrap();
                                 // Set the session on the link
-                                link.set_session(session.clone()).await.unwrap();
-                                return Ok(session)
+                                if let Some(session) = session {
+                                    link.set_session(session.clone()).await.unwrap();
+                                    return Ok(session)
+                                } else {
+                                    return Err(zerror!(ZErrorKind::Other{
+                                        msg: format!("Failed to open a connection")
+                                    }))
+                                }
+                                
                             },
                             Err(e) => return Err(e)
                         };
@@ -221,12 +232,7 @@ impl SessionManager {
                         // For the time being a create a new session for each accept
                         // In the feature a link could be added to an existing session
                         let session = self.new_session().await;
-                        match sender.send(session) {
-                            Ok(_) => return Ok(()),
-                            Err(e) => return Err(zerror!(ZErrorKind::Other{
-                                msg: format!("{}", e)
-                            }))
-                        };
+                        sender.send(Some(session)).await;
                     },
                     None => return Err(zerror!(ZErrorKind::InvalidMessage{
                         reason: format!("Received an Accept from a non-open session!")

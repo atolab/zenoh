@@ -132,6 +132,11 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
     loop {
         match (&link.socket).read(&mut buff.writable_slice()).await {
             Ok(n) => { 
+                // Reading zero bytes means error
+                if n == 0 {
+                    link.close().await?;
+                    break
+                }
                 buff.set_write_pos(buff.write_pos() + n).unwrap();
             },
             Err(_) => {
@@ -210,13 +215,8 @@ impl LinkManager for ManagerTcp  {
             match receive_loop(a_link).await {
                 Ok(_) => (),
                 Err(e) => println!("{:?}", e)
-            }
-            
+            }   
         });
-        // WORKAROUND !!! This task does nothing !!!
-        // There is a scheduling problem: if I remove this task,
-        // the previous task with the receive loop task is not scheduled
-        task::spawn(async move {});
 
         Ok(link)
     }
