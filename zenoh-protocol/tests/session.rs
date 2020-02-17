@@ -95,6 +95,7 @@ async fn client(locator: Vec<Locator>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[ignore]
 #[test]
 fn session() {
     let mut locator: Vec<Locator> = Vec::new();
