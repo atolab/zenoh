@@ -77,7 +77,7 @@ impl Tables {
         res
     }
 
-    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, rname: &str) {
+    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -89,25 +89,41 @@ impl Tables {
                         // }
                     }
                     None => {
-                        let res = Tables::make_and_match_resource(&t.root_res, &t.root_res, rname);
-                        {
-                            let mut wres = res.write();
-                            match wres.contexts.get(&rsex.id) {
-                                Some(_ctx) => {}
-                                None => {
-                                    wres.contexts.insert(rsex.id, 
-                                        Arc::new(RwLock::new(Context {
-                                            session: sex.clone(),
-                                            rid: Some(rid),
-                                            subs: None,
-                                        }))
-                                    );
+                        let prefix = {
+                            match prefixid {
+                                0 => {Some(&t.root_res)}
+                                prefixid => {
+                                    match rsex.mappings.get(&prefixid) {
+                                        Some(prefix) => {Some(prefix)}
+                                        None => {None}
+                                    }
                                 }
                             }
+                        };
+                        match prefix {
+                            Some(prefix) => {
+                                let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
+                                {
+                                    let mut wres = res.write();
+                                    match wres.contexts.get(&rsex.id) {
+                                        Some(_ctx) => {}
+                                        None => {
+                                            wres.contexts.insert(rsex.id, 
+                                                Arc::new(RwLock::new(Context {
+                                                    session: sex.clone(),
+                                                    rid: Some(rid),
+                                                    subs: None,
+                                                }))
+                                            );
+                                        }
+                                    }
+                                }
+                                drop(rsex);
+                                Tables::build_matches_direct_tables(&res);
+                                sex.write().mappings.insert(rid, res);
+                            }
+                            None => println!("Declare resource with unknown prefix {}!", prefixid)
                         }
-                        drop(rsex);
-                        Tables::build_matches_direct_tables(&res);
-                        sex.write().mappings.insert(rid, res);
                     }
                 }
             }

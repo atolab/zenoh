@@ -6,8 +6,8 @@ use zenoh_protocol::core::rname::intersect;
 fn base_test() {
     let tables = Tables::new();
     let sex = Tables::declare_session(&tables, 0);
-    Tables::declare_resource(&tables, &sex, 1, "/one/two/three");
-    Tables::declare_resource(&tables, &sex, 2, "/one/deux/trois");
+    Tables::declare_resource(&tables, &sex, 1, 0, "/one/two/three");
+    Tables::declare_resource(&tables, &sex, 2, 0, "/one/deux/trois");
     
     Tables::declare_subscription(&tables, &sex, 1, "/four/five");
 
@@ -32,7 +32,7 @@ fn match_test() {
     let tables = Tables::new();
     let sex = Tables::declare_session(&tables, 0);
     for (i, rname) in rnames.iter().enumerate() {
-        Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), rname);
+        Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), 0, rname);
     }
 
     for rname1 in rnames.iter() {
@@ -54,17 +54,17 @@ fn client_test() {
     let tables = Tables::new();
 
     let sex0 = Tables::declare_session(&tables, 0);
-    Tables::declare_resource(&tables, &sex0, 11, "/test/client");
+    Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex0, 11, "/**");
-    Tables::declare_resource(&tables, &sex0, 12, "/test/client/z1_pub1");
+    Tables::declare_resource(&tables, &sex0, 12, 11, "/z1_pub1");
 
     let sex1 = Tables::declare_session(&tables, 1);
-    Tables::declare_resource(&tables, &sex1, 21, "/test/client");
+    Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex1, 21, "/**");
-    Tables::declare_resource(&tables, &sex1, 22, "/test/client/z2_pub1");
+    Tables::declare_resource(&tables, &sex1, 22, 21, "/z2_pub1");
 
     let sex2 = Tables::declare_session(&tables, 2);
-    Tables::declare_resource(&tables, &sex2, 31, "/test/client");
+    Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex2, 31, "/**");
 
     
