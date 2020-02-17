@@ -119,17 +119,17 @@ impl Tables {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
+                let rsex = sex.read();
                 let prefix = {
-                    match sex.read().mappings.get(&rid) {
-                        Some(prefix) => {Some(prefix.clone())}
+                    match rsex.mappings.get(&rid) {
+                        Some(prefix) => {Some(prefix)}
                         None => {None}
                     }
                 };
                 match prefix {
                     Some(prefix) => {
-                        let res = Tables::make_and_match_resource(&t.root_res, &prefix, suffix);
+                        let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
                         {
-                            let rsex = sex.read();
                             let mut wres = res.write();
                             match wres.contexts.get(&rsex.id) {
                                 Some(ctx) => {
