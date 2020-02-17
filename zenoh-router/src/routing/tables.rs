@@ -115,15 +115,20 @@ impl Tables {
         }
     }
 
-    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, suffix: &str) {
+    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
                 let prefix = {
-                    match rsex.mappings.get(&rid) {
-                        Some(prefix) => {Some(prefix)}
-                        None => {None}
+                    match prefixid {
+                        0 => {Some(&t.root_res)}
+                        prefixid => {
+                            match rsex.mappings.get(&prefixid) {
+                                Some(prefix) => {Some(prefix)}
+                                None => {None}
+                            }
+                        }
                     }
                 };
                 match prefix {
@@ -148,7 +153,7 @@ impl Tables {
                         }
                         Tables::build_matches_direct_tables(&res);
                     }
-                    None => println!("Declare subscription for unknown rid {}!", rid)
+                    None => println!("Declare subscription for unknown rid {}!", prefixid)
                 }
             }
             None => println!("Declare subscription for closed session!")
