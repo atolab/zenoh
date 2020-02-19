@@ -9,7 +9,7 @@ pub struct Resource {
     pub(super) nonwild_prefix: Option<(Arc<RwLock<Resource>>, String)>,
     pub(super) childs: HashMap<String, Arc<RwLock<Resource>>>,
     pub(super) contexts: HashMap<u64, Arc<RwLock<Context>>>,
-    pub(super) matches: Vec<Arc<RwLock<Resource>>>,
+    pub(super) matches: Vec<Weak<RwLock<Resource>>>,
     pub(super) route: HashMap<u64, (Weak<RwLock<Session>>, u64, String)>
 }
 
@@ -58,10 +58,30 @@ impl Resource {
         }))
     }
 
+    pub fn clean(res: &Arc<RwLock<Resource>>) {
+        let rres = res.read();
+        if let Some(parent) = &rres.parent {
+            if Arc::strong_count(res) <= 2 && rres.childs.len() == 0 {
+                for match_ in &rres.matches {
+                    let match_ = &match_.upgrade().unwrap();
+                    if ! Arc::ptr_eq(match_, res) {
+                        let mut wmatch = match_.write();
+                        wmatch.matches.retain(|x| ! Arc::ptr_eq(&x.upgrade().unwrap(), res));
+                    }
+                }
+                {
+                    let mut wparent = parent.write();
+                    wparent.childs.remove(&rres.suffix);
+                }
+                Resource::clean(parent);
+            }
+        }
+    }
+
     pub fn print_tree(from: &Arc<RwLock<Resource>>) {
         println!("{}", from.read().name());
         for match_ in &from.read().matches.clone() {
-            println!("  -> {}", match_.read().name());
+            println!("  -> {}", match_.upgrade().unwrap().read().name());
         }
         for (_, child) in &from.read().childs {
             Resource::print_tree(&child)

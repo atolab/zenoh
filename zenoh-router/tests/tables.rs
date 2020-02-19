@@ -1,4 +1,5 @@
 use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::resource::Resource;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
 
@@ -37,7 +38,7 @@ fn match_test() {
 
     for rname1 in rnames.iter() {
         let res_matches = Tables::get_matches(&tables, rname1);
-        let matches:Vec<String> = res_matches.iter().map(|m| {m.read().name()}).collect();
+        let matches:Vec<String> = res_matches.iter().map(|m| {m.upgrade().unwrap().read().name()}).collect();
         for rname2 in rnames.iter() {
             if matches.contains(&String::from(*rname2)) {
                 assert!(   intersect(rname1, rname2));
@@ -48,6 +49,122 @@ fn match_test() {
     }
 }
 
+#[test]
+fn clean_test() {
+    let tables = Tables::new();
+
+    let sex0 = Tables::declare_session(&tables, 0);
+    assert!(sex0.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop1/todrop11");
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    assert!(res2.upgrade().is_some());
+
+    Tables::declare_resource(&tables, &sex0, 3, 0, "/**");
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/**");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 1);
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 2);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 3);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop1/todrop11");
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    assert!(res2.upgrade().is_some());
+
+    Tables::declare_subscription(&tables, &sex0, 1, "/todrop12");
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop12");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 1, "/todrop12");
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 0, "/todrop1/todrop11");
+    assert!(res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 1);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop3");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop3");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop3");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 0, "/todrop3");
+    assert!(res1.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 2);
+    assert!( ! res1.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 3, 0, "/todrop4");
+    Tables::declare_resource(&tables, &sex0, 4, 0, "/todrop5");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop5");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop6");
+
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop4");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop5");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop6");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_session(&tables, &sex0);
+    assert!( ! sex0.upgrade().is_some());
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+}
 
 #[test]
 fn client_test() {
