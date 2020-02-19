@@ -36,12 +36,14 @@ impl RWBuf {
   /// ```
   ///   use std::io::prelude::*;
   ///   use std::net::TcpStream;
+  ///   use zenoh_protocol::io::RWBuf;
   ///   
-  ///   let mut socket = TcpStream::connect("127.0.0.1:12345")?;
-  ///   let mut buff = RWBuf::new(8_192);
-  ///   let n = socket.read(&mut buff.writable_slice());
-  ///   // n is the number of read (and consequently written) bytes
-  ///   buff.set_write_pos(buff.write_pos() + n).unwrap();
+  ///   if let Ok(mut socket) = TcpStream::connect("127.0.0.1:12345") {
+  ///     let mut buff = RWBuf::new(8_192);
+  ///     let n = socket.read(&mut buff.writable_slice()).unwrap();
+  ///     // n is the number of read (and consequently written) bytes
+  ///     buff.set_write_pos(buff.write_pos() + n).unwrap();
+  ///   }
   /// ```
   pub fn writable_slice(&mut self) -> &mut [u8] {    
     &mut self.buf[self.w_pos..]

@@ -19,6 +19,11 @@ impl Tables {
         }))
     }
 
+    #[doc(hidden)]
+    pub fn _get_root(&self) -> &Arc<RwLock<Resource>> {
+        &self.root_res
+    }
+
     pub fn print(tables: &Arc<RwLock<Tables>>) {
         Resource::print_tree(&tables.read().root_res)
     }
@@ -31,9 +36,28 @@ impl Tables {
         Arc::downgrade(t.sessions.get(&sid).unwrap())
     }
 
+    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>) {
+        let mut t = tables.write();
+        match sex.upgrade() {
+            Some(sex) => {
+                let mut wsex = sex.write();
+                for (_, mapping) in &wsex.mappings {
+                    Resource::clean(&mapping);
+                }
+                wsex.mappings.clear();
+                while let Some(res) = wsex.subs.pop() {
+                    Resource::clean(&res);
+                }
+                t.sessions.remove(&wsex.id);
+            }
+            None => println!("Undeclare closed session!")
+        }
+    }
+
     fn build_direct_tables(res: &Arc<RwLock<Resource>>) {
         let mut dests = HashMap::new();
         for match_ in &res.read().matches {
+            let match_ = &match_.upgrade().unwrap();
             let rmatch_ = match_.read();
             for (sid, context) in &rmatch_.contexts {
                 let rcontext = context.read();
@@ -49,6 +73,7 @@ impl Tables {
     fn build_matches_direct_tables(res: &Arc<RwLock<Resource>>) {
         Tables::build_direct_tables(&res);
         for match_ in &res.read().matches {
+            let match_ = &match_.upgrade().unwrap();
             if ! Arc::ptr_eq(match_, res) {
                 Tables::build_direct_tables(match_);
             }
@@ -59,9 +84,9 @@ impl Tables {
         let res = Resource::make_resource(prefix, suffix);
         let matches = Tables::get_matches_from(suffix, from);
 
-        fn matches_contain(matches: &Vec<Arc<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
+        fn matches_contain(matches: &Vec<Weak<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
-                if Arc::ptr_eq(match_, res) {
+                if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
                     return true;
                 }
             }
@@ -69,15 +94,16 @@ impl Tables {
         }
         
         for match_ in &matches {
+            let match_ = &match_.upgrade().unwrap();
             if ! matches_contain(&match_.read().matches, &res) {
-                match_.write().matches.push(res.clone());
+                match_.write().matches.push(Arc::downgrade(&res));
             }
         }
         res.write().matches = matches;
         res
     }
 
-    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, rname: &str) {
+    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -89,25 +115,41 @@ impl Tables {
                         // }
                     }
                     None => {
-                        let res = Tables::make_and_match_resource(&t.root_res, &t.root_res, rname);
-                        {
-                            let mut wres = res.write();
-                            match wres.contexts.get(&rsex.id) {
-                                Some(_ctx) => {}
-                                None => {
-                                    wres.contexts.insert(rsex.id, 
-                                        Arc::new(RwLock::new(Context {
-                                            session: sex.clone(),
-                                            rid: Some(rid),
-                                            subs: None,
-                                        }))
-                                    );
+                        let prefix = {
+                            match prefixid {
+                                0 => {Some(&t.root_res)}
+                                prefixid => {
+                                    match rsex.mappings.get(&prefixid) {
+                                        Some(prefix) => {Some(prefix)}
+                                        None => {None}
+                                    }
                                 }
                             }
+                        };
+                        match prefix {
+                            Some(prefix) => {
+                                let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
+                                {
+                                    let mut wres = res.write();
+                                    match wres.contexts.get(&rsex.id) {
+                                        Some(_ctx) => {}
+                                        None => {
+                                            wres.contexts.insert(rsex.id, 
+                                                Arc::new(RwLock::new(Context {
+                                                    session: sex.clone(),
+                                                    rid: Some(rid),
+                                                    subs: None,
+                                                }))
+                                            );
+                                        }
+                                    }
+                                }
+                                drop(rsex);
+                                Tables::build_matches_direct_tables(&res);
+                                sex.write().mappings.insert(rid, res);
+                            }
+                            None => println!("Declare resource with unknown prefix {}!", prefixid)
                         }
-                        drop(rsex);
-                        Tables::build_matches_direct_tables(&res);
-                        sex.write().mappings.insert(rid, res);
                     }
                 }
             }
@@ -115,28 +157,47 @@ impl Tables {
         }
     }
 
-    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, suffix: &str) {
+    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64) {
+        let _t = tables.write();
+        match sex.upgrade() {
+            Some(sex) => {
+                let mut wsex = sex.write();
+                match wsex.mappings.remove(&rid) {
+                    Some(res) => {Resource::clean(&res)}
+                    None => println!("Undeclare unknown resource!")
+                }
+            }
+            None => println!("Undeclare resource for closed session!")
+        }
+    }
+
+    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
+                let mut wsex = sex.write();
                 let prefix = {
-                    match sex.read().mappings.get(&rid) {
-                        Some(prefix) => {Some(prefix.clone())}
-                        None => {None}
+                    match prefixid {
+                        0 => {Some(&t.root_res)}
+                        prefixid => {
+                            match wsex.mappings.get(&prefixid) {
+                                Some(prefix) => {Some(prefix)}
+                                None => {None}
+                            }
+                        }
                     }
                 };
                 match prefix {
                     Some(prefix) => {
-                        let res = Tables::make_and_match_resource(&t.root_res, &prefix, suffix);
+                        let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
                         {
-                            let rsex = sex.read();
                             let mut wres = res.write();
-                            match wres.contexts.get(&rsex.id) {
+                            match wres.contexts.get(&wsex.id) {
                                 Some(ctx) => {
                                     ctx.write().subs = Some(false);
                                 }
                                 None => {
-                                    wres.contexts.insert(rsex.id, 
+                                    wres.contexts.insert(wsex.id, 
                                         Arc::new(RwLock::new(Context {
                                             session: sex.clone(),
                                             rid: None,
@@ -147,11 +208,55 @@ impl Tables {
                             }
                         }
                         Tables::build_matches_direct_tables(&res);
+                        wsex.subs.push(res);
                     }
-                    None => println!("Declare subscription for unknown rid {}!", rid)
+                    None => println!("Declare subscription for unknown rid {}!", prefixid)
                 }
             }
             None => println!("Declare subscription for closed session!")
+        }
+    }
+
+    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
+        let t = tables.write();
+        match sex.upgrade() {
+            Some(sex) => {
+                let mut wsex = sex.write();
+                let prefix = {
+                    match prefixid {
+                        0 => {Some(&t.root_res)}
+                        prefixid => {
+                            match wsex.mappings.get(&prefixid) {
+                                Some(prefix) => {Some(prefix)}
+                                None => {None}
+                            }
+                        }
+                    }
+                };
+                match prefix {
+                    Some(prefix) => {
+                        match Resource::get_resource(prefix, suffix) {
+                            Some(res) => {
+                                let res = res.upgrade().unwrap();
+                                {
+                                    let wres = res.write();
+                                    match wres.contexts.get(&wsex.id) {
+                                        Some(ctx) => {
+                                            ctx.write().subs = None;
+                                        }
+                                        None => {}
+                                    }
+                                }
+                                wsex.subs.retain(|x| ! Arc::ptr_eq(&x, &res));
+                                Resource::clean(&res)
+                            }
+                            None => println!("Undeclare unknown subscription!")
+                        }
+                    }
+                    None => println!("Undeclare subscription with unknown prefix!")
+                }
+            }
+            None => println!("Undeclare subscription for closed session!")
         }
     }
 
@@ -172,7 +277,7 @@ impl Tables {
         }
     }
 
-    fn get_matches_from(rname: &str, from: &Arc<RwLock<Resource>>) -> Vec<Arc<RwLock<Resource>>> {
+    fn get_matches_from(rname: &str, from: &Arc<RwLock<Resource>>) -> Vec<Weak<RwLock<Resource>>> {
         let mut matches = Vec::new();
         if from.read().parent.is_none() {
             for (_, child) in &from.read().childs {
@@ -182,7 +287,7 @@ impl Tables {
         }
         if rname.is_empty() {
             if from.read().suffix == "/**" || from.read().suffix == "/" {
-                matches.push(from.clone()); // weak ?
+                matches.push(Arc::downgrade(from));
                 for (_, child) in &from.read().childs {
                     matches.append(&mut Tables::get_matches_from(rname, child));
                 }
@@ -192,7 +297,7 @@ impl Tables {
         let (chunk, rest) = Tables::fst_chunk(rname);
         if intersect(chunk, &from.read().suffix) {
             if rest.is_empty() || rest == "/" || rest == "/**" {
-                matches.push(from.clone()) // weak ?
+                matches.push(Arc::downgrade(from))
             } else if chunk == "/**" || from.read().suffix == "/**" {
                 matches.append(&mut Tables::get_matches_from(rest, from));
             }
@@ -206,7 +311,7 @@ impl Tables {
         matches
     }
 
-    pub fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Arc<RwLock<Resource>>> {
+    pub fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Weak<RwLock<Resource>>> {
         let t = tables.read();
         Tables::get_matches_from(rname, &t.root_res)
     }
@@ -240,9 +345,10 @@ impl Tables {
         let t = tables.read();
 
         let build_route = |prefix: &Arc<RwLock<Resource>>, suffix: &str| {
-            let consolidate = |matches: &Vec<Arc<RwLock<Resource>>>| {
+            let consolidate = |matches: &Vec<Weak<RwLock<Resource>>>| {
                 let mut sexs = HashMap::new();
                 for res in matches {
+                    let res = res.upgrade().unwrap();
                     let rres = res.read();
                     for (sid, context) in &rres.contexts {
                         let rcontext = context.read();

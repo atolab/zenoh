@@ -1,4 +1,5 @@
 use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::resource::Resource;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
 
@@ -6,8 +7,8 @@ use zenoh_protocol::core::rname::intersect;
 fn base_test() {
     let tables = Tables::new();
     let sex = Tables::declare_session(&tables, 0);
-    Tables::declare_resource(&tables, &sex, 1, "/one/two/three");
-    Tables::declare_resource(&tables, &sex, 2, "/one/deux/trois");
+    Tables::declare_resource(&tables, &sex, 1, 0, "/one/two/three");
+    Tables::declare_resource(&tables, &sex, 2, 0, "/one/deux/trois");
     
     Tables::declare_subscription(&tables, &sex, 1, "/four/five");
 
@@ -32,12 +33,12 @@ fn match_test() {
     let tables = Tables::new();
     let sex = Tables::declare_session(&tables, 0);
     for (i, rname) in rnames.iter().enumerate() {
-        Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), rname);
+        Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), 0, rname);
     }
 
     for rname1 in rnames.iter() {
         let res_matches = Tables::get_matches(&tables, rname1);
-        let matches:Vec<String> = res_matches.iter().map(|m| {m.read().name()}).collect();
+        let matches:Vec<String> = res_matches.iter().map(|m| {m.upgrade().unwrap().read().name()}).collect();
         for rname2 in rnames.iter() {
             if matches.contains(&String::from(*rname2)) {
                 assert!(   intersect(rname1, rname2));
@@ -48,23 +49,139 @@ fn match_test() {
     }
 }
 
+#[test]
+fn clean_test() {
+    let tables = Tables::new();
+
+    let sex0 = Tables::declare_session(&tables, 0);
+    assert!(sex0.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop1/todrop11");
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    assert!(res2.upgrade().is_some());
+
+    Tables::declare_resource(&tables, &sex0, 3, 0, "/**");
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/**");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 1);
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 2);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 3);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop1/todrop11");
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    assert!(res2.upgrade().is_some());
+
+    Tables::declare_subscription(&tables, &sex0, 1, "/todrop12");
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop12");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 1, "/todrop12");
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 0, "/todrop1/todrop11");
+    assert!(res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 1);
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop3");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop3");
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop3");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    assert!(res1.upgrade().is_some());
+
+    Tables::undeclare_subscription(&tables, &sex0, 0, "/todrop3");
+    assert!(res1.upgrade().is_some());
+
+    Tables::undeclare_resource(&tables, &sex0, 2);
+    assert!( ! res1.upgrade().is_some());
+
+    // --------------
+    Tables::declare_resource(&tables, &sex0, 3, 0, "/todrop4");
+    Tables::declare_resource(&tables, &sex0, 4, 0, "/todrop5");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop5");
+    Tables::declare_subscription(&tables, &sex0, 0, "/todrop6");
+
+    let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop4");
+    assert!(optres1.is_some());
+    let res1 = optres1.unwrap();
+    let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop5");
+    assert!(optres2.is_some());
+    let res2 = optres2.unwrap();
+    let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop6");
+    assert!(optres3.is_some());
+    let res3 = optres3.unwrap();
+
+    assert!(res1.upgrade().is_some());
+    assert!(res2.upgrade().is_some());
+    assert!(res3.upgrade().is_some());
+
+    Tables::undeclare_session(&tables, &sex0);
+    assert!( ! sex0.upgrade().is_some());
+    assert!( ! res1.upgrade().is_some());
+    assert!( ! res2.upgrade().is_some());
+    assert!( ! res3.upgrade().is_some());
+
+}
 
 #[test]
 fn client_test() {
     let tables = Tables::new();
 
     let sex0 = Tables::declare_session(&tables, 0);
-    Tables::declare_resource(&tables, &sex0, 11, "/test/client");
+    Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex0, 11, "/**");
-    Tables::declare_resource(&tables, &sex0, 12, "/test/client/z1_pub1");
+    Tables::declare_resource(&tables, &sex0, 12, 11, "/z1_pub1");
 
     let sex1 = Tables::declare_session(&tables, 1);
-    Tables::declare_resource(&tables, &sex1, 21, "/test/client");
+    Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex1, 21, "/**");
-    Tables::declare_resource(&tables, &sex1, 22, "/test/client/z2_pub1");
+    Tables::declare_resource(&tables, &sex1, 22, 21, "/z2_pub1");
 
     let sex2 = Tables::declare_session(&tables, 2);
-    Tables::declare_resource(&tables, &sex2, 31, "/test/client");
+    Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex2, 31, "/**");
 
     

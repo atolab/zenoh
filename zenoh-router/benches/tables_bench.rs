@@ -8,8 +8,8 @@ fn tables_bench(c: &mut Criterion) {
   let tables = Tables::new();
 
   let sex0 = Tables::declare_session(&tables, 0);
-  Tables::declare_resource(&tables, &sex0, 1, "/bench/tables");
-  Tables::declare_resource(&tables, &sex0, 2, "/bench/tables/*");
+  Tables::declare_resource(&tables, &sex0, 1, 0, "/bench/tables");
+  Tables::declare_resource(&tables, &sex0, 2, 0, "/bench/tables/*");
 
   let sex1 = Tables::declare_session(&tables, 1);
 
@@ -17,7 +17,7 @@ fn tables_bench(c: &mut Criterion) {
 
   for p in [8, 32, 256, 1024, 8192].iter() {
     for i in 1..(*p) {
-      Tables::declare_resource(&tables, &sex1, i, &["/bench/tables/AA", &i.to_string()].concat());
+      Tables::declare_resource(&tables, &sex1, i, 0, &["/bench/tables/AA", &i.to_string()].concat());
       Tables::declare_subscription(&tables, &sex1, i, "");
     }
 

@@ -79,6 +79,7 @@ async fn run(locator: Locator) -> Result<(), ()> {
     return Ok(())
 }
 
+#[ignore]
 #[test]
 fn session() {
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
