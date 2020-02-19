@@ -10,7 +10,7 @@ use zenoh_protocol::session::{
 };
 
 
-async fn run(locator: Locator) -> Result<(), ()> {
+async fn run(locator: Locator) {
     let (t_sender, t_receiver) = channel::<()>(1);
     let (r_sender, r_receiver) = channel::<()>(1);
 
@@ -75,15 +75,12 @@ async fn run(locator: Locator) -> Result<(), ()> {
     });
 
     t_receiver.recv().await;
-
-    return Ok(())
 }
 
-#[ignore]
 #[test]
 fn session() {
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
-    let res = task::block_on(run(locator));
+    task::block_on(run(locator));
 
     // locator.push("tcp/127.0.0.1:8889".parse().unwrap());
     // locator.push("udp/127.0.0.1:8888".parse().unwrap());
