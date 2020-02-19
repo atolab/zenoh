@@ -7,6 +7,7 @@ pub enum ZErrorKind {
     BufferUnderflow { missing: usize },
     InvalidMessage { reason: String },
     InvalidLocator { reason: String },
+    IOError { reason: String },
     Other { msg: String }
 }
 
@@ -22,6 +23,8 @@ impl fmt::Display for ZErrorKind {
                 write!(f, "Invalid message ({})", reason),
             ZErrorKind::InvalidLocator { reason } =>
                 write!(f, "Invalid locator ({})", reason),
+            ZErrorKind::IOError { reason } =>
+                write!(f, "IO error ({})", reason),
             ZErrorKind::Other { msg } =>
                 write!(f, "zenoh error: \"{}\"", msg),
         }

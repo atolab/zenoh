@@ -6,8 +6,11 @@ use async_std::net::{
 use async_std::prelude::*;
 use async_std::sync::{
     Arc,
+    channel,
     Mutex,
+    Sender,
     RwLock,
+    Receiver,
     Weak
 };
 use async_std::task;
@@ -34,7 +37,6 @@ use crate::proto::{
     Message
 };
 use crate::session::{
-    EmptyCallback,
     Session,
     SessionManager,
     Link,
@@ -45,9 +47,11 @@ use crate::session::{
 /*              LINK                 */
 /*************************************/
 pub struct LinkTcp {
-    locator: Locator,
     socket: TcpStream,
-    addr: SocketAddr,
+    local_addr: SocketAddr,
+    peer_addr: SocketAddr,
+    local_locator: Locator,
+    peer_locator: Locator,
     buff_size: usize,
     session: Mutex<Arc<Session>>,
     next_session: Mutex<Option<Arc<Session>>>,
@@ -55,11 +59,15 @@ pub struct LinkTcp {
 }
 
 impl LinkTcp {
-    fn new(socket: TcpStream, addr: SocketAddr, session: Arc<Session>, manager: Arc<ManagerTcp>) -> Self {
+    fn new(socket: TcpStream, session: Arc<Session>, manager: Arc<ManagerTcp>) -> Self {
+        let local_addr = socket.local_addr().unwrap();
+        let peer_addr = socket.peer_addr().unwrap();
         Self {
-            locator: Locator::Tcp{ addr: addr },
             socket: socket,
-            addr: addr,
+            local_addr: local_addr,
+            peer_addr: peer_addr,
+            local_locator: Locator::Tcp{ addr: local_addr },
+            peer_locator: Locator::Tcp{ addr: peer_addr },
             buff_size: 8_192,
             session: Mutex::new(session),
             next_session: Mutex::new(None),
@@ -70,14 +78,9 @@ impl LinkTcp {
 
 #[async_trait]
 impl Link for LinkTcp {
-    async fn close(&self) -> Result<(), ZError> {
-        match self.socket.shutdown(Shutdown::Both) {
-            Ok(_) => (),
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("{}", e)
-            }))
-        };
-        match self.manager.del_link(&self.locator).await {
+    async fn close(&self, reason: Option<ZError>) -> Result<(), ZError> {
+        let _ = self.socket.shutdown(Shutdown::Both);
+        match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
             Ok(_) => return Ok(()),
             Err(e) => return Err(zerror!(ZErrorKind::Other{
                 msg: format!("{}", e)
@@ -86,7 +89,6 @@ impl Link for LinkTcp {
     }
     
     async fn send(&self, message: Arc<Message>) -> Result<(), ZError> {
-        // println!("SEND {} {:?}", self.addr, message);
         let mut buff = RWBuf::new(self.buff_size);
         match buff.write_message(&message) {
             Ok(_) => match (&self.socket).write_all(&buff.readable_slice()).await {
@@ -105,8 +107,13 @@ impl Link for LinkTcp {
     }
 
     #[inline(always)]
-    fn get_locator(&self) -> Locator {
-        self.locator.clone()
+    fn get_src(&self) -> Locator {
+        self.local_locator.clone()
+    }
+
+    #[inline(always)]
+    fn get_dst(&self) -> Locator {
+        self.peer_locator.clone()
     }
 
     #[inline(always)]
@@ -126,42 +133,55 @@ impl Link for LinkTcp {
 }
 
 async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
-    // println!("REC LOOP {}", link.addr);
-    let locator = link.get_locator();
+    let src = link.get_src();
+    let dst = link.get_dst();
     let mut buff = RWBuf::new(link.buff_size);
-    loop {
+    let err = loop {
         match (&link.socket).read(&mut buff.writable_slice()).await {
             Ok(n) => { 
                 // Reading zero bytes means error
                 if n == 0 {
-                    link.close().await?;
-                    break
+                    break zerror!(ZErrorKind::IOError{
+                        reason: format!("Failed to read from the TCP socket")
+                    })
                 }
                 buff.set_write_pos(buff.write_pos() + n).unwrap();
             },
-            Err(_) => {
-                link.close().await?;
-                break
-            }
-        };
+            Err(e) => break zerror!(ZErrorKind::IOError{
+                reason: format!("{}", e)
+            })
+        }
         // Check if we need to change the session to send the message to
         let mut session = link.session.lock().await;
         loop {
             if let Some(next) = link.next_session.lock().await.take() {
-                session.del_link(&link.get_locator()).await;
+                let err = zerror!(ZErrorKind::Other{
+                    msg: format!("Moving the link to a new session")
+                });
+                let _ = session.del_link(&link.get_src(), &link.get_dst(), Some(err)).await;
                 *session = next;
-                session.add_link(link.clone()).await;
+                let _ = session.add_link(link.clone()).await;
             }
             match buff.read_message() {
                 Ok(message) => {
-                    session.receive_message(&locator, message).await;
+                    session.receive_message(&dst, &src, message).await;
                 },
                 Err(_) => break
             }
         }
-    }
-    Ok(())
+    };
+
+    // Close the link and clean the session
+    let _ = link.close(None).await;
+    let _ = link.session.lock().await.del_link(&link.get_src(), &link.get_dst(), Some(err)).await;
+    return Ok(())
 }
+
+// impl Drop for LinkTcp {
+//     fn drop(&mut self) {
+//         println!("Dropping Link ({} => {})", self.local_addr, self.peer_addr);
+//     }
+// }
 
 /*************************************/
 /*          LISTENER                 */
@@ -169,8 +189,8 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
 pub struct ManagerTcp {
     weak_self: RwLock<Weak<Self>>,
     manager: Arc<SessionManager>,
-    listener: RwLock<HashMap<SocketAddr, Arc<TcpListener>>>,
-    link: RwLock<HashMap<SocketAddr, Arc<LinkTcp>>>,
+    listener: RwLock<HashMap<SocketAddr, (Arc<TcpListener>, Sender<bool>)>>,
+    link: RwLock<HashMap<(SocketAddr, SocketAddr), Arc<LinkTcp>>>,
 }
 
 zarcself!(ManagerTcp);
@@ -183,21 +203,25 @@ impl ManagerTcp {
             link: RwLock::new(HashMap::new()),
         }
     }
+
+    async fn new_session(&self) -> Arc<Session> {
+        self.manager.new_session().await
+    }
 }
 
 #[async_trait]
 impl LinkManager for ManagerTcp  {
-    async fn new_link(&self, locator: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn new_link( &self, dst: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
         // Check if the locator is a TCP locator
-        let addr = match locator {
+        let dst = match dst {
             Locator::Tcp{ addr } => addr,
             _ => return Err(zerror!(ZErrorKind::InvalidLocator{
-                reason: format!("Not a TCP locator: {}", locator)
+                reason: format!("Not a TCP locator: {}", dst)
             }))
         };
         
         // Create the TCP connection
-        let stream = match TcpStream::connect(addr).await {
+        let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
             Err(e) => return Err(zerror!(ZErrorKind::Other{
                 msg: format!("{}", e)
@@ -205,34 +229,45 @@ impl LinkManager for ManagerTcp  {
         };
         
         // Create a new link object
-        let link = Arc::new(LinkTcp::new(stream, addr.clone(), session.clone(), self.get_arc_self()));
-        self.link.write().await.insert(link.addr, link.clone());
-        session.add_link(link.clone()).await;
+        let link = Arc::new(LinkTcp::new(stream, session.clone(), self.get_arc_self()));
+        self.link.write().await.insert((link.local_addr, link.peer_addr), link.clone());
+        match session.add_link(link.clone()).await {
+            Ok(_) => {},
+            Err(e) => return Err(e)
+        }
+        
         
         // Spawn the receive loop for the new link
         let a_link = link.clone();
         task::spawn(async move {
-            match receive_loop(a_link).await {
-                Ok(_) => (),
-                Err(e) => println!("{:?}", e)
-            }   
+            let _ = receive_loop(a_link).await;
         });
 
-        Ok(link)
+        return Ok(link)
     }
 
-    async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
-        // Check if the locator is a TCP locator
-        let addr = match locator {
+    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+        // Check if the src locator is a TCP locator
+        let src = match src {
             Locator::Tcp{ addr } => addr,
             _ => return Err(zerror!(ZErrorKind::InvalidLocator{
-                reason: format!("Not a TCP locator: {}", locator)
+                reason: format!("Not a TCP locator: {}", src)
             }))
         };
-        match self.link.write().await.remove(addr) {
+
+        // Check if the dst locator is a TCP locator
+        let dst = match dst {
+            Locator::Tcp{ addr } => addr,
+            _ => return Err(zerror!(ZErrorKind::InvalidLocator{
+                reason: format!("Not a TCP locator: {}", dst)
+            }))
+        };
+
+        // Remove the link from the manager list
+        match self.link.write().await.remove(&(*src, *dst)) {
             Some(link) => return Ok(link),
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("No active TCP link with: {}", addr)
+                msg: format!("No active TCP link ({} => {})", src, dst)
             }))
         }
     }
@@ -245,13 +280,36 @@ impl LinkManager for ManagerTcp  {
                 reason: format!("Not a TCP locator: {}", locator)
             }))
         };
+  
+        // Bind the TCP socket
+        let socket = match TcpListener::bind(addr).await {
+            Ok(socket) => Arc::new(socket),
+            Err(e) => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("{}", e)
+            }))
+        };
+
+        // Create the channel necessary to break the accept loop
+        let (sender, receiver) = channel::<bool>(1);
+        // Update the list of active listeners on the manager
+        self.listener.write().await.insert(addr.clone(), (socket.clone(), sender));
+
+        // Spawn the accept loop for the listener
         let a_self = self.get_arc_self();
         let a_addr = addr.clone();
         task::spawn(async move {
-            match accept_loop(a_self, a_addr, limit).await {
-                Ok(_) => (),
-                Err(e) => println!("{:?}", e)
-            }
+            // Wait for the accept loop to terminate
+            let res = match accept_loop(&a_self, &socket, limit, receiver).await {
+                Ok(_) => Ok(()),
+                Err(e) => Err(zerror!(ZErrorKind::Other{
+                    msg: format!("{}", e)
+                }))
+            }; 
+
+            // Delete the listener from the manager
+            a_self.listener.write().await.remove(&a_addr);
+ 
+            return res
         });
         Ok(())
     }
@@ -264,12 +322,15 @@ impl LinkManager for ManagerTcp  {
                 reason: format!("Not a TCP locator: {}", locator)
             }))
         };
+
+        // Stop the listener
         match self.listener.read().await.get(&addr) {
-            Some(_socket) => {
-                unimplemented!("Stopping an existing TCP listener is not yet implemented");
+            Some((_socket, sender)) => {
+                sender.send(false).await;
+                return Ok(())
             },
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("")
+                msg: format!("No TCP listener on locator: {}", locator)
             }))
         }
     }
@@ -279,66 +340,61 @@ impl LinkManager for ManagerTcp  {
     }
 }
 
-async fn accept_loop(manager: Arc<ManagerTcp>, addr: SocketAddr, limit: Option<usize>) -> Result<(), ZError> {
-    // Bind the TCP socket
-    let socket = match TcpListener::bind(addr).await {
-        Ok(socket) => Arc::new(socket),
-        Err(e) => return Err(zerror!(ZErrorKind::Other{
-            msg: format!("{}", e)
-        }))
-    };
+async fn accept_loop(manager: &Arc<ManagerTcp>, socket: &Arc<TcpListener>, 
+    limit: Option<usize>, receiver: Receiver<bool>
+) -> Result<(), ZError> {
+    // The accept future
+    async fn accept(manager: &Arc<ManagerTcp>, socket: &TcpListener, 
+        limit: &Option<usize>, count: &Arc<AtomicUsize>) -> Option<bool> {
 
-    // Update the list of active listeners on the manager
-    manager.listener.write().await.insert(addr.clone(), socket.clone());
-
-    println!("Listening on: tcp://{}", addr);
-    let count = Arc::new(AtomicUsize::new(0));
-    loop {
         // Wait for incoming connections
-        let (stream, src) = match socket.accept().await {
-            Ok((stream, src)) => (stream, src),
-            Err(_) => break
+        let stream = match socket.accept().await {
+            Ok((stream, _)) => stream,
+            Err(_) => return Some(true)
         };
 
         // Check if the connection limit for this listener is not exceeded
         if let Some(limit) = limit {
-            if count.load(Ordering::Acquire) < limit {
+            if count.load(Ordering::Acquire) < *limit {
                 count.fetch_add(1, Ordering::Release);
             } else {
-                match stream.shutdown(Shutdown::Both) {
-                    Ok(_) => continue,
-                    Err(_) => continue
-                }
+                let _ = stream.shutdown(Shutdown::Both);
+                return Some(true)
             }
         }
 
-        // Create a temporary Session 
-        let callback = Arc::new(EmptyCallback::new());
-        let session = Arc::new(Session::new(0, manager.manager.clone(), callback));
-        session.initialize(&session).await;
+        // Create a new temporary session Session 
+        let session = manager.new_session().await;
         // Create the new link object
-        let link = Arc::new(LinkTcp::new(stream, src, session.clone(), manager.get_arc_self()));
+        let link = Arc::new(LinkTcp::new(stream, session.clone(), manager.get_arc_self()));
 
         // Store a reference to the link into the manger
-        manager.link.write().await.insert(src.clone(), link.clone());
+        manager.link.write().await.insert((link.local_addr, link.peer_addr), link.clone());
 
         // Store a reference to the link into the session
-        session.add_link(link.clone()).await;
+        let _ = session.add_link(link.clone()).await;
 
         // Spawn the receive loop for the new link
         let a_link = link.clone();
         let a_count = count.clone();
         task::spawn(async move {
-            match receive_loop(a_link).await {
-                Ok(_) => (),
-                Err(e) => println!("{:?}", e)
-            }
+            let _ = receive_loop(a_link).await;
             a_count.fetch_sub(1, Ordering::Release);
         });
+
+        Some(true)
     }
 
-    // Delete the listener from the manager
-    manager.listener.write().await.remove(&addr);
+    let count = Arc::new(AtomicUsize::new(0));
+    loop {
+        let stop = receiver.recv();
+        let accept = accept(&manager, &socket, &limit, &count);
+        match accept.race(stop).await {
+            Some(true) => continue,
+            Some(false) => break,
+            None => break
+        }
+    }
 
     Ok(())
 }

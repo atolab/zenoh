@@ -20,11 +20,13 @@ use crate::proto::Message;
 /*************************************/
 #[async_trait]
 pub trait Link {
-    async fn close(&self) -> Result<(), ZError>;
+    async fn close(&self, reason: Option<ZError>) -> Result<(), ZError>;
 
     fn get_mtu(&self) -> usize;
 
-    fn get_locator(&self) -> Locator;
+    fn get_src(&self) -> Locator;
+
+    fn get_dst(&self) -> Locator;
 
     fn is_ordered(&self) -> bool;
 
@@ -40,9 +42,9 @@ pub trait Link {
 /*************************************/
 #[async_trait]
 pub trait LinkManager {
-    async fn new_link(&self, locator: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
+    async fn new_link(&self, dst: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
 
-    async fn del_link(&self, locator: &Locator) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
+    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
 
     async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> Result<(), ZError>;
 
@@ -65,7 +67,7 @@ pub trait SessionCallback {
 pub struct EmptyCallback {}
 
 impl EmptyCallback {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {}
     }
 }
