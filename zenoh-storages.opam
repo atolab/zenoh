@@ -35,10 +35,10 @@ install: [
 
 
 depends: [
-  "ocaml" {>= "4.03.0"}
-  "dune"
-  "zenoh-router" {= "0.3.0"}
-  "zenoh-common"  {= "0.3.0"}
-  "zenoh-storages-be-memory"  {= "0.3.0"}
-  "zenoh-storages-be-sql"  {= "0.3.0"}
+  "ocaml" {= "4.07.1"}
+  "dune" {= "2.3.0" }
+  "zenoh-router" {= "0.4.0"}
+  "zenoh-common" {= "0.4.0"}
+  "zenoh-storages-be-memory" {= "0.4.0"}
+  "zenoh-storages-be-sql" {= "0.4.0"}
 ]

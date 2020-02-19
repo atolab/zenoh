@@ -34,14 +34,14 @@ install: [
 ]
 
 depends: [
-  "ocaml" {>= "4.03.0" }
-  "dune"
-  "lwt" {>= "4.1.0" & < "5.0.0"}
+  "ocaml" {= "4.07.1"}
+  "dune" {= "2.3.0" }
+  "lwt" {= "5.1.1" }
   "zenoh-router" {= "0.4.0"}
-  "httpaf" {>= "0.6.0"}
-  "httpaf-lwt-unix" {>= "0.6.0"}
-  "ocp-ocamlres" {>= "0.4"}
-  "dynload-sys"
+  "httpaf" {= "0.6.5"}
+  "httpaf-lwt-unix" {= "0.6.5"}
+  "ocp-ocamlres" {= "0.4"}
+  "dynload-sys" {= "0.4.7"}
 ]
 synopsis : "The zenoh http plugin"
 description: """
