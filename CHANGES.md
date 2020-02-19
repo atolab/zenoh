@@ -1,3 +1,7 @@
+## 0.4.1 (2020-02-19)
+ - Updated all copyright headers for dual licensing EPL 2.0 + Apache 2.0
+ - Fixed versions of all dependencies.
+
 ## 0.4.0 (2020-01-10)
  - Merge of all Yaks (https://github.com/atolab/yaks) features into zenoh as a new "storages" plugin.
  - New Admin Space organisation (see http://zenoh.io/docs/manual/abstractions/#admin-space).
