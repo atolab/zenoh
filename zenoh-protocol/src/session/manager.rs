@@ -37,7 +37,6 @@ pub struct SessionManager {
     callback: Arc<dyn SessionCallback + Send + Sync>,
     manager: RwLock<HashMap<LocatorProtocol, Arc<dyn LinkManager + Send + Sync>>>,
     session: RwLock<HashMap<Uuid, Arc<Session>>>,
-    pending: RwLock<HashMap<Uuid, Arc<Session>>>,
     channel: RwLock<HashMap<Uuid, Sender<Result<Arc<Session>, ZError>>>>
 }
 
@@ -49,7 +48,6 @@ impl SessionManager {
             callback: callback,
             manager: RwLock::new(HashMap::new()),
             session: RwLock::new(HashMap::new()),
-            pending: RwLock::new(HashMap::new()),
             channel: RwLock::new(HashMap::new())
         }  
     }
@@ -138,23 +136,14 @@ impl SessionManager {
     }
 
     pub async fn del_session(&self, id: Uuid, reason: Option<ZError>) -> Result<Arc<Session>, ZError> {
+        // If it is pending, check if the open_session created a channel that needs to be notified
+        if let Some(channel) = self.channel.write().await.get(&id) {
+            channel.send(Err(reason.unwrap())).await;
+        }
         // Check if it is stored in the established sessions
-        let mut guard = self.session.write().await;
-        if let Some(_) = guard.get_mut(&id) {
-            return Ok(guard.remove(&id).unwrap())
+        if let Some(session) = self.session.write().await.remove(&id) {
+            return Ok(session)
         }
-        drop(guard);
-
-        // Check if it is stored in the pending sessions
-        let mut guard = self.pending.write().await;
-        if let Some(session) = guard.get_mut(&id) {
-            // If it is pending, check if the open_session created a channel that needs to be notified
-            if let Some(channel) = self.channel.write().await.get(&session.get_id()) {
-                channel.send(Err(reason.unwrap())).await;
-            }
-            return Ok(guard.remove(&id).unwrap())
-        }
-        drop(guard);
 
         return Err(zerror!(ZErrorKind::Other{
             msg: format!("Trying to delete a session that does not exist!")
@@ -168,7 +157,7 @@ impl SessionManager {
         let session = Arc::new(Session::new(id, self.get_arc_self()));
         session.initialize(&session).await;
         // Store the new session
-        self.pending.write().await.insert(session.get_id(), session.clone());
+        self.session.write().await.insert(session.get_id(), session.clone());
         return session
     }
 
@@ -217,8 +206,6 @@ impl SessionManager {
         // Wait the accept message to finalize the session
         match receiver.recv().await.unwrap() {
             Ok(session) => {
-                // Store the session in the list of active sessions
-                self.add_session(session.clone()).await;
                 // Set the current session on the link
                 link.set_session(session.clone()).await.unwrap();
                 return Ok(session)
@@ -249,8 +236,8 @@ impl SessionManager {
                         // For the time being a create a new session for each accept
                         // In the feature a link could be added to an existing session
                         // let session = self.new_session().await;
-                        if !self.session.read().await.contains_key(&session.get_id()) {
-                            let _ = self.del_session(session.get_id(), None);
+                        if !session.is_active() {
+                            session.activate();
                         }
                         sender.send(Ok(session)).await;
                     },
@@ -264,6 +251,8 @@ impl SessionManager {
                 // TODO: fix the make_accept message parameters
                 let message = Arc::new(Message::make_accept(PeerId{id: Vec::new()}, PeerId{id: Vec::new()}, 0, None, None));
                 session.schedule(message).await;
+                // Add the session to the established sessions
+                self.add_session(session).await;
             },
             _ => return Err(zerror!(ZErrorKind::InvalidMessage{
                 reason: format!("Message not allowed in the session manager: {:?}", message)

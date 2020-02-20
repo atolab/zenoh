@@ -16,6 +16,10 @@ use async_std::task::{
 };
 use crossbeam::atomic::AtomicCell;
 use crossbeam::queue::SegQueue;
+use std::sync::atomic::{
+    AtomicBool,
+    Ordering
+};
 use std::pin::Pin;
 use uuid::Uuid;
 
@@ -77,6 +81,7 @@ async fn consume_loop(session: Arc<Session>, receiver: Receiver<bool>) {
 pub struct Session {
     weak_self: RwLock<Weak<Self>>,
     id: Uuid,
+    active: AtomicBool,
     link: Mutex<Vec<Arc<dyn Link + Send + Sync>>>,
     manager: Arc<SessionManager>,
     callback: Mutex<Arc<dyn SessionCallback + Send + Sync>>,
@@ -94,6 +99,7 @@ impl Session {
         Self {
             weak_self: RwLock::new(Weak::new()),
             id: id,
+            active: AtomicBool::new(false),
             manager: manager, 
             callback: Mutex::new(Arc::new(EmptyCallback::new())),
             link: Mutex::new(Vec::new()),
@@ -112,6 +118,18 @@ impl Session {
         task::spawn(async move {
             consume_loop(a_self, c_recv).await;
         });
+    }
+
+    pub fn activate(&self) {
+        self.active.store(true, Ordering::Release);
+    }
+
+    pub fn deactivate(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
     }
 
     pub fn get_id(&self) -> Uuid {
@@ -196,6 +214,7 @@ impl Session {
             message: message
         }.await;
         
+        // TO FIX
         // We need to return the message sequence number
         return 0
     }
@@ -234,7 +253,7 @@ impl Session {
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) {
         match &message.body {
             Body::Accept{opid, apid, lease} => {
-                self.manager.process_message(self.get_arc_self(), src, dst, message).await;
+                let _ = self.manager.process_message(self.get_arc_self(), src, dst, message).await;
             },
             Body::AckNack{sn, mask} => {},
             Body::Close{pid, reason} => {},
@@ -245,7 +264,7 @@ impl Session {
             Body::Hello{whatami, locators} => {},
             Body::KeepAlive{pid} => {},
             Body::Open{version, whatami, pid, lease, locators} => {
-                self.manager.process_message(self.get_arc_self(), src, dst, message).await;
+                let _ = self.manager.process_message(self.get_arc_self(), src, dst, message).await;
             },
             Body::Ping{hash} => {},
             Body::Pong{hash} => {},
@@ -281,11 +300,11 @@ impl Session {
         }
     }
 
-    pub async fn close(&self, reason: Option<ZError>) -> Result<(), ZError> {
+    pub async fn close(&self, _reason: Option<ZError>) -> Result<(), ZError> {
         // Stop the task
         self.ch_sender.send(false).await;
         for l in self.link.lock().await.iter() {
-            l.close(None).await;
+            let _ = l.close(None).await;
         }
         Ok(())
     }
