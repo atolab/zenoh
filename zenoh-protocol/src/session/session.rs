@@ -258,7 +258,7 @@ impl Session {
             Body::AckNack{sn, mask} => {},
             Body::Close{pid, reason} => {},
             Body::Data{reliable, sn, key, info, payload} => {
-                self.callback.lock().await.receive_message(message);
+                self.callback.lock().await.receive_message(self.get_arc_self(), message);
             },
             Body::Declare{sn, declarations} => {},
             Body::Hello{whatami, locators} => {},
