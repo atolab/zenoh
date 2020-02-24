@@ -10,9 +10,7 @@ use async_std::sync::{
     Mutex,
     Sender,
     RwLock,
-    Receiver,
-    Weak
-};
+    Receiver};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -23,8 +21,6 @@ use std::sync::atomic::{
 };
 
 use crate::{
-    ArcSelf,
-    zarcself,
     zerror
 };
 use crate::core::{
@@ -37,6 +33,7 @@ use crate::proto::{
     Message
 };
 use crate::session::{
+    ArcSelf,
     Session,
     SessionManager,
     Link,
@@ -158,13 +155,13 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
                 let err = zerror!(ZErrorKind::Other{
                     msg: format!("Moving the link to a new session")
                 });
-                let _ = session.del_link(&link.get_src(), &link.get_dst(), Some(err)).await;
+                session.del_link(&link.get_src(), &link.get_dst(), Some(err)).await?;
                 *session = next;
-                let _ = session.add_link(link.clone()).await;
+                session.add_link(link.clone()).await?;
             }
             match buff.read_message() {
                 Ok(message) => {
-                    session.receive_message(&dst, &src, message).await;
+                    session.receive_message(&dst, &src, message).await?;
                 },
                 Err(_) => break
             }
@@ -172,8 +169,9 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
     };
 
     // Close the link and clean the session
-    let _ = link.close(None).await;
-    let _ = link.session.lock().await.del_link(&link.get_src(), &link.get_dst(), Some(err)).await;
+    link.close(None).await?;
+    link.session.lock().await.del_link(&link.get_src(), &link.get_dst(), Some(err)).await?;
+
     return Ok(())
 }
 
@@ -187,21 +185,22 @@ async fn receive_loop(link: Arc<LinkTcp>) -> Result<(), ZError> {
 /*          LISTENER                 */
 /*************************************/
 pub struct ManagerTcp {
-    weak_self: RwLock<Weak<Self>>,
+    arc: ArcSelf<Self>,
     manager: Arc<SessionManager>,
     listener: RwLock<HashMap<SocketAddr, (Arc<TcpListener>, Sender<bool>)>>,
     link: RwLock<HashMap<(SocketAddr, SocketAddr), Arc<LinkTcp>>>,
 }
 
-zarcself!(ManagerTcp);
 impl ManagerTcp {
-    pub fn new(manager: Arc<SessionManager>) -> Self {  
-        Self {
-            weak_self: RwLock::new(Weak::new()),
+    pub fn new(manager: Arc<SessionManager>) -> Arc<Self> {  
+        let m = Arc::new(Self {
+            arc: ArcSelf::new(),
             manager: manager,
             listener: RwLock::new(HashMap::new()),
             link: RwLock::new(HashMap::new()),
-        }
+        });
+        m.arc.set(&m);
+        return m
     }
 
     async fn new_session(&self) -> Arc<Session> {
@@ -229,12 +228,9 @@ impl LinkManager for ManagerTcp  {
         };
         
         // Create a new link object
-        let link = Arc::new(LinkTcp::new(stream, session.clone(), self.get_arc_self()));
+        let link = Arc::new(LinkTcp::new(stream, session.clone(), self.arc.get()));
         self.link.write().await.insert((link.local_addr, link.peer_addr), link.clone());
-        match session.add_link(link.clone()).await {
-            Ok(_) => {},
-            Err(e) => return Err(e)
-        }
+        session.add_link(link.clone()).await?;
         
         
         // Spawn the receive loop for the new link
@@ -246,7 +242,7 @@ impl LinkManager for ManagerTcp  {
         return Ok(link)
     }
 
-    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
         // Check if the src locator is a TCP locator
         let src = match src {
             Locator::Tcp{ addr } => addr,
@@ -295,7 +291,7 @@ impl LinkManager for ManagerTcp  {
         self.listener.write().await.insert(addr.clone(), (socket.clone(), sender));
 
         // Spawn the accept loop for the listener
-        let a_self = self.get_arc_self();
+        let a_self = self.arc.get();
         let a_addr = addr.clone();
         task::spawn(async move {
             // Wait for the accept loop to terminate
@@ -366,7 +362,7 @@ async fn accept_loop(manager: &Arc<ManagerTcp>, socket: &Arc<TcpListener>,
         // Create a new temporary session Session 
         let session = manager.new_session().await;
         // Create the new link object
-        let link = Arc::new(LinkTcp::new(stream, session.clone(), manager.get_arc_self()));
+        let link = Arc::new(LinkTcp::new(stream, session.clone(), manager.arc.get()));
 
         // Store a reference to the link into the manger
         manager.link.write().await.insert((link.local_addr, link.peer_addr), link.clone());

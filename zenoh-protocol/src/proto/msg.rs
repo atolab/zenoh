@@ -1,4 +1,6 @@
-use crate::core::{ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::zerror;
+use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
+use super::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
 
@@ -85,7 +87,35 @@ pub mod info_flag {
     pub const ENC   : u8 = 0x40;
 }
 
-pub enum Whatami {
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum WhatAmI {
+    Broker = flag::BROKER,
+    Router = flag::ROUTER,
+    Peer = flag::PEER,
+    Client = flag:: CLIENT
+}
+
+impl WhatAmI {
+    pub fn from_zint(value: ZInt) -> Result<WhatAmI, ZError> {
+        if value == WhatAmI::to_zint(&WhatAmI::Broker) { 
+            Ok(WhatAmI::Broker)
+        } else if value == WhatAmI::to_zint(&WhatAmI::Router) {
+            Ok(WhatAmI::Router)
+        } else if value == WhatAmI::to_zint(&WhatAmI::Peer) {
+            Ok(WhatAmI::Peer)
+        } else if value == WhatAmI::to_zint(&WhatAmI::Client) {   
+            Ok(WhatAmI::Client) 
+        } else {
+            Err(zerror!(ZErrorKind::Other{
+                msg: format!("Invalid WhatAmI field ({})", value)
+            }))
+        }
+    }
+
+    pub fn to_zint(value: &WhatAmI) -> ZInt {
+        value.clone() as ZInt
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -174,7 +204,7 @@ pub enum Body {
 	/// +---------------+
     /// ~    Locators   ~ if (L==1) -- otherwise src-address is the locator
     /// +-+-+-+-+-+-+-+-+
-    Hello { whatami: Option<ZInt>, locators: Option<Vec<String>>},
+    Hello { whatami: WhatAmI, locators: Option<Vec<Locator>>},
 
 
     ///  7 6 5 4 3 2 1 0
@@ -191,7 +221,7 @@ pub enum Body {
 	/// +---------------+
     /// ~    Locators   ~ if (L==1)
 	/// +---------------+
-    Open { version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>> },
+    Open { version: u8, whatami: WhatAmI, pid: PeerId, lease: ZInt, locators: Option<Vec<Locator>> },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -429,8 +459,11 @@ impl Message {
         }
     }
 
-    pub fn make_hello(whatami: Option<ZInt>, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
-        let wflag = if whatami.is_some() { flag::W } else { 0 };
+    pub fn make_hello(whatami: WhatAmI, locators: Option<Vec<Locator>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let wflag = match whatami {
+            WhatAmI::Broker=> 0,
+            _ => flag::W
+        };
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::HELLO | wflag | lflag;
         Message {
@@ -443,8 +476,11 @@ impl Message {
             properties: ps        }
     }
 
-    pub fn make_open(version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
-        let wflag = if whatami.is_some() { flag::W } else { 0 };
+    pub fn make_open(version: u8, whatami: WhatAmI, pid: PeerId, lease: ZInt, locators: Option<Vec<Locator>>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let wflag = match whatami {
+            WhatAmI::Broker=> 0,
+            _ => flag::W
+        };
         let lflag = if locators.is_some() { flag::L } else { 0 };
         let header = id::OPEN | wflag | lflag;
         Message {

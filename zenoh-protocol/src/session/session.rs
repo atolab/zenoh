@@ -4,9 +4,7 @@ use async_std::sync::{
     channel,
     Mutex,
     Receiver,
-    RwLock,
-    Sender,
-    Weak
+    Sender
 };
 use async_std::task;
 use async_std::task::{
@@ -21,14 +19,12 @@ use std::sync::atomic::{
     Ordering
 };
 use std::pin::Pin;
-use uuid::Uuid;
 
 use crate::{
-    ArcSelf,
-    zarcself,
     zerror
 };
 use crate::core::{
+    PeerId,
     ZError,
     ZErrorKind,
     ZInt
@@ -40,6 +36,7 @@ use crate::proto::{
     MessageKind
 };
 use crate::session::{
+    ArcSelf,
     EmptyCallback,
     Queue,
     QueueError,
@@ -79,9 +76,11 @@ async fn consume_loop(session: Arc<Session>, receiver: Receiver<bool>) {
 
 
 pub struct Session {
-    weak_self: RwLock<Weak<Self>>,
-    id: Uuid,
+    arc: ArcSelf<Self>,
+    id: usize,
+    peer: Option<PeerId>,
     active: AtomicBool,
+    lease: AtomicCell<ZInt>,
     link: Mutex<Vec<Arc<dyn Link + Send + Sync>>>,
     manager: Arc<SessionManager>,
     callback: Mutex<Arc<dyn SessionCallback + Send + Sync>>,
@@ -92,14 +91,16 @@ pub struct Session {
     ch_receiver: Receiver<bool>
 }
 
-zarcself!(Session);
+// Add lease parameter
 impl Session {
-    pub fn new(id: Uuid, manager: Arc<SessionManager>) -> Self {
+    pub fn new(id: usize, peer: Option<PeerId>, lease: ZInt, manager: Arc<SessionManager>) -> Arc<Self> {
         let (sender, receiver) = channel::<bool>(1);
-        Self {
-            weak_self: RwLock::new(Weak::new()),
+        let s = Arc::new(Self {
+            arc: ArcSelf::new(),
             id: id,
+            peer: peer,
             active: AtomicBool::new(false),
+            lease: AtomicCell::new(lease),
             manager: manager, 
             callback: Mutex::new(Arc::new(EmptyCallback::new())),
             link: Mutex::new(Vec::new()),
@@ -108,16 +109,14 @@ impl Session {
             c_waker: AtomicCell::new(None),
             ch_sender: sender,
             ch_receiver: receiver
-        }
-    }
-
-    pub async fn initialize(&self, arc_self: &Arc<Self>) {
-        self.set_arc_self(arc_self);
-        let a_self = self.get_arc_self();
-        let c_recv = self.ch_receiver.clone();
+        });
+        s.arc.set(&s);
+        let a_self = s.arc.get();
+        let c_recv = s.ch_receiver.clone();
         task::spawn(async move {
             consume_loop(a_self, c_recv).await;
         });
+        return s
     }
 
     pub fn activate(&self) {
@@ -132,8 +131,20 @@ impl Session {
         self.active.load(Ordering::Acquire)
     }
 
-    pub fn get_id(&self) -> Uuid {
+    pub fn get_id(&self) -> usize {
         self.id
+    }
+
+    pub fn get_peer(&self) -> Option<PeerId> {
+        self.peer.clone()
+    }
+
+    pub fn get_lease(&self) -> ZInt {
+        self.lease.load()
+    }
+
+    pub fn set_lease(&self, lease: ZInt) {
+        self.lease.store(lease)
     }
 
     pub async fn set_callback(&self, callback: Arc<dyn SessionCallback + Send + Sync>) {
@@ -176,7 +187,7 @@ impl Session {
             };
             // Stop the task
             self.ch_sender.send(false).await;
-            self.manager.del_session(self.id, Some(err)).await;
+            self.manager.del_session(self.id, Some(err)).await?;
         }
 
        return Ok(link)
@@ -250,68 +261,78 @@ impl Session {
         }.await
     }
 
-    async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) {
+    async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> Result<(), ZError> {
         match &message.body {
-            Body::Accept{opid, apid, lease} => {
-                let _ = self.manager.process_message(self.get_arc_self(), src, dst, message).await;
+            // Body::Accept{opid, apid, lease} => {
+            Body::Accept{..} => {
+                self.manager.process_message(self.arc.get(), src, dst, message).await?;
             },
-            Body::AckNack{sn, mask} => {},
-            Body::Close{pid, reason} => {},
-            Body::Data{reliable, sn, key, info, payload} => {
+            // Body::AckNack{sn, mask} => {},
+            Body::AckNack{..} => {},
+            // Body::Close{pid, reason} => {},
+            Body::Close{..} => {},
+            // Body::Data{reliable, sn, key, info, payload} => {
+            Body::Data{..} => {
                 self.callback.lock().await.receive_message(message);
             },
-            Body::Declare{sn, declarations} => {},
-            Body::Hello{whatami, locators} => {},
-            Body::KeepAlive{pid} => {},
-            Body::Open{version, whatami, pid, lease, locators} => {
-                let _ = self.manager.process_message(self.get_arc_self(), src, dst, message).await;
+            // Body::Declare{sn, declarations} => {},
+            Body::Declare{..} => {},
+            // Body::Hello{whatami, locators} => {},
+            Body::Hello{..} => {},
+            // Body::KeepAlive{pid} => {},
+            Body::KeepAlive{..} => {},
+            // Body::Open{version, whatami, pid, lease, locators} => {
+            Body::Open{..} => {
+                self.manager.process_message(self.arc.get(), src, dst, message).await?;
             },
-            Body::Ping{hash} => {},
-            Body::Pong{hash} => {},
-            Body::Pull{sn, key, pull_id, max_samples} => {},
-            Body::Query{sn, key, predicate, qid, target, consolidation} => {},
-            Body::Scout{what} => {},
-            Body::Sync{sn, count} => {}
+            // Body::Ping{hash} => {},
+            Body::Ping{..} => {},
+            // Body::Pong{hash} => {},
+            Body::Pong{..} => {},
+            // Body::Pull{sn, key, pull_id, max_samples} => {},
+            Body::Pull{..} => {},
+            // Body::Query{sn, key, predicate, qid, target, consolidation} => {},
+            Body::Query{..} => {},
+            // Body::Scout{what} => {},
+            Body::Scout{..} => {},
+            // Body::Sync{sn, count} => {}
+            Body::Sync{..} => {}
         }
+        return Ok(())
     }
 
-    async fn receive_first_fragement(&self, src: &Locator, dst: &Locator, message: Message, number: Option<ZInt>) {
+    async fn receive_first_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message, _number: Option<ZInt>) -> Result<(), ZError> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_middle_fragement(&self, src: &Locator, dst: &Locator, message: Message) {
+    async fn receive_middle_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Result<(), ZError> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_last_fragement(&self, src: &Locator, dst: &Locator, message: Message) {
+    async fn receive_last_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Result<(), ZError> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) {
+    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) -> Result<(), ZError> {
         match message.kind {
             MessageKind::FullMessage =>
-                self.receive_full_message(src, dst, message).await,
+                self.receive_full_message(src, dst, message).await?,
             MessageKind::FirstFragment{n} =>
-                self.receive_first_fragement(src, dst, message, n).await,
+                self.receive_first_fragement(src, dst, message, n).await?,
             MessageKind::InbetweenFragment => 
-                self.receive_middle_fragement(src, dst, message).await,
+                self.receive_middle_fragement(src, dst, message).await?,
             MessageKind::LastFragment => 
-                self.receive_last_fragement(src, dst, message).await
+                self.receive_last_fragement(src, dst, message).await?
         }
+        return Ok(())
     }
 
     pub async fn close(&self, _reason: Option<ZError>) -> Result<(), ZError> {
         // Stop the task
         self.ch_sender.send(false).await;
         for l in self.link.lock().await.iter() {
-            let _ = l.close(None).await;
+            l.close(None).await?;
         }
         Ok(())
     }
 }
-
-// impl Drop for Session {
-//     fn drop(&mut self) {
-//         println!("Dropping Session {:?}", self.id);
-//     }
-// }

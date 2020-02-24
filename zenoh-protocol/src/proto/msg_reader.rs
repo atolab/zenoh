@@ -2,6 +2,7 @@ use crate::io::RWBuf;
 use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp};
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
+use super::Locator;
 use std::sync::Arc;
 use std::convert::TryInto;
 
@@ -47,8 +48,8 @@ impl RWBuf {
 
                 HELLO => {
                     let whatami = if flag::has_flag(header, flag::W) {
-                        Some(self.read_zint()?)
-                    } else { None };
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
                     let locators = if flag::has_flag(header, flag::L) {
                         Some(self.read_locators()?)
                     } else { None };
@@ -58,8 +59,8 @@ impl RWBuf {
                 OPEN => {
                     let version = self.read()?;
                     let whatami = if flag::has_flag(header, flag::W) {
-                        Some(self.read_zint()?)
-                    } else { None };
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
                     let pid = self.read_peerid()?;
                     let lease = self.read_zint()?;
                     let locators = if flag::has_flag(header, flag::L) {
@@ -211,11 +212,11 @@ impl RWBuf {
         Ok(Property{ key, value })
     }
 
-    fn read_locators(&mut self) -> Result<Vec<String>, ZError> {
+    fn read_locators(&mut self) -> Result<Vec<Locator>, ZError> {
         let len = self.read_zint()?;
-        let mut vec: Vec<String> = Vec::new();
+        let mut vec: Vec<Locator> = Vec::new();
         for _ in 0..len {
-            vec.push(self.read_string()?);
+            vec.push(self.read_string()?.parse()?);
         }
         Ok(vec)
     }

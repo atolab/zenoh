@@ -73,15 +73,15 @@ impl fmt::Display for Locator {
             Locator::Tcp{ addr } => write!(f, "tcp/{}", addr)?,
             Locator::Udp{ addr } => write!(f, "udp/{}", addr)?,
         };
-        Ok(())
+        return Ok(())
     }
 }
 
 impl Locator {
     pub fn get_proto(&self) -> LocatorProtocol {
         match self {
-            Locator::Tcp { addr } => LocatorProtocol::Tcp,
-            Locator::Udp { addr } => LocatorProtocol::Udp
+            Locator::Tcp{..} => LocatorProtocol::Tcp,
+            Locator::Udp{..} => LocatorProtocol::Udp
         }
     }
 }

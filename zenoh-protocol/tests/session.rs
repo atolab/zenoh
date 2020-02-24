@@ -3,7 +3,12 @@ use async_std::sync::{
     channel
 };
 use async_std::task;
-use zenoh_protocol::proto::Locator;
+
+use zenoh_protocol::core::PeerId;
+use zenoh_protocol::proto::{
+    WhatAmI,
+    Locator
+};
 use zenoh_protocol::session::{
     EmptyCallback,
     SessionManager
@@ -14,16 +19,18 @@ async fn run(locator: Locator) {
     let (t_sender, t_receiver) = channel::<()>(1);
     let (r_sender, r_receiver) = channel::<()>(1);
 
+    // Broker task
     let l = locator.clone();
     task::spawn(async move {
         // Create the routing table
         let routing = Arc::new(EmptyCallback::new());
 
         // Create the transport session manager
-        let manager = Arc::new(SessionManager::new(routing.clone()));
-
-        // Initialize the transport session manager
-        manager.initialize(&manager).await;
+        let version = 0u8;
+        let whatami = WhatAmI::Router;
+        let id = PeerId{id: vec![0u8]};
+        let lease = 60;    
+        let manager = SessionManager::new(version, whatami, id, lease, routing.clone());
 
         // Limit the number of connections to 1 for each listener
         let limit = Some(1);
@@ -52,10 +59,11 @@ async fn run(locator: Locator) {
         let client = Arc::new(EmptyCallback::new());
 
         // Create the transport session manager
-        let manager = Arc::new(SessionManager::new(client.clone()));
-
-        // Initialize the transport session manager
-        manager.initialize(&manager).await;
+        let version = 0u8;
+        let whatami = WhatAmI::Client;
+        let id = PeerId{id: vec![1u8]};
+        let lease = 60;    
+        let manager = SessionManager::new(version, whatami, id, lease, client.clone());
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&l).await;

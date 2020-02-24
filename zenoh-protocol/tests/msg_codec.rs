@@ -133,7 +133,7 @@ fn scout_tests() {
   test_scout(true, Some(gen!(ZInt)));
 }
 
-fn test_hello(with_decorators: bool, whatami: Option<ZInt>, locators: Option<Vec<String>>)
+fn test_hello(with_decorators: bool, whatami: WhatAmI, locators: Option<Vec<Locator>>)
 {
   let msg = if with_decorators {
     Message::make_hello(whatami, locators, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
@@ -145,14 +145,14 @@ fn test_hello(with_decorators: bool, whatami: Option<ZInt>, locators: Option<Vec
 
 #[test]
 fn hello_tests() {
-  let locators = vec!["tcp/1.2.3.4".to_string(), "udp/4.5.6.7".to_string()];
-  test_hello(false, None, None);
-  test_hello(true, None, None);
-  test_hello(false, Some(gen!(ZInt)), Some(locators.clone()));
-  test_hello(true, Some(gen!(ZInt)), Some(locators.clone()));
+  let locators: Vec<Locator> = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "udp/4.5.6.7:4567".parse().unwrap()];
+  test_hello(false, WhatAmI::Broker, None);
+  test_hello(true, WhatAmI::Broker, None);
+  test_hello(false, WhatAmI::Client, Some(locators.clone()));
+  test_hello(true, WhatAmI::Client, Some(locators.clone()));
 }
 
-fn test_open(with_decorators: bool, version: u8, whatami: Option<ZInt>, pid: PeerId, lease: ZInt, locators: Option<Vec<String>>)
+fn test_open(with_decorators: bool, version: u8, whatami: WhatAmI, pid: PeerId, lease: ZInt, locators: Option<Vec<Locator>>)
 {
   let msg = if with_decorators {
     Message::make_open(version, whatami, pid, lease, locators, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
@@ -164,11 +164,11 @@ fn test_open(with_decorators: bool, version: u8, whatami: Option<ZInt>, pid: Pee
 
 #[test]
 fn open_tests() {
-  let locators = vec!["tcp/1.2.3.4".to_string(), "udp/4.5.6.7".to_string()];
-  test_open(false, gen!(u8), None, gen_pid(), gen!(ZInt), None);
-  test_open(true, gen!(u8), None, gen_pid(), gen!(ZInt), None);
-  test_open(false, gen!(u8), Some(gen!(ZInt)), gen_pid(), gen!(ZInt), Some(locators.clone()));
-  test_open(true, gen!(u8), Some(gen!(ZInt)), gen_pid(), gen!(ZInt), Some(locators.clone()));
+  let locators = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "udp/4.5.6.7:4567".parse().unwrap()];
+  test_open(false, gen!(u8), WhatAmI::Broker, gen_pid(), gen!(ZInt), None);
+  test_open(true, gen!(u8), WhatAmI::Broker, gen_pid(), gen!(ZInt), None);
+  test_open(false, gen!(u8), WhatAmI::Client, gen_pid(), gen!(ZInt), Some(locators.clone()));
+  test_open(true, gen!(u8), WhatAmI::Client, gen_pid(), gen!(ZInt), Some(locators.clone()));
 }
 
 fn test_accept(with_decorators: bool, opid: PeerId, apid: PeerId, lease: ZInt)

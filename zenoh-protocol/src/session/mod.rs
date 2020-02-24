@@ -8,8 +8,12 @@ pub use manager::SessionManager;
 pub(crate) use queue::Queue;
 pub(crate) use queue::QueueError;
 
-use async_std::sync::Arc;
+use async_std::sync::{
+    Arc,
+    Weak
+};
 use async_trait::async_trait;
+use std::cell::UnsafeCell;
 
 use crate::core::ZError;
 use crate::proto::Locator;
@@ -81,3 +85,35 @@ impl SessionCallback for EmptyCallback {
     async fn new_session(&self, _session: Arc<Session>) {
     }
 }
+
+
+/*********************************************************/
+/*                     ArcSelf                           */
+/*********************************************************/
+pub struct ArcSelf<T> {
+    inner: UnsafeCell<Weak<T>>
+}
+
+impl<T> ArcSelf<T> {
+    fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(Weak::new())
+        }
+    }
+
+    fn set(&self, t: &Arc<T>) {
+        unsafe {
+            *self.inner.get() = Arc::downgrade(t)
+        }
+    }
+
+    fn get(&self) -> Arc<T> {
+        if let Some(a_self) = unsafe { &*self.inner.get() }.upgrade() {
+            return a_self.clone()
+        }
+        panic!("Object not intiliazed!!!");
+    }
+}
+
+unsafe impl<T> Send for ArcSelf<T> {}
+unsafe impl<T> Sync for ArcSelf<T> {}

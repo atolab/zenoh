@@ -2,6 +2,7 @@ use crate::io::RWBuf;
 use crate::core::{ZError, ZInt, Property, ResKey, TimeStamp};
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
+use super::Locator;
 
 impl RWBuf {
     pub fn write_message(&mut self, msg: &Message) -> Result<(), ZError> {
@@ -29,8 +30,8 @@ impl RWBuf {
             }
 
             Body::Hello { whatami, locators } => {
-                if let Some(w) = whatami {
-                    self.write_zint(*w)?;
+                if *whatami != WhatAmI::Broker {
+                    self.write_zint(WhatAmI::to_zint(whatami))?;
                 }
                 if let Some(locs) = locators {
                     self.write_locators(locs.as_ref())?;
@@ -40,8 +41,8 @@ impl RWBuf {
 
             Body::Open { version, whatami, pid, lease, locators } => {
                 self.write(*version)?;
-                if let Some(w) = whatami {
-                    self.write_zint(*w)?;
+                if *whatami != WhatAmI::Broker {
+                    self.write_zint(WhatAmI::to_zint(whatami))?;
                 }
                 self.write_bytes_array(&pid.id)?;
                 self.write_zint(*lease)?;
@@ -215,11 +216,11 @@ impl RWBuf {
         self.write_bytes_array(&p.value)
     }
 
-    fn write_locators(&mut self, locators: &[String]) -> Result<(), ZError> {
+    fn write_locators(&mut self, locators: &[Locator]) -> Result<(), ZError> {
         let len = locators.len() as ZInt;
         self.write_zint(len)?;
         for l in locators {
-            self.write_string(l)?;
+            self.write_string(&l.to_string())?;
         }
         Ok(())
     }
