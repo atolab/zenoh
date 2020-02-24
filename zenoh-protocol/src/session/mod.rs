@@ -62,7 +62,7 @@ pub trait LinkManager {
 /*********************************************************/
 #[async_trait]
 pub trait SessionCallback {
-    async fn receive_message(&self, msg: Message) -> Result<(), ZError>;
+    async fn receive_message(&self, session: Arc<Session>, msg: Message) -> Result<(), ZError>;
 
     async fn new_session(&self, session: Arc<Session>);
 }
@@ -78,7 +78,7 @@ impl EmptyCallback {
 
 #[async_trait]
 impl SessionCallback for EmptyCallback {
-    async fn receive_message(&self, _message: Message) -> Result<(), ZError> {
+    async fn receive_message(&self, _session: Arc<Session>, _message: Message) -> Result<(), ZError> {
         Ok(())
     }
 

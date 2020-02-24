@@ -273,7 +273,7 @@ impl Session {
             Body::Close{..} => {},
             // Body::Data{reliable, sn, key, info, payload} => {
             Body::Data{..} => {
-                self.callback.lock().await.receive_message(message);
+                self.callback.lock().await.receive_message(self.arc.get(), message);
             },
             // Body::Declare{sn, declarations} => {},
             Body::Declare{..} => {},
