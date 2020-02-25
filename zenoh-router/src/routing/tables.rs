@@ -7,7 +7,7 @@ use zenoh_protocol::core::rname::intersect;
 
 pub struct Tables {
     root_res: Arc<RwLock<Resource>>,
-    sessions: HashMap<u64, Arc<RwLock<Session>>>,
+    sessions: HashMap<usize, Arc<RwLock<Session>>>,
 }
 
 impl Tables {
@@ -28,7 +28,7 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: u64) -> Weak<RwLock<Session>> {
+    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Session>> {
         let mut t = tables.write();
         if ! t.sessions.contains_key(&sid) {
             t.sessions.insert(sid, Session::new(sid));
@@ -317,8 +317,8 @@ impl Tables {
     }
 
     #[inline]
-    fn get_best_key(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &u64) -> (u64, String) {
-        fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &u64, checkchilds: bool) -> (u64, String) {
+    fn get_best_key(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &usize) -> (u64, String) {
+        fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &usize, checkchilds: bool) -> (u64, String) {
             let rprefix = prefix.read();
             if checkchilds && ! suffix.is_empty() {
                 let (chunk, rest) = Tables::fst_chunk(suffix);
@@ -340,7 +340,7 @@ impl Tables {
     }
 
     pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: &u64, suffix: &str) 
-    -> Option<HashMap<u64, (Weak<RwLock<Session>>, u64, String)>> {
+    -> Option<HashMap<usize, (Weak<RwLock<Session>>, u64, String)>> {
 
         let t = tables.read();
 
