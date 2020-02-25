@@ -694,6 +694,10 @@ impl Message {
     }
 
     // -- Accessor
+    pub fn get_body(&self) -> &Body {
+        &self.body
+    }
+
     pub fn get_properties(&self) -> Option<Arc<Vec<Property>>> {
         match self.properties {
             Some(ref ps) => Some(ps.clone()),
