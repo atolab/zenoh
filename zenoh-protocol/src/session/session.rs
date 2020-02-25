@@ -14,8 +14,8 @@ use async_std::task::{
 };
 use crossbeam::atomic::AtomicCell;
 use crossbeam::queue::SegQueue;
+use std::fmt;
 use std::sync::atomic::{
-    AtomicBool,
     AtomicU64,
     Ordering
 };
@@ -49,7 +49,7 @@ use crate::session::{
 const QUEUE_LIM: usize = 16;
 
 
-async fn consume_loop(session: Arc<Session>, receiver: Receiver<bool>) {
+async fn consume_loop(session: Arc<Session>) {
     async fn consume(session: &Arc<Session>) -> Option<bool> {
         let message = session.consume().await;
         // Send the message only on the first link
@@ -61,7 +61,7 @@ async fn consume_loop(session: Arc<Session>, receiver: Receiver<bool>) {
     }
     
     loop {
-        let stop = receiver.recv();
+        let stop = session.ch_receiver.recv();
         let consume = consume(&session);
         match consume.race(stop).await {
             Some(true) => continue,
@@ -77,12 +77,10 @@ pub struct Session {
     arc: ArcSelf<Self>,
     // Session ID
     id: usize,
-    // If session is active it can forward messages to the callback
-    active: AtomicBool,
     // The callback for Data messages
     callback: Arc<dyn SessionCallback + Send + Sync>,
     // The peer this session is associated to
-    peer: Mutex<Option<PeerId>>,
+    peer: Option<PeerId>,
     // The timeout after which the session is closed if no messages are received
     lease: AtomicU64,
     // The list of transport links associated to this session
@@ -107,9 +105,8 @@ impl Session {
         let s = Arc::new(Self {
             arc: ArcSelf::new(),
             id: id,
-            active: AtomicBool::new(false),
             callback: callback,
-            peer: Mutex::new(peer),
+            peer: peer,
             lease: AtomicU64::new(lease),
             link: Mutex::new(Vec::new()),
             manager: manager, 
@@ -121,9 +118,8 @@ impl Session {
         });
         s.arc.set(&s);
         let a_self = s.arc.get();
-        let c_recv = s.ch_receiver.clone();
         task::spawn(async move {
-            consume_loop(a_self, c_recv).await;
+            consume_loop(a_self).await;
         });
         return s
     }
@@ -131,21 +127,6 @@ impl Session {
     #[inline(always)]
     pub fn get_id(&self) -> usize {
         self.id
-    }
-
-    #[inline(always)]
-    pub fn is_active(&self) -> bool {
-        self.active.load(Ordering::Acquire)
-    }
-
-    #[inline(always)]
-    pub fn activate(&self) {
-        self.active.store(true, Ordering::Release)
-    }
-
-    #[inline(always)]
-    pub fn deactivate(&self) {
-        self.active.store(false, Ordering::Release)
     }
 
     #[inline(always)]
@@ -159,19 +140,9 @@ impl Session {
     }
 
     #[inline(always)]
-    pub async fn get_peer(&self) -> Option<PeerId> {
-        self.peer.lock().await.clone()
+    pub fn get_peer(&self) -> Option<PeerId> {
+        self.peer.clone()
     }
-
-    #[inline(always)]
-    pub async fn set_peer(&self, peer: Option<PeerId>) {
-        *self.peer.lock().await = peer
-    }
-
-    // #[inline(always)]
-    // pub async fn set_callback(&self, callback: Arc<dyn SessionCallback + Send + Sync>) {
-    //     *self.callback.lock().await = callback;
-    // }
 
 
     /*************************************/
@@ -182,7 +153,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    pub async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
         let mut found = false;
         let mut index: usize = 0;
 
@@ -203,20 +174,24 @@ impl Session {
         }
 
         let link = guard.remove(index);
-        if guard.len() == 0 {
-            let err = match reason {
-                Some(err) => err,
-                None => zerror!(ZErrorKind::Other{
-                    msg: format!("No links left in session {}", self.id)
-                })
-            };
-            // Stop the task
-            self.ch_sender.send(false).await;
-            self.manager.del_session(self.id, Some(err)).await?;
-        }
 
        return Ok(link)
     }
+
+    // async fn link_error(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<(), ZError> {
+    //     if self.link.lock().await.len() == 0 {
+    //         let err = match reason {
+    //             Some(err) => err,
+    //             None => zerror!(ZErrorKind::Other{
+    //                 msg: format!("No links left in session {}", self.id)
+    //             })
+    //         };
+    //         // Stop the task
+    //         self.ch_sender.send(false).await;
+    //         self.manager.del_session(self.id, Some(err)).await?;
+    //     }
+    //     return Ok(())
+    // }
 
 
     /*************************************/
@@ -291,72 +266,72 @@ impl Session {
     }
 
 
-    /*************************************/
-    /*           SCHEDULE IN             */
-    /*************************************/
-    pub async fn schedule_in(&self, message: Arc<Message>) {
-        struct FutureSchedule<'a> {
-            session: &'a Session,
-            message: Arc<Message>
-        }
+    // /*************************************/
+    // /*           SCHEDULE IN             */
+    // /*************************************/
+    // pub async fn schedule_in(&self, message: Arc<Message>) {
+    //     struct FutureSchedule<'a> {
+    //         session: &'a Session,
+    //         message: Arc<Message>
+    //     }
         
-        impl<'a> Future for FutureSchedule<'a> {
-            type Output = usize;
+    //     impl<'a> Future for FutureSchedule<'a> {
+    //         type Output = usize;
         
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.session.s_waker.push(ctx.waker().clone());
-                match self.session.queue.push(self.message.clone()) {
-                    Ok(()) => return Poll::Ready(0),
-                    Err(QueueError::IsEmpty) => panic!("This should not happen!!!"),
-                    Err(QueueError::IsFull) => return Poll::Pending
-                }
-            }
-        }
+    //         fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    //             self.session.s_waker.push(ctx.waker().clone());
+    //             match self.session.queue.push(self.message.clone()) {
+    //                 Ok(()) => return Poll::Ready(0),
+    //                 Err(QueueError::IsEmpty) => panic!("This should not happen!!!"),
+    //                 Err(QueueError::IsFull) => return Poll::Pending
+    //             }
+    //         }
+    //     }
 
-        impl Drop for FutureSchedule<'_> {
-            fn drop(&mut self) {
-                if let Some(waker) = self.session.c_waker.take() {
-                    waker.wake();
-                }
-            }
-        }
+    //     impl Drop for FutureSchedule<'_> {
+    //         fn drop(&mut self) {
+    //             if let Some(waker) = self.session.c_waker.take() {
+    //                 waker.wake();
+    //             }
+    //         }
+    //     }
 
-        FutureSchedule {
-            session: self,
-            message: message
-        }.await;
-    }
+    //     FutureSchedule {
+    //         session: self,
+    //         message: message
+    //     }.await;
+    // }
 
-    pub async fn consume_in(&self) -> Arc<Message> {
-        struct FutureConsume<'a> {
-            session: &'a Session
-        }
+    // pub async fn consume_in(&self) -> Arc<Message> {
+    //     struct FutureConsume<'a> {
+    //         session: &'a Session
+    //     }
         
-        impl<'a> Future for FutureConsume<'a> {
-            type Output = Arc<Message>;
+    //     impl<'a> Future for FutureConsume<'a> {
+    //         type Output = Arc<Message>;
         
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.session.c_waker.store(Some(ctx.waker().clone()));
-                match self.session.queue.pop() {
-                    Ok(msg) => return Poll::Ready(msg),
-                    Err(QueueError::IsEmpty) => return Poll::Pending,
-                    Err(QueueError::IsFull) => panic!("This should not happen!!!")
-                }
-            }
-        }
+    //         fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    //             self.session.c_waker.store(Some(ctx.waker().clone()));
+    //             match self.session.queue.pop() {
+    //                 Ok(msg) => return Poll::Ready(msg),
+    //                 Err(QueueError::IsEmpty) => return Poll::Pending,
+    //                 Err(QueueError::IsFull) => panic!("This should not happen!!!")
+    //             }
+    //         }
+    //     }
 
-        impl Drop for FutureConsume<'_> {
-            fn drop(&mut self) {
-                while let Ok(waker) = self.session.s_waker.pop() {
-                    waker.wake();
-                }
-            }
-        }
+    //     impl Drop for FutureConsume<'_> {
+    //         fn drop(&mut self) {
+    //             while let Ok(waker) = self.session.s_waker.pop() {
+    //                 waker.wake();
+    //             }
+    //         }
+    //     }
 
-        FutureConsume {
-            session: self
-        }.await
-    }
+    //     FutureConsume {
+    //         session: self
+    //     }.await
+    // }
 
 
     /*************************************/
@@ -374,12 +349,7 @@ impl Session {
             Body::Close{..} => {},
             // Body::Data{reliable, sn, key, info, payload} => {
             Body::Data{..} => {
-                match self.is_active() {
-                    true => self.callback.receive_message(self.arc.get(), message).await?,
-                    false => return Err(zerror!(ZErrorKind::Other{
-                        msg: format!("Data message received but session is not active")
-                    }))
-                }
+                self.callback.receive_message(message).await?;
             },
             // Body::Declare{sn, declarations} => {},
             Body::Declare{..} => {},
@@ -443,5 +413,24 @@ impl Session {
             l.close(None).await?;
         }
         Ok(())
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        println!("> Dropping Session ({:?})", self);
+    }
+}
+
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let links = task::block_on(async {
+            let mut s = String::new();
+            for l in self.link.lock().await.iter() {
+                s.push_str(&format!("[({:?}) => ({:?}) Count: ({})] ", l.get_src(), l.get_dst(), Arc::strong_count(&l)));
+            }
+            s
+        });
+        write!(f, "Session ({:?}, {:?}) Links: {}", self.id, self.peer, links)
     }
 }

@@ -15,7 +15,11 @@ use async_std::sync::{
 use async_trait::async_trait;
 use std::cell::UnsafeCell;
 
-use crate::core::ZError;
+use crate::core::{
+    PeerId,
+    ZError,
+    ZResult
+};
 use crate::proto::Locator;
 use crate::proto::Message;
 
@@ -24,7 +28,7 @@ use crate::proto::Message;
 /*************************************/
 #[async_trait]
 pub trait Link {
-    async fn close(&self, reason: Option<ZError>) -> Result<(), ZError>;
+    async fn close(&self, reason: Option<ZError>) -> ZResult<()>;
 
     fn get_mtu(&self) -> usize;
 
@@ -36,9 +40,11 @@ pub trait Link {
 
     fn is_reliable(&self) -> bool;
 
-    async fn send(&self, msg: Arc<Message>) -> Result<(), ZError>;
+    async fn send(&self, msg: Arc<Message>) -> ZResult<()>;
 
-    async fn set_session(&self, session: Arc<Session>) -> Result<(), ZError>;
+    async fn start(&self) -> ZResult<()>;
+
+    async fn stop(&self) -> ZResult<()>;
 }
 
 /*************************************/
@@ -46,13 +52,15 @@ pub trait Link {
 /*************************************/
 #[async_trait]
 pub trait LinkManager {
-    async fn new_link(&self, dst: &Locator, session: Arc<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
+    async fn new_link(&self, dst: &Locator, session: Arc<Session>) -> ZResult<Arc<dyn Link + Send + Sync>>;
 
-    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError>;
+    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> ZResult<Arc<dyn Link + Send + Sync>>;
 
-    async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> Result<(), ZError>;
+    async fn move_link(&self, src: &Locator, dst: &Locator, session: Arc<Session>) -> ZResult<()>;
 
-    async fn del_listener(&self, locator: &Locator) -> Result<(), ZError>;
+    async fn new_listener(&self, locator: &Locator) -> ZResult<()>;
+
+    async fn del_listener(&self, locator: &Locator) -> ZResult<()>;
 
     async fn get_listeners(&self) -> Vec<Locator>;
 }
@@ -62,9 +70,14 @@ pub trait LinkManager {
 /*********************************************************/
 #[async_trait]
 pub trait SessionCallback {
-    async fn receive_message(&self, session: Arc<Session>, msg: Message) -> Result<(), ZError>;
+    async fn receive_message(&self, msg: Message) -> Result<(), ZError>;
+}
 
-    async fn new_session(&self, session: Arc<Session>);
+#[async_trait]
+pub trait SessionHandler {
+    async fn new_session(&self, peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync>;
+
+    async fn del_session(&self, session: &Arc<Session>);
 }
 
 // Define an empty SessionCallback for the listener session
@@ -78,11 +91,8 @@ impl EmptyCallback {
 
 #[async_trait]
 impl SessionCallback for EmptyCallback {
-    async fn receive_message(&self, _session: Arc<Session>, _message: Message) -> Result<(), ZError> {
+    async fn receive_message(&self, _message: Message) -> Result<(), ZError> {
         Ok(())
-    }
-
-    async fn new_session(&self, _session: Arc<Session>) {
     }
 }
 

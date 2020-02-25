@@ -11,7 +11,8 @@ use crate::core::{
     PeerId,
     ZError,
     ZErrorKind,
-    ZInt
+    ZInt,
+    ZResult
 };
 use crate::proto::{
     Body,
@@ -22,9 +23,11 @@ use crate::proto::{
 };
 use crate::session::{
     ArcSelf,
+    EmptyCallback,
     LinkManager,
     Session,
-    SessionCallback
+    SessionCallback,
+    SessionHandler
 };
 use crate::session::link::*;
 
@@ -70,7 +73,7 @@ pub struct SessionManager {
     whatami: WhatAmI,
     id: PeerId,
     lease: ZInt,
-    callback: Arc<dyn SessionCallback + Send + Sync>,
+    handler: Arc<dyn SessionHandler + Send + Sync>,
     manager: RwLock<HashMap<LocatorProtocol, Arc<dyn LinkManager + Send + Sync>>>,
     session: RwLock<HashMap<usize, Arc<Session>>>,
     sid_mgmt: RwLock<IDManager>,
@@ -78,14 +81,16 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(version: u8, whatami: WhatAmI, id: PeerId, lease: ZInt, callback: Arc<dyn SessionCallback + Send + Sync>) -> Arc<Self> {
+    pub fn new(version: u8, whatami: WhatAmI, id: PeerId, lease: ZInt, 
+        handler: Arc<dyn SessionHandler + Send + Sync>
+    ) -> Arc<Self> {
         let m = Arc::new(Self {
             arc: ArcSelf::new(),
             version: version,
             whatami: whatami,
             id: id,
             lease: lease,
-            callback: callback,
+            handler: handler,
             manager: RwLock::new(HashMap::new()),
             session: RwLock::new(HashMap::new()),
             sid_mgmt: RwLock::new(IDManager::new()),
@@ -98,18 +103,18 @@ impl SessionManager {
     /*************************************/
     /*              LISTENER             */
     /*************************************/
-    pub async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> Result<(), ZError> {
+    pub async fn new_listener(&self, locator: &Locator, _limit: Option<usize>) -> ZResult<()> {
         // Automatically create a new link manager for the protocol if it does not exist
         self.new_manager(&locator.get_proto()).await?;
         match self.manager.read().await.get(&locator.get_proto()) {
-            Some(manager) => return manager.new_listener(locator, limit).await,
+            Some(manager) => return manager.new_listener(locator).await,
             None => return Err(zerror!(ZErrorKind::Other{
                 msg: format!("Trying to add a listener to a Link Manager that does not exist!")
             }))
         }
     }
 
-    pub async fn del_listener(&self, locator: &Locator) -> Result<(), ZError> {
+    pub async fn del_listener(&self, locator: &Locator) -> ZResult<()> {
         match self.manager.read().await.get(&locator.get_proto()) {
             Some(manager) => {
                 manager.del_listener(locator).await?;
@@ -127,7 +132,7 @@ impl SessionManager {
     /*************************************/
     /*            LINK MANAGER           */
     /*************************************/
-    async fn new_manager(&self, protocol: &LocatorProtocol) -> Result<(), ZError> {
+    async fn new_manager(&self, protocol: &LocatorProtocol) -> ZResult<()> {
         let r_guard = self.manager.read().await;
         match protocol {
             LocatorProtocol::Tcp => if !r_guard.contains_key(&LocatorProtocol::Tcp) {
@@ -145,11 +150,20 @@ impl SessionManager {
         Ok(())
     }
 
-    async fn del_manager(&self, protocol: &LocatorProtocol) -> Result<(), ZError> {
+    async fn del_manager(&self, protocol: &LocatorProtocol) -> ZResult<()> {
         match self.manager.write().await.remove(protocol) {
             Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other{
                 msg: format!("No available Link Manager for protocol: {}", protocol)
+            }))
+        }
+    }
+
+    async fn move_link(&self, src: &Locator, dst: &Locator, session: &Arc<Session>) -> ZResult<()> {
+        match self.manager.read().await.get(&src.get_proto()) {
+            Some(manager) => return manager.move_link(src, dst, session.clone()).await,
+            None => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("Trying to move a Link not associated to any manager!")
             }))
         }
     }
@@ -163,11 +177,12 @@ impl SessionManager {
         return res
     }
 
-    pub async fn del_session(&self, id: usize, reason: Option<ZError>) -> Result<Arc<Session>, ZError> {
+    pub async fn del_session(&self, id: usize, _reason: Option<ZError>) -> Result<Arc<Session>, ZError> {
         // If it is pending, check if the open_session created a channel that needs to be notified
-        if let Some(channel) = self.channel.write().await.get(&id) {
-            channel.send(Err(reason.unwrap())).await;
-        }
+        // if let Some(channel) = self.channel.write().await.get(&id) {
+        //     println!("{:?} DEL 1", self.whatami);
+        //     channel.send(Err(reason.unwrap())).await;
+        // }
         // Check if it is stored in the established sessions
         if let Some(session) = self.session.write().await.remove(&id) {
             self.sid_mgmt.write().await.del_id(session.get_id());
@@ -179,11 +194,13 @@ impl SessionManager {
         }))
     }
 
-    pub async fn new_session(&self) -> Arc<Session> {
+    pub async fn new_session(&self, peer: Option<PeerId>, 
+        callback: Arc<dyn SessionCallback + Send + Sync>
+    ) -> Arc<Session> {
         // Generate random session ID
         let id = self.sid_mgmt.write().await.new_id();
         // Create and initialize a new session
-        let session = Session::new(id, None, self.lease, self.arc.get(), self.callback.clone());
+        let session = Session::new(id, peer, self.lease, self.arc.get(), callback);
         // Store the new session
         self.session.write().await.insert(session.get_id(), session.clone());
         return session
@@ -203,7 +220,9 @@ impl SessionManager {
         };
 
         // Create a new empty session
-        let session = self.new_session().await;
+        let peer = None;
+        let callback = Arc::new(EmptyCallback::new());
+        let session = self.new_session(peer, callback).await;
 
         // Create a new link calling the Link Manager
         let link = manager.new_link(locator, session.clone()).await?;
@@ -242,10 +261,15 @@ impl SessionManager {
         link.send(message.clone()).await?;
 
         // Wait the accept message to finalize the session
-        let session = receiver.recv().await.unwrap()?;
-        link.set_session(session.clone()).await?;
-
-        return Ok(session)
+        match receiver.recv().await {
+            Some(session) => match session {
+                Ok(s) => return Ok(s),
+                Err(e) => return Err(e)
+            },
+            None => return Err(zerror!(ZErrorKind::Other{
+                msg: format!("Open session failed unexpectedly!")
+            }))
+        }
     }
 
     pub async fn close_session(&self, id: usize, reason: Option<ZError>) -> Result<(), ZError> {   
@@ -267,33 +291,34 @@ impl SessionManager {
                 }
                 match self.channel.write().await.remove(&session.get_id()) {
                     Some(sender) => {
-                        // Check if an already established session exist with the peer
-                        let guard = self.session.read().await;
+                        // Check if an already established session exists with the peer
                         let peer = Some(apid.clone());
                         let mut sex = None;
-                        for s in guard.values() {
-                            if s.get_peer().await == peer {
-                                sex = Some(s);
+                        for s in self.session.read().await.values() {
+                            if s.get_peer() == peer {
+                                sex = Some(s.clone());
                                 break
                             }
                         }
-                        let session = if let Some(s) = sex {
-                            let link = session.del_link(dst, src, None).await?;
-                            s.add_link(link).await?;
-                            s.clone()
-                        } else {
-                            session
+                        let target = match sex {
+                            Some(s) => s,
+                            None => {
+                                let callback = self.handler.new_session(apid).await;
+                                self.new_session(peer, callback).await
+                            }
                         };
-                        drop(guard);
 
-                        if session.get_peer().await.is_none() {
-                            session.set_peer(peer).await;
-                        }
-                        session.set_lease(*lease);
-                        if !session.is_active() {
-                            session.activate();
-                        }
-                        sender.send(Ok(session)).await;
+                        // Move the link to the target session
+                        self.move_link(dst, src, &target).await?;
+
+                        // Delete the old session
+                        self.del_session(session.get_id(), None).await?;
+
+                        // Set the lease on the session
+                        target.set_lease(*lease);
+
+                        // Notify the waiting channel in open_session
+                        sender.send(Ok(target)).await;
                     },
                     None => return Err(zerror!(ZErrorKind::InvalidMessage{
                         reason: format!("Received an Accept from a non-open session!")
@@ -317,15 +342,25 @@ impl SessionManager {
                 let message = Arc::new(Message::make_accept(
                     pid.clone(), self.id.clone(), self.lease, conduit_id, properties
                 ));
-                session.set_lease(*lease);
-                session.schedule(message).await;
+                // Create the new session
+                let callback = self.handler.new_session(pid).await;
+                let target = self.new_session(Some(pid.clone()), callback).await;
+                self.move_link(dst, src, &target).await?;
+                target.set_lease(*lease);
+                target.schedule(message).await;
                 // Add the session to the established sessions
-                self.add_session(session).await;
+                self.add_session(target).await;
             },
             _ => return Err(zerror!(ZErrorKind::InvalidMessage{
                 reason: format!("Message not allowed in the session manager: {:?}", message)
             }))
         }
         Ok(())
+    }
+}
+
+impl Drop for SessionManager {
+    fn drop(&mut self) {
+        println!("Dropping SM");
     }
 }

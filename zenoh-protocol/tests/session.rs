@@ -3,6 +3,7 @@ use async_std::sync::{
     channel
 };
 use async_std::task;
+use async_trait::async_trait;
 
 use zenoh_protocol::core::PeerId;
 use zenoh_protocol::proto::{
@@ -11,8 +12,53 @@ use zenoh_protocol::proto::{
 };
 use zenoh_protocol::session::{
     EmptyCallback,
+    Session,
+    SessionCallback,
+    SessionHandler,
     SessionManager
 };
+
+
+// Session Handler for the router
+struct SHRouter {}
+
+impl SHRouter {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl SessionHandler for SHRouter {
+    async fn new_session(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
+        Arc::new(EmptyCallback::new())
+    }
+
+    async fn del_session(&self, _session: &Arc<Session>) {
+
+    }
+}
+
+
+// Session Handler for the client
+struct SHClient {}
+
+impl SHClient {
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl SessionHandler for SHClient {
+    async fn new_session(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
+        Arc::new(EmptyCallback::new())
+    }
+
+    async fn del_session(&self, _session: &Arc<Session>) {
+
+    }
+}
 
 
 async fn run(locator: Locator) {
@@ -22,15 +68,15 @@ async fn run(locator: Locator) {
     // Broker task
     let l = locator.clone();
     task::spawn(async move {
-        // Create the routing table
-        let routing = Arc::new(EmptyCallback::new());
+        // Create the router session handler
+        let routing = Arc::new(SHRouter::new());
 
         // Create the transport session manager
         let version = 0u8;
         let whatami = WhatAmI::Router;
         let id = PeerId{id: vec![0u8]};
         let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, routing.clone());
+        let manager = SessionManager::new(version, whatami, id, lease, routing);
 
         // Limit the number of connections to 1 for each listener
         let limit = Some(1);
@@ -55,23 +101,25 @@ async fn run(locator: Locator) {
     // Client task
     let l = locator.clone();
     task::spawn(async move {
-        // Create the routing table
-        let client = Arc::new(EmptyCallback::new());
+        // Create the client session handler
+        let client = Arc::new(SHClient::new());
 
         // Create the transport session manager
         let version = 0u8;
         let whatami = WhatAmI::Client;
         let id = PeerId{id: vec![1u8]};
         let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, client.clone());
+        let manager = SessionManager::new(version, whatami, id, lease, client);
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&l).await;
+        // println!("{:?}", res1);
         assert_eq!(res1.is_ok(), true);
 
         // Open session -> This should be rejected
         let res2 = manager.open_session(&l).await;
-        assert_eq!(res2.is_err(), true);
+        // println!("{:?}", res2);
+        assert_eq!(res2.is_ok(), true);
 
         // Close the open session
         let session = res1.unwrap();

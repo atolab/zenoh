@@ -1,5 +1,6 @@
 use std::fmt;
 
+pub type ZResult<T> = Result<T, ZError>;
 
 #[derive(Debug, PartialEq)]
 pub enum ZErrorKind {
