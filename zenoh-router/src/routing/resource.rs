@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use spin::RwLock;
-use crate::routing::session::Session;
+use crate::routing::face::Face;
 
 pub struct Resource {
     pub(super) parent: Option<Arc<RwLock<Resource>>>,
@@ -10,7 +10,7 @@ pub struct Resource {
     pub(super) childs: HashMap<String, Arc<RwLock<Resource>>>,
     pub(super) contexts: HashMap<usize, Arc<RwLock<Context>>>,
     pub(super) matches: Vec<Weak<RwLock<Resource>>>,
-    pub(super) route: HashMap<usize, (Weak<RwLock<Session>>, u64, String)>
+    pub(super) route: HashMap<usize, (Weak<RwLock<Face>>, u64, String)>
 }
 
 impl Resource {
@@ -172,7 +172,7 @@ impl Resource {
 }
 
 pub(super) struct Context {
-    pub(super) session: Arc<RwLock<Session>>,
+    pub(super) session: Arc<RwLock<Face>>,
     pub(super) rid: Option<u64>,
     pub(super) subs: Option<bool>,
 }

@@ -2,12 +2,12 @@ use std::sync::{Arc, Weak};
 use spin::RwLock;
 use std::collections::{HashMap};
 use crate::routing::resource::*;
-use crate::routing::session::Session;
+use crate::routing::face::Face;
 use zenoh_protocol::core::rname::intersect;
 
 pub struct Tables {
     root_res: Arc<RwLock<Resource>>,
-    sessions: HashMap<usize, Arc<RwLock<Session>>>,
+    sessions: HashMap<usize, Arc<RwLock<Face>>>,
 }
 
 impl Tables {
@@ -28,15 +28,15 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Session>> {
+    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Face>> {
         let mut t = tables.write();
         if ! t.sessions.contains_key(&sid) {
-            t.sessions.insert(sid, Session::new(sid));
+            t.sessions.insert(sid, Face::new(sid));
         }
         Arc::downgrade(t.sessions.get(&sid).unwrap())
     }
 
-    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>) {
+    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
         let mut t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -103,7 +103,7 @@ impl Tables {
         res
     }
 
-    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, prefixid: u64, suffix: &str) {
+    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -157,7 +157,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64) {
+    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64) {
         let _t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -171,7 +171,7 @@ impl Tables {
         }
     }
 
-    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
+    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -217,7 +217,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
+    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -339,8 +339,8 @@ impl Tables {
         get_best_key_(prefix, suffix, sid, true)
     }
 
-    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: &u64, suffix: &str) 
-    -> Option<HashMap<usize, (Weak<RwLock<Session>>, u64, String)>> {
+    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str) 
+    -> Option<HashMap<usize, (Weak<RwLock<Face>>, u64, String)>> {
 
         let t = tables.read();
 
