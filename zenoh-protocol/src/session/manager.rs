@@ -159,7 +159,7 @@ impl SessionManager {
     /*************************************/
     async fn add_session(&self, session: Arc<Session>) -> Option<Arc<Session>> {
         let res = self.session.write().await.insert(session.get_id(), session.clone());
-        session.set_callback(self.callback.clone()).await;
+        // session.set_callback(self.callback.clone()).await;
         return res
     }
 
@@ -183,7 +183,7 @@ impl SessionManager {
         // Generate random session ID
         let id = self.sid_mgmt.write().await.new_id();
         // Create and initialize a new session
-        let session = Session::new(id, None, self.lease, self.arc.get());
+        let session = Session::new(id, None, self.lease, self.arc.get(), self.callback.clone());
         // Store the new session
         self.session.write().await.insert(session.get_id(), session.clone());
         return session
@@ -272,7 +272,7 @@ impl SessionManager {
                         let peer = Some(apid.clone());
                         let mut sex = None;
                         for s in guard.values() {
-                            if s.get_peer() == peer {
+                            if s.get_peer().await == peer {
                                 sex = Some(s);
                                 break
                             }
@@ -286,10 +286,13 @@ impl SessionManager {
                         };
                         drop(guard);
 
+                        if session.get_peer().await.is_none() {
+                            session.set_peer(peer).await;
+                        }
+                        session.set_lease(*lease);
                         if !session.is_active() {
                             session.activate();
                         }
-                        session.set_lease(*lease);
                         sender.send(Ok(session)).await;
                     },
                     None => return Err(zerror!(ZErrorKind::InvalidMessage{

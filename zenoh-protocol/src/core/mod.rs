@@ -58,7 +58,7 @@ pub struct Property {
     pub value: Vec<u8>
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct PeerId {
     pub id: Vec<u8>
 }

@@ -26,13 +26,11 @@ impl Queue {
     }
 
     pub fn pop(&self) -> Result<Arc<Message>, QueueError> {
-        match self.high.pop() {
-            Ok(msg) => return Ok(msg),
-            Err(_) => (),
+        if let Ok(msg) = self.high.pop() {
+            return Ok(msg)
         }
-        match self.low.pop() {
-            Ok(msg) => return Ok(msg),
-            Err(_) => (),
+        if let Ok(msg) = self.low.pop() {
+            return Ok(msg)
         }
         return Err(QueueError::IsEmpty)
     }
