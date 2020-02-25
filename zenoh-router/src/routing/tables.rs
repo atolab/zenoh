@@ -2,12 +2,12 @@ use std::sync::{Arc, Weak};
 use spin::RwLock;
 use std::collections::{HashMap};
 use crate::routing::resource::*;
-use crate::routing::session::Session;
+use crate::routing::face::Face;
 use zenoh_protocol::core::rname::intersect;
 
 pub struct Tables {
     root_res: Arc<RwLock<Resource>>,
-    sessions: HashMap<usize, Arc<RwLock<Session>>>,
+    faces: HashMap<usize, Arc<RwLock<Face>>>,
 }
 
 impl Tables {
@@ -15,7 +15,7 @@ impl Tables {
     pub fn new() -> Arc<RwLock<Tables>> {
         Arc::new(RwLock::new(Tables {
             root_res: Resource::root(),
-            sessions: HashMap::new(),
+            faces: HashMap::new(),
         }))
     }
 
@@ -28,15 +28,15 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Session>> {
+    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Face>> {
         let mut t = tables.write();
-        if ! t.sessions.contains_key(&sid) {
-            t.sessions.insert(sid, Session::new(sid));
+        if ! t.faces.contains_key(&sid) {
+            t.faces.insert(sid, Face::new(sid));
         }
-        Arc::downgrade(t.sessions.get(&sid).unwrap())
+        Arc::downgrade(t.faces.get(&sid).unwrap())
     }
 
-    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>) {
+    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
         let mut t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -48,7 +48,7 @@ impl Tables {
                 while let Some(res) = wsex.subs.pop() {
                     Resource::clean(&res);
                 }
-                t.sessions.remove(&wsex.id);
+                t.faces.remove(&wsex.id);
             }
             None => println!("Undeclare closed session!")
         }
@@ -63,7 +63,7 @@ impl Tables {
                 let rcontext = context.read();
                 if let Some(_) = rcontext.subs {
                     let (rid, suffix) = Tables::get_best_key(res, "", sid);
-                    dests.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                    dests.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                 }
             }
         }
@@ -103,7 +103,7 @@ impl Tables {
         res
     }
 
-    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64, prefixid: u64, suffix: &str) {
+    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -136,7 +136,7 @@ impl Tables {
                                         None => {
                                             wres.contexts.insert(rsex.id, 
                                                 Arc::new(RwLock::new(Context {
-                                                    session: sex.clone(),
+                                                    face: sex.clone(),
                                                     rid: Some(rid),
                                                     subs: None,
                                                 }))
@@ -157,7 +157,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: u64) {
+    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64) {
         let _t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -171,7 +171,7 @@ impl Tables {
         }
     }
 
-    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
+    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -199,7 +199,7 @@ impl Tables {
                                 None => {
                                     wres.contexts.insert(wsex.id, 
                                         Arc::new(RwLock::new(Context {
-                                            session: sex.clone(),
+                                            face: sex.clone(),
                                             rid: None,
                                             subs: Some(false),
                                         }))
@@ -217,7 +217,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, prefixid: u64, suffix: &str) {
+    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -339,8 +339,8 @@ impl Tables {
         get_best_key_(prefix, suffix, sid, true)
     }
 
-    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Session>>, rid: &u64, suffix: &str) 
-    -> Option<HashMap<usize, (Weak<RwLock<Session>>, u64, String)>> {
+    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str) 
+    -> Option<HashMap<usize, (Weak<RwLock<Face>>, u64, String)>> {
 
         let t = tables.read();
 
@@ -356,7 +356,7 @@ impl Tables {
                             if ! sexs.contains_key(sid)
                             {
                                 let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
-                                sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                                sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                             }
                         }
                     }
