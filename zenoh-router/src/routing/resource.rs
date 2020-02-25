@@ -172,7 +172,7 @@ impl Resource {
 }
 
 pub(super) struct Context {
-    pub(super) session: Arc<RwLock<Face>>,
+    pub(super) face: Arc<RwLock<Face>>,
     pub(super) rid: Option<u64>,
     pub(super) subs: Option<bool>,
 }

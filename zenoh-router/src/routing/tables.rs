@@ -7,7 +7,7 @@ use zenoh_protocol::core::rname::intersect;
 
 pub struct Tables {
     root_res: Arc<RwLock<Resource>>,
-    sessions: HashMap<usize, Arc<RwLock<Face>>>,
+    faces: HashMap<usize, Arc<RwLock<Face>>>,
 }
 
 impl Tables {
@@ -15,7 +15,7 @@ impl Tables {
     pub fn new() -> Arc<RwLock<Tables>> {
         Arc::new(RwLock::new(Tables {
             root_res: Resource::root(),
-            sessions: HashMap::new(),
+            faces: HashMap::new(),
         }))
     }
 
@@ -30,10 +30,10 @@ impl Tables {
 
     pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Face>> {
         let mut t = tables.write();
-        if ! t.sessions.contains_key(&sid) {
-            t.sessions.insert(sid, Face::new(sid));
+        if ! t.faces.contains_key(&sid) {
+            t.faces.insert(sid, Face::new(sid));
         }
-        Arc::downgrade(t.sessions.get(&sid).unwrap())
+        Arc::downgrade(t.faces.get(&sid).unwrap())
     }
 
     pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
@@ -48,7 +48,7 @@ impl Tables {
                 while let Some(res) = wsex.subs.pop() {
                     Resource::clean(&res);
                 }
-                t.sessions.remove(&wsex.id);
+                t.faces.remove(&wsex.id);
             }
             None => println!("Undeclare closed session!")
         }
@@ -63,7 +63,7 @@ impl Tables {
                 let rcontext = context.read();
                 if let Some(_) = rcontext.subs {
                     let (rid, suffix) = Tables::get_best_key(res, "", sid);
-                    dests.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                    dests.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                 }
             }
         }
@@ -136,7 +136,7 @@ impl Tables {
                                         None => {
                                             wres.contexts.insert(rsex.id, 
                                                 Arc::new(RwLock::new(Context {
-                                                    session: sex.clone(),
+                                                    face: sex.clone(),
                                                     rid: Some(rid),
                                                     subs: None,
                                                 }))
@@ -199,7 +199,7 @@ impl Tables {
                                 None => {
                                     wres.contexts.insert(wsex.id, 
                                         Arc::new(RwLock::new(Context {
-                                            session: sex.clone(),
+                                            face: sex.clone(),
                                             rid: None,
                                             subs: Some(false),
                                         }))
@@ -356,7 +356,7 @@ impl Tables {
                             if ! sexs.contains_key(sid)
                             {
                                 let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
-                                sexs.insert(*sid, (Arc::downgrade(&rcontext.session), rid, suffix));
+                                sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                             }
                         }
                     }
