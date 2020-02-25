@@ -8,9 +8,9 @@ pub struct Resource {
     pub(super) suffix: String,
     pub(super) nonwild_prefix: Option<(Arc<RwLock<Resource>>, String)>,
     pub(super) childs: HashMap<String, Arc<RwLock<Resource>>>,
-    pub(super) contexts: HashMap<u64, Arc<RwLock<Context>>>,
+    pub(super) contexts: HashMap<usize, Arc<RwLock<Context>>>,
     pub(super) matches: Vec<Weak<RwLock<Resource>>>,
-    pub(super) route: HashMap<u64, (Weak<RwLock<Session>>, u64, String)>
+    pub(super) route: HashMap<usize, (Weak<RwLock<Session>>, u64, String)>
 }
 
 impl Resource {
