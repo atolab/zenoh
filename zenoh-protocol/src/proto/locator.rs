@@ -46,7 +46,7 @@ impl FromStr for Locator {
                 let addr: SocketAddr = match addr.parse() {
                     Ok(addr) => addr,
                     Err(_) => return Err(zerror!(ZErrorKind::InvalidLocator{ 
-                        reason: format!("Invalid TCP Socket Address format: {}", addr) 
+                        descr: format!("Invalid TCP Socket Address format: {}", addr) 
                     }))
                 };
                 return Ok(Locator::Tcp { addr })
@@ -55,13 +55,13 @@ impl FromStr for Locator {
                 let addr: SocketAddr = match addr.parse() {
                     Ok(addr) => addr,
                     Err(_) => return Err(zerror!(ZErrorKind::InvalidLocator{ 
-                        reason: format!("Invalid UDP Socket Address format: {}", addr) 
+                        descr: format!("Invalid UDP Socket Address format: {}", addr) 
                     }))
                 };
                 return Ok(Locator::Udp { addr })
             },
             _ => return Err(zerror!(ZErrorKind::InvalidLocator{ 
-                reason: format!("Invalid protocol: {}", proto) 
+                descr: format!("Invalid protocol: {}", proto) 
             }))
         }
     }

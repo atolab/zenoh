@@ -109,7 +109,7 @@ impl SessionManager {
         match self.manager.read().await.get(&locator.get_proto()) {
             Some(manager) => return manager.new_listener(locator).await,
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to add a listener to a Link Manager that does not exist!")
+                descr: format!("Trying to add a listener to a Link Manager that does not exist!")
             }))
         }
     }
@@ -124,7 +124,7 @@ impl SessionManager {
                 return Ok(())
             },
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to delete a listener from a Link Manager that does not exist!")
+                descr: format!("Trying to delete a listener from a Link Manager that does not exist!")
             }))
         }
     }
@@ -154,7 +154,7 @@ impl SessionManager {
         match self.manager.write().await.remove(protocol) {
             Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("No available Link Manager for protocol: {}", protocol)
+                descr: format!("No available Link Manager for protocol: {}", protocol)
             }))
         }
     }
@@ -163,7 +163,7 @@ impl SessionManager {
         match self.manager.read().await.get(&src.get_proto()) {
             Some(manager) => return manager.move_link(src, dst, session.clone()).await,
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to move a Link not associated to any manager!")
+                descr: format!("Trying to move a Link not associated to any manager!")
             }))
         }
     }
@@ -190,7 +190,7 @@ impl SessionManager {
         }
 
         return Err(zerror!(ZErrorKind::Other{
-            msg: format!("Trying to delete a session that does not exist!")
+            descr: format!("Trying to delete a session that does not exist!")
         }))
     }
 
@@ -215,7 +215,7 @@ impl SessionManager {
         let manager = match guard.get(&locator.get_proto()) {
             Some(manager) => manager,
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to add a link to a Link Manager that does not exist!")
+                descr: format!("Trying to add a link to a Link Manager that does not exist!")
             }))
         };
 
@@ -267,7 +267,7 @@ impl SessionManager {
                 Err(e) => return Err(e)
             },
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Open session failed unexpectedly!")
+                descr: format!("Open session failed unexpectedly!")
             }))
         }
     }
@@ -286,7 +286,7 @@ impl SessionManager {
             Body::Accept{ opid, apid, lease } => {
                 if *opid != self.id {
                     return Err(zerror!(ZErrorKind::InvalidMessage{
-                        reason: format!("Received an Accept with an Opener Peer ID different from self!")
+                        descr: format!("Received an Accept with an Opener Peer ID different from self!")
                     }))
                 }
                 match self.channel.write().await.remove(&session.get_id()) {
@@ -321,7 +321,7 @@ impl SessionManager {
                         sender.send(Ok(target)).await;
                     },
                     None => return Err(zerror!(ZErrorKind::InvalidMessage{
-                        reason: format!("Received an Accept from a non-open session!")
+                        descr: format!("Received an Accept from a non-open session!")
                     }))
                 }
             },
@@ -331,7 +331,7 @@ impl SessionManager {
                 // Ignore whatami and locators for the time being
                 if version > &self.version {
                     return Err(zerror!(ZErrorKind::Other{
-                        msg: format!("Zenoh version not supported ({}). Supported version is ({})!", version, self.version)
+                        descr: format!("Zenoh version not supported ({}). Supported version is ({})!", version, self.version)
                     }))
                 }
                 // Build the fields of the Accept
@@ -352,7 +352,7 @@ impl SessionManager {
                 self.add_session(target).await;
             },
             _ => return Err(zerror!(ZErrorKind::InvalidMessage{
-                reason: format!("Message not allowed in the session manager: {:?}", message)
+                descr: format!("Message not allowed in the session manager: {:?}", message)
             }))
         }
         Ok(())

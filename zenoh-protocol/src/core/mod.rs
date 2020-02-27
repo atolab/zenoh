@@ -7,6 +7,9 @@ pub use zerror::*;
 
 pub mod rname;
 
+
+pub type ZResult<T> = Result<T, ZError>;
+
 pub type ZInt = u64;
 pub const ZINT_MAX_BYTES : usize = 10;
 

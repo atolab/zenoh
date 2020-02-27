@@ -169,7 +169,7 @@ impl Session {
     
         if !found {
             return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to delete a link that does not exist!")
+                descr: format!("Trying to delete a link that does not exist!")
             }))
         }
 

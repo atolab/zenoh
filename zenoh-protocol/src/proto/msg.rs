@@ -1,5 +1,6 @@
 use crate::zerror;
 use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::io::ArcSlice;
 use super::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
@@ -93,7 +94,7 @@ pub enum WhatAmI {
     Broker = flag::BROKER,
     Router = flag::ROUTER,
     Peer = flag::PEER,
-    Client = flag:: CLIENT
+    Client = flag::CLIENT
 }
 
 impl WhatAmI {
@@ -108,7 +109,7 @@ impl WhatAmI {
             Ok(WhatAmI::Client) 
         } else {
             Err(zerror!(ZErrorKind::Other{
-                msg: format!("Invalid WhatAmI field ({})", value)
+                descr: format!("Invalid WhatAmI field ({})", value)
             }))
         }
     }
@@ -278,7 +279,7 @@ pub enum Body {
     /// +---------------+
     ///
     /// The message is sent on the reliable channel if R==1 best-effort otherwise.
-    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<Arc<Vec<u8>>>, payload: Arc<Vec<u8>> },
+    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<ArcSlice>, payload: ArcSlice },
 
     /// +-+-+-+---------+
     /// |F|N|C|  PULL   |
@@ -556,8 +557,8 @@ impl Message {
         reliable: bool,
         sn: ZInt,
         key: ResKey,
-        info: Option<Arc<Vec<u8>>>,
-        payload: Arc<Vec<u8>>,
+        info: Option<ArcSlice>,
+        payload: ArcSlice,
         reply_context: Option<ReplyContext>,
         cid: Option<ZInt>,
         ps: Option<Arc<Vec<Property>>> ) -> Message
@@ -573,7 +574,7 @@ impl Message {
             body: Body::Data { reliable, sn, key, info, payload },
             kind,
             reply_context,
-            properties: ps    
+            properties: ps
         }
     }
 
