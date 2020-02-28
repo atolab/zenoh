@@ -74,7 +74,7 @@ impl SessionManager {
                 Err(e) => return Err(e)
             },
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Open session failed unexpectedly!")
+                descr: format!("Open session failed unexpectedly!")
             }))
         };
 
@@ -197,7 +197,7 @@ impl SessionManagerInner {
         match self.manager.read().await.get(protocol) {
             Some(manager) => Ok(manager.clone()),
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("Link Manager not found for protocol ({})", protocol)
+                descr: format!("Link Manager not found for protocol ({})", protocol)
             }))
         }
     }
@@ -206,7 +206,7 @@ impl SessionManagerInner {
         match self.manager.write().await.remove(protocol) {
             Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("No available Link Manager for protocol: {}", protocol)
+                descr: format!("No available Link Manager for protocol: {}", protocol)
             }))
         }
     }
@@ -253,7 +253,7 @@ impl SessionManagerInner {
                 Ok(session)
             }
             None =>  Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to delete a session that does not exist!")
+                descr: format!("Trying to delete a session that does not exist!")
             }))
         }
     }
@@ -261,7 +261,7 @@ impl SessionManagerInner {
     async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
         if let Some(_) = self.session.read().await.get(peer) {
             return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Session with peer ({:?}) already exist. Can not create a new one!", peer)
+                descr: format!("Session with peer ({:?}) already exist. Can not create a new one!", peer)
             }))
         }
 
@@ -388,7 +388,7 @@ impl Session {
         // Check if the opener peer of this accept was me
         if *opid != self.inner.id {
             return Err(zerror!(ZErrorKind::InvalidMessage{
-                reason: format!("Received an Accept with an Opener Peer ID different from self!")
+                descr: format!("Received an Accept with an Opener Peer ID different from self!")
             }))
         }
 
@@ -400,7 +400,7 @@ impl Session {
                 Ok(sender.send(Ok(notification)).await)
             },
             None => Err(zerror!(ZErrorKind::InvalidMessage{
-                reason: format!("Received an Accept from a non pending connection!")
+                descr: format!("Received an Accept from a non pending connection!")
             }))
         }
     }
@@ -417,7 +417,7 @@ impl Session {
         // Check if the version is supported
         if version > &self.inner.version {
             return Err(zerror!(ZErrorKind::Other{
-                msg: format!("Zenoh version not supported ({}). Supported version is ({})!", version, self.inner.version)
+                descr: format!("Zenoh version not supported ({}). Supported version is ({})!", version, self.inner.version)
             }))
         }
 

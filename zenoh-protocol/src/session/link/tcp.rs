@@ -15,13 +15,20 @@ use std::collections::HashMap;
 use std::net::Shutdown;
 // use uuid::Uuid;
 
-use crate::zerror;
+use crate::{
+    zerror,
+    to_zerror,
+};
 use crate::core::{
     ZError,
     ZErrorKind,
     ZResult
 };
-use crate::io::RWBuf;
+use crate::io::{
+    ArcSlice,
+    RBuf,
+    WBuf,
+};
 use crate::proto::{
     Locator,
     Message
@@ -90,22 +97,19 @@ impl LinkTcp {
         match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
             Ok(_) => Ok(()),
             Err(e) => Err(zerror!(ZErrorKind::Other{
-                msg: format!("{}", e)
+                descr: format!("{}", e)
             }))
         }
     }
     
     pub async fn send(&self, message: &Arc<Message>) -> ZResult<()> {
-        let mut buff = RWBuf::new(self.buff_size);
-        match buff.write_message(&message) {
-            Ok(_) => match (&self.socket).write_all(&buff.readable_slice()).await {
-                Ok(_) => Ok(()),
-                Err(e) => Err(zerror!(ZErrorKind::Other{
-                    msg: format!("{}", e)
-                }))
-            },
-            Err(e) => Err(e)
+        let mut buff = WBuf::new();
+        buff.write_message(&message);
+        for s in buff.get_slices() {
+            (&self.socket).write_all(s.as_slice()).await
+                .map_err(to_zerror!(IOError, "on write_all".to_string()))?;
         }
+        Ok(())
     }
 
     pub fn start(link: Arc<LinkTcp>) {
@@ -139,19 +143,20 @@ impl LinkTcp {
 }
 
 async fn receive_loop(link: Arc<LinkTcp>) {
-    async fn read(link: &Arc<LinkTcp>, buff: &mut RWBuf, src: &Locator, dst: &Locator) -> Option<Command> {
-        match (&link.socket).read(&mut buff.writable_slice()).await {
+    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, src: &Locator, dst: &Locator) -> Option<Command> {
+        let mut rbuf = vec![0u8; link.buff_size];
+        match (&link.socket).read(&mut rbuf).await {
             Ok(n) => { 
                 // Reading zero bytes means error
                 if n == 0 {
                     return Some(Command::Err(zerror!(ZErrorKind::IOError {
-                        reason: format!("Failed to read from the TCP socket")
+                        descr: format!("Failed to read from the TCP socket")
                     })))
                 }
-                buff.set_write_pos(buff.write_pos() + n).unwrap();
+                buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
             },
             Err(e) => return Some(Command::Err(zerror!(ZErrorKind::IOError {
-                reason: format!("{}", e)
+                descr: format!("{}", e)
             })))
         }
         loop {
@@ -169,7 +174,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
     let mut signal = false;
     let src = link.get_src();
     let dst = link.get_dst();
-    let mut buff = RWBuf::new(link.buff_size);
+    let mut buff = RBuf::new();
     let err = loop {
         let stop = link.ch_recv.recv();
         let read = read(&link, &mut buff, &src, &dst);
@@ -180,14 +185,14 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 Command::Signal => {
                     signal = true;
                     break zerror!(ZErrorKind::Other {
-                        msg: format!("Stopped by a signal!")
+                        descr: format!("Stopped by a signal!")
                     })
                 }
             },
             None => {
                 signal = true;
                 break zerror!(ZErrorKind::Other {
-                    msg: format!("Error in the signal channel!")
+                    descr: format!("Error in the signal channel!")
                 })
             }
         }
@@ -265,7 +270,7 @@ impl ManagerTcpInner {
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
             Err(e) => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("{}", e)
+                descr: format!("{}", e)
             }))
         };
         
@@ -289,7 +294,7 @@ impl ManagerTcpInner {
         match self.link.write().await.remove(&(*src, *dst)) {
             Some(link) => Ok(link),
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("No active TCP link ({} => {})", src, dst)
+                descr: format!("No active TCP link ({} => {})", src, dst)
             }))
         }
     }
@@ -302,13 +307,13 @@ impl ManagerTcpInner {
         let old_link = match self.link.write().await.remove(&(*src, *dst)) {
             Some(link) => link,
             None => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("No active TCP link ({} => {})", src, dst)
+                descr: format!("No active TCP link ({} => {})", src, dst)
             }))
         };
 
         // Remove the link from the session
         let reason = Some(zerror!(ZErrorKind::Other{
-            msg: format!("Migrating the link to a new session")
+            descr: format!("Migrating the link to a new session")
         }));
         old_link.transport.del_link(&old_link.get_src(), &old_link.get_dst(), reason).await?;
 
@@ -335,7 +340,7 @@ impl ManagerTcpInner {
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
             Err(e) => return Err(zerror!(ZErrorKind::Other{
-                msg: format!("{}", e)
+                descr: format!("{}", e)
             }))
         };
 
@@ -366,7 +371,7 @@ impl ManagerTcpInner {
                 Ok(())
             },
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("No TCP listener on locator: {}", locator)
+                descr: format!("No TCP listener on locator: {}", locator)
             }))
         }
     }

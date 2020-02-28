@@ -79,6 +79,7 @@ async fn run(locator: Locator) {
         let manager = SessionManager::new(version, whatami, id, lease, routing);
 
         // Limit the number of connections to 1 for each listener
+        // Not implemented at the moment
         let limit = Some(1);
 
         // Create the listeners
@@ -113,12 +114,10 @@ async fn run(locator: Locator) {
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&l).await;
-        // println!("{:?}", res1);
         assert_eq!(res1.is_ok(), true);
 
         // Open session -> This should be rejected
         let res2 = manager.open_session(&l).await;
-        // println!("{:?}", res2);
         assert_eq!(res2.is_ok(), true);
 
         // Close the open session

@@ -1,11 +1,10 @@
 
-use zenoh_protocol::io::RWBuf;
+use zenoh_protocol::io::{ArcSlice, WBuf};
 use zenoh_protocol::proto::*;
 use zenoh_protocol::core::*;
 use std::sync::Arc;
 use rand::*;
 
-const BUFFER_SIZE: usize = 1000;
 const PROPS_LENGTH: usize = 3;
 const PID_MAX_SIZE: usize = 128;
 const PROP_MAX_SIZE: usize = 64;
@@ -104,11 +103,11 @@ fn gen_consolidation() -> QueryConsolidation {
 
 fn test_write_read_message(msg: Message)
 {
-  let mut buf = RWBuf::new(BUFFER_SIZE);
+  let mut buf = WBuf::new();
   println!("Write message: {:?}", msg);
-  buf.write_message(&msg).unwrap();
+  buf.write_message(&msg);
   println!("Read message from: {:?}", buf);
-  let result = buf.read_message().unwrap();
+  let result = buf.as_rbuf().read_message().unwrap();
   println!("Message read: {:?}", result);
 
   assert_eq!(msg, result);
@@ -246,8 +245,8 @@ fn test_data(with_decorators: bool,
   reliable: bool,
   sn: ZInt,
   key: ResKey,
-  info: Option<Arc<Vec<u8>>>,
-  payload: Arc<Vec<u8>>,
+  info: Option<ArcSlice>,
+  payload: ArcSlice,
   reply_context: Option<ReplyContext>)
 {
   let msg = if with_decorators {
@@ -261,8 +260,8 @@ fn test_data(with_decorators: bool,
 #[test]
 fn data_tests() {
   use MessageKind::*;
-  let info = Arc::new(gen_buffer(MAX_INFO_SIZE));
-  let payload = Arc::new(gen_buffer(MAX_PAYLOAD_SIZE));
+  let info = ArcSlice::from(gen_buffer(MAX_INFO_SIZE));
+  let payload = ArcSlice::from(gen_buffer(MAX_PAYLOAD_SIZE));
   test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));

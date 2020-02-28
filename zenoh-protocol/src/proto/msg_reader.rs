@@ -1,12 +1,11 @@
-use crate::io::RWBuf;
+use crate::io::{ArcSlice, RBuf};
 use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp};
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
 use super::Locator;
 use std::sync::Arc;
-use std::convert::TryInto;
 
-impl RWBuf {
+impl RBuf {
 
     pub fn read_message(&mut self) -> Result<Message, ZError> {
         use super::msg::id::*;
@@ -102,9 +101,9 @@ impl RWBuf {
                     let sn = self.read_zint()?;
                     let key = self.read_reskey(flag::has_flag(header, flag::C))?;
                     let info = if flag::has_flag(header, flag::I) {
-                        Some(Arc::new(self.read_bytes_array()?))
+                        Some(ArcSlice::from(self.read_bytes_array()?))
                     } else { None };
-                    let payload = Arc::new(self.read_bytes_array()?);
+                    let payload = ArcSlice::from(self.read_bytes_array()?);
                     return Ok(Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties))
                 }
 
@@ -342,9 +341,10 @@ impl RWBuf {
         }
     }
 
-    fn read_timestamp(&mut self) -> Result<TimeStamp, ZError> {
+    pub fn read_timestamp(&mut self) -> Result<TimeStamp, ZError> {
         let time = self.read_zint()?;
-        let bytes : [u8; 16] = self.read_slice(16)?.try_into().expect("SHOULDN'T HAPPEN");
+        let mut bytes = [0u8; 16];
+        self.read_bytes(&mut bytes[..])?;
         let id = uuid::Builder::from_bytes(bytes).build();
         Ok(TimeStamp { time, id })
     }

@@ -1,15 +1,13 @@
 use std::fmt;
 
-pub type ZResult<T> = Result<T, ZError>;
-
 #[derive(Debug, PartialEq)]
 pub enum ZErrorKind {
     BufferOverflow { missing: usize },
     BufferUnderflow { missing: usize },
-    InvalidMessage { reason: String },
-    InvalidLocator { reason: String },
-    IOError { reason: String },
-    Other { msg: String }
+    InvalidMessage { descr: String },
+    InvalidLocator { descr: String },
+    IOError { descr: String },
+    Other { descr: String }
 }
 
 impl fmt::Display for ZErrorKind {
@@ -20,14 +18,14 @@ impl fmt::Display for ZErrorKind {
             ZErrorKind::BufferUnderflow { missing } =>
                 write!(f, "Failed to read from empty buffer ({} bytes missing)", 
                   (if *missing == 0 {"some".to_string()} else { missing.to_string() })),
-            ZErrorKind::InvalidMessage { reason } =>
-                write!(f, "Invalid message ({})", reason),
-            ZErrorKind::InvalidLocator { reason } =>
-                write!(f, "Invalid locator ({})", reason),
-            ZErrorKind::IOError { reason } =>
-                write!(f, "IO error ({})", reason),
-            ZErrorKind::Other { msg } =>
-                write!(f, "zenoh error: \"{}\"", msg),
+            ZErrorKind::InvalidMessage { descr } =>
+                write!(f, "Invalid message ({})", descr),
+            ZErrorKind::InvalidLocator { descr } =>
+                write!(f, "Invalid locator ({})", descr),
+            ZErrorKind::IOError { descr } =>
+                write!(f, "IO error ({})", descr),
+            ZErrorKind::Other { descr } =>
+                write!(f, "zenoh error: \"{}\"", descr),
         }
     }
 }
@@ -73,8 +71,19 @@ impl fmt::Display for ZError {
     }
 }
 
+
 #[macro_export]
 macro_rules! zerror {
     ($kind:expr) => (ZError::new($kind, file!(), line!(), None));
     ($kind:expr, $source:expr) => (ZError::new($kind, file!(), line!(), Some(Box::new($source))));
+    ($kind:ident, $descr:expr, $source:expr) => (
+        ZError::new(ZErrorKind::$kind{descr:$descr}, file!(), line!(), Some(Box::new($source)));
+    )
+}
+
+#[macro_export]
+macro_rules! to_zerror {
+    ($kind:ident, $descr:expr) => (
+        |e| { zerror!($kind, $descr, e) }
+    )
 }

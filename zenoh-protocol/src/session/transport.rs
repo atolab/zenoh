@@ -181,7 +181,7 @@ impl Transport {
         let mut guard = self.link.lock().await;
         match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
             Some(_) => Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to delete a link that does not exist!")
+                descr: format!("Trying to delete a link that does not exist!")
             })),
             None => Ok(guard.push(link))
         }
@@ -193,7 +193,7 @@ impl Transport {
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
             None => Err(zerror!(ZErrorKind::Other{
-                msg: format!("Trying to delete a link that does not exist!")
+                descr: format!("Trying to delete a link that does not exist!")
             }))
         }
     }

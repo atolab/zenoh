@@ -1,33 +1,24 @@
 
-use zenoh_protocol::core::ZError;
-use zenoh_protocol::io::RWBuf;
-use rand::distributions::{Distribution, Standard};
-
-const N : usize = 1_000_000;
+use zenoh_protocol::core::{ZInt, ZError};
+use zenoh_protocol::io::WBuf;
 
 
-
-fn test_zint_codec_for<T>(n: usize) -> Result<(), ZError>
-  where T: Copy + PartialEq + std::fmt::Debug,
-        Standard: Distribution<T> ,
-        u64: std::convert::From<T> 
-{
-  let mut buf = RWBuf::new(512);
-  for _ in 0..n {
-    let a: u64 = u64::from(rand::random::<T>());    
-    buf.write_zint(a)?;
-    let b : u64 = buf.read_zint()?;        
-    buf.clear();
-    assert_eq!(a, b);
-  }
+fn test_zint(v: ZInt) -> Result<(), ZError> {
+  let mut buf = WBuf::new();
+  buf.write_zint(v);
+  assert_eq!(v, buf.as_rbuf().read_zint()?);
   Ok(())
 }
 
 
 #[test]
-fn test_zint_codec() -> Result<(), ZError> {  
-  test_zint_codec_for::<u8>(N)?;
-  test_zint_codec_for::<u16>(N)?;
-  test_zint_codec_for::<u32>(N)?;
-  test_zint_codec_for::<u64>(N)
+fn test_zint_codec_limits() -> Result<(), ZError> {
+  test_zint(0)?;
+  for i in 1 .. 10 {
+    let v: ZInt =  1 << (7*i);
+    test_zint(v-1)?;
+    test_zint(v)?;
+  }
+  test_zint(std::u64::MAX)?;
+  Ok(())
 }
