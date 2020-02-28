@@ -15,14 +15,14 @@ use crate::zerror;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LocatorProtocol {
     Tcp,
-    Udp
+    // Udp
 }
 
 impl fmt::Display for LocatorProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LocatorProtocol::Tcp => write!(f, "TCP")?,
-            LocatorProtocol::Udp => write!(f, "UDP")?,
+            // LocatorProtocol::Udp => write!(f, "UDP")?,
         };
         Ok(())
     }
@@ -30,8 +30,8 @@ impl fmt::Display for LocatorProtocol {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Locator {
-    Tcp { addr: SocketAddr },
-    Udp { addr: SocketAddr }
+    Tcp(SocketAddr),
+    // Udp(SocketAddr)
 }
 
 impl FromStr for Locator {
@@ -49,18 +49,18 @@ impl FromStr for Locator {
                         reason: format!("Invalid TCP Socket Address format: {}", addr) 
                     }))
                 };
-                return Ok(Locator::Tcp { addr })
+                Ok(Locator::Tcp(addr))
             },
-            "udp" => {
-                let addr: SocketAddr = match addr.parse() {
-                    Ok(addr) => addr,
-                    Err(_) => return Err(zerror!(ZErrorKind::InvalidLocator{ 
-                        reason: format!("Invalid UDP Socket Address format: {}", addr) 
-                    }))
-                };
-                return Ok(Locator::Udp { addr })
-            },
-            _ => return Err(zerror!(ZErrorKind::InvalidLocator{ 
+            // "udp" => {
+            //     let addr: SocketAddr = match addr.parse() {
+            //         Ok(addr) => addr,
+            //         Err(_) => return Err(zerror!(ZErrorKind::InvalidLocator{ 
+            //             reason: format!("Invalid UDP Socket Address format: {}", addr) 
+            //         }))
+            //     };
+            //     return Ok(Locator::Udp { addr })
+            // },
+            _ => Err(zerror!(ZErrorKind::InvalidLocator{ 
                 reason: format!("Invalid protocol: {}", proto) 
             }))
         }
@@ -70,18 +70,18 @@ impl FromStr for Locator {
 impl fmt::Display for Locator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Locator::Tcp{ addr } => write!(f, "tcp/{}", addr)?,
-            Locator::Udp{ addr } => write!(f, "udp/{}", addr)?,
+            Locator::Tcp(addr) => write!(f, "tcp/{}", addr)?,
+            // Locator::Udp(addr) => write!(f, "udp/{}", addr)?,
         };
-        return Ok(())
+        Ok(())
     }
 }
 
 impl Locator {
     pub fn get_proto(&self) -> LocatorProtocol {
         match self {
-            Locator::Tcp{..} => LocatorProtocol::Tcp,
-            Locator::Udp{..} => LocatorProtocol::Udp
+            Locator::Tcp(..) => LocatorProtocol::Tcp,
+            // Locator::Udp(..) => LocatorProtocol::Udp
         }
     }
 }

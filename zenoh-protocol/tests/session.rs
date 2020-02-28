@@ -30,13 +30,13 @@ impl SHRouter {
 
 #[async_trait]
 impl SessionHandler for SHRouter {
-    async fn new_session(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
+    async fn get_callback(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
         Arc::new(EmptyCallback::new())
     }
 
-    async fn del_session(&self, _session: &Arc<Session>) {
+    async fn new_session(&self, _session: Arc<Session>) {}
 
-    }
+    async fn del_session(&self, _session: &Arc<Session>) {}
 }
 
 
@@ -51,13 +51,13 @@ impl SHClient {
 
 #[async_trait]
 impl SessionHandler for SHClient {
-    async fn new_session(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
+    async fn get_callback(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
         Arc::new(EmptyCallback::new())
     }
 
-    async fn del_session(&self, _session: &Arc<Session>) {
+    async fn new_session(&self, _session: Arc<Session>) {}
 
-    }
+    async fn del_session(&self, _session: &Arc<Session>) {}
 }
 
 
@@ -123,7 +123,7 @@ async fn run(locator: Locator) {
 
         // Close the open session
         let session = res1.unwrap();
-        let res3 = manager.close_session(session.get_id(), None).await;
+        let res3 = manager.close_session(&session.peer, None).await;
         assert_eq!(res3.is_ok(), true);
 
         // Notify the router we are done
