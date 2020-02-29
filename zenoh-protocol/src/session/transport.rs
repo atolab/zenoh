@@ -353,19 +353,19 @@ impl Transport {
         Ok(())
     }
 
-    async fn receive_first_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message, _number: Option<ZInt>) -> Result<(), ZError> {
+    async fn receive_first_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message, _number: Option<ZInt>) -> ZResult<()> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_middle_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Result<(), ZError> {
+    async fn receive_middle_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> ZResult<()> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_last_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Result<(), ZError> {
+    async fn receive_last_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> ZResult<()> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) -> Result<(), ZError> {
+    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) -> ZResult<()> {
         match message.kind {
             MessageKind::FullMessage =>
                 self.receive_full_message(src, dst, message).await?,

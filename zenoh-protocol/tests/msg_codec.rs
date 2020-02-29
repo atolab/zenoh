@@ -145,7 +145,7 @@ fn test_hello(with_decorators: bool, whatami: WhatAmI, locators: Option<Vec<Loca
 
 #[test]
 fn hello_tests() {
-  let locators: Vec<Locator> = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "udp/4.5.6.7:4567".parse().unwrap()];
+  let locators: Vec<Locator> = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "tcp/4.5.6.7:4567".parse().unwrap()];
   test_hello(false, WhatAmI::Broker, None);
   test_hello(true, WhatAmI::Broker, None);
   test_hello(false, WhatAmI::Client, Some(locators.clone()));
@@ -164,7 +164,7 @@ fn test_open(with_decorators: bool, version: u8, whatami: WhatAmI, pid: PeerId, 
 
 #[test]
 fn open_tests() {
-  let locators = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "udp/4.5.6.7:4567".parse().unwrap()];
+  let locators = vec!["tcp/1.2.3.4:1234".parse().unwrap(), "tcp/4.5.6.7:4567".parse().unwrap()];
   test_open(false, gen!(u8), WhatAmI::Broker, gen_pid(), gen!(ZInt), None);
   test_open(true, gen!(u8), WhatAmI::Broker, gen_pid(), gen!(ZInt), None);
   test_open(false, gen!(u8), WhatAmI::Client, gen_pid(), gen!(ZInt), Some(locators.clone()));

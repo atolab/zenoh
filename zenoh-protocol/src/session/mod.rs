@@ -54,5 +54,5 @@ impl SessionCallback for EmptyCallback {
 
 #[macro_export]
 macro_rules! zrwopt {
-    ($kind:expr) => ($kind.try_read().unwrap().as_ref().unwrap());
+    ($var:expr) => ($var.try_read().unwrap().as_ref().unwrap());
 }

@@ -181,7 +181,6 @@ async fn run(locator: Locator) {
         c_rbr.wait().await;
         
         // Close the open session
-        // let session = res1.unwrap();
         let res3 = manager.close_session(&ses1.peer, None).await;
         assert_eq!(res3.is_ok(), true);
         assert_eq!(manager.get_sessions().await.len(), 0);
