@@ -1,23 +1,23 @@
-use async_std::sync::Arc;
+use async_std::sync::{
+    Arc,
+    Barrier
+};
 use crossbeam::queue::ArrayQueue;
 
 use crate::proto::Message;
-use crate::proto::Locator;
+use crate::link::Locator;
 
 
-// Struct ZQueue
-#[derive(Debug)]
-pub enum QueueError {
-    IsEmpty,
-    IsFull
+pub struct QueueMessage {
+    pub message: Arc<Message>, 
+    pub priority: Option<usize>, 
+    pub link: Option<(Locator, Locator)>,
+    pub barrier: Option<Arc<Barrier>>
 }
 
-pub type QueueMessage = (Arc<Message>, Option<usize>, Option<(Locator, Locator)>);
-// type QueueMessage = Arc<Message>;
-
 pub struct Queue {
-    high: ArrayQueue<QueueMessage>,
-    low: ArrayQueue<QueueMessage>
+    high: ArrayQueue<Arc<QueueMessage>>,
+    low: ArrayQueue<Arc<QueueMessage>>
 }
 
 impl Queue {
@@ -28,24 +28,24 @@ impl Queue {
         }
     }
 
-    pub fn pop(&self) -> Result<QueueMessage, QueueError> {
+    pub fn pop(&self) -> Option<Arc<QueueMessage>> {
         if let Ok(msg) = self.high.pop() {
-            return Ok(msg)
+            return Some(msg)
         }
         if let Ok(msg) = self.low.pop() {
-            return Ok(msg)
+            return Some(msg)
         }
-        Err(QueueError::IsEmpty)
+        None
     }
 
-    pub fn push(&self, message: QueueMessage) -> Result<(), QueueError> {
-        let queue = match message.1 {
+    pub fn push(&self, message: Arc<QueueMessage>) -> bool {
+        let queue = match message.priority {
             Some(0) => &self.high,
             _ => &self.low
         };
         match queue.push(message) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(QueueError::IsFull)
+            Ok(_) => true,
+            Err(_) => false
         }
     }
 }

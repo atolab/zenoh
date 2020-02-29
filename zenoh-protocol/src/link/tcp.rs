@@ -29,15 +29,15 @@ use crate::io::{
     RBuf,
     WBuf,
 };
-use crate::proto::{
-    Locator,
-    Message
-};
+use crate::proto::Message;
 use crate::session::{
     SessionManagerInner,
     Transport
 };
-use crate::session::link::Link;
+use crate::link::{
+    Link,
+    Locator
+};
 
 
 #[macro_export]
@@ -365,7 +365,7 @@ impl ManagerTcpInner {
         let addr = get_tcp_addr!(locator);
 
         // Stop the listener
-        match self.listener.read().await.get(&addr) {
+        match self.listener.write().await.remove(&addr) {
             Some((_socket, sender)) => {
                 sender.send(false).await;
                 Ok(())

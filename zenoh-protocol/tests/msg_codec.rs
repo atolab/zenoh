@@ -1,6 +1,7 @@
 
 use zenoh_protocol::io::{ArcSlice, WBuf};
 use zenoh_protocol::proto::*;
+use zenoh_protocol::link::Locator;
 use zenoh_protocol::core::*;
 use std::sync::Arc;
 use rand::*;

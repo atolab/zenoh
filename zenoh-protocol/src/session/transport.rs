@@ -1,6 +1,7 @@
 use async_std::prelude::*;
 use async_std::sync::{
     Arc,
+    Barrier,
     channel,
     Mutex,
     MutexGuard,
@@ -35,7 +36,6 @@ use crate::core::{
 };
 use crate::proto::{
     Body,
-    Locator,
     Message,
     MessageKind
 };
@@ -45,37 +45,41 @@ use crate::session::{
 };
 use crate::session::queue::{
     Queue,
-    QueueError,
     QueueMessage
 };
-use crate::session::link::Link;
+use crate::link::{
+    Link,
+    Locator
+};
 
 
 // Constants
-const QUEUE_LIM: usize = 16;
+const QUEUE_SIZE: usize = 16;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        let (message, _priority, link) = transport.consume().await;
-        match link {
+        let message = transport.consume().await;
+        match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
                 let guard = transport.link.lock().await;
                 if let Some(index) = transport.find_link(&guard, &src, &dst) {
-                    let _ = guard[index].send(&message).await;
+                    let _ = guard[index].send(&message.message).await;
                 }
-                Some(true)
             },
             None => {
                 // Send the message only on the first link
                 for l in transport.link.lock().await.iter() {
-                    let _ = l.send(&message).await;
+                    let _ = l.send(&message.message).await;
                     break
                 }
-                Some(true)
             }
         }
+        if let Some(barrier) = &message.barrier {
+            barrier.wait().await;
+        }
+        Some(true)
     }
     
     loop {
@@ -92,7 +96,7 @@ async fn consume_loop(transport: Arc<Transport>) {
 
 pub struct Transport {
     // The reference to the session
-    session: RwLock<Option<Arc<Session>>>,
+    pub(crate) session: RwLock<Option<Arc<Session>>>,
     // The callback for Data messages
     callback: Arc<dyn SessionCallback + Send + Sync>,
     // The timeout after which the session is closed if no messages are received
@@ -110,14 +114,14 @@ pub struct Transport {
 }
 
 impl Transport {
-    pub fn new(lease: ZInt, callback: Arc<dyn SessionCallback + Send + Sync>) -> Self {
+    pub(crate) fn new(lease: ZInt, callback: Arc<dyn SessionCallback + Send + Sync>) -> Self {
         let (sender, receiver) = channel::<bool>(1);
         Self {
             callback,
             lease: AtomicU64::new(lease),
             link: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
-            queue: Queue::new(QUEUE_LIM),
+            queue: Queue::new(QUEUE_SIZE),
             s_waker: SegQueue::new(),
             c_waker: AtomicCell::new(None),
             ch_send: sender,
@@ -125,31 +129,29 @@ impl Transport {
         }
     }
 
-    pub fn get_lease(&self) -> ZInt {
+    pub(crate) fn get_lease(&self) -> ZInt {
         self.lease.load(Ordering::Acquire)
     }
 
-    pub fn set_lease(&self, lease: ZInt) {
+    pub(crate) fn set_lease(&self, lease: ZInt) {
         self.lease.store(lease, Ordering::Release)
     }
 
-    pub fn get_session(&self) -> Arc<Session> {
-        zrwopt!(self.session).clone()
+    pub(crate) async fn get_links(&self) -> Vec<Link> {
+        let mut vec = Vec::new();
+        for l in self.link.lock().await.iter() {
+            vec.push(l.clone());
+        }
+        vec
     }
 
-    // This function is expected to be called during the construction
-    // of a session object, never at runtime
-    pub fn set_session(&self, session: &Arc<Session>) {
-        *self.session.try_write().unwrap() = Some(session.clone())
-    }
-
-    pub fn start(transport: Arc<Transport>) {
+    pub(crate) fn start(transport: Arc<Transport>) {
         task::spawn(async move {
             consume_loop(transport).await;
         });
     }
 
-    pub async fn stop(&self) {
+    pub(crate) async fn stop(&self) {
         self.ch_send.send(false).await;
     }
 
@@ -176,7 +178,7 @@ impl Transport {
         }
     }
 
-    pub async fn add_link(&self, link: Link) -> ZResult<()> {
+    pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
         // println!("Adding link {} => {} to {:?}", link.get_src(), link.get_dst(), self.get_peer());
         let mut guard = self.link.lock().await;
         match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
@@ -187,7 +189,7 @@ impl Transport {
         }
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
+    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
         // println!("Deleting link {} => {} from {:?}", src, dst, self.get_peer());
         let mut guard = self.link.lock().await;
         match self.find_link(&guard, src, dst) {
@@ -215,38 +217,62 @@ impl Transport {
 
 
     /*************************************/
-    /*           SCHEDULE OUT            */
+    /*             SCHEDULE              */
     /*************************************/
-    pub async fn schedule<'a>(&self, message: Arc<Message>, priority: Option<usize>, link: Option<(Locator, Locator)>) -> usize {
+
+    // Schedule the message to be sent asynchronsly
+    pub(crate) async fn schedule(&self, message: Arc<Message>, 
+        priority: Option<usize>, link: Option<(Locator, Locator)>
+    ) -> usize {
+        self.inner_schedule(message, priority, link, None).await
+    }
+
+    // Send the message in a synchronous way. 
+    // 1) Schedule the message 
+    // 2) Be notified when the message is actually sent
+    pub(crate) async fn send(&self, message: Arc<Message>, 
+        priority: Option<usize>, link: Option<(Locator, Locator)>
+    ) -> usize {
+        let barrier = Arc::new(Barrier::new(2));
+        let sn = self.inner_schedule(message, priority, link, Some(barrier.clone())).await;
+        barrier.wait().await;
+        sn
+    }
+
+    async fn inner_schedule(&self, message: Arc<Message>, 
+        priority: Option<usize>, link: Option<(Locator, Locator)>,
+        barrier: Option<Arc<Barrier>>
+    ) -> usize {
         struct FutureSchedule<'a> {
-            session: &'a Transport,
-            message: QueueMessage
+            transport: &'a Transport,
+            message: Arc<QueueMessage>
         }
         
         impl<'a> Future for FutureSchedule<'a> {
             type Output = usize;
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.session.s_waker.push(ctx.waker().clone());
-                match self.session.queue.push(self.message.clone()) {
-                    Ok(()) => Poll::Ready(0),
-                    Err(QueueError::IsEmpty) => panic!("This should not happen!!!"),
-                    Err(QueueError::IsFull) => Poll::Pending
+                self.transport.s_waker.push(ctx.waker().clone());
+                match self.transport.queue.push(self.message.clone()) {
+                    true => Poll::Ready(0),
+                    false => Poll::Pending
                 }
             }
         }
 
         impl Drop for FutureSchedule<'_> {
             fn drop(&mut self) {
-                if let Some(waker) = self.session.c_waker.take() {
+                if let Some(waker) = self.transport.c_waker.take() {
                     waker.wake();
                 }
             }
         }
 
         FutureSchedule {
-            session: self,
-            message: (message, priority, link)
+            transport: self,
+            message: Arc::new(QueueMessage {
+                message, priority, link, barrier
+            })
         }.await;
         
         // println!("{:?} SCHEDULE", self.session.inner.whatami);
@@ -255,34 +281,33 @@ impl Transport {
         0
     }
 
-    pub async fn consume(&self) -> QueueMessage {
+    pub async fn consume(&self) -> Arc<QueueMessage> {
         struct FutureConsume<'a> {
-            session: &'a Transport
+            transport: &'a Transport
         }
         
         impl<'a> Future for FutureConsume<'a> {
-            type Output = QueueMessage;
+            type Output = Arc<QueueMessage>;
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.session.c_waker.store(Some(ctx.waker().clone()));
-                match self.session.queue.pop() {
-                    Ok(msg) => Poll::Ready(msg),
-                    Err(QueueError::IsEmpty) => Poll::Pending,
-                    Err(QueueError::IsFull) => panic!("This should not happen!!!")
+                self.transport.c_waker.store(Some(ctx.waker().clone()));
+                match self.transport.queue.pop() {
+                    Some(msg) => Poll::Ready(msg),
+                    None => Poll::Pending
                 }
             }
         }
 
         impl Drop for FutureConsume<'_> {
             fn drop(&mut self) {
-                while let Ok(waker) = self.session.s_waker.pop() {
+                while let Ok(waker) = self.transport.s_waker.pop() {
                     waker.wake();
                 }
             }
         }
 
         FutureConsume {
-            session: self
+            transport: self
         }.await
     }
 
@@ -296,8 +321,9 @@ impl Transport {
             },
             // Body::AckNack{sn, mask} => {},
             Body::AckNack{..} => {},
-            // Body::Close{pid, reason} => {},
-            Body::Close{..} => {},
+            Body::Close{pid, reason} => {
+                zrwopt!(self.session).process_close(src, dst, pid, reason).await?;
+            },
             // Body::Data{reliable, sn, key, info, payload} => {
             Body::Data{..} => {
                 self.callback.receive_message(message).await?;

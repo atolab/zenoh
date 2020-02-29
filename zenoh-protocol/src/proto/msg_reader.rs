@@ -1,8 +1,8 @@
 use crate::io::{ArcSlice, RBuf};
 use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
-use super::Locator;
 use std::sync::Arc;
 
 impl RBuf {

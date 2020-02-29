@@ -1,15 +1,14 @@
 use async_std::sync::{
     Arc,
-    channel
+    Barrier
 };
 use async_std::task;
 use async_trait::async_trait;
+use std::time::Duration;
 
 use zenoh_protocol::core::PeerId;
-use zenoh_protocol::proto::{
-    WhatAmI,
-    Locator
-};
+use zenoh_protocol::link::Locator;
+use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::session::{
     EmptyCallback,
     Session,
@@ -62,11 +61,20 @@ impl SessionHandler for SHClient {
 
 
 async fn run(locator: Locator) {
-    let (t_sender, t_receiver) = channel::<()>(1);
-    let (r_sender, r_receiver) = channel::<()>(1);
+    let m_barrier = Arc::new(Barrier::new(2));
+    let b_router = Arc::new(Barrier::new(2));
+    let b_client = Arc::new(Barrier::new(2));
 
-    // Broker task
-    let l = locator.clone();
+    let client_id = PeerId{id: vec![0u8]};
+    let router_id = PeerId{id: vec![1u8]};
+
+    // Router task
+    let c_mbr = m_barrier.clone();
+    let c_cbr = b_router.clone();
+    let c_rbr = b_client.clone();
+    let c_loc = locator.clone();
+    let c_cid = client_id.clone();
+    let c_rid = router_id.clone();
     task::spawn(async move {
         // Create the router session handler
         let routing = Arc::new(SHRouter::new());
@@ -74,7 +82,7 @@ async fn run(locator: Locator) {
         // Create the transport session manager
         let version = 0u8;
         let whatami = WhatAmI::Router;
-        let id = PeerId{id: vec![0u8]};
+        let id = c_rid;
         let lease = 60;    
         let manager = SessionManager::new(version, whatami, id, lease, routing);
 
@@ -83,24 +91,58 @@ async fn run(locator: Locator) {
         let limit = Some(1);
 
         // Create the listeners
-        match manager.new_listener(&l, limit).await {
-            Ok(_) => (),
-            Err(_) => ()
-        }
+        let res = manager.add_locator(&c_loc, limit).await; 
+        assert_eq!(res.is_ok(), true);
+        assert_eq!(manager.get_locators().await.len(), 1);
 
-        // Wait to be notified by the client
-        r_receiver.recv().await;
+        // Wait for the client
+        c_cbr.wait().await;
+
+        let sessions = manager.get_sessions().await;
+        assert_eq!(sessions.len(), 1);
+        let ses1 = &sessions[0];
+        assert_eq!(ses1.peer, c_cid);
+        assert_eq!(ses1.get_links().await.len(), 1);
+
+        // Notify the client
+        c_rbr.wait().await;
+        // Wait for the client
+        c_cbr.wait().await;
+
+        let sessions = manager.get_sessions().await;
+        assert_eq!(sessions.len(), 1);
+        let ses2 = &sessions[0];
+        assert_eq!(Arc::ptr_eq(&ses1, &ses2), true);
+        assert_eq!(ses2.get_links().await.len(), 2);
+
+        // Notify the client
+        c_rbr.wait().await;
+        // Wait for the client
+        c_cbr.wait().await;
+
+        // Wait 10ms to give the time to the close message
+        // sent by client to arrive at the router and close
+        // the actual session
+        task::sleep(Duration::from_millis(10)).await;
+        
+        let sessions = manager.get_sessions().await;
+        assert_eq!(sessions.len(), 0);
 
         // Stop the listener
-        let res = manager.del_listener(&l).await;
+        let res = manager.del_locator(&c_loc).await;
         assert_eq!(res.is_ok(), true);
+        assert_eq!(manager.get_locators().await.len(), 0);
 
         // Notify the main task
-        t_sender.send(()).await;
+        c_mbr.wait().await;
     });
 
     // Client task
-    let l = locator.clone();
+    let c_cbr = b_router.clone();
+    let c_rbr = b_client.clone();
+    let c_loc = locator.clone();
+    let c_cid = client_id.clone();
+    let c_rid = router_id.clone();
     task::spawn(async move {
         // Create the client session handler
         let client = Arc::new(SHClient::new());
@@ -108,28 +150,47 @@ async fn run(locator: Locator) {
         // Create the transport session manager
         let version = 0u8;
         let whatami = WhatAmI::Client;
-        let id = PeerId{id: vec![1u8]};
+        let id = c_cid;
         let lease = 60;    
         let manager = SessionManager::new(version, whatami, id, lease, client);
 
         // Open session -> This should be accepted
-        let res1 = manager.open_session(&l).await;
+        let res1 = manager.open_session(&c_loc).await;
         assert_eq!(res1.is_ok(), true);
+        let ses1 = res1.unwrap();
+        assert_eq!(manager.get_sessions().await.len(), 1);
+        assert_eq!(ses1.peer, c_rid);
+        assert_eq!(ses1.get_links().await.len(), 1);
 
-        // Open session -> This should be rejected
-        let res2 = manager.open_session(&l).await;
+        // Notify the router
+        c_cbr.wait().await;
+        // Wait for the router
+        c_rbr.wait().await;
+
+        // Open session -> This should be accepted
+        let res2 = manager.open_session(&c_loc).await;
         assert_eq!(res2.is_ok(), true);
+        let ses2 = res2.unwrap();
+        assert_eq!(manager.get_sessions().await.len(), 1);
+        assert_eq!(Arc::ptr_eq(&ses1, &ses2), true);
+        assert_eq!(ses2.get_links().await.len(), 2);
 
+        // Notify the router 
+        c_cbr.wait().await;
+        // Wait for the router
+        c_rbr.wait().await;
+        
         // Close the open session
-        let session = res1.unwrap();
-        let res3 = manager.close_session(&session.peer, None).await;
+        // let session = res1.unwrap();
+        let res3 = manager.close_session(&ses1.peer, None).await;
         assert_eq!(res3.is_ok(), true);
+        assert_eq!(manager.get_sessions().await.len(), 0);
 
-        // Notify the router we are done
-        r_sender.send(()).await;
+        // Notify the router 
+        c_cbr.wait().await;
     });
 
-    t_receiver.recv().await;
+    m_barrier.wait().await;
 }
 
 #[test]

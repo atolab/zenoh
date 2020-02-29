@@ -1,7 +1,7 @@
 use crate::zerror;
 use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
 use crate::io::ArcSlice;
-use super::Locator;
+use crate::link::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
 

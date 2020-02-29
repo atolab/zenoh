@@ -1,8 +1,8 @@
 use crate::io::WBuf;
 use crate::core::{ZInt, Property, ResKey, TimeStamp};
+use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
-use super::Locator;
 
 impl WBuf {
     pub fn write_message(&mut self, msg: &Message) {
