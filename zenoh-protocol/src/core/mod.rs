@@ -46,6 +46,16 @@ impl From<(ZInt, String)> for ResKey {
   }
 }
 
+impl<'a> From<&'a ResKey> for (ZInt, &'a str) {
+  fn from(key: &'a ResKey) -> (ZInt, &'a str) {
+    match key {
+      ResKey::ResId {id} => {(*id, "")} 
+      ResKey::ResName {name} => {(0, &name[..])} //(&(0 as u64)
+      ResKey::ResGenId{id, suffix} => {(*id, &suffix[..])} 
+    }
+  }
+}
+
 impl ResKey {
   pub fn is_numerical(&self) -> bool {
     match self {
