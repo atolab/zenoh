@@ -10,18 +10,20 @@ use crate::zerror;
 pub struct WBuf {
     rbuf: RBuf,
     rpos: Option<usize>,   // if None then rpos is in RBuf, else rpos is index in wbuf.
-    wbuf: Vec<u8>,
+    wbuf: Option<Vec<u8>>,
     wpos: usize,
+    capacity: usize
 }
 
-const WRITABLE_BUF_SIZE: usize = 64;
 
 impl WBuf {
 
-    pub fn new() -> WBuf {
+    // Note: capacity is the size of the initial wbuf (Vec<u8>)
+    // When write exceeds capacity, a new Vec<u8> is allocated with this same capacity
+    pub fn new(capacity: usize) -> WBuf {
         let rbuf = RBuf::new();
-        let wbuf = vec![0; WRITABLE_BUF_SIZE];
-        WBuf { rbuf, rpos:Some(0), wbuf, wpos:0 }
+        let wbuf = None;
+        WBuf { rbuf, rpos:Some(0), wbuf, wpos:0, capacity }
     }
 
     #[inline]
@@ -35,24 +37,34 @@ impl WBuf {
         self.wpos = 0;
     }
 
-    fn grow(&mut self) {
-        let rlen = self.rbuf.len();
-        // move wbuf in rbuf, and replace it with a new Vec
-        let oldw = std::mem::replace(&mut self.wbuf, vec![0; WRITABLE_BUF_SIZE]);
-        self.rbuf.add_slice(ArcSlice::new(Arc::new(oldw), 0, self.wpos));
-        // if rpos was in wbuf, set it in rbuf and to None here
-        if let Some(rp) = self.rpos {
-            self.rbuf.set_pos(rlen + rp).unwrap();
-            self.rpos = None;
+    fn wbuf_to_rbuf(&mut self) {
+        if self.wbuf.is_some() {
+            let rlen = self.rbuf.len();
+            let wbuf = self.wbuf.take();
+            self.rbuf.add_slice(ArcSlice::new(Arc::new(wbuf.unwrap()), 0, self.wpos));
+            // if rpos was in wbuf, set it in rbuf and to None here
+            if let Some(rp) = self.rpos {
+                self.rbuf.set_pos(rlen + rp).unwrap();
+                self.rpos = None;
+            }
+            self.wpos = 0;
         }
-        self.wpos = 0;
+    }
+
+    #[inline]
+    fn make_writable(&mut self) {
+        if self.wbuf.is_none() {
+            self.wbuf.replace(vec![0u8; self.capacity]);
+        } else if self.wpos >= self.wbuf.as_ref().unwrap().len() {
+            self.wbuf_to_rbuf();
+            self.wbuf.replace(vec![0u8; self.capacity]);
+        }
     }
 
     pub fn get_slices(&mut self) -> &[ArcSlice] {
         // if something was written in wbuf, force move of wbuf in rbuf 
-        // and its replacement with a new Vec
         if self.wpos > 0 {
-            self.grow();
+            self.wbuf_to_rbuf();
         }
         // just return the slices from rbuf
         &self.rbuf.get_slices()
@@ -60,17 +72,16 @@ impl WBuf {
 
     pub fn as_ioslices(&self) -> Vec<IoSlice> {
         let mut result = self.rbuf.as_ioslices();
-        if self.wpos > 0 {
-            result.push(IoSlice::new(&self.wbuf[0..self.wpos]));
+        if self.wbuf.is_some() && self.wpos > 0 {
+            result.push(IoSlice::new(&self.wbuf.as_ref().unwrap()[0..self.wpos]));
         }
         result
     }
 
     pub fn as_rbuf(&mut self) -> RBuf {
         // if something was written in wbuf, force move of wbuf in rbuf 
-        // and its replacement with a new Vec
         if self.wpos > 0 {
-            self.grow();
+            self.wbuf_to_rbuf();
         }
         // return a clone of rbuf
         self.rbuf.clone()
@@ -150,7 +161,7 @@ impl WBuf {
             }
             Some(rp) => {
                 if rp < self.wpos {
-                    let b = self.wbuf[rp];
+                    let b = self.wbuf.as_mut().unwrap()[rp];
                     self.rpos = Some(rp+1);
                     Ok(b)
                 } else {
@@ -176,7 +187,7 @@ impl WBuf {
             }
             Some(rp) => {
                 if to_read <= self.wpos - rp {
-                    bs.copy_from_slice(&self.wbuf[rp .. rp+to_read]);
+                    bs.copy_from_slice(&self.wbuf.as_ref().unwrap()[rp .. rp+to_read]);
                     self.rpos = Some(rp + to_read);
                     Ok(())
                 } else {
@@ -187,10 +198,8 @@ impl WBuf {
     }
 
     pub fn write(&mut self, b: u8) {
-        if self.wpos >= self.wbuf.len() {
-            self.grow();
-        }
-        self.wbuf[self.wpos] = b;
+        self.make_writable();
+        self.wbuf.as_mut().unwrap()[self.wpos] = b;
         self.wpos += 1;
     }
 
@@ -200,13 +209,10 @@ impl WBuf {
 
         let mut offset = 0;
         while len > 0 {
-            let mut writable = self.wbuf.len() - self.wpos;
-            if writable == 0 {
-                self.grow();
-                writable = self.wbuf.len();
-            }
+            self.make_writable();
+            let writable = self.wbuf.as_ref().unwrap().len() - self.wpos;
             let to_write = std::cmp::min(writable, len);
-            let dest = &mut self.wbuf[self.wpos .. self.wpos+to_write];
+            let dest = &mut self.wbuf.as_mut().unwrap()[self.wpos .. self.wpos+to_write];
             dest.copy_from_slice(&s[offset .. offset+to_write]);
             self.wpos += to_write;
             offset += to_write;
@@ -216,9 +222,8 @@ impl WBuf {
 
     pub fn add_slice(&mut self, slice: ArcSlice) {
         // if something was written in wbuf, force move of wbuf in rbuf 
-        // and its replacement with a new Vec
         if self.wpos > 0 {
-            self.grow();
+            self.wbuf_to_rbuf();
         }
         // add the new slice in rbuf
         self.rbuf.add_slice(slice);
@@ -229,7 +234,7 @@ impl WBuf {
 impl fmt::Display for WBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "WBuf{{ rpos: {:?}, wpos: {}, rbuf len: {}, wbuf len: {} }}",
-            self.rpos, self.wpos, self.rbuf.len(), self.wbuf.len())
+            self.rpos, self.wpos, self.rbuf.len(), self.wbuf.as_ref().map_or(0, |v| v.len()))
     }
 }
 
@@ -247,8 +252,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_io2() {
-        let mut buf = WBuf::new();
+    fn test_wbuf() {
+        let mut buf = WBuf::new(64);
         println!("\n--- INIT --- \nbuf: {:?}", buf);
         assert_eq!(0, buf.readable());
 
@@ -276,13 +281,13 @@ mod tests {
         println!("\n--- After 100 writes --- \nbuf: {:?}", buf);
         assert_eq!(10+10+100, buf.readable());
 
-        // test as_iorbuf()
-        let iorbuf = buf.as_ioslices();
-        assert_eq!(4, iorbuf.len());
-        assert_eq!(Some(&[0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9][..]), iorbuf[0].get(0..10));
-        assert_eq!(Some(&[0xFFu8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF][..]), iorbuf[1].get(0..10));
-        assert_eq!(64, iorbuf[2].len());
-        assert_eq!(36, iorbuf[3].len());
+        // test as_ioslices()
+        let ioslices = buf.as_ioslices();
+        assert_eq!(4, ioslices.len());
+        assert_eq!(Some(&[0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9][..]), ioslices[0].get(0..10));
+        assert_eq!(Some(&[0xFFu8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF][..]), ioslices[1].get(0..10));
+        assert_eq!(64, ioslices[2].len());
+        assert_eq!(36, ioslices[3].len());
 
         // test read()
         for i in 0..10 {
@@ -342,7 +347,7 @@ mod tests {
         assert_eq!(10+10+100 - 82-5, buf.readable());
 
         // create a 2nd WBuf that will share the same "payload" slice
-        let mut buf2 = WBuf::new();
+        let mut buf2 = WBuf::new(64);
         for i in 0..50 {
             buf2.write(i);
         }

@@ -39,6 +39,11 @@ use crate::link::{
     Locator
 };
 
+// Size of buffer used to read from socket
+const READ_BUFFER_SIZE: usize = 8_192;
+// Initial capacity of WBuf to encode a Message to write
+const WRITE_BUFFER_CAPACITY: usize = 256;
+
 
 #[macro_export]
 macro_rules! get_tcp_addr {
@@ -84,7 +89,7 @@ impl LinkTcp {
             dst_addr,
             src_locator: Locator::Tcp(src_addr),
             dst_locator: Locator::Tcp(dst_addr),
-            buff_size: 8_192,
+            buff_size: READ_BUFFER_SIZE,
             transport,
             manager,
             ch_send: sender,
@@ -103,7 +108,7 @@ impl LinkTcp {
     }
     
     pub async fn send(&self, message: &Arc<Message>) -> ZResult<()> {
-        let mut buff = WBuf::new();
+        let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
         buff.write_message(&message);
         for s in buff.get_slices() {
             (&self.socket).write_all(s.as_slice()).await

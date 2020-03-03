@@ -104,7 +104,7 @@ fn gen_consolidation() -> QueryConsolidation {
 
 fn test_write_read_message(msg: Message)
 {
-  let mut buf = WBuf::new();
+  let mut buf = WBuf::new(64);
   println!("Write message: {:?}", msg);
   buf.write_message(&msg);
   println!("Read message from: {:?}", buf);

@@ -4,7 +4,7 @@ use zenoh_protocol::io::WBuf;
 
 
 fn test_zint(v: ZInt) -> Result<(), ZError> {
-  let mut buf = WBuf::new();
+  let mut buf = WBuf::new(32);
   buf.write_zint(v);
   assert_eq!(v, buf.as_rbuf().read_zint()?);
   Ok(())

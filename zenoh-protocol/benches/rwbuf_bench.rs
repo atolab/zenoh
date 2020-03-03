@@ -4,15 +4,14 @@ extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use zenoh_protocol::core::ZError;
-use zenoh_protocol::io::RWBuf;
+use zenoh_protocol::io::WBuf;
 
-fn bench_foo((v, buf): (u64, &mut RWBuf)) -> Result<(), ZError> {  
-  buf.write_zint(v).map(|_| ())
+fn bench_foo((v, buf): (u64, &mut WBuf)) {  
+  buf.write_zint(v);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut buf = RWBuf::new(32);     
+    let mut buf = WBuf::new(64);     
     let rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
     let _rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
     let _ns: [u64;4] = [0; 4];
