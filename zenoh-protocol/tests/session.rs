@@ -149,6 +149,7 @@ async fn run(locator: Locator) {
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&c_loc).await;
+        // println!("{:?}", res1);
         assert_eq!(res1.is_ok(), true);
         let ses1 = res1.unwrap();
         assert_eq!(manager.get_sessions().await.len(), 1);
@@ -176,6 +177,7 @@ async fn run(locator: Locator) {
         // Close the open session
         let res3 = manager.close_session(&ses1.peer, None).await;
         assert_eq!(res3.is_ok(), true);
+        // println!("{:?}", res3);
         assert_eq!(manager.get_sessions().await.len(), 0);
 
         // Notify the router 
