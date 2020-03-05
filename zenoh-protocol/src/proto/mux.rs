@@ -4,7 +4,7 @@ use crate::core::{ZInt, PeerId, ResKey};
 use crate::io::ArcSlice;
 use crate::proto::{
     Message, SubMode, Declaration, 
-    MsgHandler, MessageKind, QueryTarget, 
+    Primitives, MessageKind, QueryTarget, 
     QueryConsolidation, ReplyContext, ReplySource};
 use crate::session::Session;
 
@@ -19,7 +19,7 @@ impl Mux {
 }
 
 #[async_trait]
-impl MsgHandler for Mux {
+impl Primitives for Mux {
     async fn resource(&self, rid: &u64, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::Resource{rid: *rid, key: reskey.clone()});

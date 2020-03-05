@@ -40,7 +40,8 @@ use crate::proto::{
     MessageKind
 };
 use crate::session::{
-    SessionCallback,
+    MsgHandler,
+    DummyHandler, 
     Session
 };
 use crate::session::queue::{
@@ -98,7 +99,7 @@ pub struct Transport {
     // The reference to the session
     pub(crate) session: RwLock<Option<Arc<Session>>>,
     // The callback for Data messages
-    callback: Arc<dyn SessionCallback + Send + Sync>,
+    callback: RwLock<Arc<dyn MsgHandler + Send + Sync>>,
     // The timeout after which the session is closed if no messages are received
     lease: AtomicU64,
     // The list of transport links associated to this session
@@ -114,10 +115,10 @@ pub struct Transport {
 }
 
 impl Transport {
-    pub(crate) fn new(lease: ZInt, callback: Arc<dyn SessionCallback + Send + Sync>) -> Self {
+    pub(crate) fn new(lease: ZInt) -> Self {
         let (sender, receiver) = channel::<bool>(1);
         Self {
-            callback,
+            callback: RwLock::new(Arc::new(DummyHandler::new())), 
             lease: AtomicU64::new(lease),
             link: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
@@ -127,6 +128,11 @@ impl Transport {
             ch_send: sender,
             ch_recv: receiver
         }
+    }
+
+    pub(crate) fn initialize(&self, session: Arc<Session>, callback: Arc<dyn MsgHandler + Send + Sync>) {
+        *self.session.try_write().unwrap() = Some(session);
+        *self.callback.try_write().unwrap() = callback;
     }
 
     pub(crate) fn get_lease(&self) -> ZInt {
@@ -326,7 +332,7 @@ impl Transport {
             },
             // Body::Data{reliable, sn, key, info, payload} => {
             Body::Data{..} => {
-                self.callback.receive_message(message).await?;
+                self.callback.read().await.handle_message(message).await?;
             },
             // Body::Declare{sn, declarations} => {},
             Body::Declare{..} => {},

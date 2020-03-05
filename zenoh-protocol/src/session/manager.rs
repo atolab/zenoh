@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use async_std::sync::{
     Arc,
     channel,
@@ -23,9 +24,9 @@ use crate::proto::{
     WhatAmI
 };
 use crate::session::{
-    EmptyCallback,
+    DummyHandler,
     Transport,
-    SessionCallback,
+    MsgHandler,
     SessionHandler
 };
 use crate::link::{
@@ -47,10 +48,10 @@ impl SessionManager {
 
         // Create a session used to establish new connections
         // This session wrapper does not require to contact the upper layer
-        let callback = Arc::new(EmptyCallback::new());
-        let session = Arc::new(Session::new(inner.clone(), 0, id, lease, callback));
+        let callback = Arc::new(DummyHandler::new());
+        let session = Arc::new(Session::new(inner.clone(), 0, id, lease));
         // Start the session
-        session.initialize(&session);
+        session.initialize(&session, callback);
         // Add the session to the inner session manager
         // At this stage there is no contention, the try_write will succeed
         *inner.initial.try_write().unwrap() = Some(session);
@@ -264,7 +265,7 @@ impl SessionManagerInner {
         match self.session.write().await.remove(peer) {
             Some(session) => {
                 self.id_mgmt.write().await.del_id(session.id);
-                self.handler.del_session(&session).await;
+                self.handler.del_session(session.as_ref()).await;
                 Ok(session)
             }
             None =>  Err(zerror!(ZErrorKind::Other{
@@ -280,18 +281,16 @@ impl SessionManagerInner {
             }))
         }
 
-        // Get the callback from the upper layer
-        let callback = self.handler.get_callback(peer).await;
         // Dynamically create a new session ID
         let id = self.id_mgmt.write().await.new_id();
         // Create the session object
-        let session = Arc::new(Session::new(a_self.clone(), id, peer.clone(), self.lease, callback));
+        let session = Arc::new(Session::new(a_self.clone(), id, peer.clone(), self.lease));
         // Add the session to the list of active sessions
         self.session.write().await.insert(peer.clone(), session.clone());
-        // Start the session 
-        session.initialize(&session);
         // Notify the upper layer that a new session has been created
-        self.handler.new_session(session.clone()).await;
+        let callback = self.handler.new_session(session.clone()).await;
+        // Start the session 
+        session.initialize(&session, callback);
 
         Ok(session)
     }
@@ -321,20 +320,18 @@ pub struct Session {
 }
 
 impl Session {
-    fn new(manager: Arc<SessionManagerInner>, id: usize, peer: PeerId, 
-        lease: ZInt, callback: Arc<dyn SessionCallback + Send + Sync>
-    ) -> Self {
+    fn new(manager: Arc<SessionManagerInner>, id: usize, peer: PeerId, lease: ZInt ) -> Self {
         Self {
             id,
             peer,
-            transport: Arc::new(Transport::new(lease, callback)),
+            transport: Arc::new(Transport::new(lease)),
             manager,
             channel: RwLock::new(HashMap::new())
         }
     }
 
-    fn initialize(&self, a_self: &Arc<Self>) {
-        *self.transport.session.try_write().unwrap() = Some(a_self.clone());
+    fn initialize(&self, a_self: &Arc<Self>, callback: Arc<dyn MsgHandler + Send + Sync>) {
+        self.transport.initialize(a_self.clone(), callback);
         Transport::start(self.transport.clone());
     }
 
@@ -478,6 +475,14 @@ impl Session {
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
         target.transport.schedule(message, priority, link).await;
 
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl MsgHandler for Session {
+    async fn handle_message(&self, msg: Message) -> ZResult<()> {
+        self.send(Arc::new(msg)).await;
         Ok(())
     }
 }

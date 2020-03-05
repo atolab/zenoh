@@ -4,7 +4,7 @@ use crate::io::ArcSlice;
 use crate::proto::{SubMode, QueryTarget, QueryConsolidation, ReplySource};
 
 #[async_trait]
-pub trait MsgHandler {
+pub trait Primitives {
     async fn resource(&self, rid: &ZInt, reskey: &ResKey);
     async fn forget_resource(&self, rid: &ZInt);
     

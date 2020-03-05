@@ -1,55 +1,55 @@
 use async_trait::async_trait;
 use crate::core::ZError;
-use crate::proto::{Message, Body, Declaration, MsgHandler, flag};
-use crate::session::SessionCallback;
+use crate::proto::{Message, Body, Declaration, Primitives, flag};
+use crate::session::MsgHandler;
 
-pub struct DeMux<Handler: MsgHandler + Send + Sync> {
-    handler: Handler,
+pub struct DeMux<P: Primitives + Send + Sync> {
+    primitives: P,
 }
 
-impl<Handler: MsgHandler + Send + Sync> DeMux<Handler> {
-    pub fn new(handler: Handler) -> DeMux<Handler> {
-        DeMux {handler: handler,}
+impl<P: Primitives + Send + Sync> DeMux<P> {
+    pub fn new(primitives: P) -> DeMux<P> {
+        DeMux {primitives: primitives,}
     }
 }
 
 #[async_trait]
-impl<Handler: MsgHandler + Send + Sync> SessionCallback for DeMux<Handler> {
+impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
-    async fn receive_message(&self, msg: Message) -> Result<(), ZError> {
+    async fn handle_message(&self, msg: Message) -> Result<(), ZError> {
         match msg.get_body() {
             Body::Declare{sn: _, declarations} => {
                 for declaration in declarations {
                     match declaration {
                         Declaration::Resource {rid, key} => {
-                            self.handler.resource(rid, key).await;
+                            self.primitives.resource(rid, key).await;
                         }
                         Declaration::Publisher {key} => {
-                            self.handler.publisher(key).await;
+                            self.primitives.publisher(key).await;
                         }
                         Declaration::Subscriber {key, mode} => {
-                            self.handler.subscriber(key, mode).await;
+                            self.primitives.subscriber(key, mode).await;
                         }
                         Declaration::Storage {key} => {
-                            self.handler.storage(key).await;
+                            self.primitives.storage(key).await;
                         }
                         Declaration::Eval {key} => {
-                            self.handler.eval(key).await;
+                            self.primitives.eval(key).await;
                         }
                         Declaration::ForgetResource {rid} => {
-                            self.handler.forget_resource(rid).await;
+                            self.primitives.forget_resource(rid).await;
                         }
                         Declaration::ForgetPublisher {key} => {
-                            self.handler.forget_publisher(key).await;
+                            self.primitives.forget_publisher(key).await;
                         }
                         Declaration::ForgetSubscriber {key} => {
-                            self.handler.forget_subscriber(key).await;
+                            self.primitives.forget_subscriber(key).await;
                         }
                         Declaration::ForgetStorage {key} => {
-                            self.handler.forget_storage(key).await;
+                            self.primitives.forget_storage(key).await;
                         }
                         Declaration::ForgetEval {key} => {
-                            self.handler.forget_eval(key).await;
+                            self.primitives.forget_eval(key).await;
                         }
                     }
 
@@ -57,15 +57,15 @@ impl<Handler: MsgHandler + Send + Sync> SessionCallback for DeMux<Handler> {
             }
             Body::Data{reliable:_, sn:_, key, info, payload} => {
                 match &msg.reply_context {
-                    None => {self.handler.data(key, info, payload).await;}
-                    Some(rep) => {self.handler.reply(&rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
+                    None => {self.primitives.data(key, info, payload).await;}
+                    Some(rep) => {self.primitives.reply(&rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
                 }
             }
             Body::Query{sn:_, key, predicate, qid, target, consolidation} => {
-                self.handler.query(key, predicate, qid, target, consolidation).await;
+                self.primitives.query(key, predicate, qid, target, consolidation).await;
             }
             Body::Pull{sn:_, key, pull_id, max_samples} => {
-                self.handler.pull(flag::has_flag(msg.header, flag::F), key, pull_id, max_samples).await;
+                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, pull_id, max_samples).await;
             }
             _ => () 
         }

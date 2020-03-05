@@ -4,8 +4,8 @@ pub use msg::*;
 mod decl;
 pub use decl::*;
 
-mod msg_handler;
-pub use msg_handler::*;
+mod primitives;
+pub use primitives::*;
 
 mod mux;
 pub use mux::*;

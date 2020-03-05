@@ -10,9 +10,8 @@ use zenoh_protocol::core::PeerId;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::session::{
-    EmptyCallback,
-    Session,
-    SessionCallback,
+    DummyHandler,
+    MsgHandler,
     SessionHandler,
     SessionManager
 };
@@ -29,13 +28,10 @@ impl SHRouter {
 
 #[async_trait]
 impl SessionHandler for SHRouter {
-    async fn get_callback(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
-        Arc::new(EmptyCallback::new())
+    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+        Arc::new(DummyHandler::new())
     }
-
-    async fn new_session(&self, _session: Arc<Session>) {}
-
-    async fn del_session(&self, _session: &Arc<Session>) {}
+    async fn del_session(&self, _session: &(dyn MsgHandler + Send + Sync)) {}
 }
 
 
@@ -50,13 +46,10 @@ impl SHClient {
 
 #[async_trait]
 impl SessionHandler for SHClient {
-    async fn get_callback(&self, _peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync> {
-        Arc::new(EmptyCallback::new())
+    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+        Arc::new(DummyHandler::new())
     }
-
-    async fn new_session(&self, _session: Arc<Session>) {}
-
-    async fn del_session(&self, _session: &Arc<Session>) {}
+    async fn del_session(&self, _session: &(dyn MsgHandler + Send + Sync)) {}
 }
 
 

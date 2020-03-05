@@ -12,10 +12,7 @@ pub use manager::{
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
-use crate::core::{
-    PeerId,
-    ZResult
-};
+use crate::core::ZResult;
 use crate::proto::Message;
 
 
@@ -23,31 +20,29 @@ use crate::proto::Message;
 /* Session Callback to be implemented by the Upper Layer */
 /*********************************************************/
 #[async_trait]
-pub trait SessionCallback {
-    async fn receive_message(&self, msg: Message) -> ZResult<()>;
+pub trait MsgHandler {
+    // async fn id(&self) -> usize;
+    async fn handle_message(&self, msg: Message) -> ZResult<()>;
 }
 
 #[async_trait]
 pub trait SessionHandler {
-    async fn get_callback(&self, peer: &PeerId) -> Arc<dyn SessionCallback + Send + Sync>;
-
-    async fn new_session(&self, session: Arc<Session>);
-
-    async fn del_session(&self, session: &Arc<Session>);
+    async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync>;
+    async fn del_session(&self, session: &(dyn MsgHandler + Send + Sync));
 }
 
 // Define an empty SessionCallback for the listener session
-pub struct EmptyCallback {}
+pub struct DummyHandler {}
 
-impl EmptyCallback {
+impl DummyHandler {
     pub fn new() -> Self {
         Self {}
     }
 }
 
 #[async_trait]
-impl SessionCallback for EmptyCallback {
-    async fn receive_message(&self, _message: Message) -> ZResult<()> {
+impl MsgHandler for DummyHandler {
+    async fn handle_message(&self, _message: Message) -> ZResult<()> {
         Ok(())
     }
 }
