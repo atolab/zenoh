@@ -1,4 +1,5 @@
 use async_std::prelude::Future;
+use async_std::sync::Mutex;
 use async_std::task::{
     Context, 
     Poll,
@@ -6,8 +7,11 @@ use async_std::task::{
 };
 use crossbeam::queue::{
     ArrayQueue,
+    PushError,
     SegQueue
 };
+use std::pin::Pin;
+
 
 pub struct PriorityQueue<T> {
     buff: Vec<ArrayQueue<T>>,
@@ -22,7 +26,9 @@ impl<T> PriorityQueue<T> {
             v.push(ArrayQueue::new(capacity))
         }
         Self {
-            buff: v
+            buff: v,
+            w_pop: SegQueue::new(),
+            w_push: SegQueue::new()
         }
     }
 
@@ -35,18 +41,19 @@ impl<T> PriorityQueue<T> {
         None
     }
 
-    pub fn try_push(&self, message: T, priority: usize) -> bool {
-        let queue = match message.priority {
-            Some(0) => &self.high,
-            _ => &self.low
+    pub fn try_push(&self, message: T, priority: usize) -> Option<T> {
+        let queue = if priority < self.buff.len() {
+            &self.buff[priority]
+        } else {
+            &self.buff[self.buff.len()-1]
         };
         match queue.push(message) {
-            Ok(_) => true,
-            Err(_) => false
+            Ok(_) => None,
+            Err(PushError(message)) => Some(message)
         }
     }
 
-    pub async fn push(&self, message: T, priority: usize) {
+    pub async fn push(&self, message: T, priority: Option<usize>) {
         struct FuturePush<'a, U> {
             queue: &'a PriorityQueue<U>,
             message: Mutex<Option<U>>,
@@ -57,23 +64,32 @@ impl<T> PriorityQueue<T> {
             type Output = ();
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.queue.w_push.push(ctx.waker().clone());
-                match self.queue.queue.push(self.message.clone()) {
-                    true => Poll::Ready(0),
-                    false => Poll::Pending
+                if let Some(mut guard) = self.message.try_lock() {
+                    if let Some(message) = guard.take() {
+                        self.queue.w_push.push(ctx.waker().clone());
+                        match self.queue.try_push(message, self.priority) {
+                            None => return Poll::Ready(()),
+                            Some(message) => *guard = Some(message)
+                        }
+                    }
                 }
+                Poll::Pending
             }
         }
 
         impl<U> Drop for FuturePush<'_, U> {
             fn drop(&mut self) {
-                while let Some(waker) = self.queue.w_pop.pop() {
+                while let Ok(waker) = self.queue.w_pop.pop() {
                     waker.wake();
                 }
             }
         }
 
-        FutureSchedule {
+        let priority = match priority {
+            Some(prio) => prio,
+            None => self.buff.len()-1 
+        };
+        FuturePush {
             queue: self,
             message: Mutex::new(Some(message)),
             priority
@@ -81,33 +97,33 @@ impl<T> PriorityQueue<T> {
     }
 
     
-    pub async fn pop(&self) -> Arc<QueueMessage> {
-        struct FuturePop<'a> {
-            transport: &'a Transport
+    pub async fn pop(&self) -> T {
+        struct FuturePop<'a, U> {
+            queue: &'a PriorityQueue<U>
         }
         
-        impl<'a> Future for FuturePop<'a> {
-            type Output = Arc<QueueMessage>;
+        impl<'a, U> Future for FuturePop<'a, U> {
+            type Output = U;
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.transport.c_waker.store(Some(ctx.waker().clone()));
-                match self.transport.queue.pop() {
+                self.queue.w_pop.push(ctx.waker().clone());
+                match self.queue.try_pop() {
                     Some(msg) => Poll::Ready(msg),
                     None => Poll::Pending
                 }
             }
         }
 
-        impl Drop for FuturePop<'_> {
+        impl<U> Drop for FuturePop<'_, U> {
             fn drop(&mut self) {
-                while let Ok(waker) = self.transport.s_waker.pop() {
+                while let Ok(waker) = self.queue.w_push.pop() {
                     waker.wake();
                 }
             }
         }
 
-        FutureConsume {
-            transport: self
+        FuturePop {
+            queue: self
         }.await
     }
 

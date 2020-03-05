@@ -88,7 +88,7 @@ impl SessionManager {
         self.0.move_link(&notification.dst, &notification.src, &session.transport).await?;
 
         // Set the lease on the session
-        session.transport.set_lease(notification.lease);
+        session.transport.set_lease(notification.lease).await;
 
         Ok(session)
     }
@@ -399,7 +399,7 @@ impl Session {
         self.transport.close(reason).await
     }
 
-    pub async fn send(&self, message: Arc<Message>) -> usize {
+    pub async fn send(&self, message: Arc<Message>) {
         self.transport.schedule(message, None, None).await
     }
 
@@ -464,7 +464,7 @@ impl Session {
         self.manager.move_link(dst, src, &target.transport).await?;
 
         // Set the lease to the transport
-        target.transport.set_lease(*lease);
+        target.transport.set_lease(*lease).await;
 
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None

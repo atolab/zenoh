@@ -10,14 +10,7 @@ use async_std::sync::{
     Sender,
 };
 use async_std::task;
-use crossbeam::atomic::AtomicCell;
-use crossbeam::queue::SegQueue;
 use std::fmt;
-use std::sync::atomic::{
-    AtomicU64,
-    Ordering
-};
-use std::pin::Pin;
 
 use crate::{
     zerror,
@@ -54,7 +47,7 @@ const QUEUE_PRIO: usize = 2;
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        let message = transport.consume().await;
+        let message = transport.queue.pop().await;
         match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
@@ -90,11 +83,10 @@ async fn consume_loop(transport: Arc<Transport>) {
 
 
 
-pub struct QueueMessage {
-    pub message: Arc<Message>, 
-    pub priority: Option<usize>, 
-    pub link: Option<(Locator, Locator)>,
-    pub barrier: Option<Arc<Barrier>>
+struct QueueMessage {
+    message: Arc<Message>, 
+    link: Option<(Locator, Locator)>,
+    barrier: Option<Arc<Barrier>>
 }
 
 
@@ -104,14 +96,11 @@ pub struct Transport {
     // The callback for Data messages
     callback: Arc<dyn SessionCallback + Send + Sync>,
     // The timeout after which the session is closed if no messages are received
-    lease: AtomicU64,
+    lease: RwLock<ZInt>,
     // The list of transport links associated to this session
     link: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
     queue: PriorityQueue<QueueMessage>,
-    // The schedule and consume wakers for the schedule future
-    s_waker: SegQueue<Waker>,
-    c_waker: AtomicCell<Option<Waker>>,
     // The channel endpoints for terminating the consume_loop task
     ch_send: Sender<bool>,
     ch_recv: Receiver<bool>
@@ -122,23 +111,21 @@ impl Transport {
         let (sender, receiver) = channel::<bool>(1);
         Self {
             callback,
-            lease: AtomicU64::new(lease),
+            lease: RwLock::new(lease),
             link: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
             queue: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
-            s_waker: SegQueue::new(),
-            c_waker: AtomicCell::new(None),
             ch_send: sender,
             ch_recv: receiver
         }
     }
 
-    pub(crate) fn get_lease(&self) -> ZInt {
-        self.lease.load(Ordering::Acquire)
+    pub(crate) async fn get_lease(&self) -> ZInt {
+        *self.lease.read().await
     }
 
-    pub(crate) fn set_lease(&self, lease: ZInt) {
-        self.lease.store(lease, Ordering::Release)
+    pub(crate) async fn set_lease(&self, lease: ZInt) {
+        *self.lease.write().await = lease
     }
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
@@ -204,21 +191,6 @@ impl Transport {
         }
     }
 
-    // async fn link_error(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<(), ZError> {
-    //     if self.link.lock().await.len() == 0 {
-    //         let err = match reason {
-    //             Some(err) => err,
-    //             None => zerror!(ZErrorKind::Other{
-    //                 msg: format!("No links left in session {}", self.id)
-    //             })
-    //         };
-    //         // Stop the task
-    //         self.ch_sender.send(false).await;
-    //         self.manager.del_session(self.id, Some(err)).await?;
-    //     }
-    //     return Ok(())
-    // }
-
 
     /*************************************/
     /*             SCHEDULE              */
@@ -227,8 +199,13 @@ impl Transport {
     // Schedule the message to be sent asynchronsly
     pub(crate) async fn schedule(&self, message: Arc<Message>, 
         priority: Option<usize>, link: Option<(Locator, Locator)>
-    ) -> usize {
-        self.inner_schedule(message, priority, link, None).await
+    ) {
+        let msg = QueueMessage {
+            message,
+            link,
+            barrier: None
+        };
+        self.queue.push(msg, priority).await
     }
 
     // Send the message in a synchronous way. 
@@ -236,11 +213,15 @@ impl Transport {
     // 2) Be notified when the message is actually sent
     pub(crate) async fn send(&self, message: Arc<Message>, 
         priority: Option<usize>, link: Option<(Locator, Locator)>
-    ) -> usize {
+    ) {
         let barrier = Arc::new(Barrier::new(2));
-        let sn = self.inner_schedule(message, priority, link, Some(barrier.clone())).await;
+        let msg = QueueMessage {
+            message,
+            link,
+            barrier: Some(barrier.clone())
+        };
+        self.queue.push(msg, priority).await;
         barrier.wait().await;
-        sn
     }
 
     /*************************************/
