@@ -10,11 +10,6 @@ use async_std::sync::{
     Sender,
 };
 use async_std::task;
-use async_std::task::{
-    Context, 
-    Poll,
-    Waker
-};
 use crossbeam::atomic::AtomicCell;
 use crossbeam::queue::SegQueue;
 use std::fmt;
@@ -44,8 +39,7 @@ use crate::session::{
     Session
 };
 use crate::session::queue::{
-    Queue,
-    QueueMessage
+    PriorityQueue
 };
 use crate::link::{
     Link,
@@ -55,6 +49,7 @@ use crate::link::{
 
 // Constants
 const QUEUE_SIZE: usize = 16;
+const QUEUE_PRIO: usize = 2;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
@@ -94,6 +89,15 @@ async fn consume_loop(transport: Arc<Transport>) {
 }
 
 
+
+pub struct QueueMessage {
+    pub message: Arc<Message>, 
+    pub priority: Option<usize>, 
+    pub link: Option<(Locator, Locator)>,
+    pub barrier: Option<Arc<Barrier>>
+}
+
+
 pub struct Transport {
     // The reference to the session
     pub(crate) session: RwLock<Option<Arc<Session>>>,
@@ -104,7 +108,7 @@ pub struct Transport {
     // The list of transport links associated to this session
     link: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
-    queue: Queue,
+    queue: PriorityQueue<QueueMessage>,
     // The schedule and consume wakers for the schedule future
     s_waker: SegQueue<Waker>,
     c_waker: AtomicCell<Option<Waker>>,
@@ -121,7 +125,7 @@ impl Transport {
             lease: AtomicU64::new(lease),
             link: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
-            queue: Queue::new(QUEUE_SIZE),
+            queue: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
             s_waker: SegQueue::new(),
             c_waker: AtomicCell::new(None),
             ch_send: sender,
@@ -237,78 +241,6 @@ impl Transport {
         let sn = self.inner_schedule(message, priority, link, Some(barrier.clone())).await;
         barrier.wait().await;
         sn
-    }
-
-    async fn inner_schedule(&self, message: Arc<Message>, 
-        priority: Option<usize>, link: Option<(Locator, Locator)>,
-        barrier: Option<Arc<Barrier>>
-    ) -> usize {
-        struct FutureSchedule<'a> {
-            transport: &'a Transport,
-            message: Arc<QueueMessage>
-        }
-        
-        impl<'a> Future for FutureSchedule<'a> {
-            type Output = usize;
-        
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.transport.s_waker.push(ctx.waker().clone());
-                match self.transport.queue.push(self.message.clone()) {
-                    true => Poll::Ready(0),
-                    false => Poll::Pending
-                }
-            }
-        }
-
-        impl Drop for FutureSchedule<'_> {
-            fn drop(&mut self) {
-                if let Some(waker) = self.transport.c_waker.take() {
-                    waker.wake();
-                }
-            }
-        }
-
-        FutureSchedule {
-            transport: self,
-            message: Arc::new(QueueMessage {
-                message, priority, link, barrier
-            })
-        }.await;
-        
-        // println!("{:?} SCHEDULE", self.session.inner.whatami);
-        // TO FIX
-        // We need to return the message sequence number
-        0
-    }
-
-    pub async fn consume(&self) -> Arc<QueueMessage> {
-        struct FutureConsume<'a> {
-            transport: &'a Transport
-        }
-        
-        impl<'a> Future for FutureConsume<'a> {
-            type Output = Arc<QueueMessage>;
-        
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                self.transport.c_waker.store(Some(ctx.waker().clone()));
-                match self.transport.queue.pop() {
-                    Some(msg) => Poll::Ready(msg),
-                    None => Poll::Pending
-                }
-            }
-        }
-
-        impl Drop for FutureConsume<'_> {
-            fn drop(&mut self) {
-                while let Ok(waker) = self.transport.s_waker.pop() {
-                    waker.wake();
-                }
-            }
-        }
-
-        FutureConsume {
-            transport: self
-        }.await
     }
 
     /*************************************/

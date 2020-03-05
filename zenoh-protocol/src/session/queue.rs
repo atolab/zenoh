@@ -1,44 +1,41 @@
-use async_std::sync::{
-    Arc,
-    Barrier
+use async_std::prelude::Future;
+use async_std::task::{
+    Context, 
+    Poll,
+    Waker
 };
-use crossbeam::queue::ArrayQueue;
+use crossbeam::queue::{
+    ArrayQueue,
+    SegQueue
+};
 
-use crate::proto::Message;
-use crate::link::Locator;
-
-
-pub struct QueueMessage {
-    pub message: Arc<Message>, 
-    pub priority: Option<usize>, 
-    pub link: Option<(Locator, Locator)>,
-    pub barrier: Option<Arc<Barrier>>
+pub struct PriorityQueue<T> {
+    buff: Vec<ArrayQueue<T>>,
+    w_pop: SegQueue<Waker>,
+    w_push: SegQueue<Waker>
 }
 
-pub struct Queue {
-    high: ArrayQueue<Arc<QueueMessage>>,
-    low: ArrayQueue<Arc<QueueMessage>>
-}
-
-impl Queue {
-    pub fn new(capacity: usize) -> Self {
+impl<T> PriorityQueue<T> {
+    pub fn new(capacity: usize, priorities: usize) -> Self {
+        let mut v = Vec::new();
+        for _ in 0..priorities {
+            v.push(ArrayQueue::new(capacity))
+        }
         Self {
-            high: ArrayQueue::new(capacity),
-            low: ArrayQueue::new(capacity)
+            buff: v
         }
     }
 
-    pub fn pop(&self) -> Option<Arc<QueueMessage>> {
-        if let Ok(msg) = self.high.pop() {
-            return Some(msg)
-        }
-        if let Ok(msg) = self.low.pop() {
-            return Some(msg)
+    pub fn try_pop(&self) -> Option<T> {
+        for i in 0..self.buff.len() {
+            if let Ok(msg) = self.buff[i].pop() {
+                return Some(msg)
+            }
         }
         None
     }
 
-    pub fn push(&self, message: Arc<QueueMessage>) -> bool {
+    pub fn try_push(&self, message: T, priority: usize) -> bool {
         let queue = match message.priority {
             Some(0) => &self.high,
             _ => &self.low
@@ -48,4 +45,70 @@ impl Queue {
             Err(_) => false
         }
     }
+
+    pub async fn push(&self, message: T, priority: usize) {
+        struct FuturePush<'a, U> {
+            queue: &'a PriorityQueue<U>,
+            message: Mutex<Option<U>>,
+            priority: usize
+        }
+        
+        impl<'a, U> Future for FuturePush<'a, U> {
+            type Output = ();
+        
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.queue.w_push.push(ctx.waker().clone());
+                match self.queue.queue.push(self.message.clone()) {
+                    true => Poll::Ready(0),
+                    false => Poll::Pending
+                }
+            }
+        }
+
+        impl<U> Drop for FuturePush<'_, U> {
+            fn drop(&mut self) {
+                while let Some(waker) = self.queue.w_pop.pop() {
+                    waker.wake();
+                }
+            }
+        }
+
+        FutureSchedule {
+            queue: self,
+            message: Mutex::new(Some(message)),
+            priority
+        }.await
+    }
+
+    
+    pub async fn pop(&self) -> Arc<QueueMessage> {
+        struct FuturePop<'a> {
+            transport: &'a Transport
+        }
+        
+        impl<'a> Future for FuturePop<'a> {
+            type Output = Arc<QueueMessage>;
+        
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.transport.c_waker.store(Some(ctx.waker().clone()));
+                match self.transport.queue.pop() {
+                    Some(msg) => Poll::Ready(msg),
+                    None => Poll::Pending
+                }
+            }
+        }
+
+        impl Drop for FuturePop<'_> {
+            fn drop(&mut self) {
+                while let Ok(waker) = self.transport.s_waker.pop() {
+                    waker.wake();
+                }
+            }
+        }
+
+        FutureConsume {
+            transport: self
+        }.await
+    }
+
 }
