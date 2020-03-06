@@ -5,6 +5,7 @@ use async_std::sync::{
     RwLock,
     Sender
 };
+// use lazy_init::Lazy;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -101,7 +102,7 @@ impl SessionManager {
 
     pub async fn get_sessions(&self) -> Vec<Arc<Session>> {
         let mut vec = Vec::new();
-        for s in self.0.session.read().await.values() {
+        for s in self.0.sessions.read().await.values() {
             vec.push(s.clone());
         }
         vec
@@ -165,8 +166,8 @@ pub struct SessionManagerInner {
     pub(crate) lease: ZInt,
     handler: Arc<dyn SessionHandler + Send + Sync>,
     initial: RwLock<Option<Arc<Session>>>,
-    protocol: RwLock<HashMap<LocatorProtocol, Arc<LinkManager>>>,
-    session: RwLock<HashMap<PeerId, Arc<Session>>>,
+    protocols: RwLock<HashMap<LocatorProtocol, Arc<LinkManager>>>,
+    sessions: RwLock<HashMap<PeerId, Arc<Session>>>,
     id_mgmt: RwLock<IDManager>,
 }
 
@@ -181,8 +182,8 @@ impl SessionManagerInner {
             lease,
             handler,
             initial: RwLock::new(None),
-            protocol: RwLock::new(HashMap::new()),
-            session: RwLock::new(HashMap::new()),
+            protocols: RwLock::new(HashMap::new()),
+            sessions: RwLock::new(HashMap::new()),
             id_mgmt: RwLock::new(IDManager::new())
         }
     }
@@ -195,14 +196,14 @@ impl SessionManagerInner {
             Ok(manager) => Ok(manager),
             Err(_) => {
                 let lm = Arc::new(LinkManager::new(a_self.clone(), protocol));
-                self.protocol.write().await.insert(protocol.clone(), lm.clone());
+                self.protocols.write().await.insert(protocol.clone(), lm.clone());
                 Ok(lm)
             }
         }
     }
 
     async fn get_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<Arc<LinkManager>> {
-        match self.protocol.read().await.get(protocol) {
+        match self.protocols.read().await.get(protocol) {
             Some(manager) => Ok(manager.clone()),
             None => Err(zerror!(ZErrorKind::Other{
                 descr: format!("Link Manager not found for protocol ({})", protocol)
@@ -211,7 +212,7 @@ impl SessionManagerInner {
     }
 
     async fn del_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<()> {
-        match self.protocol.write().await.remove(protocol) {
+        match self.protocols.write().await.remove(protocol) {
             Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other{
                 descr: format!("No available Link Manager for protocol: {}", protocol)
@@ -221,7 +222,7 @@ impl SessionManagerInner {
 
     async fn get_locators(&self) -> Vec<Locator> {
         let mut vec: Vec<Locator> = Vec::new();
-        for p in self.protocol.read().await.values() {
+        for p in self.protocols.read().await.values() {
             vec.extend_from_slice(&p.get_listeners().await);
         }
         vec
@@ -251,7 +252,7 @@ impl SessionManagerInner {
     // }
 
     async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
-        let r_guard = self.session.read().await;
+        let r_guard = self.sessions.read().await;
         match r_guard.get(peer) {
             Some(wrapper) => Ok(wrapper.clone()),
             None => {
@@ -262,7 +263,7 @@ impl SessionManagerInner {
     }
     
     async fn del_session(&self, peer: &PeerId, _reason: Option<ZError>) -> ZResult<Arc<Session>> {
-        match self.session.write().await.remove(peer) {
+        match self.sessions.write().await.remove(peer) {
             Some(session) => {
                 self.id_mgmt.write().await.del_id(session.id);
                 self.handler.del_session(session.as_ref()).await;
@@ -275,7 +276,7 @@ impl SessionManagerInner {
     }
 
     async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
-        if let Some(_) = self.session.read().await.get(peer) {
+        if let Some(_) = self.sessions.read().await.get(peer) {
             return Err(zerror!(ZErrorKind::Other{
                 descr: format!("Session with peer ({:?}) already exists.", peer)
             }))
@@ -286,7 +287,7 @@ impl SessionManagerInner {
         // Create the session object
         let session = Arc::new(Session::new(a_self.clone(), id, peer.clone(), self.lease));
         // Add the session to the list of active sessions
-        self.session.write().await.insert(peer.clone(), session.clone());
+        self.sessions.write().await.insert(peer.clone(), session.clone());
         // Notify the upper layer that a new session has been created
         let callback = self.handler.new_session(session.clone()).await;
         // Start the session 
@@ -316,7 +317,7 @@ pub struct Session {
     pub peer: PeerId,
     pub(crate) transport: Arc<Transport>,
     manager: Arc<SessionManagerInner>,
-    channel: RwLock<HashMap<(Locator, Locator), Sender<ZResult<NotificationNewSession>>>>
+    channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<NotificationNewSession>>>>
 }
 
 impl Session {
@@ -326,7 +327,7 @@ impl Session {
             peer,
             transport: Arc::new(Transport::new(lease)),
             manager,
-            channel: RwLock::new(HashMap::new())
+            channels: RwLock::new(HashMap::new())
         }
     }
 
@@ -343,7 +344,7 @@ impl Session {
 
         // Store the sender for the callback to be used in the process_message
         let key = (link.get_src(), link.get_dst());
-        self.channel.write().await.insert(key, sender);
+        self.channels.write().await.insert(key, sender);
 
         // // Build the fields for the Open Message
         let version = self.manager.version;
@@ -419,7 +420,7 @@ impl Session {
 
         // Check if had previously triggered the opening of a new connection
         let key = (dst.clone(), src.clone());
-        match self.channel.write().await.remove(&key) {
+        match self.channels.write().await.remove(&key) {
             Some(sender) => {
                 let notification = NotificationNewSession::new(
                     apid.clone(), lease.clone(), src.clone(), dst.clone()

@@ -84,6 +84,8 @@ async fn oq_run() {
 
     // Add the fourth element
     sn = sn + 1;
+    // Rebase the queue
+    queue.set_base(sn);
     let res = queue.try_push(3, sn+1);
     assert!(res.is_ok());
     let res = queue.try_pop();
@@ -99,6 +101,8 @@ async fn oq_run() {
 
     // Fill the queue
     sn = sn + 2;
+    // Rebase the queue
+    queue.set_base(sn);
     let res = queue.try_push(4, sn);
     assert!(res.is_ok());
     sn = sn + 1;
@@ -121,7 +125,7 @@ async fn oq_run() {
     assert_eq!(res, Some(5));
 
     // Rebase the queue
-    queue.set_base(16);
+    queue.set_base(0);
     let res = queue.try_push(6, sn);
     match res {
         Ok(_) => assert!(false),

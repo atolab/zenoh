@@ -54,14 +54,14 @@ async fn consume_loop(transport: Arc<Transport>) {
         match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
-                let guard = transport.link.lock().await;
+                let guard = transport.links.lock().await;
                 if let Some(index) = transport.find_link(&guard, &src, &dst) {
                     let _ = guard[index].send(&message.message).await;
                 }
             },
             None => {
                 // Send the message only on the first link
-                for l in transport.link.lock().await.iter() {
+                for l in transport.links.lock().await.iter() {
                     let _ = l.send(&message.message).await;
                     break
                 }
@@ -102,7 +102,7 @@ pub struct Transport {
     // The timeout after which the session is closed if no messages are received
     lease: RwLock<ZInt>,
     // The list of transport links associated to this session
-    link: Mutex<Vec<Link>>,
+    links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
     queue_tx: PriorityQueue<TxMessage>,
     queue_rx: Mutex<OrderedQueue<Message>>,
@@ -119,7 +119,7 @@ impl Transport {
             callback: RwLock::new(Arc::new(DummyHandler::new())), 
             // callback: Arc::<dyn MsgHandler + Send + Sync + ?Sized>::dangling(),
             lease: RwLock::new(lease),
-            link: Mutex::new(Vec::new()),
+            links: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
             queue_tx: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
             queue_rx: Mutex::new(OrderedQueue::new(QUEUE_SIZE)),
@@ -148,7 +148,7 @@ impl Transport {
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
         let mut vec = Vec::new();
-        for l in self.link.lock().await.iter() {
+        for l in self.links.lock().await.iter() {
             vec.push(l.clone());
         }
         vec
@@ -189,7 +189,7 @@ impl Transport {
 
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
         // println!("Adding link {} => {} to {:?}", link.get_src(), link.get_dst(), self.get_peer());
-        let mut guard = self.link.lock().await;
+        let mut guard = self.links.lock().await;
         match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
             Some(_) => Err(zerror!(ZErrorKind::Other{
                 descr: format!("Trying to delete a link that does not exist!")
@@ -200,7 +200,7 @@ impl Transport {
 
     pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
         // println!("Deleting link {} => {} from {:?}", src, dst, self.get_peer());
-        let mut guard = self.link.lock().await;
+        let mut guard = self.links.lock().await;
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
             None => Err(zerror!(ZErrorKind::Other{
@@ -343,7 +343,7 @@ impl Transport {
         // Stop the task
         self.stop().await;
         // Remove and close all the links
-        for l in self.link.lock().await.drain(..) {
+        for l in self.links.lock().await.drain(..) {
             l.close(None).await?;
         }
         // Remove the reference to the session
@@ -364,7 +364,7 @@ impl fmt::Debug for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let links = task::block_on(async {
             let mut s = String::new();
-            for l in self.link.lock().await.iter() {
+            for l in self.links.lock().await.iter() {
                 s.push_str(&format!("\n\t[({:?}) => ({:?})]", l.get_src(), l.get_dst()));
             }
             s
