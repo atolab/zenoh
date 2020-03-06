@@ -5,13 +5,13 @@ use async_std::sync::{
     RwLock,
     Sender
 };
-// use lazy_init::Lazy;
+use lazy_init::Lazy;
 use std::collections::HashMap;
 use std::fmt;
 
 use crate::{
     zerror,
-    zrwopt
+    zlazy
 };
 use crate::core::{
     PeerId,
@@ -54,8 +54,7 @@ impl SessionManager {
         // Start the session
         session.initialize(&session, callback);
         // Add the session to the inner session manager
-        // At this stage there is no contention, the try_write will succeed
-        *inner.initial.try_write().unwrap() = Some(session);
+        inner.initialize(session.clone());
 
         Self(inner)
     }
@@ -70,7 +69,7 @@ impl SessionManager {
         // Create a channel for knowing when a session is open
         let (sender, receiver) = channel::<ZResult<NotificationNewSession>>(1);
 
-        zrwopt!(self.0.initial).open(manager, locator, sender).await?;
+        zlazy!(self.0.initial).open(manager, locator, sender).await?;
 
         // Wait the accept message to finalize the session
         let notification = match receiver.recv().await {
@@ -165,7 +164,7 @@ pub struct SessionManagerInner {
     pub(crate) id: PeerId,
     pub(crate) lease: ZInt,
     handler: Arc<dyn SessionHandler + Send + Sync>,
-    initial: RwLock<Option<Arc<Session>>>,
+    initial: Lazy<Arc<Session>>,
     protocols: RwLock<HashMap<LocatorProtocol, Arc<LinkManager>>>,
     sessions: RwLock<HashMap<PeerId, Arc<Session>>>,
     id_mgmt: RwLock<IDManager>,
@@ -181,11 +180,15 @@ impl SessionManagerInner {
             id,
             lease,
             handler,
-            initial: RwLock::new(None),
+            initial: Lazy::new(),
             protocols: RwLock::new(HashMap::new()),
             sessions: RwLock::new(HashMap::new()),
             id_mgmt: RwLock::new(IDManager::new())
         }
+    }
+
+    fn initialize(&self, session: Arc<Session>) {
+        self.initial.get_or_create(|| session);
     }
 
     /*************************************/
@@ -237,7 +240,7 @@ impl SessionManagerInner {
     /*              SESSION              */
     /*************************************/
     pub(crate) fn get_initial_session(&self) -> Arc<Session> {
-        zrwopt!(self.initial).clone()
+        zlazy!(self.initial).clone()
     }
 
     // async fn find_session(&self, id: usize) -> Option<Arc<SessionWrapper>> {
