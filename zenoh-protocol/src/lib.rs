@@ -1,3 +1,6 @@
+#![feature(new_uninit)]
+#![feature(get_mut_unchecked)]
+
 extern crate async_std;
 extern crate byteorder;
 extern crate crossbeam;

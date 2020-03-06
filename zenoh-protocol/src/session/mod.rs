@@ -2,12 +2,13 @@ mod manager;
 mod queue;
 mod transport;
 
-pub use transport::Transport;
 pub use manager::{
     SessionManager,
     SessionManagerInner,
     Session
 };
+pub use queue::*;
+pub(crate) use transport::Transport;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;

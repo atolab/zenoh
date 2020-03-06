@@ -41,7 +41,7 @@ pub struct SessionManager(Arc<SessionManagerInner>);
 
 impl SessionManager {
     pub fn new(version: u8, whatami: WhatAmI, id: PeerId, lease: ZInt, 
-        handler: Arc<dyn SessionHandler + Send + Sync>
+        handler: Arc<dyn SessionHandler + Send + Sync>,
     ) -> Self {
         // Create the inner session manager
         let inner = Arc::new(SessionManagerInner::new(version, whatami, id.clone(), lease, handler));

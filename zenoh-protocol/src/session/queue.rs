@@ -10,7 +10,11 @@ use crossbeam::queue::{
     PushError,
     SegQueue
 };
+use std::collections::BinaryHeap;
+use std::cmp::Ordering;
 use std::pin::Pin;
+
+use crate::core::ZInt;
 
 
 pub struct PriorityQueue<T> {
@@ -53,7 +57,7 @@ impl<T> PriorityQueue<T> {
         }
     }
 
-    pub async fn push(&self, message: T, priority: Option<usize>) {
+    pub async fn push(&self, message: T, priority: usize) {
         struct FuturePush<'a, U> {
             queue: &'a PriorityQueue<U>,
             message: Mutex<Option<U>>,
@@ -85,10 +89,6 @@ impl<T> PriorityQueue<T> {
             }
         }
 
-        let priority = match priority {
-            Some(prio) => prio,
-            None => self.buff.len()-1 
-        };
         FuturePush {
             queue: self,
             message: Mutex::new(Some(message)),
@@ -127,4 +127,107 @@ impl<T> PriorityQueue<T> {
         }.await
     }
 
+}
+
+
+pub struct OrderedElement<T> {
+    _e: T,
+    sn: ZInt
+}
+
+impl<T> Eq for OrderedElement<T> {}
+
+impl<T> PartialEq for OrderedElement<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.sn == other.sn
+    }
+}
+
+impl<T> Ord for OrderedElement<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Invert the comparison orther to implement a min-heap
+        other.sn.cmp(&self.sn)
+    }
+}
+
+impl<T> PartialOrd for OrderedElement<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+
+pub enum OrderedPushError<T> {
+    Full(T),
+    OutOfSync(T)
+}
+
+pub struct OrderedQueue<T> {
+    buff: BinaryHeap<OrderedElement<T>>,
+    base: ZInt,
+    mask: ZInt,
+    next: ZInt
+}
+
+impl<T> OrderedQueue<T> {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            buff: BinaryHeap::with_capacity(capacity),
+            base: 0,
+            mask: 0,
+            next: 0
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.buff.capacity()
+    }
+
+    pub fn free(&self) -> usize {
+        self.capacity() - self.len()
+    }
+
+    pub fn len(&self) -> usize {
+        self.buff.len()
+    }
+
+    pub fn get_mask(&self) -> ZInt {
+        // TO CONTINUE
+        let window = self.next - self.base;
+        self.mask ^ ZInt::max_value()
+    }
+
+    pub fn set_base(&mut self, base: ZInt) {
+        self.mask = self.mask >> (base - self.base);
+        self.base = base;
+    }
+
+    pub fn try_pop(&mut self) -> Option<T> {
+        if let Some(elem) = self.buff.peek() {
+            if self.next == elem.sn {
+                if let Some(element) = self.buff.pop() {
+                    self.next = self.next + 1;
+                    return Some(element._e)
+                }
+            }
+        }
+        None
+    }
+
+    pub fn try_push(&mut self, element: T, sequence: ZInt) -> Result<(), OrderedPushError<T>> {
+        if self.free() == 0 {
+            return Err(OrderedPushError::Full(element))
+        }
+        if sequence < self.base {
+            return Err(OrderedPushError::OutOfSync(element))
+        }
+
+        self.buff.push(OrderedElement {
+            _e: element,
+            sn: sequence
+        });
+        self.mask = self.mask | (1 << (sequence - self.next));
+        
+        Ok(())
+    }
 }

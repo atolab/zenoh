@@ -33,6 +33,8 @@ use crate::session::{
     Session
 };
 use crate::session::queue::{
+    OrderedQueue,
+    OrderedPushError,
     PriorityQueue
 };
 use crate::link::{
@@ -48,7 +50,7 @@ const QUEUE_PRIO: usize = 2;
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        let message = transport.queue.pop().await;
+        let message = transport.queue_tx.pop().await;
         match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
@@ -84,7 +86,7 @@ async fn consume_loop(transport: Arc<Transport>) {
 
 
 
-struct QueueMessage {
+struct TxMessage {
     message: Arc<Message>, 
     link: Option<(Locator, Locator)>,
     barrier: Option<Arc<Barrier>>
@@ -96,12 +98,15 @@ pub struct Transport {
     pub(crate) session: RwLock<Option<Arc<Session>>>,
     // The callback for Data messages
     callback: RwLock<Arc<dyn MsgHandler + Send + Sync>>,
+    // callback: Arc<dyn MsgHandler + Send + Sync>,
     // The timeout after which the session is closed if no messages are received
     lease: RwLock<ZInt>,
     // The list of transport links associated to this session
     link: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
-    queue: PriorityQueue<QueueMessage>,
+    queue_tx: PriorityQueue<TxMessage>,
+    queue_rx: Mutex<OrderedQueue<Message>>,
+    // queue_reliability: 
     // The channel endpoints for terminating the consume_loop task
     ch_send: Sender<bool>,
     ch_recv: Receiver<bool>
@@ -112,10 +117,12 @@ impl Transport {
         let (sender, receiver) = channel::<bool>(1);
         Self {
             callback: RwLock::new(Arc::new(DummyHandler::new())), 
+            // callback: Arc::<dyn MsgHandler + Send + Sync + ?Sized>::dangling(),
             lease: RwLock::new(lease),
             link: Mutex::new(Vec::new()),
             session: RwLock::new(None), 
-            queue: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
+            queue_tx: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
+            queue_rx: Mutex::new(OrderedQueue::new(QUEUE_SIZE)),
             ch_send: sender,
             ch_recv: receiver
         }
@@ -124,6 +131,11 @@ impl Transport {
     pub(crate) fn initialize(&self, session: Arc<Session>, callback: Arc<dyn MsgHandler + Send + Sync>) {
         *self.session.try_write().unwrap() = Some(session);
         *self.callback.try_write().unwrap() = callback;
+        // self.callback = unsafe {
+        //     Deferred initialization:
+        //     Arc::get_mut_unchecked(&mut self.callback).as_mut_ptr().write(callback);        
+        //     self.callback.assume_init()
+        // };
     }
 
     pub(crate) async fn get_lease(&self) -> ZInt {
@@ -206,12 +218,16 @@ impl Transport {
     pub(crate) async fn schedule(&self, message: Arc<Message>, 
         priority: Option<usize>, link: Option<(Locator, Locator)>
     ) {
-        let msg = QueueMessage {
+        let msg = TxMessage {
             message,
             link,
             barrier: None
         };
-        self.queue.push(msg, priority).await
+        let priority = match priority {
+            Some(prio) => prio,
+            None => QUEUE_PRIO 
+        };
+        self.queue_tx.push(msg, priority).await
     }
 
     // Send the message in a synchronous way. 
@@ -221,18 +237,43 @@ impl Transport {
         priority: Option<usize>, link: Option<(Locator, Locator)>
     ) {
         let barrier = Arc::new(Barrier::new(2));
-        let msg = QueueMessage {
+        let msg = TxMessage {
             message,
             link,
             barrier: Some(barrier.clone())
         };
-        self.queue.push(msg, priority).await;
+        let priority = match priority {
+            Some(prio) => prio,
+            None => QUEUE_PRIO 
+        };
+        self.queue_tx.push(msg, priority).await;
         barrier.wait().await;
     }
 
     /*************************************/
     /*   MESSAGE RECEIVE FROM THE LINK   */
     /*************************************/
+    async fn order_message(&self, message: Message, sn: ZInt) -> ZResult<()> {
+        let mut l_guard = self.queue_rx.lock().await;
+        match l_guard.try_push(message, sn) {
+            Ok(_) => {
+                let r_guard = self.callback.read().await;
+                while let Some(message) = l_guard.try_pop() {
+                    r_guard.handle_message(message).await?;
+                }
+                Ok(())
+            }
+            Err(e) => match e {
+                OrderedPushError::Full(_message) => {
+                    Ok(())
+                },
+                OrderedPushError::OutOfSync(_message) => {
+                    Ok(())
+                }
+            }
+        }
+    }
+
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> ZResult<()> {
         match &message.body {
             Body::Accept{opid, apid, lease} => {
@@ -243,12 +284,6 @@ impl Transport {
             Body::Close{pid, reason} => {
                 zrwopt!(self.session).process_close(src, dst, pid, reason).await?;
             },
-            // Body::Data{reliable, sn, key, info, payload} => {
-            Body::Data{..} => {
-                self.callback.read().await.handle_message(message).await?;
-            },
-            // Body::Declare{sn, declarations} => {},
-            Body::Declare{..} => {},
             // Body::Hello{whatami, locators} => {},
             Body::Hello{..} => {},
             // Body::KeepAlive{pid} => {},
@@ -260,14 +295,17 @@ impl Transport {
             Body::Ping{..} => {},
             // Body::Pong{hash} => {},
             Body::Pong{..} => {},
-            // Body::Pull{sn, key, pull_id, max_samples} => {},
-            Body::Pull{..} => {},
-            // Body::Query{sn, key, predicate, qid, target, consolidation} => {},
-            Body::Query{..} => {},
             // Body::Scout{what} => {},
             Body::Scout{..} => {},
             // Body::Sync{sn, count} => {}
-            Body::Sync{..} => {}
+            Body::Sync{..} => {},
+            Body::Data{reliable: _, sn, key: _, info: _, payload: _} |
+            Body::Declare{sn, declarations: _} |
+            Body::Pull{sn, key: _, pull_id: _, max_samples: _} |
+            Body::Query{sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                let c_sn = *sn;
+                self.order_message(message, c_sn).await?;
+            },
         }
         Ok(())
     }
@@ -310,6 +348,7 @@ impl Transport {
         }
         // Remove the reference to the session
         *self.session.write().await = None;
+        // 
 
         Ok(())
     }
