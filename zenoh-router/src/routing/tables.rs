@@ -1,11 +1,80 @@
+use async_trait::async_trait;
 use std::sync::{Arc, Weak};
 use spin::RwLock;
 use std::collections::{HashMap};
-use crate::routing::resource::*;
-use crate::routing::face::Face;
 use zenoh_protocol::core::rname::intersect;
+use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::proto::Primitives;
+use crate::routing::resource::*;
+use crate::routing::face::{Face, FaceHdl};
+use zenoh_protocol::proto::{Mux, DeMux};
+use zenoh_protocol::session::{SessionHandler, MsgHandler};
+
+/// # Example: 
+/// ```
+///   use async_std::sync::Arc;
+///   use zenoh_protocol::core::ResKey::*;
+///   use zenoh_protocol::core::PeerId;
+///   use zenoh_protocol::io::ArcSlice;
+///   use zenoh_protocol::proto::WhatAmI::Peer;
+///   use zenoh_protocol::session::SessionManager;
+///   use zenoh_router::routing::tables::TablesHdl;
+/// 
+///   async{
+///     // implement Primitives trait
+///     use zenoh_protocol::proto::Mux;
+///     use zenoh_protocol::session::DummyHandler;
+///     let dummyPrimitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
+///   
+///     // Instanciate routing tables
+///     let tables = Arc::new(TablesHdl::new());
+/// 
+///     // Instanciate SessionManager and plug it to the routing tables
+///     let manager = SessionManager::new(0, Peer, PeerId{id: vec![1, 2]}, 0, tables.clone());
+/// 
+///     // Declare new primitives
+///     let primitives = tables.new_primitives(dummyPrimitives).await;
+///     
+///     // Use primitives
+///     primitives.data(&"/demo".to_string().into(), &None, &ArcSlice::from(vec![1, 2])).await;
+/// 
+///     // Close primitives
+///     primitives.close().await;
+///   };
+/// 
+/// ```
+pub struct TablesHdl {
+    tables: Arc<RwLock<Tables>>,
+}
+
+impl TablesHdl {
+    pub fn new() -> TablesHdl {
+        TablesHdl {
+            tables: Tables::new()
+        }
+    }
+    
+    pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
+        Arc::new(FaceHdl {
+            tables: self.tables.clone(), 
+            face: Tables::declare_session(&self.tables, primitives).upgrade().unwrap().clone(),
+        })
+    }
+}
+
+#[async_trait]
+impl SessionHandler for TablesHdl {
+    async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+        Arc::new(DeMux::new(FaceHdl {
+            tables: self.tables.clone(), 
+            face: Tables::declare_session(&self.tables, Arc::new(Mux::new(session))).upgrade().unwrap().clone(),
+        }))
+    }
+}
+
 
 pub struct Tables {
+    sex_counter: usize,
     root_res: Arc<RwLock<Resource>>,
     faces: HashMap<usize, Arc<RwLock<Face>>>,
 }
@@ -14,6 +83,7 @@ impl Tables {
 
     pub fn new() -> Arc<RwLock<Tables>> {
         Arc::new(RwLock::new(Tables {
+            sex_counter: 0,
             root_res: Resource::root(),
             faces: HashMap::new(),
         }))
@@ -28,10 +98,12 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub fn declare_session(tables: &Arc<RwLock<Tables>>, sid: usize) -> Weak<RwLock<Face>> {
+    pub fn declare_session(tables: &Arc<RwLock<Tables>>, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
         let mut t = tables.write();
+        let sid = t.sex_counter;
+        t.sex_counter += 1;
         if ! t.faces.contains_key(&sid) {
-            t.faces.insert(sid, Face::new(sid));
+            t.faces.insert(sid, Face::new(sid, primitives));
         }
         Arc::downgrade(t.faces.get(&sid).unwrap())
     }
@@ -339,7 +411,7 @@ impl Tables {
         get_best_key_(prefix, suffix, sid, true)
     }
 
-    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str) 
+    pub fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str) 
     -> Option<HashMap<usize, (Weak<RwLock<Face>>, u64, String)>> {
 
         let t = tables.read();
@@ -392,6 +464,14 @@ impl Tables {
                 }
             }
             None => {println!("Declare subscription for closed session!"); None}
+        }
+    }
+
+    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
+        if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
+            for (_, (face, rid, suffix)) in outfaces {
+                face.upgrade().unwrap().read().primitives.data(&(rid, suffix).into(), info, payload);
+            }
         }
     }
 }
