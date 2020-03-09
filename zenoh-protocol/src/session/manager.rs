@@ -268,7 +268,6 @@ impl SessionManagerInner {
         match self.sessions.write().await.remove(peer) {
             Some(session) => {
                 self.id_mgmt.write().await.del_id(session.id);
-                self.handler.del_session(session.as_ref()).await;
                 Ok(session)
             }
             None =>  Err(zerror!(ZErrorKind::Other{
@@ -488,6 +487,7 @@ impl MsgHandler for Session {
         self.send(Arc::new(msg)).await;
         Ok(())
     }
+    async fn close(&self) {}
 }
 
 impl fmt::Debug for Session {
