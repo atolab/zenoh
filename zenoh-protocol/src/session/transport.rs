@@ -332,6 +332,7 @@ impl Transport {
     /*         CLOSE THE SESSION         */
     /*************************************/
     pub async fn close(&self, _reason: Option<ZError>) -> ZResult<()> {
+        zrwopt!(self.callback).close().await;
         // Stop the task
         self.stop().await;
         // Remove and close all the links

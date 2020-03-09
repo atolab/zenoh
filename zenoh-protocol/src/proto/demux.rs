@@ -72,4 +72,8 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
         Ok(())
     }
+
+    async fn close(&self) {
+        self.primitives.close().await;
+    }
 }

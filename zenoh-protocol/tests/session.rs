@@ -31,7 +31,6 @@ impl SessionHandler for SHRouter {
     async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DummyHandler::new())
     }
-    async fn del_session(&self, _session: &(dyn MsgHandler + Send + Sync)) {}
 }
 
 
@@ -49,7 +48,6 @@ impl SessionHandler for SHClient {
     async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DummyHandler::new())
     }
-    async fn del_session(&self, _session: &(dyn MsgHandler + Send + Sync)) {}
 }
 
 

@@ -22,14 +22,13 @@ use crate::proto::Message;
 /*********************************************************/
 #[async_trait]
 pub trait MsgHandler {
-    // async fn id(&self) -> usize;
     async fn handle_message(&self, msg: Message) -> ZResult<()>;
+    async fn close(&self);
 }
 
 #[async_trait]
 pub trait SessionHandler {
     async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync>;
-    async fn del_session(&self, session: &(dyn MsgHandler + Send + Sync));
 }
 
 // Define an empty SessionCallback for the listener session
@@ -46,6 +45,7 @@ impl MsgHandler for DummyHandler {
     async fn handle_message(&self, _message: Message) -> ZResult<()> {
         Ok(())
     }
+    async fn close(&self) {}
 }
 
 #[macro_export]

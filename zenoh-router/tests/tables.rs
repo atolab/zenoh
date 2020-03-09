@@ -1,12 +1,16 @@
-use zenoh_router::routing::tables::Tables;
-use zenoh_router::routing::resource::Resource;
+use async_std::sync::Arc;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
+use zenoh_protocol::proto::Mux;
+use zenoh_protocol::session::DummyHandler;
+use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::resource::Resource;
 
 #[test]
 fn base_test() {
     let tables = Tables::new();
-    let sex = Tables::declare_session(&tables, 0);
+    let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
+    let sex = Tables::declare_session(&tables, primitives.clone());
     Tables::declare_resource(&tables, &sex, 1, 0, "/one/two/three");
     Tables::declare_resource(&tables, &sex, 2, 0, "/one/deux/trois");
     
@@ -31,7 +35,8 @@ fn match_test() {
     ];
 
     let tables = Tables::new();
-    let sex = Tables::declare_session(&tables, 0);
+    let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
+    let sex = Tables::declare_session(&tables, primitives.clone());
     for (i, rname) in rnames.iter().enumerate() {
         Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), 0, rname);
     }
@@ -53,7 +58,8 @@ fn match_test() {
 fn clean_test() {
     let tables = Tables::new();
 
-    let sex0 = Tables::declare_session(&tables, 0);
+    let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
+    let sex0 = Tables::declare_session(&tables, primitives.clone());
     assert!(sex0.upgrade().is_some());
 
     // --------------
@@ -169,23 +175,24 @@ fn clean_test() {
 #[test]
 fn client_test() {
     let tables = Tables::new();
+    let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
 
-    let sex0 = Tables::declare_session(&tables, 0);
+    let sex0 = Tables::declare_session(&tables, primitives.clone());
     Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex0, 11, "/**");
     Tables::declare_resource(&tables, &sex0, 12, 11, "/z1_pub1");
 
-    let sex1 = Tables::declare_session(&tables, 1);
+    let sex1 = Tables::declare_session(&tables, primitives.clone());
     Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex1, 21, "/**");
     Tables::declare_resource(&tables, &sex1, 22, 21, "/z2_pub1");
 
-    let sex2 = Tables::declare_session(&tables, 2);
+    let sex2 = Tables::declare_session(&tables, primitives.clone());
     Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client");
     Tables::declare_subscription(&tables, &sex2, 31, "/**");
 
     
-    let result_opt = Tables::route_data(&tables, &sex0, &0, "/test/client/z1_wr1"); 
+    let result_opt = Tables::route_data_to_map(&tables, &sex0, &0, "/test/client/z1_wr1"); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();
 
@@ -208,7 +215,7 @@ fn client_test() {
     assert_eq!(suffix, "/z1_wr1");
 
     
-    let result_opt = Tables::route_data(&tables, &sex0, &11, "/z1_wr2"); 
+    let result_opt = Tables::route_data_to_map(&tables, &sex0, &11, "/z1_wr2"); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();
 
@@ -231,7 +238,7 @@ fn client_test() {
     assert_eq!(suffix, "/z1_wr2");
 
     
-    let result_opt = Tables::route_data(&tables, &sex1, &0, "/test/client/**"); 
+    let result_opt = Tables::route_data_to_map(&tables, &sex1, &0, "/test/client/**"); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();
 
@@ -254,7 +261,7 @@ fn client_test() {
     assert_eq!(suffix, "/**");
 
     
-    let result_opt = Tables::route_data(&tables, &sex0, &12, ""); 
+    let result_opt = Tables::route_data_to_map(&tables, &sex0, &12, ""); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();
 
@@ -277,7 +284,7 @@ fn client_test() {
     assert_eq!(suffix, "/z1_pub1");
 
     
-    let result_opt = Tables::route_data(&tables, &sex1, &22, ""); 
+    let result_opt = Tables::route_data_to_map(&tables, &sex1, &22, ""); 
     assert!(result_opt.is_some());
     let result = result_opt.unwrap();
 
