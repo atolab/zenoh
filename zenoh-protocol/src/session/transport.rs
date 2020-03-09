@@ -8,16 +8,13 @@ use async_std::sync::{
     Receiver,
     RwLock,
     Sender,
-    Weak,
 };
 use async_std::task;
-use lazy_init::Lazy;
 use std::fmt;
 
 use crate::{
     zerror,
-    zlazy,
-    zlazyweak
+    zrwopt
 };
 use crate::core::{
     ZError,
@@ -97,9 +94,9 @@ struct TxMessage {
 
 pub struct Transport {
     // The reference to the session
-    pub(crate) session: Lazy<Weak<Session>>,
+    pub(crate) session: RwLock<Option<Arc<Session>>>,
     // The callback for Data messages
-    callback: Lazy<Arc<dyn MsgHandler + Send + Sync>>,
+    callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
     // callback: Arc<dyn MsgHandler + Send + Sync>,
     // The timeout after which the session is closed if no messages are received
     lease: RwLock<ZInt>,
@@ -118,8 +115,8 @@ impl Transport {
     pub(crate) fn new(lease: ZInt) -> Self {
         let (sender, receiver) = channel::<bool>(1);
         Self {
-            session: Lazy::new(), 
-            callback: Lazy::new(), 
+            session: RwLock::new(None), 
+            callback: RwLock::new(None), 
             lease: RwLock::new(lease),
             links: Mutex::new(Vec::new()),
             queue_tx: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
@@ -130,8 +127,8 @@ impl Transport {
     }
 
     pub(crate) fn initialize(&self, session: Arc<Session>, callback: Arc<dyn MsgHandler + Send + Sync>) {
-        self.session.get_or_create(|| Arc::downgrade(&session));
-        self.callback.get_or_create(|| callback);
+        *self.session.try_write().unwrap() = Some(session);
+        *self.callback.try_write().unwrap() = Some(callback);
     }
 
     pub(crate) async fn get_lease(&self) -> ZInt {
@@ -254,7 +251,7 @@ impl Transport {
         match l_guard.try_push(message, sn) {
             Ok(_) => {
                 while let Some(message) = l_guard.try_pop() {
-                    zlazy!(self.callback).handle_message(message).await?;
+                    zrwopt!(self.callback).handle_message(message).await?;
                 }
                 Ok(())
             },
@@ -272,19 +269,19 @@ impl Transport {
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> ZResult<()> {
         match &message.body {
             Body::Accept{opid, apid, lease} => {
-                zlazyweak!(self.session).process_accept(src, dst, opid, apid, lease).await?;
+                zrwopt!(self.session).process_accept(src, dst, opid, apid, lease).await?;
             },
             // Body::AckNack{sn, mask} => {},
             Body::AckNack{..} => {},
             Body::Close{pid, reason} => {
-                zlazyweak!(self.session).process_close(src, dst, pid, reason).await?;
+                zrwopt!(self.session).process_close(src, dst, pid, reason).await?;
             },
             // Body::Hello{whatami, locators} => {},
             Body::Hello{..} => {},
             // Body::KeepAlive{pid} => {},
             Body::KeepAlive{..} => {},
             Body::Open{version, whatami, pid, lease, locators} => {
-                zlazyweak!(self.session).process_open(src, dst, version, whatami, pid, lease, locators).await?;
+                zrwopt!(self.session).process_open(src, dst, version, whatami, pid, lease, locators).await?;
             },
             // Body::Ping{hash} => {},
             Body::Ping{..} => {},
