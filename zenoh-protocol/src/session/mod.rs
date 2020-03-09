@@ -2,12 +2,13 @@ mod manager;
 mod queue;
 mod transport;
 
-pub use transport::Transport;
 pub use manager::{
     SessionManager,
     SessionManagerInner,
     Session
 };
+pub use queue::*;
+pub(crate) use transport::Transport;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
@@ -51,3 +52,13 @@ impl MsgHandler for DummyHandler {
 macro_rules! zrwopt {
     ($var:expr) => ($var.try_read().unwrap().as_ref().unwrap());
 }
+
+// #[macro_export]
+// macro_rules! zlazy {
+//     ($var:expr) => ($var.get().unwrap());
+// }
+
+// #[macro_export]
+// macro_rules! zlazyweak {
+//     ($var:expr) => (zlazy!($var).upgrade().unwrap());
+// }
