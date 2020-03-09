@@ -133,14 +133,16 @@ impl<T> PriorityQueue<T> {
 // Structs for OrderedQueue
 pub struct OrderedElement<T> {
     element: T,
-    sn: ZInt
+    sn: ZInt,
+    gap: ZInt
 }
 
 impl<T> OrderedElement<T> {
-    fn new(element: T, sn: ZInt) -> Self {
+    fn new(element: T, sn: ZInt, gap: ZInt) -> Self {
         Self {
             element,
-            sn
+            sn,
+            gap
         }
     }
 
@@ -153,14 +155,14 @@ impl<T> Eq for OrderedElement<T> {}
 
 impl<T> PartialEq for OrderedElement<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.sn == other.sn
+        self.gap == other.gap
     }
 }
 
 impl<T> Ord for OrderedElement<T> {
     fn cmp(&self, other: &Self) -> Ordering {
         // Invert the comparison orther to implement a min-heap
-        other.sn.cmp(&self.sn)
+        other.gap.cmp(&self.gap)
     }
 }
 
@@ -196,8 +198,6 @@ impl<T> OrderedQueue<T> {
     }
 
     pub fn capacity(&self) -> ZInt {
-        // THIS IS A CAST!!! 
-        // NEED TO CHECK IF ZInt usize otherwise we loose information
         self.buff.capacity() as ZInt
     }
 
@@ -206,14 +206,13 @@ impl<T> OrderedQueue<T> {
     }
 
     pub fn len(&self) -> ZInt {
-        // THIS IS A CAST!!! 
-        // NEED TO CHECK IF ZInt > usize otherwise we loose information
         self.buff.len() as ZInt
     }
 
     pub fn get_mask(&self) -> ZInt {
-        let window = !(ZInt::max_value() << (self.tail - self.head + 1));
-        self.mask & window
+        let shift: u32 = self.tail.wrapping_sub(self.head).wrapping_add(1) as u32;
+        let window = !ZInt::max_value().wrapping_shl(shift);
+        !self.mask & window
     }
 
     pub fn get_base(&self) -> ZInt {
@@ -221,23 +220,27 @@ impl<T> OrderedQueue<T> {
     }
 
     pub fn set_base(&mut self, base: ZInt) {
-        if base < self.head || base >= self.head + self.capacity() {
+        let gap = base.wrapping_sub(self.head);
+        if gap < self.tail.wrapping_sub(self.head) {
+            // SHIFT
+            self.head = base;
+            self.next = base;
+            self.mask = self.mask >> gap;
+            while let Some(element) = self.buff.peek() {
+                if base.wrapping_sub(element.sn) > 0 {
+                    self.buff.pop();
+                } else {
+                    self.buff.pop();
+                    break
+                }
+            }
+        } else {
             // RESET
             self.head = base;
             self.tail = base;
             self.next = base;
             self.mask = 0;
             self.buff.clear();
-        } else {
-            // SHIFT
-            self.head = base;
-            self.next = base;
-            self.mask = self.mask >> (base - self.head);
-            while let Some(element) = self.buff.peek() {
-                if element.sn < base {
-                    self.buff.pop();
-                }
-            }
         }
     }
 
@@ -245,7 +248,7 @@ impl<T> OrderedQueue<T> {
         if let Some(element) = self.buff.peek() {
             if element.sn == self.next {
                 let element = self.buff.pop().unwrap();
-                self.next = self.next + 1;
+                self.next = self.next.wrapping_add(1);
                 return Some(element.into_inner())
             }
         }
@@ -256,18 +259,21 @@ impl<T> OrderedQueue<T> {
         if self.free() == 0 {
             return Err(OrderedPushError::Full(element))
         }
-        if sn < self.head || sn >= self.head + self.capacity() {
+        // Do a modulo substraction
+        let gap = sn.wrapping_sub(self.head);
+        // Return error if the gap is larger than the capacity
+        if gap >= self.capacity() {
             return Err(OrderedPushError::OutOfSync(element))
         }
 
         // Update the pointer
-        if sn > self.tail {
+        if gap > self.tail.wrapping_sub(self.head) {
             self.tail = sn;
         }
         // Update the bitmask
-        self.mask = self.mask | (1 << (sn - self.head));
+        self.mask = self.mask | (1 << gap);
         // Push the element on the heap
-        self.buff.push(OrderedElement::new(element, sn));
+        self.buff.push(OrderedElement::new(element, sn, gap));
         
         Ok(())
     }
