@@ -16,6 +16,10 @@ use std::pin::Pin;
 use crate::core::ZInt;
 
 
+pub const HIGH_PRIO: usize = 0;
+pub const LOW_PRIO: usize = 99;
+
+
 pub struct PriorityQueue<T> {
     buff: Vec<ArrayQueue<T>>,
     w_pop: SegQueue<Waker>,
@@ -149,11 +153,6 @@ impl<T> OrderedElement<T> {
 }
 
 
-pub enum OrderedPushError<T> {
-    Full(T),
-    OutOfSync(T)
-}
-
 pub struct OrderedQueue<T> {
     buff: Vec<Option<OrderedElement<T>>>,
     pointer: usize,
@@ -256,15 +255,12 @@ impl<T> OrderedQueue<T> {
         None
     }
 
-    pub fn try_push(&mut self, element: T, sn: ZInt) -> Result<(), OrderedPushError<T>> {
-        if self.len() == self.capacity() {
-            return Err(OrderedPushError::Full(element))
-        }
+    pub fn try_push(&mut self, element: T, sn: ZInt) -> Option<T> {
         // Do a modulo substraction
         let gap = sn.wrapping_sub(self.first) as usize;
         // Return error if the gap is larger than the capacity
         if gap >= self.capacity() {
-            return Err(OrderedPushError::OutOfSync(element))
+            return Some(element)
         }
 
         // Increment the counter
@@ -278,10 +274,9 @@ impl<T> OrderedQueue<T> {
         let index = (self.pointer + gap) % self.capacity();
         self.buff[index] = Some(OrderedElement::new(element, sn));
         
-        Ok(())
+        None
     }
 }
-
 
 impl<T> fmt::Debug for OrderedQueue<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -293,10 +288,9 @@ impl<T> fmt::Debug for OrderedQueue<T> {
                 true => first = false,
                 false => s.push_str(", ")
             }
-            if let Some(e) = &self.buff[index] {
-                s.push_str(&format!("{}", e.sn));
-            } else {
-                s.push_str("None");
+            match &self.buff[index] {
+                Some(e) => s.push_str(&format!("{}", e.sn)),
+                None => s.push_str("None")
             }
             index = (index + 1) % self.capacity();
         }

@@ -29,6 +29,7 @@ use crate::session::{
     MsgHandler,
     SessionHandler
 };
+use crate::session::queue::HIGH_PRIO;
 use crate::link::{
     Link,
     LinkManager,
@@ -368,7 +369,7 @@ impl Session {
         ));
 
         // Schedule the message for transmission
-        let priority = Some(0);                             // High priority
+        let priority = Some(HIGH_PRIO);                      // High priority
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
         self.transport.schedule(message, priority, link).await;
 
@@ -391,8 +392,8 @@ impl Session {
         ));
 
         // Send the message for transmission
-        let priority = Some(0); // High priority
-        let link = None;        // The preferred link to reply on 
+        let priority = Some(HIGH_PRIO); // High priority
+        let link = None;                // The preferred link to reply on 
         self.transport.send(message, priority, link).await;
         // Close the session
         self.transport.close(reason).await
@@ -439,7 +440,7 @@ impl Session {
     ) -> ZResult<()> {
         if pid != &Some(self.peer.clone()) {
             return Err(zerror!(ZErrorKind::InvalidMessage{
-                descr: format!("Received a Close with a  Peer ID different from self!")
+                descr: format!("Received a Close with a Peer ID different from self!")
             }))
         } 
         self.manager.del_session(&self.peer, None).await?;
@@ -473,7 +474,7 @@ impl Session {
         ));
 
         // Schedule the message for transmission
-        let priority = Some(0);                         // High priority
+        let priority = Some(HIGH_PRIO);                         // High priority
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
         target.transport.schedule(message, priority, link).await;
 

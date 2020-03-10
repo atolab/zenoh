@@ -7,7 +7,6 @@ use rand::{
 use zenoh_protocol::core::ZInt;
 use zenoh_protocol::session::{
     OrderedQueue,
-    OrderedPushError,
     PriorityQueue
 };
 
@@ -75,14 +74,14 @@ fn ordered_queue_simple() {
     let mut sn: ZInt = 0;
     // Add the first element
     let res = queue.try_push(0, sn);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_pop();
     assert_eq!(res, Some(0));
 
     // Add the second element
     sn = sn + 1;
     let res = queue.try_push(1, sn);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_pop();
     assert_eq!(res, Some(1));
 
@@ -99,13 +98,13 @@ fn ordered_queue_order() {
 
     // Add the second element
     let res = queue.try_push(1, sn+1);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_pop();
     assert_eq!(res, None);
 
     // Add the first element
     let res = queue.try_push(0, sn);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_pop();
     assert_eq!(res, Some(0));
     let res = queue.try_pop();
@@ -126,18 +125,15 @@ fn ordered_queue_full() {
 
     // Fill the queue
     let res = queue.try_push(0, sn);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     sn = sn + 1;
     let res = queue.try_push(1, sn);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     sn = sn + 1;
     let res = queue.try_push(2, sn);
     match res {
-        Ok(_) => assert!(false),
-        Err(e) => match e {
-            OrderedPushError::Full(msg) => assert_eq!(msg, 2),
-            OrderedPushError::OutOfSync(_) => assert!(false)
-        }
+        Some(msg) => assert_eq!(msg, 2),
+        None => assert!(false)
     }
 
     // Drain the queue
@@ -153,17 +149,14 @@ fn ordered_queue_full() {
 #[test]
 fn ordered_queue_out_of_sync() {
     let size = 2;
-    let mut queue: OrderedQueue<usize> = OrderedQueue::new(size);
+    let mut queue: OrderedQueue<ZInt> = OrderedQueue::new(size);
 
     let sn: ZInt = 3;
 
-    let res = queue.try_push(0, sn);
+    let res = queue.try_push(sn, sn);
     match res {
-        Ok(_) => assert!(false),
-        Err(e) => match e {
-            OrderedPushError::Full(_) => assert!(false),
-            OrderedPushError::OutOfSync(msg) => assert_eq!(msg, 0)
-        }
+        Some(msg) => assert_eq!(msg, sn),
+        None => assert!(false),
     }
 
     // Verify that the queue is empty
@@ -181,13 +174,13 @@ fn ordered_queue_overflow() {
 
     queue.set_base(max-1);
     let res = queue.try_push(0, max-1);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_push(1, max);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_push(2, min);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_push(3, min+1);
-    assert!(res.is_ok());
+    assert!(res.is_none());
     let res = queue.try_pop();
     assert_eq!(res, Some(0));
     let res = queue.try_pop();
@@ -213,7 +206,7 @@ fn ordered_queue_mask() {
     let mut sn: ZInt = 0;  
     while sn < size as ZInt {
         let res = queue.try_push(sn, sn);
-        assert!(res.is_ok());
+        assert!(res.is_none());
         sn = sn + 2;
     }
 
@@ -225,7 +218,7 @@ fn ordered_queue_mask() {
     let mut sn: ZInt = 1;  
     while sn < size as ZInt {
         let res = queue.try_push(sn, sn);
-        assert!(res.is_ok());
+        assert!(res.is_none());
         sn = sn + 2;
     }
 
@@ -264,7 +257,7 @@ fn ordered_queue_random_mask() {
         }
         // Push the element on the queue
         let res = queue.try_push(sn, sn);
-        assert!(res.is_ok());
+        assert!(res.is_none());
         // Locally comput the mask
         mask = mask | (1 << sn);
         let shift: u32 = tail.wrapping_sub(head) as u32;
@@ -297,7 +290,7 @@ fn ordered_queue_rebase() {
     for i in 0..(size as ZInt) {
         // Push the element on the queue
         let res = queue.try_push(i, i);
-        assert!(res.is_ok());
+        assert!(res.is_none());
     }
 
     // Verify that the queue is full
@@ -345,7 +338,7 @@ fn ordered_queue_rebase() {
     for i in 0..(size as ZInt) {
         // Push the element on the queue
         let res = queue.try_push(i, i);
-        assert!(res.is_ok());
+        assert!(res.is_none());
     }
 
     // Verify that the correct length of the queue
