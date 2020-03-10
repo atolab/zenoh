@@ -41,8 +41,10 @@ impl From<String> for ResKey {
 
 impl From<(ZInt, String)> for ResKey {
   fn from((id, suffix): (ZInt, String)) -> ResKey {
-    if id == 0 { panic!("For a ResKey::ResGenId id cannot be 0") }
-    ResKey::ResGenId { id, suffix }
+    match id {  
+      0 => ResKey::ResName { name: suffix },
+      _ => ResKey::ResGenId { id, suffix }
+    }
   }
 }
 
