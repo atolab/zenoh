@@ -10,11 +10,14 @@ use crossbeam::queue::{
     PushError,
     SegQueue
 };
-use std::collections::BinaryHeap;
-use std::cmp::Ordering;
+use std::fmt;
 use std::pin::Pin;
 
 use crate::core::ZInt;
+
+
+pub const HIGH_PRIO: usize = 0;
+pub const LOW_PRIO: usize = 99;
 
 
 pub struct PriorityQueue<T> {
@@ -149,126 +152,149 @@ impl<T> OrderedElement<T> {
     }
 }
 
-impl<T> Eq for OrderedElement<T> {}
-
-impl<T> PartialEq for OrderedElement<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.sn == other.sn
-    }
-}
-
-impl<T> Ord for OrderedElement<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Invert the comparison orther to implement a min-heap
-        other.sn.cmp(&self.sn)
-    }
-}
-
-impl<T> PartialOrd for OrderedElement<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-
-pub enum OrderedPushError<T> {
-    Full(T),
-    OutOfSync(T)
-}
 
 pub struct OrderedQueue<T> {
-    buff: BinaryHeap<OrderedElement<T>>,
-    head: ZInt,
-    tail: ZInt,
-    next: ZInt,
-    mask: ZInt,
+    buff: Vec<Option<OrderedElement<T>>>,
+    pointer: usize,
+    counter: usize,
+    first: ZInt,
+    last: ZInt,
 }
 
 impl<T> OrderedQueue<T> {
     pub fn new(capacity: usize) -> Self {
+        let mut buff = Vec::with_capacity(capacity);
+        buff.resize_with(capacity, || None);
         Self {
-            buff: BinaryHeap::with_capacity(capacity),
-            head: 0,
-            tail: 0,
-            next: 0,
-            mask: 0
+            buff,
+            pointer: 0,
+            counter: 0,
+            first: 0,
+            last: 0,
         }
     }
 
-    pub fn capacity(&self) -> ZInt {
-        // THIS IS A CAST!!! 
-        // NEED TO CHECK IF ZInt usize otherwise we loose information
-        self.buff.capacity() as ZInt
+    pub fn capacity(&self) -> usize {
+        self.buff.capacity()
     }
 
-    pub fn free(&self) -> ZInt {
-        self.capacity() - self.len()
-    }
-
-    pub fn len(&self) -> ZInt {
-        // THIS IS A CAST!!! 
-        // NEED TO CHECK IF ZInt > usize otherwise we loose information
-        self.buff.len() as ZInt
+    pub fn len(&self) -> usize {
+        self.counter
     }
 
     pub fn get_mask(&self) -> ZInt {
-        let window = !(ZInt::max_value() << (self.tail - self.head + 1));
-        self.mask & window
+        let mut mask: ZInt = 0;
+
+        // Check if the queue is empty
+        if self.len() == 0 {
+            return mask
+        }
+
+        // Create the bitmask
+        let mut iteration = 0;
+        let mut index = self.pointer;
+        loop {
+            match &self.buff[index] {
+                Some(element) => if element.sn == self.last {
+                    break
+                },
+                None => mask = mask | (1 << iteration)
+            }
+            iteration = iteration + 1;
+            index = (index + 1) % self.capacity();
+        }
+        
+        mask
     }
 
     pub fn get_base(&self) -> ZInt {
-        self.head
+        self.first
     }
 
     pub fn set_base(&mut self, base: ZInt) {
-        if base < self.head || base >= self.head + self.capacity() {
-            // RESET
-            self.head = base;
-            self.tail = base;
-            self.next = base;
-            self.mask = 0;
-            self.buff.clear();
-        } else {
+        let gap_base = base.wrapping_sub(self.first) as usize;
+        let gap_last = self.last.wrapping_sub(self.first) as usize;
+        if gap_base < gap_last {
             // SHIFT
-            self.head = base;
-            self.next = base;
-            self.mask = self.mask >> (base - self.head);
-            while let Some(element) = self.buff.peek() {
-                if element.sn < base {
-                    self.buff.pop();
+            for _ in 0..gap_base {
+                if let Some(_) = self.buff[self.pointer].take() {
+                    // Decrement the counter
+                    self.counter = self.counter - 1;
                 }
+                self.pointer = (self.pointer + 1) % self.capacity();
+            }
+            self.first = base;
+        } else {
+            // RESET
+            self.pointer = 0;
+            self.counter = 0;
+            self.first = base;
+            self.last = base;
+            for elem in self.buff.iter_mut() {
+                elem.take();
             }
         }
     }
 
     pub fn try_pop(&mut self) -> Option<T> {
-        if let Some(element) = self.buff.peek() {
-            if element.sn == self.next {
-                let element = self.buff.pop().unwrap();
-                self.next = self.next + 1;
+        if self.len() > 0 {
+            if let Some(element) = self.buff[self.pointer].take() {
+                // Update the pointer in the buffer
+                self.pointer = (self.pointer + 1) % self.capacity();
+                // Decrement the counter
+                self.counter = self.counter - 1;
+                // Increment the next target sequence number
+                self.first = self.first.wrapping_add(1);
+                // Align the last sequence number if the queue is empty
+                if self.len() == 0 {
+                    self.last = self.first;
+                }
                 return Some(element.into_inner())
             }
         }
         None
     }
 
-    pub fn try_push(&mut self, element: T, sn: ZInt) -> Result<(), OrderedPushError<T>> {
-        if self.free() == 0 {
-            return Err(OrderedPushError::Full(element))
-        }
-        if sn < self.head || sn >= self.head + self.capacity() {
-            return Err(OrderedPushError::OutOfSync(element))
+    pub fn try_push(&mut self, element: T, sn: ZInt) -> Option<T> {
+        // Do a modulo substraction
+        let gap = sn.wrapping_sub(self.first) as usize;
+        // Return error if the gap is larger than the capacity
+        if gap >= self.capacity() {
+            return Some(element)
         }
 
-        // Update the pointer
-        if sn > self.tail {
-            self.tail = sn;
+        // Increment the counter
+        self.counter = self.counter + 1;
+
+        // Update the sequence number
+        if sn > self.last {
+            self.last = sn;
         }
-        // Update the bitmask
-        self.mask = self.mask | (1 << (sn - self.head));
-        // Push the element on the heap
-        self.buff.push(OrderedElement::new(element, sn));
+        // Insert the element in the queue
+        let index = (self.pointer + gap) % self.capacity();
+        self.buff[index] = Some(OrderedElement::new(element, sn));
         
-        Ok(())
+        None
+    }
+}
+
+impl<T> fmt::Debug for OrderedQueue<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = "[".to_string();
+        let mut first = true;
+        let mut index = self.pointer;
+        for _ in 0..self.buff.capacity() {
+            match first {
+                true => first = false,
+                false => s.push_str(", ")
+            }
+            match &self.buff[index] {
+                Some(e) => s.push_str(&format!("{}", e.sn)),
+                None => s.push_str("None")
+            }
+            index = (index + 1) % self.capacity();
+        }
+        s.push_str("]\n");
+        write!(f, "{}", s)
     }
 }
