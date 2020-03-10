@@ -57,7 +57,7 @@ impl TablesHdl {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, primitives).upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, primitives).await.upgrade().unwrap().clone(),
         })
     }
 }
@@ -67,7 +67,7 @@ impl SessionHandler for TablesHdl {
     async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, Arc::new(Mux::new(session))).upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, Arc::new(Mux::new(session))).await.upgrade().unwrap().clone(),
         }))
     }
 }
@@ -98,7 +98,7 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub fn declare_session(tables: &Arc<RwLock<Tables>>, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
+    pub async fn declare_session(tables: &Arc<RwLock<Tables>>, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
         let mut t = tables.write();
         let sid = t.sex_counter;
         t.sex_counter += 1;
@@ -108,7 +108,7 @@ impl Tables {
         Arc::downgrade(t.faces.get(&sid).unwrap())
     }
 
-    pub fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
+    pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
         let mut t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -175,7 +175,7 @@ impl Tables {
         res
     }
 
-    pub fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, prefixid: u64, suffix: &str) {
+    pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -229,7 +229,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64) {
+    pub async fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64) {
         let _t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -243,7 +243,7 @@ impl Tables {
         }
     }
 
-    pub fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
+    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -289,7 +289,7 @@ impl Tables {
         }
     }
 
-    pub fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
+    pub async fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
         let t = tables.write();
         match sex.upgrade() {
             Some(sex) => {
@@ -467,10 +467,16 @@ impl Tables {
         }
     }
 
-    pub fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
         if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
             for (_, (face, rid, suffix)) in outfaces {
-                face.upgrade().unwrap().read().primitives.data(&(rid, suffix).into(), info, payload);
+                // TODO move primitives out of inner mutability
+                let primitives = {
+                    let strongface = face.upgrade().unwrap();
+                    let rface = strongface.read();
+                    rface.primitives.clone()
+                };
+                primitives.data(&(rid, suffix).into(), info, payload).await;
             }
         }
     }

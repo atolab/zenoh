@@ -35,21 +35,21 @@ pub struct FaceHdl {
 impl Primitives for FaceHdl {
     async fn resource(&self, rid: &u64, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), *rid, prefixid, suffix);
+        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), *rid, prefixid, suffix).await;
     }
 
     async fn forget_resource(&self, rid: &u64) {
-        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), *rid);
+        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), *rid).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, _mode: &SubMode) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix);
+        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix);
+        Tables::undeclare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
     
     async fn publisher(&self, _reskey: &ResKey) {}
@@ -66,7 +66,7 @@ impl Primitives for FaceHdl {
 
     async fn data(&self, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), &prefixid, suffix, info, payload);
+        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), &prefixid, suffix, info, payload).await;
     }
 
     async fn query(&self, _reskey: &ResKey, _predicate: &String, _qid: &ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
@@ -76,6 +76,6 @@ impl Primitives for FaceHdl {
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: &ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {
-        Tables::undeclare_session(&self.tables, &Arc::downgrade(&self.face));
+        Tables::undeclare_session(&self.tables, &Arc::downgrade(&self.face)).await;
     }
 }
