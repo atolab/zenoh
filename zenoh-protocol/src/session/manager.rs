@@ -29,7 +29,6 @@ use crate::session::{
     MsgHandler,
     SessionHandler
 };
-use crate::session::queue::HIGH_PRIO;
 use crate::link::{
     Link,
     LinkManager,
@@ -369,9 +368,8 @@ impl Session {
         ));
 
         // Schedule the message for transmission
-        let priority = Some(HIGH_PRIO);                      // High priority
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.schedule(message, priority, link).await;
+        self.transport.schedule_ctrl(message, link).await;
 
         Ok(())
     }
@@ -392,15 +390,14 @@ impl Session {
         ));
 
         // Send the message for transmission
-        let priority = Some(HIGH_PRIO); // High priority
         let link = None;                // The preferred link to reply on 
-        self.transport.send(message, priority, link).await;
+        self.transport.send_ctrl(message, link).await;
         // Close the session
         self.transport.close(reason).await
     }
 
     pub async fn send(&self, message: Arc<Message>) {
-        self.transport.schedule(message, None, None).await
+        self.transport.schedule_data(message).await
     }
 
     pub async fn get_links(&self) -> Vec<Link> {
@@ -474,9 +471,8 @@ impl Session {
         ));
 
         // Schedule the message for transmission
-        let priority = Some(HIGH_PRIO);                         // High priority
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.schedule(message, priority, link).await;
+        target.transport.schedule_ctrl(message, link).await;
 
         Ok(())
     }

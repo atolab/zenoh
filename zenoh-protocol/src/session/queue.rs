@@ -16,10 +16,6 @@ use std::pin::Pin;
 use crate::core::ZInt;
 
 
-pub const HIGH_PRIO: usize = 0;
-pub const LOW_PRIO: usize = 99;
-
-
 pub struct PriorityQueue<T> {
     buff: Vec<ArrayQueue<T>>,
     w_pop: SegQueue<Waker>,

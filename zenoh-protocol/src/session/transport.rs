@@ -1,7 +1,6 @@
 use async_std::prelude::*;
 use async_std::sync::{
     Arc,
-    Barrier,
     channel,
     Mutex,
     MutexGuard,
@@ -11,6 +10,10 @@ use async_std::sync::{
 };
 use async_std::task;
 use std::fmt;
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering
+};
 
 use crate::{
     zerror,
@@ -32,8 +35,6 @@ use crate::session::{
     Session
 };
 use crate::session::queue::{
-    HIGH_PRIO,
-    LOW_PRIO,
     OrderedQueue,
     PriorityQueue
 };
@@ -44,33 +45,45 @@ use crate::link::{
 
 
 // Constants
-const QUEUE_SIZE: usize = 16;
-const QUEUE_PRIO: usize = 2;
+const QUEUE_RX_SIZE: usize = 64;
+
+const QUEUE_TX_SIZE: usize = 16;
+const QUEUE_TX_PRIO_NUM: usize = 2;
+const QUEUE_TX_PRIO_CTRL: usize = 0;
+const QUEUE_TX_PRIO_DATA: usize = 1;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
         let message = transport.queue_tx.pop().await;
-        match &message.link {
+        let guard = transport.links.lock().await;
+
+        let res = match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
-                let guard = transport.links.lock().await;
-                if let Some(index) = transport.find_link(&guard, &src, &dst) {
-                    let _ = guard[index].send(&message.message).await;
+                match transport.find_link(&guard, &src, &dst) {
+                    Some(index) => guard[index].send(&message.message).await,
+                    None => Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because link was not found: {} {}!", &src, &dst)
+                    }))
                 }
             },
             None => {
-                // Send the message only on the first link
-                for l in transport.links.lock().await.iter() {
-                    let _ = l.send(&message.message).await;
-                    break
+                // Send the message on the first link
+                match guard.get(0) {
+                    Some(link) => link.send(&message.message).await,
+                    None =>  Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because session has no links!")
+                    }))
                 }
             }
+        };
+
+        // Notify the sender in case of synchronous send 
+        if let Some(sender) = &message.notify {
+            sender.send(res).await;
         }
-        // Notify the barrier for the synchronous send 
-        if let Some(barrier) = &message.barrier {
-            barrier.wait().await;
-        }
+
         Some(true)
     }
     
@@ -90,7 +103,7 @@ async fn consume_loop(transport: Arc<Transport>) {
 struct TxMessage {
     message: Arc<Message>, 
     link: Option<(Locator, Locator)>,
-    barrier: Option<Arc<Barrier>>
+    notify: Option<Sender<ZResult<()>>>
 }
 
 
@@ -99,7 +112,6 @@ pub struct Transport {
     pub(crate) session: RwLock<Option<Arc<Session>>>,
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
-    // callback: Arc<dyn MsgHandler + Send + Sync>,
     // The timeout after which the session is closed if no messages are received
     lease: RwLock<ZInt>,
     // The list of transport links associated to this session
@@ -107,6 +119,7 @@ pub struct Transport {
     // The queue of messages to be transmitted
     queue_tx: PriorityQueue<TxMessage>,
     queue_rx: Mutex<OrderedQueue<Message>>,
+    count_rx: AtomicUsize,
     queue_reliability: RwLock<Vec<Message>>,
     // Keeping track of the last unreliable sequence number
     last_sn_unreliable: Mutex<ZInt>,
@@ -123,9 +136,10 @@ impl Transport {
             callback: RwLock::new(None), 
             lease: RwLock::new(lease),
             links: Mutex::new(Vec::new()),
-            queue_tx: PriorityQueue::new(QUEUE_SIZE, QUEUE_PRIO),
-            queue_rx: Mutex::new(OrderedQueue::new(QUEUE_SIZE)),
-            queue_reliability: RwLock::new(Vec::with_capacity(QUEUE_SIZE)),
+            queue_tx: PriorityQueue::new(QUEUE_TX_SIZE, QUEUE_TX_PRIO_NUM),
+            queue_rx: Mutex::new(OrderedQueue::new(QUEUE_RX_SIZE)),
+            count_rx: AtomicUsize::new(0),
+            queue_reliability: RwLock::new(Vec::with_capacity(QUEUE_TX_SIZE)),
             last_sn_unreliable: Mutex::new(0),
             signal_send: sender,
             signal_recv: receiver
@@ -212,41 +226,50 @@ impl Transport {
     /*************************************/
     /*             SCHEDULE              */
     /*************************************/
-
     // Schedule the message to be sent asynchronsly
-    pub(crate) async fn schedule(&self, message: Arc<Message>, 
-        priority: Option<usize>, link: Option<(Locator, Locator)>
-    ) {
+    // pub(crate) async fn schedule(&self, message: Arc<Message>, priority: usize, link: Option<(Locator, Locator)>) {
+    pub(crate) async fn schedule_data(&self, message: Arc<Message>) {
+        self.schedule_inner(message, QUEUE_TX_PRIO_DATA, None).await;
+    }
+
+    pub(crate) async fn schedule_ctrl(&self, message: Arc<Message>, link: Option<(Locator, Locator)>) {
+        self.schedule_inner(message, QUEUE_TX_PRIO_CTRL, link).await;
+    }
+
+    async fn schedule_inner(&self, message: Arc<Message>, priority: usize, link: Option<(Locator, Locator)>) {
         let msg = TxMessage {
             message,
             link,
-            barrier: None
+            notify: None
         };
-        let priority = match priority {
-            Some(prio) => prio,
-            None => LOW_PRIO 
-        };
-        self.queue_tx.push(msg, priority).await
+        self.queue_tx.push(msg, priority).await;
     }
 
     // Send the message in a synchronous way. 
     // 1) Schedule the message 
     // 2) Be notified when the message is actually sent
-    pub(crate) async fn send(&self, message: Arc<Message>, 
-        priority: Option<usize>, link: Option<(Locator, Locator)>
-    ) {
-        let barrier = Arc::new(Barrier::new(2));
+    pub(crate) async fn send_data(&self, message: Arc<Message>) -> ZResult<()> {
+        self.send_inner(message, QUEUE_TX_PRIO_DATA, None).await
+    }
+
+    pub(crate) async fn send_ctrl(&self, message: Arc<Message>, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        self.send_inner(message, QUEUE_TX_PRIO_CTRL, link).await
+    }
+
+    async fn send_inner(&self, message: Arc<Message>, priority: usize, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        let (sender, receiver) = channel::<ZResult<()>>(1);
         let msg = TxMessage {
             message,
             link,
-            barrier: Some(barrier.clone())
-        };
-        let priority = match priority {
-            Some(prio) => prio,
-            None => LOW_PRIO 
+            notify: Some(sender)
         };
         self.queue_tx.push(msg, priority).await;
-        barrier.wait().await;
+        match receiver.recv().await {
+            Some(res) => res,
+            None => Err(zerror!(ZErrorKind::Other{
+                descr: format!("Message dropped!")
+            }))
+        }
     }
 
     /*************************************/
@@ -254,47 +277,42 @@ impl Transport {
     /*************************************/
     async fn process_reliable_message(&self, message: Message, sn: ZInt) -> ZResult<()> {
         let mut l_guard = self.queue_rx.lock().await;
+
         match l_guard.try_push(message, sn) {
             None => {
                 while let Some(message) = l_guard.try_pop() {
                     zrwopt!(self.callback).handle_message(message).await?;
+                    self.count_rx.fetch_add(1, Ordering::Relaxed);
                 }
-                // A message went lost, trigger an AckNack
-                if l_guard.len() > 0 {
-                    // Create the AckNack message
-                    let sn = l_guard.get_base();
-                    let mask = match l_guard.get_mask() {
-                        0 => None,
-                        m => Some(m)
-                    };
-                    let cid = None;
-                    let properties = None;
-                    let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
-
-                    // Schedule the AckNack message
-                    let priority = Some(HIGH_PRIO);
-                    let link = None;
-                    self.schedule(acknack, priority, link).await;
+                if self.count_rx.load(Ordering::Relaxed) >= QUEUE_RX_SIZE/2 {
+                    true
+                } else {
+                    false
                 }
             },
             Some(_) => {
                 // The queue is out of synch, need to synchronize with the peer
-                // Create the AckNack message
-                let sn = l_guard.get_base();
-                let mask = match l_guard.get_mask() {
-                    0 => None,
-                    m => Some(m)
-                };
-                let cid = None;
-                let properties = None;
-                let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
+                // Drop the message for the time being, it will be resent later
+                true
+            }
+        };
 
-                // Schedule the AckNack message
-                let priority = Some(HIGH_PRIO);
-                let link = None;
-                self.schedule(acknack, priority, link).await;
-        }
-        }
+        // if synch {     
+        //     // Create the AckNack message
+        //     let sn = l_guard.get_base();
+        //     let mask = match l_guard.get_mask() {
+        //         0 => None,
+        //         m => Some(m)
+        //     };
+        //     let cid = None;
+        //     let properties = None;
+        //     let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
+
+        //     // Schedule the AckNack message
+        //     let link = None;
+        //     self.schedule_ctrl(acknack, link).await;
+        // }
+
         Ok(())
     }
 
