@@ -470,7 +470,7 @@ impl Session {
         let conduit_id = None;  // Conduit ID always None
         let properties = None; // Properties always None for the time being. May change in the future.
         let message = Arc::new(Message::make_accept(
-            pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
+            self.manager.whatami.clone(), pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
         ));
 
         // Schedule the message for transmission

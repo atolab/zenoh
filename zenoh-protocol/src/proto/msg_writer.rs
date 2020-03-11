@@ -49,7 +49,10 @@ impl WBuf {
                 }
             }
 
-            Body::Accept { opid, apid, lease } => {
+            Body::Accept {whatami, opid, apid, lease } => {
+                if *whatami != WhatAmI::Broker {
+                    self.write_zint(WhatAmI::to_zint(whatami));
+                }
                 self.write_bytes_array(&opid.id);
                 self.write_bytes_array(&apid.id);
                 self.write_zint(*lease);

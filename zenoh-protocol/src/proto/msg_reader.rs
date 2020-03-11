@@ -69,10 +69,13 @@ impl RBuf {
                 }
 
                 ACCEPT => {
+                    let whatami = if flag::has_flag(header, flag::W) {
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
                     let opid = self.read_peerid()?;
                     let apid = self.read_peerid()?;
                     let lease = self.read_zint()?;
-                    return Ok(Message::make_accept(opid, apid, lease, cid, properties));
+                    return Ok(Message::make_accept(whatami, opid, apid, lease, cid, properties));
                 }
 
                 CLOSE => {
