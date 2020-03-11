@@ -1,0 +1,53 @@
+[package]
+name = "zenoh"
+version = "0.5.0"
+authors = ["kydos <angelo@icorsaro.net>",
+           "Julien Enoch <julien@enoch.fr>",
+           "Olivier Hécart <olivier.hecart@adlinktech.com",
+		   "Luca Cominardi <luca.cominardi@adlinktech.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zenoh-protocol = { version = "0.5.0", path = "../zenoh-protocol" }
+async-std = { version = "1.5.0", features = ["unstable"] }
+spin = "0.5.2"
+
+
+[[example]]
+name = "zn_scout"
+path = "examples/zenoh-net/zn_scout.rs"
+
+[[example]]
+name = "zn_info"
+path = "examples/zenoh-net/zn_info.rs"
+
+[[example]]
+name = "zn_write"
+path = "examples/zenoh-net/zn_write.rs"
+
+[[example]]
+name = "zn_pub"
+path = "examples/zenoh-net/zn_pub.rs"
+
+[[example]]
+name = "zn_sub"
+path = "examples/zenoh-net/zn_sub.rs"
+
+[[example]]
+name = "zn_pull"
+path = "examples/zenoh-net/zn_pull.rs"
+
+[[example]]
+name = "zn_eval"
+path = "examples/zenoh-net/zn_eval.rs"
+
+[[example]]
+name = "zn_storage"
+path = "examples/zenoh-net/zn_storage.rs"
+
+[[example]]
+name = "zn_query"
+path = "examples/zenoh-net/zn_query.rs"
+
