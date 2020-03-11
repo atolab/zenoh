@@ -83,7 +83,7 @@ impl SessionManager {
         };
 
         // Check if an already established session exists with the peer
-        let session = self.0.get_or_new_session(&self.0, &notification.peer).await?;
+        let session = self.0.get_or_new_session(&self.0, &notification.peer, notification.whatami).await?;
 
         // Move the link to the target session
         self.0.move_link(&notification.dst, &notification.src, &session.transport).await?;
@@ -254,13 +254,13 @@ impl SessionManagerInner {
     //     session
     // }
 
-    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
+    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId, whatami: WhatAmI) -> ZResult<Arc<Session>> {
         let r_guard = self.sessions.read().await;
         match r_guard.get(peer) {
             Some(wrapper) => Ok(wrapper.clone()),
             None => {
                 drop(r_guard);
-                self.new_session(a_self, peer).await
+                self.new_session(a_self, peer, whatami).await
             }
         }
     }
@@ -277,7 +277,7 @@ impl SessionManagerInner {
         }
     }
 
-    async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
+    async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId, whatami: WhatAmI) -> ZResult<Arc<Session>> {
         if let Some(_) = self.sessions.read().await.get(peer) {
             return Err(zerror!(ZErrorKind::Other{
                 descr: format!("Session with peer ({:?}) already exists.", peer)
@@ -291,7 +291,7 @@ impl SessionManagerInner {
         // Add the session to the list of active sessions
         self.sessions.write().await.insert(peer.clone(), session.clone());
         // Notify the upper layer that a new session has been created
-        let callback = self.handler.new_session(session.clone()).await;
+        let callback = self.handler.new_session(whatami, session.clone()).await;
         // Start the session 
         session.initialize(&session, callback);
 
@@ -302,14 +302,15 @@ impl SessionManagerInner {
 
 struct NotificationNewSession {
     peer: PeerId,
+    whatami: WhatAmI,
     lease: ZInt,
     src: Locator,
     dst: Locator
 }
 
 impl NotificationNewSession {
-    fn new(peer: PeerId, lease: ZInt, src: Locator, dst: Locator) -> Self {
-        Self { peer, lease, src, dst }
+    fn new(peer: PeerId, whatami: WhatAmI, lease: ZInt, src: Locator, dst: Locator) -> Self {
+        Self { peer, whatami, lease, src, dst }
     }
 }
 
@@ -411,7 +412,7 @@ impl Session {
     /*              PROCESS              */
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
-        opid: &PeerId, apid: &PeerId, lease: &ZInt
+        whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: &ZInt
     ) -> ZResult<()> {
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
@@ -425,7 +426,7 @@ impl Session {
         match self.channels.write().await.remove(&key) {
             Some(sender) => {
                 let notification = NotificationNewSession::new(
-                    apid.clone(), lease.clone(), src.clone(), dst.clone()
+                    apid.clone(), whatami.clone(), lease.clone(), src.clone(), dst.clone()
                 );
                 Ok(sender.send(Ok(notification)).await)
             },
@@ -448,7 +449,7 @@ impl Session {
     }
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
-        version: &u8, _whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
+        version: &u8, whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
     ) -> ZResult<()> { // Ignore whatami and locators for the time being
         // Check if the version is supported
         if version > &self.manager.version {
@@ -458,7 +459,7 @@ impl Session {
         }
 
         // Check if an already established session exists with the peer
-        let target = self.manager.get_or_new_session(&self.manager, pid).await?;
+        let target = self.manager.get_or_new_session(&self.manager, pid, whatami.clone()).await?;
 
         // Move the transport link to the transport of the target session
         self.manager.move_link(dst, src, &target.transport).await?;

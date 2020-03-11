@@ -311,7 +311,7 @@ impl Transport {
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> ZResult<()> {
         match &message.body {
             Body::Accept{whatami, opid, apid, lease} => {
-                zrwopt!(self.session).process_accept(src, dst, opid, apid, lease).await?;
+                zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, lease).await?;
             },
             // Body::AckNack{sn, mask} => {},
             Body::AckNack{..} => {},

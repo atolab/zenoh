@@ -7,7 +7,7 @@ use zenoh_protocol::io::ArcSlice;
 use zenoh_protocol::proto::Primitives;
 use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
-use zenoh_protocol::proto::{Mux, DeMux};
+use zenoh_protocol::proto::{Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 
 /// # Example: 
@@ -64,7 +64,7 @@ impl TablesHdl {
 
 #[async_trait]
 impl SessionHandler for TablesHdl {
-    async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, _whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
             face: Tables::declare_session(&self.tables, Arc::new(Mux::new(session))).await.upgrade().unwrap().clone(),
