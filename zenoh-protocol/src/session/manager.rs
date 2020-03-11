@@ -88,7 +88,7 @@ impl SessionManager {
         self.0.move_link(&notification.dst, &notification.src, &session.transport).await?;
 
         // Set the lease on the session
-        session.transport.set_lease(notification.lease).await;
+        session.transport.set_lease(notification.lease);
 
         Ok(session)
     }
@@ -445,7 +445,7 @@ impl Session {
         version: &u8, _whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
     ) -> ZResult<()> { 
         // Ignore whatami and locators for the time being
-        
+
         // Check if the version is supported
         if version > &self.manager.version {
             return Err(zerror!(ZErrorKind::Other{
@@ -460,7 +460,7 @@ impl Session {
         self.manager.move_link(dst, src, &target.transport).await?;
 
         // Set the lease to the transport
-        target.transport.set_lease(*lease).await;
+        target.transport.set_lease(*lease);
 
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None

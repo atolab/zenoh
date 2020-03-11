@@ -20,6 +20,7 @@ use crate::{
     zrwopt
 };
 use crate::core::{
+    AtomicZInt,
     ZError,
     ZErrorKind,
     ZInt,
@@ -57,44 +58,16 @@ const QUEUE_RETX_SIZE: usize = 16;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
-    async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        let (message, queue) = transport.queue_tx.pop().await;
-
-        let mut new_sn: ZInt = 0;
-        // Update the sequence number for data messages
-        if queue == QUEUE_TX_PRIO_DATA {
-            new_sn = match message.inner.is_reliable() {
-                true => {
-                    let mut guard = transport.sn_tx_reliable.lock().await;
-                    *guard = *guard + 1;
-                    *guard
-                },
-                false => {
-                    let mut guard = transport.sn_tx_unreliable.lock().await;
-                    *guard = *guard + 1;
-                    *guard
-                }
-            };
-
-            #[allow(unused_assignments,unused_variables)]
-            match message.inner.body {
-                Body::Data{reliable: _, mut sn, key: _, info: _, payload: _} |
-                Body::Declare{mut sn, declarations: _} |
-                Body::Pull{mut sn, key: _, pull_id: _, max_samples: _} |
-                Body::Query{mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
-                    sn = new_sn;
-                },
-                _ => {}
-            }
-        }
+    async fn transmit(transport: &Arc<Transport>, message: &Message, link: &Option<(Locator, Locator)>) -> ZResult<()> {
+        // TODO: Fragement the message if too large
 
         // Send the message on the link(s)
         let guard = transport.links.lock().await;
-        let res = match &message.link {
+        let res = match link {
             // Send the message to the indicated link
             Some((src, dst)) => {
                 match transport.find_link(&guard, &src, &dst) {
-                    Some(index) => guard[index].send(&message.inner).await,
+                    Some(index) => guard[index].send(message).await,
                     None => Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
                     }))
@@ -103,13 +76,41 @@ async fn consume_loop(transport: Arc<Transport>) {
             None => {
                 // Send the message on the first link
                 match guard.get(0) {
-                    Some(link) => link.send(&message.inner).await,
+                    Some(link) => link.send(message).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because transport has no links!")
                     }))
                 }
             }
         };
+        
+        res
+    }
+
+    async fn consume(transport: &Arc<Transport>) -> Option<bool> {
+        let (message, queue) = transport.queue_tx.pop().await;
+
+        // Set the right sequence number for data messages
+        let mut new_sn: Option<ZInt> = None;
+        if queue == QUEUE_TX_PRIO_DATA {
+            #[allow(unused_assignments,unused_variables)]
+            match message.inner.body {
+                Body::Data{reliable: _, mut sn, key: _, info: _, payload: _} |
+                Body::Declare{mut sn, declarations: _} |
+                Body::Pull{mut sn, key: _, pull_id: _, max_samples: _} |
+                Body::Query{mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                    sn = match message.inner.is_reliable() {
+                        true => transport.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
+                        false => transport.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
+                    };
+                    new_sn = Some(sn);
+                },
+                _ => {}
+            }
+        }
+
+        // Transmit the message on the link(s)
+        let res = transmit(transport, &message.inner, &message.link).await;
 
         // Notify the sender in case of syncrhonous send and message unreliable
         // Reliable synchronous send is notified after an ack is received 
@@ -119,9 +120,30 @@ async fn consume_loop(transport: Arc<Transport>) {
             }
         }
 
-        // Add the message to the retransmission queue if the message is data or already retransmitted and reliable
-        if (queue == QUEUE_TX_PRIO_DATA || queue == QUEUE_TX_PRIO_RETX) && message.inner.is_reliable() {
-            transport.queue_retx.lock().await.try_push(message, new_sn);
+        // Check if the sequence number was incremented
+        if let Some(sn) = new_sn {
+            // Add the message to the retransmission queue if the message is data or 
+            // already retransmitted and reliable
+            if (queue == QUEUE_TX_PRIO_DATA || queue == QUEUE_TX_PRIO_RETX) 
+            && message.inner.is_reliable() {
+                // If the retransmission queue is full, we need to send a SYNC message 
+                let mut guard = transport.queue_retx.lock().await;
+                if let Some(_) = guard.try_push(message, sn) {
+                    // Build a SYNC message
+                    let reliable = true;
+                    let sn = guard.get_base();
+                    let count = Some(guard.len() as ZInt);
+                    let cid = None; // TODO: Retrive the right conduit ID
+                    let properties = None;
+                    let message = Message::make_sync(reliable, sn, count, cid, properties);
+
+                    // Drop the guard before transmitting the message
+                    drop(guard);
+
+                    // Transmit immediately the SYNC message
+                    let _ = transmit(transport, &message, &None).await;
+                }
+            }
         }
 
         Some(true)
@@ -129,6 +151,7 @@ async fn consume_loop(transport: Arc<Transport>) {
     
     // The loop to consume the messages in the queue
     loop {
+        // Future to wait for being synched???
         // Future to wait for the stop signal
         let stop = transport.signal_recv.recv();
         // Future to wait for a message to send
@@ -161,7 +184,7 @@ pub struct Transport {
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
     // The timeout after which the session is closed if no messages are received
-    lease: RwLock<ZInt>,
+    lease: AtomicZInt,
     // The list of transport links associated to this session
     links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
@@ -170,10 +193,10 @@ pub struct Transport {
     queue_retx: Mutex<OrderedQueue<TxMessage>>,
     // Counters
     count_rx: AtomicUsize,
-    // Keeping track of the last unreliable sequence number
-    sn_tx_reliable: Mutex<ZInt>,
-    sn_tx_unreliable: Mutex<ZInt>,
-    sn_rx_unreliable: Mutex<ZInt>,
+    // Keeping track of the last sequence numbers
+    sn_tx_reliable: AtomicZInt,
+    sn_tx_unreliable: AtomicZInt,
+    sn_rx_unreliable: Mutex<ZInt>, // A Mutex is required to avoid race conditions (same as queue_rx)
     // The channel endpoints for terminating the consume_loop task
     signal_send: Sender<bool>,
     signal_recv: Receiver<bool>
@@ -185,14 +208,14 @@ impl Transport {
         Self {
             session: RwLock::new(None), 
             callback: RwLock::new(None), 
-            lease: RwLock::new(lease),
+            lease: AtomicZInt::new(lease),
             links: Mutex::new(Vec::new()),
             queue_tx: PriorityQueue::new(QUEUE_TX_SIZE, QUEUE_TX_PRIO_NUM),
             queue_rx: Mutex::new(OrderedQueue::new(QUEUE_RX_SIZE)),
             queue_retx: Mutex::new(OrderedQueue::new(QUEUE_RETX_SIZE)),
             count_rx: AtomicUsize::new(0),
-            sn_tx_reliable: Mutex::new(0),
-            sn_tx_unreliable: Mutex::new(0),
+            sn_tx_reliable: AtomicZInt::new(0),
+            sn_tx_unreliable: AtomicZInt::new(0),
             sn_rx_unreliable: Mutex::new(0),
             signal_send: sender,
             signal_recv: receiver
@@ -204,12 +227,12 @@ impl Transport {
         *self.callback.try_write().unwrap() = Some(callback);
     }
 
-    pub(crate) async fn get_lease(&self) -> ZInt {
-        *self.lease.read().await
+    pub(crate) fn get_lease(&self) -> ZInt {
+        self.lease.load(Ordering::Acquire)
     }
 
-    pub(crate) async fn set_lease(&self, lease: ZInt) {
-        *self.lease.write().await = lease
+    pub(crate) fn set_lease(&self, lease: ZInt) {
+        self.lease.store(lease, Ordering::Release);
     }
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
@@ -239,8 +262,7 @@ impl Transport {
         let mut index: usize = 0;
 
         for i in 0..guard.len() {
-            if guard[i].get_src() == *src &&
-                    guard[i].get_dst() == *dst {
+            if guard[i].get_src() == *src && guard[i].get_dst() == *dst {
                 found = true;
                 index = i;
                 break
@@ -254,7 +276,6 @@ impl Transport {
     }
 
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        // println!("Adding link {} => {} to {:?}", link.get_src(), link.get_dst(), self.get_peer());
         let mut guard = self.links.lock().await;
         match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
             Some(_) => Err(zerror!(ZErrorKind::Other{
@@ -265,7 +286,6 @@ impl Transport {
     }
 
     pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
-        // println!("Deleting link {} => {} from {:?}", src, dst, self.get_peer());
         let mut guard = self.links.lock().await;
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
@@ -330,7 +350,8 @@ impl Transport {
     async fn process_reliable_message(&self, message: Message, sn: ZInt) -> ZResult<()> {
         let mut l_guard = self.queue_rx.lock().await;
 
-        match l_guard.try_push(message, sn) {
+        // Add the message to the receiving queue and trigger an AckNack when necessary
+        let synch = match l_guard.try_push(message, sn) {
             None => {
                 while let Some(message) = l_guard.try_pop() {
                     zrwopt!(self.callback).handle_message(message).await?;
@@ -344,26 +365,29 @@ impl Transport {
             },
             Some(_) => {
                 // The queue is out of synch, need to synchronize with the peer
-                // Drop the message for the time being, it will be resent later
+                // Drop the message, it will be resent later
                 true
             }
         };
 
-        // if synch {     
-        //     // Create the AckNack message
-        //     let sn = l_guard.get_base();
-        //     let mask = match l_guard.get_mask() {
-        //         0 => None,
-        //         m => Some(m)
-        //     };
-        //     let cid = None;
-        //     let properties = None;
-        //     let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
+        if synch {     
+            // Create the AckNack message
+            let sn = l_guard.get_base();
+            let mask = match l_guard.get_mask() {
+                0 => None,
+                m => Some(m)
+            };
+            let cid = None;
+            let properties = None;
+            let acknack = Message::make_ack_nack(sn, mask, cid, properties);
 
-        //     // Schedule the AckNack message
-        //     let link = None;
-        //     self.schedule_ctrl(acknack, link).await;
-        // }
+            // Schedule the AckNack message
+            let link = None;
+            self.schedule_ctrl(acknack, link).await;
+
+            // Reset the counter
+            self.count_rx.store(0, Ordering::Release);
+        }
 
         Ok(())
     }
@@ -379,11 +403,8 @@ impl Transport {
     }
 
     async fn process_acknack(&self, sn: ZInt, mask: Option<ZInt>) -> ZResult<()> {
-        let mut guard = self.queue_retx.lock().await;
-
         // Set the base of the queue and receive back the removed messages 
-        let mut messages = guard.set_base(sn);
-
+        let mut messages = self.queue_retx.lock().await.set_base(sn);
         // Notify the synchronous send that the reliable messages have been acknowledged
         for m in messages.drain(..) {
             if let Some(sender) = &m.notify {
@@ -391,9 +412,9 @@ impl Transport {
             }
         }
 
-        // If there is a mask, schedule the retransmission of messages
+        // If there is a mask, schedule the retransmission of requested messages
         if let Some(mut mask) = mask {
-            let mut sn = guard.get_base();
+            let mut sn = self.queue_retx.lock().await.get_base();
             let count = mask.count_ones();
             for _ in 0..count {
                 // Increment the sn and shift the mask
@@ -402,7 +423,10 @@ impl Transport {
                     mask = mask >> 1;
                 }
                 // Reschedule the message for retransmission
-                if let Some(message) = guard.try_remove(sn) {
+                let res = self.queue_retx.lock().await.try_remove(sn);
+                if let Some(message) = res {
+                    // This may block and creates a deadlock if the lock on the
+                    // queue is maintained. Need to acquire the lock each time
                     self.queue_tx.push(message, QUEUE_TX_PRIO_RETX).await;
                 }
             }
