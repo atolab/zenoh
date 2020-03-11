@@ -35,10 +35,10 @@ impl<T> PriorityQueue<T> {
         }
     }
 
-    pub fn try_pop(&self) -> Option<T> {
+    pub fn try_pop(&self) -> Option<(T, usize)> {
         for i in 0..self.buff.len() {
             if let Ok(msg) = self.buff[i].pop() {
-                return Some(msg)
+                return Some((msg, i))
             }
         }
         None
@@ -96,18 +96,18 @@ impl<T> PriorityQueue<T> {
     }
 
     
-    pub async fn pop(&self) -> T {
+    pub async fn pop(&self) -> (T, usize) {
         struct FuturePop<'a, U> {
             queue: &'a PriorityQueue<U>
         }
         
         impl<'a, U> Future for FuturePop<'a, U> {
-            type Output = U;
+            type Output = (U, usize);
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
                 self.queue.w_pop.push(ctx.waker().clone());
                 match self.queue.try_pop() {
-                    Some(msg) => Poll::Ready(msg),
+                    Some((msg, prio)) => Poll::Ready((msg, prio)),
                     None => Poll::Pending
                 }
             }
@@ -207,29 +207,61 @@ impl<T> OrderedQueue<T> {
         self.first
     }
 
-    pub fn set_base(&mut self, base: ZInt) {
+    pub fn set_base(&mut self, base: ZInt) -> Vec<T> {
+        let mut res = Vec::<T>::with_capacity(self.capacity());
+
+        // Compute the circular gaps
         let gap_base = base.wrapping_sub(self.first) as usize;
         let gap_last = self.last.wrapping_sub(self.first) as usize;
-        if gap_base < gap_last {
-            // SHIFT
-            for _ in 0..gap_base {
-                if let Some(_) = self.buff[self.pointer].take() {
+        
+        let count = if gap_base <= gap_last {
+            gap_base 
+        } else {
+            self.capacity()
+        };
+
+        // Iterate over the queue and consume the inner elements
+        for _ in 0..count {
+            if let Some(element) = self.buff[self.pointer].take() {
+                // Add the element to the result
+                res.push(element.into_inner());
+                // Decrement the counter
+                self.counter = self.counter - 1;
+            }
+            // Increment the pointer
+            self.pointer = (self.pointer + 1) % self.capacity();
+        }
+
+        // Align the first and last sequence numbers
+        self.first = base;
+        if self.len() == 0 {
+            self.last = self.first;
+        }
+
+        res
+    }
+
+    // This operation does not modify the base or the pointer
+    // It simply removes an element if it matches the sn 
+    pub fn try_remove(&mut self, sn: ZInt) -> Option<T> {
+        if self.len() > 0 {
+            let gap = sn.wrapping_sub(self.first) as usize;
+            let index = (self.pointer + gap) % self.capacity();
+            if let Some(element) = &self.buff[index] {
+                if element.sn == sn {
+                    // The element is the right one, take with unwrap
+                    let element = self.buff[index].take().unwrap();
                     // Decrement the counter
                     self.counter = self.counter - 1;
+                    // Align the last sequence number if the queue is empty
+                    if self.len() == 0 {
+                        self.last = self.first;
+                    }
+                    return Some(element.into_inner())
                 }
-                self.pointer = (self.pointer + 1) % self.capacity();
-            }
-            self.first = base;
-        } else {
-            // RESET
-            self.pointer = 0;
-            self.counter = 0;
-            self.first = base;
-            self.last = base;
-            for elem in self.buff.iter_mut() {
-                elem.take();
             }
         }
+        None
     }
 
     pub fn try_pop(&mut self) -> Option<T> {

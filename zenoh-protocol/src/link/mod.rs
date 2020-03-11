@@ -152,7 +152,7 @@ impl Link {
         }
     }
 
-    pub async fn send(&self, msg: &Arc<Message>) -> ZResult<()> {
+    pub async fn send(&self, msg: &Message) -> ZResult<()> {
         match self {
             Self::Tcp(link) => link.send(msg).await
         }

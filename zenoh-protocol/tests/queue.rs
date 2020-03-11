@@ -20,17 +20,17 @@ async fn pq_run() {
     queue.push(0, 0).await;
     queue.push(1, 1).await;
     let m = queue.pop().await;
-    assert_eq!(m, 0);
+    assert_eq!(m, (0, 0));
     let m = queue.pop().await;
-    assert_eq!(m, 1);
+    assert_eq!(m, (1, 1));
 
     // High: 1, Low: 0
     queue.push(0, 1).await;
     queue.push(1, 0).await;
     let m = queue.pop().await;
-    assert_eq!(m, 1);
+    assert_eq!(m, (1, 0));
     let m = queue.pop().await;
-    assert_eq!(m, 0);
+    assert_eq!(m, (0, 1));
 
     // Fill the low priority queue
     let res = queue.try_push(1, 1);
@@ -50,13 +50,13 @@ async fn pq_run() {
 
     // Drain the queue
     let res = queue.try_pop();
-    assert_eq!(res, Some(0));
+    assert_eq!(res, Some((0, 0)));
     let res = queue.try_pop();
-    assert_eq!(res, Some(0));
+    assert_eq!(res, Some((0, 0)));
     let res = queue.try_pop();
-    assert_eq!(res, Some(1));
+    assert_eq!(res, Some((1, 1)));
     let res = queue.try_pop();
-    assert_eq!(res, Some(1));
+    assert_eq!(res, Some((1, 1)));
     let res = queue.try_pop();
     assert_eq!(res, None);
 }
@@ -351,4 +351,63 @@ fn ordered_queue_rebase() {
 
     // Verify that the correct length of the queue
     assert_eq!(queue.len(), 0);
+}
+
+#[test]
+fn ordered_queue_remove() {
+    let size = 8;
+    let mut queue: OrderedQueue<ZInt> = OrderedQueue::new(size);
+
+    // Fill the queue
+    for i in 0..(size as ZInt) {
+        // Push the element on the queue
+        let res = queue.try_push(i, i);
+        assert!(res.is_none());
+    }
+
+    // Verify that the correct length of the queue
+    assert_eq!(queue.len(), size);
+
+    // Drain the queue
+    let res = queue.try_remove(7 as ZInt);
+    assert_eq!(res, Some(7));
+    assert_eq!(queue.len(), 7);
+
+    let res = queue.try_remove(5 as ZInt);
+    assert_eq!(res, Some(5));
+    assert_eq!(queue.len(), 6);
+
+    let res = queue.try_remove(3 as ZInt);
+    assert_eq!(res, Some(3));
+    assert_eq!(queue.len(), 5);
+
+    let res = queue.try_remove(1 as ZInt);
+    assert_eq!(res, Some(1));
+    assert_eq!(queue.len(), 4);
+ 
+    let res = queue.try_remove(0 as ZInt);
+    assert_eq!(res, Some(0));
+    assert_eq!(queue.len(), 3);
+    
+    let res = queue.try_remove(2 as ZInt);
+    assert_eq!(res, Some(2));
+    assert_eq!(queue.len(), 2);
+        
+    let res = queue.try_remove(4 as ZInt);
+    assert_eq!(res, Some(4));
+    assert_eq!(queue.len(), 1);
+        
+    let res = queue.try_remove(6 as ZInt);
+    assert_eq!(res, Some(6));
+    assert_eq!(queue.len(), 0);
+
+    // Check that everything is None
+    for i in 0..(size as ZInt) {
+        // Push the element on the queue
+        let res = queue.try_remove(i);
+        assert!(res.is_none());
+    }
+
+    // Check that the base is 0
+    assert_eq!(queue.get_base(), 0);
 }

@@ -107,7 +107,7 @@ impl LinkTcp {
         }
     }
     
-    pub async fn send(&self, message: &Arc<Message>) -> ZResult<()> {
+    pub async fn send(&self, message: &Message) -> ZResult<()> {
         let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
         buff.write_message(&message);
         for s in buff.get_slices() {

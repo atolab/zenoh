@@ -363,9 +363,9 @@ impl Session {
         let properties = None;
 
         // Build the Open Message
-        let message = Arc::new(Message::make_open(
+        let message = Message::make_open(
             version, whatami, peer_id, lease, locators, conduit_id, properties
-        ));
+        );
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
@@ -385,19 +385,16 @@ impl Session {
         let properties = None;
 
         // Build the Close Message
-        let message = Arc::new(Message::make_close(
+        let message = Message::make_close(
             peer_id, reason_id, conduit_id, properties
-        ));
+        );
 
         // Send the message for transmission
-        let link = None;                // The preferred link to reply on 
-        self.transport.send_ctrl(message, link).await;
+        let link = None;    // The preferred link to reply on 
+        // TODO: If error in send, retry
+        let _ = self.transport.send_ctrl(message, link).await;
         // Close the session
         self.transport.close(reason).await
-    }
-
-    pub async fn send(&self, message: Arc<Message>) {
-        self.transport.schedule_data(message).await
     }
 
     pub async fn get_links(&self) -> Vec<Link> {
@@ -446,7 +443,9 @@ impl Session {
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
         version: &u8, _whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
-    ) -> ZResult<()> { // Ignore whatami and locators for the time being
+    ) -> ZResult<()> { 
+        // Ignore whatami and locators for the time being
+        
         // Check if the version is supported
         if version > &self.manager.version {
             return Err(zerror!(ZErrorKind::Other{
@@ -466,9 +465,9 @@ impl Session {
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None
         let properties = None; // Properties always None for the time being. May change in the future.
-        let message = Arc::new(Message::make_accept(
+        let message = Message::make_accept(
             pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
-        ));
+        );
 
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
@@ -481,15 +480,16 @@ impl Session {
 #[async_trait]
 impl MsgHandler for Session {
     async fn handle_message(&self, msg: Message) -> ZResult<()> {
-        self.send(Arc::new(msg)).await;
+        self.transport.schedule_data(msg).await;
         Ok(())
     }
+
     async fn close(&self) {}
 }
 
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Session (Id {:?}, {:?}), {:?}", self.id, self.peer, self.transport)
+        write!(f, "Session (Id {:?}, {:?}), {:?})", self.id, self.peer, self.transport)
     }
 }
 
