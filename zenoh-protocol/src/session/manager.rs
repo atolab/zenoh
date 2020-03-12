@@ -98,6 +98,10 @@ impl SessionManager {
         session.close(reason).await
     }
 
+    pub async fn init_session(&self, peer: &PeerId) -> ZResult<Arc<Session>> {
+        self.0.new_session(&self.0, peer).await
+    }
+
     pub async fn get_sessions(&self) -> Vec<Arc<Session>> {
         let mut vec = Vec::new();
         for s in self.0.sessions.read().await.values() {
@@ -369,9 +373,7 @@ impl Session {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.schedule_ctrl(message, link).await;
-
-        Ok(())
+        self.transport.send_ctrl(message, link).await
     }
 
     async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
@@ -397,8 +399,20 @@ impl Session {
         self.transport.close(reason).await
     }
 
+    pub fn get_transport(&self) -> Arc<Transport> {
+        self.transport.clone()
+    }
+
     pub async fn get_links(&self) -> Vec<Link> {
         self.transport.get_links().await
+    }
+
+    pub async fn add_link(&self, link: Link) -> ZResult<()> {
+        self.transport.add_link(link).await
+    }
+
+    pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        self.transport.del_link(src, dst, None).await
     }
 
     /*************************************/
@@ -471,17 +485,22 @@ impl Session {
 
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.schedule_ctrl(message, link).await;
+        target.transport.send_ctrl(message, link).await
+    }
 
-        Ok(())
+    pub async fn schedule(&self, msg: Message) -> ZResult<()> {
+        self.transport.schedule_data(msg).await
+    }
+
+    pub async fn send(&self, msg: Message) -> ZResult<()> {
+        self.transport.send_data(msg).await
     }
 }
 
 #[async_trait]
 impl MsgHandler for Session {
     async fn handle_message(&self, msg: Message) -> ZResult<()> {
-        self.transport.schedule_data(msg).await;
-        Ok(())
+        self.schedule(msg).await
     }
 
     async fn close(&self) {}

@@ -49,9 +49,9 @@ const WRITE_BUFFER_CAPACITY: usize = 256;
 macro_rules! get_tcp_addr {
     ($locator:expr) => (match $locator {
         Locator::Tcp(addr) => addr,
-        // _ => return Err(zerror!(ZErrorKind::InvalidLocator{
-        //     reason: format!("Not a TCP locator: {}", locator)
-        // }))
+        _ => return Err(zerror!(ZErrorKind::InvalidLocator {
+            descr: format!("Not a TCP locator: {}", $locator)
+        }))
     });
 }
 

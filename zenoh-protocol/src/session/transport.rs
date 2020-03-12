@@ -58,40 +58,11 @@ const QUEUE_RETX_SIZE: usize = 16;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
-    async fn transmit(transport: &Arc<Transport>, message: &Message, link: &Option<(Locator, Locator)>) -> ZResult<()> {
-        // TODO: Fragement the message if too large
-
-        // Send the message on the link(s)
-        let guard = transport.links.lock().await;
-        let res = match link {
-            // Send the message to the indicated link
-            Some((src, dst)) => {
-                match transport.find_link(&guard, &src, &dst) {
-                    Some(index) => guard[index].send(message).await,
-                    None => Err(zerror!(ZErrorKind::Other{
-                        descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
-                    }))
-                }
-            },
-            None => {
-                // Send the message on the first link
-                match guard.get(0) {
-                    Some(link) => link.send(message).await,
-                    None =>  Err(zerror!(ZErrorKind::Other{
-                        descr: format!("Message dropped because transport has no links!")
-                    }))
-                }
-            }
-        };
-        
-        res
-    }
-
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
         let (message, queue) = transport.queue_tx.pop().await;
 
         // Set the right sequence number for data messages
-        let mut new_sn: Option<ZInt> = None;
+        let mut msg_sn: Option<ZInt> = None;
         if queue == QUEUE_TX_PRIO_DATA {
             #[allow(unused_assignments,unused_variables)]
             match message.inner.body {
@@ -103,45 +74,31 @@ async fn consume_loop(transport: Arc<Transport>) {
                         true => transport.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
                         false => transport.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
                     };
-                    new_sn = Some(sn);
+                    msg_sn = Some(sn);
                 },
                 _ => {}
             }
         }
 
         // Transmit the message on the link(s)
-        let res = transmit(transport, &message.inner, &message.link).await;
+        // Ignore the result for the time being. Need to propagate the error in case of
+        // using synchronous send functions
+        let _ = transmit(transport, &message.inner, &message.link).await;
 
-        // Notify the sender in case of syncrhonous send and message unreliable
-        // Reliable synchronous send is notified after an ack is received 
-        if let Some(sender) = &message.notify {
-            if !message.inner.is_reliable() {
-                sender.send(res).await;
-            }
-        }
-
-        // Check if the sequence number was incremented
-        if let Some(sn) = new_sn {
-            // Add the message to the retransmission queue if the message is data or 
-            // already retransmitted and reliable
-            if (queue == QUEUE_TX_PRIO_DATA || queue == QUEUE_TX_PRIO_RETX) 
-            && message.inner.is_reliable() {
+        // Add the message to the retransmission queue if the message is data or 
+        // already retransmitted and reliable
+        if (queue == QUEUE_TX_PRIO_DATA || queue == QUEUE_TX_PRIO_RETX) && message.inner.is_reliable() {
+            if let Some(sn) = msg_sn {
                 // If the retransmission queue is full, we need to send a SYNC message 
                 let mut guard = transport.queue_retx.lock().await;
                 if let Some(_) = guard.try_push(message, sn) {
-                    // Build a SYNC message
-                    let reliable = true;
+                    // Retrieve the necessary information
                     let sn = guard.get_base();
                     let count = Some(guard.len() as ZInt);
-                    let cid = None; // TODO: Retrive the right conduit ID
-                    let properties = None;
-                    let message = Message::make_sync(reliable, sn, count, cid, properties);
-
-                    // Drop the guard before transmitting the message
+                    // Drop the guard before synching (it may block)
                     drop(guard);
-
-                    // Transmit immediately the SYNC message
-                    let _ = transmit(transport, &message, &None).await;
+                    // Wait until the reliable channel is synched
+                    let _ = sync(transport, sn, count).await;
                 }
             }
         }
@@ -300,21 +257,22 @@ impl Transport {
     /*             SCHEDULE              */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(crate) async fn schedule_ctrl(&self, message: Message, link: Option<(Locator, Locator)>) {
-        self.schedule_inner(message, QUEUE_TX_PRIO_CTRL, link).await;
+    pub(crate) async fn schedule_ctrl(&self, message: Message, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        self.schedule_inner(message, QUEUE_TX_PRIO_CTRL, link).await
     }
 
-    pub(crate) async fn schedule_data(&self, message: Message) {
-        self.schedule_inner(message, QUEUE_TX_PRIO_DATA, None).await;
+    pub(crate) async fn schedule_data(&self, message: Message) -> ZResult<()> {
+        self.schedule_inner(message, QUEUE_TX_PRIO_DATA, None).await
     }
 
-    async fn schedule_inner(&self, message: Message, priority: usize, link: Option<(Locator, Locator)>) {
+    async fn schedule_inner(&self, message: Message, priority: usize, link: Option<(Locator, Locator)>) -> ZResult<()> {
         let msg = TxMessage {
             inner: message,
             link,
             notify: None
         };
         self.queue_tx.push(msg, priority).await;
+        Ok(())
     }
 
     // Send the message in a synchronous way. 
@@ -329,6 +287,11 @@ impl Transport {
     }
 
     async fn send_inner(&self, message: Message, priority: usize, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        // If the message is not reliable, it does not make sense to wait
+        if !message.is_reliable() {
+            return self.schedule_inner(message, priority, link).await
+        }
+
         let (sender, receiver) = channel::<ZResult<()>>(1);
         let msg = TxMessage {
             inner: message,
@@ -342,6 +305,47 @@ impl Transport {
                 descr: format!("Message dropped!")
             }))
         }
+    }
+
+    /*************************************/
+    /* SYNCHRONIZE THE RELIABLE CHANNEL  */
+    /*************************************/
+    async fn synchronize(&self) -> ZResult<()> {
+        let reliable = true;
+        let cid = None; // TODO: Retrive the right conduit ID
+        let properties = None;
+        let message = Message::make_sync(reliable, sn, count, cid, properties);
+
+        self.schedule_ctrl(&message, &None).await
+    }
+
+    async fn transmit(&self, message: &Message, link: &Option<(Locator, Locator)>) -> ZResult<()> {
+        // TODO: Fragement the message if too large
+
+        // Send the message on the link(s)
+        let guard = self.links.lock().await;
+        let res = match link {
+            // Send the message to the indicated link
+            Some((src, dst)) => {
+                match self.find_link(&guard, &src, &dst) {
+                    Some(index) => guard[index].send(message).await,
+                    None => Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
+                    }))
+                }
+            },
+            None => {
+                // Send the message on the first link
+                match guard.get(0) {
+                    Some(link) => link.send(message).await,
+                    None =>  Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because transport has no links!")
+                    }))
+                }
+            }
+        };
+        
+        res
     }
 
     /*************************************/
@@ -383,7 +387,7 @@ impl Transport {
 
             // Schedule the AckNack message
             let link = None;
-            self.schedule_ctrl(acknack, link).await;
+            let _ = self.schedule_ctrl(acknack, link).await;
 
             // Reset the counter
             self.count_rx.store(0, Ordering::Release);

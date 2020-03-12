@@ -8,7 +8,7 @@ pub use manager::{
     Session
 };
 pub use queue::*;
-pub(crate) use transport::Transport;
+pub use transport::Transport;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
