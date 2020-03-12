@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub type ZInt = zenoh_protocol::core::ZInt;
 pub type ZError = zenoh_protocol::core::ZError;
 pub type ZResult<T> = zenoh_protocol::core::ZResult<T>;
+pub type SubMode = zenoh_protocol::proto::SubMode;
 
 pub type Properties = HashMap<ZInt, Vec<u8>>;
 
@@ -64,14 +65,6 @@ impl<'a> From<(&'a ResourceId, &'a str)> for ResourceKey<'a> {
     fn from(tuple: (&'a ResourceId, &'a str)) -> ResourceKey<'a> {
         RIdWithSuffix(tuple.0, tuple.1)
     }
-}
-
-#[derive(Debug)]
-pub enum SubMode {
-    Push,
-    Pull,
-    PeriodicPush,
-    PeriodicPull
 }
 
 pub type QueryHandle = ZInt;
