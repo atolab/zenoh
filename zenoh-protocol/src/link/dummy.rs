@@ -3,8 +3,13 @@ use async_std::sync::{
     Arc,
     channel,
     Sender,
-    Receiver};
+    Receiver
+};
 use async_std::task;
+use rand::{
+    Rng,
+    thread_rng
+};
 
 use crate::zerror;
 use crate::core::{
@@ -50,11 +55,14 @@ pub struct LinkDummy {
     dst_locator: Locator,
     transport: Arc<Transport>,
     ch_send: Sender<Command>,
-    ch_recv: Receiver<Command>
+    ch_recv: Receiver<Command>,
+    dropping_probability: f32,
 }
 
 impl LinkDummy {
-    pub fn new(src_addr: String, dst_addr: String, rx_port: Receiver<Message>, tx_port: Sender<Message>, transport: Arc<Transport>) -> Self {
+    pub fn new(src_addr: String, dst_addr: String, rx_port: Receiver<Message>, tx_port: Sender<Message>, 
+        transport: Arc<Transport>, dropping_probability: f32
+    ) -> Self {
         let (sender, receiver) = channel::<Command>(1);
         Self {
             rx_port,
@@ -63,7 +71,8 @@ impl LinkDummy {
             dst_locator: Locator::Dummy(dst_addr),
             transport,
             ch_send: sender,
-            ch_recv: receiver
+            ch_recv: receiver,
+            dropping_probability
         }
     }
 
@@ -112,7 +121,15 @@ async fn receive_loop(link: Arc<LinkDummy>) {
     async fn read(link: &Arc<LinkDummy>, src: &Locator, dst: &Locator) -> Option<Command> {
         match link.rx_port.recv().await {
             Some(message) => {
-                let _ = link.transport.receive_message(src, dst, message).await;
+                let drop = {
+                    let mut rng = thread_rng();
+                    rng.gen_range(0f32, 1f32) < link.dropping_probability
+                };
+                if !drop {
+                    link.transport.receive_message(src, dst, message).await;
+                } else {
+                    println!("DROPPED {:?}", message);
+                }
                 Some(Command::Ok)
             },
             None => Some(Command::Err(zerror!(ZErrorKind::Other {

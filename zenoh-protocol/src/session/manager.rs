@@ -82,7 +82,7 @@ impl SessionManager {
         };
 
         // Check if an already established session exists with the peer
-        let session = self.0.get_or_new_session(&self.0, &notification.peer).await?;
+        let session = self.0.get_or_new_session(&self.0, &notification.peer).await;
 
         // Move the link to the target session
         self.0.move_link(&notification.dst, &notification.src, &session.transport).await?;
@@ -257,13 +257,13 @@ impl SessionManagerInner {
     //     session
     // }
 
-    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<Session>> {
+    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> Arc<Session> {
         let r_guard = self.sessions.read().await;
         match r_guard.get(peer) {
-            Some(wrapper) => Ok(wrapper.clone()),
+            Some(wrapper) => wrapper.clone(),
             None => {
                 drop(r_guard);
-                self.new_session(a_self, peer).await
+                self.new_session(a_self, peer).await.unwrap()
             }
         }
     }
@@ -373,7 +373,7 @@ impl Session {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.send_ctrl(message, link).await
+        self.send(message, link).await
     }
 
     async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
@@ -394,9 +394,11 @@ impl Session {
         // Send the message for transmission
         let link = None;    // The preferred link to reply on 
         // TODO: If error in send, retry
-        let _ = self.transport.send_ctrl(message, link).await;
+        let res = self.send(message, link).await;
         // Close the session
-        self.transport.close(reason).await
+        let _ = self.transport.close(reason).await;
+
+        res
     }
 
     pub fn get_transport(&self) -> Arc<Transport> {
@@ -420,58 +422,57 @@ impl Session {
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
         opid: &PeerId, apid: &PeerId, lease: &ZInt
-    ) -> ZResult<()> {
+    ) {
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
-            return Err(zerror!(ZErrorKind::InvalidMessage{
-                descr: format!("Received an Accept with an Opener Peer ID different from self!")
-            }))
+            return 
+            // Err(zerror!(ZErrorKind::InvalidMessage{
+            //     descr: format!("Received an Accept with an Opener Peer ID different from self!")
+            // }))
         }
 
         // Check if had previously triggered the opening of a new connection
         let key = (dst.clone(), src.clone());
-        match self.channels.write().await.remove(&key) {
-            Some(sender) => {
-                let notification = NotificationNewSession::new(
-                    apid.clone(), lease.clone(), src.clone(), dst.clone()
-                );
-                Ok(sender.send(Ok(notification)).await)
-            },
-            None => Err(zerror!(ZErrorKind::InvalidMessage{
-                descr: format!("Received an Accept from a non pending connection!")
-            }))
+        if let Some(sender) = self.channels.write().await.remove(&key) {
+            let notification = NotificationNewSession::new(
+                apid.clone(), lease.clone(), src.clone(), dst.clone()
+            );
+            sender.send(Ok(notification)).await;
         }
     }
 
     pub(crate) async fn process_close(&self, _src: &Locator, _dst: &Locator,
         pid: &Option<PeerId>, _reason: &u8
-    ) -> ZResult<()> {
+    ) {
         if pid != &Some(self.peer.clone()) {
-            return Err(zerror!(ZErrorKind::InvalidMessage{
-                descr: format!("Received a Close with a Peer ID different from self!")
-            }))
+            return 
+            // Err(zerror!(ZErrorKind::InvalidMessage{
+            //     descr: format!("Received a Close with a Peer ID different from self!")
+            // }))
         } 
-        self.manager.del_session(&self.peer, None).await?;
-        self.transport.close(None).await
+        let _ = self.manager.del_session(&self.peer, None).await;
+        let _ = self.transport.close(None).await;
     }
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
         version: &u8, _whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
-    ) -> ZResult<()> { 
+    ) { 
         // Ignore whatami and locators for the time being
 
         // Check if the version is supported
         if version > &self.manager.version {
-            return Err(zerror!(ZErrorKind::Other{
-                descr: format!("Zenoh version not supported ({}).", version)
-            }))
+            return 
+            // Should we send an error message to the opener?
+            // Err(zerror!(ZErrorKind::Other{
+                // descr: format!("Zenoh version not supported ({}).", version)
+            // }))
         }
 
         // Check if an already established session exists with the peer
-        let target = self.manager.get_or_new_session(&self.manager, pid).await?;
+        let target = self.manager.get_or_new_session(&self.manager, pid).await;
 
         // Move the transport link to the transport of the target session
-        self.manager.move_link(dst, src, &target.transport).await?;
+        let _ = self.manager.move_link(dst, src, &target.transport).await;
 
         // Set the lease to the transport
         target.transport.set_lease(*lease);
@@ -485,22 +486,25 @@ impl Session {
 
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.send_ctrl(message, link).await
+        let _ = target.send(message, link).await;
     }
 
-    pub async fn schedule(&self, msg: Message) -> ZResult<()> {
-        self.transport.schedule_data(msg).await
+    // Leave the send function as private, it might mess up with the internal scheduling if
+    // used in an unappropriate manner by the upper layer
+    async fn send(&self, message: Message, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        self.transport.send(message, link).await
     }
 
-    pub async fn send(&self, msg: Message) -> ZResult<()> {
-        self.transport.send_data(msg).await
+    pub async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
+        self.transport.schedule(message, link).await;
     }
 }
 
 #[async_trait]
 impl MsgHandler for Session {
-    async fn handle_message(&self, msg: Message) -> ZResult<()> {
-        self.schedule(msg).await
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        self.schedule(message, None).await;
+        Ok(())
     }
 
     async fn close(&self) {}

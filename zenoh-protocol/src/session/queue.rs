@@ -207,9 +207,7 @@ impl<T> OrderedQueue<T> {
         self.first
     }
 
-    pub fn set_base(&mut self, base: ZInt) -> Vec<T> {
-        let mut res = Vec::<T>::with_capacity(self.capacity());
-
+    pub fn set_base(&mut self, base: ZInt) {
         // Compute the circular gaps
         let gap_base = base.wrapping_sub(self.first) as usize;
         let gap_last = self.last.wrapping_sub(self.first) as usize;
@@ -223,8 +221,6 @@ impl<T> OrderedQueue<T> {
         // Iterate over the queue and consume the inner elements
         for _ in 0..count {
             if let Some(element) = self.buff[self.pointer].take() {
-                // Add the element to the result
-                res.push(element.into_inner());
                 // Decrement the counter
                 self.counter = self.counter - 1;
             }
@@ -237,8 +233,6 @@ impl<T> OrderedQueue<T> {
         if self.len() == 0 {
             self.last = self.first;
         }
-
-        res
     }
 
     // This operation does not modify the base or the pointer

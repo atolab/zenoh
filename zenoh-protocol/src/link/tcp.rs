@@ -166,10 +166,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
         }
         loop {
             match buff.read_message() {
-                Ok(message) => match link.transport.receive_message(&dst, &src, message).await {
-                    Ok(_) => continue,
-                    Err(_) => continue
-                },
+                Ok(message) => link.transport.receive_message(&dst, &src, message).await,
                 Err(_) => break
             }
         }

@@ -7,6 +7,7 @@ use async_std::sync::{
 };
 use async_std::task;
 use async_trait::async_trait;
+use std::time::Duration;
 
 use zenoh_protocol::core::{
     AtomicZInt,
@@ -127,6 +128,10 @@ async fn transport_base_inner() {
     let (client_sender, client_receiver) = channel::<Message>(1);
     let (router_sender, router_receiver) = channel::<Message>(1);
 
+    // The receiption dropping probability of the links
+    let client_link_dropping_probaility: f32 = 0.0;
+    let router_link_dropping_probaility: f32 = 0.5;
+
     // Router task
     let c_mbr = m_barrier.clone();
     let c_client_id = client_id.clone();
@@ -149,8 +154,9 @@ async fn transport_base_inner() {
         let session = manager.init_session(&c_client_id).await.unwrap();
         // Manually create a dummy link
         let link = Link::Dummy(Arc::new(LinkDummy::new(
-            c_router_addr, c_client_addr, router_receiver, c_client_sender, session.get_transport())
-        ));
+            c_router_addr, c_client_addr, router_receiver, c_client_sender, 
+            session.get_transport(), router_link_dropping_probaility
+        )));
         link.start();
         // Manually add the link to the session
         session.add_link(link).await.unwrap();
@@ -180,8 +186,9 @@ async fn transport_base_inner() {
         let session = manager.init_session(&c_router_id).await.unwrap();
         // Manually create a dummy link
         let link = Link::Dummy(Arc::new(LinkDummy::new(
-            c_client_addr, c_router_addr, client_receiver, c_router_sender, session.get_transport())
-        ));
+            c_client_addr, c_router_addr, client_receiver, c_router_sender, 
+            session.get_transport(), client_link_dropping_probaility
+        )));
         link.start();
         // Manually add the link to the session
         session.add_link(link).await.unwrap();
@@ -198,10 +205,15 @@ async fn transport_base_inner() {
         let properties = None;
 
         let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
-        let res = session.send(message).await;
-        assert!(res.is_ok());
+
+        for _ in 0..100 {         
+            session.schedule(message.clone(), None).await;
+        }
 
         println!("FATTO");
+
+        task::sleep(Duration::from_millis(1000)).await;
+
         c_mbr.wait().await;
     });
 
