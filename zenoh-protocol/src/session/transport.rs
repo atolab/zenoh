@@ -60,48 +60,12 @@ const QUEUE_RETX_SIZE: usize = 16;
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
         let (message, queue) = transport.queue_tx.pop().await;
-
-        // Set the right sequence number for data messages
-        let mut msg_sn: Option<ZInt> = None;
-        if queue == QUEUE_TX_PRIO_DATA {
-            #[allow(unused_assignments,unused_variables)]
-            match message.inner.body {
-                Body::Data{reliable: _, mut sn, key: _, info: _, payload: _} |
-                Body::Declare{mut sn, declarations: _} |
-                Body::Pull{mut sn, key: _, pull_id: _, max_samples: _} |
-                Body::Query{mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
-                    sn = match message.inner.is_reliable() {
-                        true => transport.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
-                        false => transport.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
-                    };
-                    msg_sn = Some(sn);
-                },
-                _ => {}
-            }
-        }
+        let is_retx = queue == QUEUE_TX_PRIO_RETX;
 
         // Transmit the message on the link(s)
         // Ignore the result for the time being. Need to propagate the error in case of
         // using synchronous send functions
-        let _ = transmit(transport, &message.inner, &message.link).await;
-
-        // Add the message to the retransmission queue if the message is data or 
-        // already retransmitted and reliable
-        if (queue == QUEUE_TX_PRIO_DATA || queue == QUEUE_TX_PRIO_RETX) && message.inner.is_reliable() {
-            if let Some(sn) = msg_sn {
-                // If the retransmission queue is full, we need to send a SYNC message 
-                let mut guard = transport.queue_retx.lock().await;
-                if let Some(_) = guard.try_push(message, sn) {
-                    // Retrieve the necessary information
-                    let sn = guard.get_base();
-                    let count = Some(guard.len() as ZInt);
-                    // Drop the guard before synching (it may block)
-                    drop(guard);
-                    // Wait until the reliable channel is synched
-                    let _ = sync(transport, sn, count).await;
-                }
-            }
-        }
+        let _ = transport.transmit(message, is_retx).await;
 
         Some(true)
     }
@@ -201,9 +165,7 @@ impl Transport {
     }
 
     pub(crate) fn start(transport: Arc<Transport>) {
-        task::spawn(async move {
-            consume_loop(transport).await;
-        });
+        task::spawn(consume_loop(transport));
     }
 
     pub(crate) async fn stop(&self) {
@@ -287,11 +249,6 @@ impl Transport {
     }
 
     async fn send_inner(&self, message: Message, priority: usize, link: Option<(Locator, Locator)>) -> ZResult<()> {
-        // If the message is not reliable, it does not make sense to wait
-        if !message.is_reliable() {
-            return self.schedule_inner(message, priority, link).await
-        }
-
         let (sender, receiver) = channel::<ZResult<()>>(1);
         let msg = TxMessage {
             inner: message,
@@ -312,23 +269,63 @@ impl Transport {
     /*************************************/
     async fn synchronize(&self) -> ZResult<()> {
         let reliable = true;
-        let cid = None; // TODO: Retrive the right conduit ID
+        let sn = self.queue_retx.lock().await.get_base();
+        let count = Some(self.queue_retx.lock().await.len() as ZInt);
+        let cid = None;     // TODO: Retrive the right conduit ID
         let properties = None;
         let message = Message::make_sync(reliable, sn, count, cid, properties);
 
-        self.schedule_ctrl(&message, &None).await
+        self.schedule_ctrl(message, None).await
     }
 
-    async fn transmit(&self, message: &Message, link: &Option<(Locator, Locator)>) -> ZResult<()> {
+    async fn acknowledge(&self) -> ZResult<()>{
+        let l_guard = self.queue_rx.lock().await;
+        // Create the AckNack message
+        let sn = l_guard.get_base();
+        let mask = match l_guard.get_mask() {
+            0 => None,
+            m => Some(m)
+        };
+        let cid = None;
+        let properties = None;
+        let message = Message::make_ack_nack(sn, mask, cid, properties);
+
+        // Reset the counter
+        self.count_rx.store(0, Ordering::Release);
+
+        // Schedule the AckNack message
+        self.schedule_ctrl(message, None).await
+    }
+
+    async fn transmit(&self, message: TxMessage, is_retx: bool) -> ZResult<()> {
+        // Set the right sequence number for data messages
+        let mut msg_sn: Option<ZInt> = None;
+        match message.inner.body {
+            Body::Data{reliable: _, mut sn, key: _, info: _, payload: _} |
+            Body::Declare{mut sn, declarations: _} |
+            Body::Pull{mut sn, key: _, pull_id: _, max_samples: _} |
+            Body::Query{mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                // Update the sequence number if this message is not beinf retransmitted
+                if !is_retx {
+                    sn = match message.inner.is_reliable() {
+                        true => self.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
+                        false => self.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
+                    };
+                }
+                msg_sn = Some(sn);
+            },
+            _ => {}
+        }
+
         // TODO: Fragement the message if too large
 
         // Send the message on the link(s)
         let guard = self.links.lock().await;
-        let res = match link {
+        let res = match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
-                match self.find_link(&guard, &src, &dst) {
-                    Some(index) => guard[index].send(message).await,
+                match self.find_link(&guard, src, dst) {
+                    Some(index) => guard[index].send(&message.inner).await,
                     None => Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
                     }))
@@ -337,15 +334,37 @@ impl Transport {
             None => {
                 // Send the message on the first link
                 match guard.get(0) {
-                    Some(link) => link.send(message).await,
+                    Some(link) => link.send(&message.inner).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because transport has no links!")
                     }))
                 }
             }
         };
-        
-        res
+
+        // IGNORE THE SEND RESULT FOR THE TIME BEING
+
+        if message.inner.is_reliable() {
+            // Add the message to the retransmission queue if the message is data or 
+            // already retransmitted and reliable
+            if let Some(sn) = msg_sn {
+                // If the retransmission queue is full, we need to send a SYNC message 
+                let mut guard = self.queue_retx.lock().await;
+                if let Some(_) = guard.try_push(message, sn) {
+                    // Drop the guard before synching (it may block)
+                    drop(guard);
+                    // Wait until the reliable channel is synched
+                    self.synchronize().await;
+                }
+            }
+        } else {
+            // Notify the sender when the message is control
+            if let Some(channel) = message.notify {
+                channel.send(res).await;
+            }
+        }
+
+        Ok(())
     }
 
     /*************************************/
@@ -375,22 +394,6 @@ impl Transport {
         };
 
         if synch {     
-            // Create the AckNack message
-            let sn = l_guard.get_base();
-            let mask = match l_guard.get_mask() {
-                0 => None,
-                m => Some(m)
-            };
-            let cid = None;
-            let properties = None;
-            let acknack = Message::make_ack_nack(sn, mask, cid, properties);
-
-            // Schedule the AckNack message
-            let link = None;
-            let _ = self.schedule_ctrl(acknack, link).await;
-
-            // Reset the counter
-            self.count_rx.store(0, Ordering::Release);
         }
 
         Ok(())
