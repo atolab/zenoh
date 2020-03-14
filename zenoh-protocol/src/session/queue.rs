@@ -220,7 +220,7 @@ impl<T> OrderedQueue<T> {
 
         // Iterate over the queue and consume the inner elements
         for _ in 0..count {
-            if let Some(element) = self.buff[self.pointer].take() {
+            if let Some(_) = self.buff[self.pointer].take() {
                 // Decrement the counter
                 self.counter = self.counter - 1;
             }

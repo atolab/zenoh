@@ -5,7 +5,8 @@ mod transport;
 pub use manager::{
     SessionManager,
     SessionManagerInner,
-    Session
+    Session,
+    SessionInner
 };
 pub use queue::*;
 pub use transport::Transport;

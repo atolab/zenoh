@@ -40,7 +40,7 @@ use crate::proto::{
 };
 use crate::session::{
     MsgHandler,
-    Session
+    SessionInner
 };
 use crate::session::queue::{
     OrderedQueue,
@@ -59,7 +59,7 @@ const QUEUE_TX_SIZE: usize = 16;
 const QUEUE_TX_PRIO_NUM: usize = 1;
 const QUEUE_TX_PRIO_DATA: usize = 0;
 
-const QUEUE_RETX_SIZE: usize = 16;
+const QUEUE_RETX_SIZE: usize = 2;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
@@ -84,28 +84,37 @@ async fn consume_loop(transport: Arc<Transport>) {
             _ => {}
         }
 
-        println!("\n> Sending: {:?} {:?}", msg_sn, message.inner);
+        println!("\n> {:?} = Sending: {:?} {:?}", zrwopt!(transport.session).peer, msg_sn, message.inner);
 
         // Transmit the message on the link(s)
         let _ = transport.transmit(&message).await;
 
         if message.inner.is_reliable() {
             // Don't notify the syncrhonous sender, it will be notified when an ACK is received 
-            println!("\n> Consume: OH YES {:?}", msg_sn);
+            println!("> {:?} = Consume: OH YES {:?}", zrwopt!(transport.session).peer, msg_sn);
             // Add the message to the retransmission queue if the message is data or 
             // already retransmitted and reliable
             if let Some(sn) = msg_sn {
-                // If the retransmission queue is full, we need to send a SYNC message 
-                if let Some(_) = transport.queue_retx.write().await.try_push(message, sn) {
-                    println!("> Consume: OH SHIT");
-                    // Trigger the synchronization
+                let mut w_guard = transport.queue_retx.write().await;
+                // Try to push on the retx_queue. This operation is assured to succed because
+                // when the queue is full, the channel is synchronized, leading to the drain
+                // of the queue. Once the queue is empty, this loop is resumed and new  
+                if let Some(msg) = w_guard.try_push(message, sn) {
+                    panic!("Failed to push the message on the RETX queue {:?}", msg.inner); 
+                }
+                // If the retransmission queue is full, we need to syncrhonize the channel 
+                if w_guard.capacity() - w_guard.len() == 0 {
+                    println!("> {:?} = Consume: OH SHIT", zrwopt!(transport.session).peer);
+                    // Drop the w_guard to allow for synchronization
+                    drop(w_guard);
+                    // Trigger and wait for the channel synchronization
                     transport.synchronize().await;
-                    println!("> Consume: LET'S PROCEED");
+                    println!("> {:?} = Consume: LET'S PROCEED", zrwopt!(transport.session).peer);
                 }
             }
         }
 
-        println!("> Consume: RETURN");
+        println!("> {:?} = Consume: RETURN", zrwopt!(transport.session).peer);
 
         Some(true)
     }
@@ -145,7 +154,7 @@ struct TxMessage {
 // Struct implementing the transport
 pub struct Transport {
     // The reference to the session
-    session: RwLock<Option<Arc<Session>>>,
+    session: RwLock<Option<Arc<SessionInner>>>,
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
     // The timeout after which the session is closed if no messages are received
@@ -187,7 +196,7 @@ impl Transport {
         }
     }
 
-    pub(crate) fn initialize(&self, session: Arc<Session>, callback: Arc<dyn MsgHandler + Send + Sync>) {
+    pub(crate) fn initialize(&self, session: Arc<SessionInner>, callback: Arc<dyn MsgHandler + Send + Sync>) {
         *self.session.try_write().unwrap() = Some(session);
         *self.callback.try_write().unwrap() = Some(callback);
     }
@@ -338,9 +347,12 @@ impl Transport {
             }
         }
 
+        // Acquire a read guard
+        let r_guard = self.queue_retx.read().await;
+
         let reliable = true;
-        let sn = self.queue_retx.read().await.get_base();
-        let count = Some(self.queue_retx.read().await.len() as ZInt);
+        let sn = r_guard.get_base();
+        let count = Some(r_guard.len() as ZInt);
         let cid = None;     // TODO: Retrive the right conduit ID
         let properties = None;
         let message = TxMessage{
@@ -348,16 +360,23 @@ impl Transport {
             link: None
         };
 
+        // Drop the read guard
+        drop(r_guard);
+
+        println!("> {:?} = Synchronize: START", zrwopt!(self.session).peer);
         let _ = self.transmit(&message).await;
+        println!("> {:?} = Synchronize: CONTINUE", zrwopt!(self.session).peer);
 
         // Wait to be synchronized: queue_retx.len() == 0
         FutureSynchronized {
             transport: self
-        }.await
+        }.await;
+
+        println!("> {:?} = Synchronize: STOP", zrwopt!(self.session).peer);
     }
 
     async fn acknowledge(&self, ) {
-        println!("> Acknowledge: YES");
+        println!("> {:?} = Acknowledge: YES", zrwopt!(self.session).peer);
         let l_guard = self.queue_rx.lock().await;
         // Create the AckNack message
         let sn = l_guard.get_base();
@@ -367,6 +386,8 @@ impl Transport {
         };
         let cid = None;
         let properties = None;
+        println!("> {:?} = Acknowledge: SN: {}, Mask: {:?}", zrwopt!(self.session).peer, sn, mask);
+
         let message = TxMessage {
             inner: Message::make_ack_nack(sn, mask, cid, properties),
             link: None
@@ -375,7 +396,7 @@ impl Transport {
         // Transmit the AckNack message
         let _ = self.transmit(&message).await;
 
-        println!("> Acknowledge: RETURN");
+        println!("> {:?} = Acknowledge: RETURN", zrwopt!(self.session).peer);
     }
 
     /*************************************/
@@ -386,9 +407,9 @@ impl Transport {
         // Add the message to the receiving queue and trigger an AckNack when necessary
         match l_guard.try_push(message, sn) {
             None => {
-                println!("> Receive: OK");
+                println!("> {:?} = Receive: OK", zrwopt!(self.session).peer);
                 while let Some(message) = l_guard.try_pop() {
-                    println!("> Receive: Forward");
+                    println!("> {:?} = Receive: Forward {}. Next: {}", zrwopt!(self.session).peer, sn, l_guard.get_base());
                     let _ = zrwopt!(self.callback).handle_message(message).await;
                 }
                 // Try to avoid filling up the queue by sending an ack_nack earlier
@@ -418,14 +439,14 @@ impl Transport {
     }
 
     async fn process_acknack(&self, sn: &ZInt, mask: &Option<ZInt>) {
-        println!("> ACKNACK: YES {} {:?}", sn, mask);
+        println!("> {:?} = ACKNACK: YES {} {:?}", zrwopt!(self.session).peer, sn, mask);
         let mut w_guard = self.queue_retx.write().await;
         // Set the base of the queue  
         w_guard.set_base(*sn);
 
         // If there is a mask, schedule the retransmission of requested messages
         if let Some(mut mask) = mask {
-            println!("> ACKNACK: RETRANSMISSION");
+            println!("> {:?} = ACKNACK: RETRANSMISSION", zrwopt!(self.session).peer);
             let mut sn = w_guard.get_base();
             let count = mask.count_ones();
             for _ in 0..count {
@@ -455,9 +476,10 @@ impl Transport {
     }
 
     async fn process_sync(&self, sn: &ZInt, count: &Option<ZInt>) {
-        self.queue_rx.lock().await.set_base(*sn);
-        if let Some(_) = count {
-            self.acknowledge().await;
+        println!("> {:?} = SYNC RECEIVED {} {:?}", zrwopt!(self.session).peer, sn, count);
+        match count {
+            Some(_) => self.acknowledge().await,
+            None => self.queue_rx.lock().await.set_base(*sn)
         }
     }
 
