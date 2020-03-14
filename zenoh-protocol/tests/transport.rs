@@ -130,7 +130,7 @@ async fn transport_base_inner() {
 
     // The receiption dropping probability of the links
     let client_link_dropping_probaility: f32 = 0.0;
-    let router_link_dropping_probaility: f32 = 0.0;
+    let router_link_dropping_probaility: f32 = 0.5;
 
     // Router task
     let c_mbr = m_barrier.clone();
@@ -210,7 +210,7 @@ async fn transport_base_inner() {
             session.schedule(message.clone(), None).await;
         }
 
-        println!("FATTO");
+        // println!("FATTO");
 
         task::sleep(Duration::from_millis(1000)).await;
 

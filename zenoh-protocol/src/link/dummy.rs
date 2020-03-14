@@ -128,7 +128,7 @@ async fn receive_loop(link: Arc<LinkDummy>) {
                 if !drop {
                     link.transport.receive_message(src, dst, message).await;
                 } else {
-                    println!("DROPPED {:?}", message);
+                    // println!("DROPPED {:?}", message);
                 }
                 Some(Command::Ok)
             },
