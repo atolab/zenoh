@@ -171,7 +171,7 @@ impl Tables {
 
     fn make_and_match_resource(from: &Arc<RwLock<Resource>>, prefix: &Arc<RwLock<Resource>>, suffix: &str) -> Arc<RwLock<Resource>> {
         let res = Resource::make_resource(prefix, suffix);
-        let matches = Tables::get_matches_from(suffix, from);
+        let matches = Tables::get_matches_from(&res.read().name(), from);
 
         fn matches_contain(matches: &Vec<Weak<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
