@@ -81,14 +81,22 @@ impl SessionManager {
             }))
         };
 
+        println!("> NOTIFICATION RECEIVED!");
+
         // Check if an already established session exists with the peer
         let session_inner = self.0.get_or_new_session(&self.0, &notification.peer).await;
+
+        println!("> GET OR NEW!");
 
         // Move the link to the target session
         self.0.move_link(&notification.dst, &notification.src, &session_inner.transport).await?;
 
+        println!("> MOVE LINK!");
+
         // Set the lease on the session
         session_inner.transport.set_lease(notification.lease);
+
+        println!("> LEASE!");
 
         Ok(Session::new(session_inner))
     }
@@ -431,7 +439,9 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.send(message, link).await
+        self.transport.schedule(message, link).await;
+
+        Ok(())
     }
 
     async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
@@ -452,11 +462,11 @@ impl SessionInner {
         // Send the message for transmission
         let link = None;    // The preferred link to reply on 
         // TODO: If error in send, retry
-        let res = self.transport.send(message, link).await;
+        self.transport.schedule(message, link).await;
         // Close the session
         let _ = self.transport.close(reason).await;
 
-        res
+        Ok(())
     }
 
     /*************************************/
@@ -465,8 +475,10 @@ impl SessionInner {
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
         opid: &PeerId, apid: &PeerId, lease: &ZInt
     ) {
+        println!("> ACCEPT!");
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
+            println!("> ERROR!");
             return 
             // Err(zerror!(ZErrorKind::InvalidMessage{
             //     descr: format!("Received an Accept with an Opener Peer ID different from self!")
@@ -476,11 +488,13 @@ impl SessionInner {
         // Check if had previously triggered the opening of a new connection
         let key = (dst.clone(), src.clone());
         if let Some(sender) = self.channels.write().await.remove(&key) {
+            println!("> NOTIFICATION!");
             let notification = NotificationNewSession::new(
                 apid.clone(), lease.clone(), src.clone(), dst.clone()
             );
             sender.send(Ok(notification)).await;
         }
+        println!("> BYE!");
     }
 
     pub(crate) async fn process_close(&self, _src: &Locator, _dst: &Locator,
@@ -528,7 +542,7 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        let _ = target.transport.send(message, link).await;
+        target.transport.schedule(message, link).await;
     }
 }
 

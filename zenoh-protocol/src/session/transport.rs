@@ -9,14 +9,7 @@ use async_std::sync::{
     Sender,
 };
 use async_std::task;
-use async_std::task::{
-    Context, 
-    Poll,
-    Waker
-};
-use crossbeam::queue::SegQueue;
 use std::fmt;
-use std::pin::Pin;
 use std::sync::atomic::{
     // AtomicUsize,
     Ordering
@@ -43,8 +36,11 @@ use crate::session::{
     SessionInner
 };
 use crate::session::queue::{
+    MessageTxPop,
+    MessageTxPush,
     OrderedQueue,
-    PriorityQueue
+    QueueTx,
+    QueueTxPopResult
 };
 use crate::link::{
     Link,
@@ -54,72 +50,30 @@ use crate::link::{
 
 // Constants
 const QUEUE_RX_SIZE: usize = 16;
-
 const QUEUE_TX_SIZE: usize = 16;
-const QUEUE_TX_PRIO_NUM: usize = 1;
-const QUEUE_TX_PRIO_DATA: usize = 0;
-
-const QUEUE_RETX_SIZE: usize = 16;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        let (mut message, _) = transport.queue_tx.pop().await;
-        let is_reliable = message.inner.is_reliable();
-
-        // Set the right sequence number for data messages
-        let mut msg_sn: Option<ZInt> = None;
-        match message.inner.body {
-            Body::Data{reliable: _, ref mut sn, key: _, info: _, payload: _} |
-            Body::Declare{ref mut sn, declarations: _} |
-            Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
-            Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
-                // Update the sequence number if this message is not beinf retransmitted
-                *sn = match is_reliable {
-                    true => transport.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
-                    false => transport.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
-                };
-                msg_sn = Some(*sn);
+        // TODO: Fragement the message if too large
+        match transport.queue_tx.pop().await {
+            QueueTxPopResult::Ok(message) => {
+                println!("> POP OK {:?}", message.inner);
+                transport.transmit(&message).await;
             },
-            _ => {}
-        }
-
-        // println!("\n> {:?} = Sending: {:?} {:?}", zrwopt!(transport.session).peer, msg_sn, message.inner);
-
-        // Transmit the message on the link(s)
-        let _ = transport.transmit(&message).await;
-
-        if message.inner.is_reliable() {
-            // println!("> {:?} = Consume: OH YES {:?}", zrwopt!(transport.session).peer, msg_sn);
-            // Add the message to the retransmission queue if the message is data or 
-            // already retransmitted and reliable
-            if let Some(sn) = msg_sn {
-                let mut w_guard = transport.queue_retx.write().await;
-                // Try to push on the retx_queue. This operation is assured to succed because
-                // when the queue is full, the channel is synchronized, leading to the drain
-                // of the queue. Once the queue is empty, this loop is resumed and new  
-                if let Some(msg) = w_guard.try_push(message, sn) {
-                    panic!("Failed to push the message on the RETX queue {:?}", msg.inner); 
-                }
-                // If the retransmission queue is full, we need to syncrhonize the channel 
-                if w_guard.capacity() - w_guard.len() == 0 {
-                    // println!("> {:?} = Consume: OH SHIT", zrwopt!(transport.session).peer);
-                    // Drop the w_guard to allow for synchronization
-                    drop(w_guard);
-                    // Trigger and wait for the channel synchronization
-                    transport.synchronize().await;
-                    // println!("> {:?} = Consume: LET'S PROCEED", zrwopt!(transport.session).peer);
-                }
+            QueueTxPopResult::NeedSync(message) => {
+                println!("> POP SYNC {:?}", message.inner);
+                transport.transmit(&message).await;
+                transport.synchronize().await
             }
         }
-
-        // println!("> {:?} = Consume: RETURN", zrwopt!(transport.session).peer);
 
         Some(true)
     }
     
     // The loop to consume the messages in the queue
     loop {
+        println!("> LOOP!");
         // Future to wait for the stop signal
         let stop = transport.signal_recv.recv();
         // Future to wait for a message to send
@@ -141,15 +95,6 @@ async fn consume_loop(transport: Arc<Transport>) {
 /*          TRANSPORT                */
 /*************************************/
 
-// Struct to add additional fields to the message
-struct TxMessage {
-    // The inner message to transmit
-    inner: Message, 
-    // The preferred link to transmit the Message on
-    link: Option<(Locator, Locator)>
-}
-
-
 // Struct implementing the transport
 pub struct Transport {
     // The reference to the session
@@ -161,11 +106,8 @@ pub struct Transport {
     // The list of transport links associated to this session
     links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
-    queue_tx: PriorityQueue<TxMessage>,
+    queue_tx: QueueTx,
     queue_rx: Mutex<OrderedQueue<Message>>,
-    queue_retx: RwLock<OrderedQueue<TxMessage>>,
-    // Store the wakers for the synchronization future
-    w_sync: SegQueue<Waker>,
     // Keeping track of the last sequence numbers
     sn_tx_reliable: AtomicZInt,
     sn_tx_unreliable: AtomicZInt,
@@ -183,10 +125,8 @@ impl Transport {
             callback: RwLock::new(None), 
             lease: AtomicZInt::new(lease),
             links: Mutex::new(Vec::new()),
-            queue_tx: PriorityQueue::new(QUEUE_TX_SIZE, QUEUE_TX_PRIO_NUM),
+            queue_tx: QueueTx::new(QUEUE_TX_SIZE),
             queue_rx: Mutex::new(OrderedQueue::new(QUEUE_RX_SIZE)),
-            queue_retx: RwLock::new(OrderedQueue::new(QUEUE_RETX_SIZE)),
-            w_sync: SegQueue::new(),
             sn_tx_reliable: AtomicZInt::new(0),
             sn_tx_unreliable: AtomicZInt::new(0),
             sn_rx_unreliable: Mutex::new(0),
@@ -272,30 +212,20 @@ impl Transport {
     /*************************************/
     // Schedule the message to be sent asynchronsly
     pub(crate) async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
-        let message = TxMessage {
+        let message = MessageTxPush {
             inner: message,
             link
         };
         if message.inner.is_reliable() {
             // Wait for the queue to have space for the message
-            self.queue_tx.push(message, QUEUE_TX_PRIO_DATA).await;
+            self.queue_tx.push(message).await;
         } else {
             // If the queue is full, the message is automatically dropped
-            self.queue_tx.try_push(message, QUEUE_TX_PRIO_DATA);
+            self.queue_tx.try_push(message);
         }
     }
-
-    pub(crate) async fn send(&self, message: Message, link: Option<(Locator, Locator)>) -> ZResult<()> {
-        let message = TxMessage {
-            inner: message,
-            link
-        };
-        self.transmit(&message).await
-    }
     
-    async fn transmit(&self, message: &TxMessage) -> ZResult<()> {
-        // TODO: Fragement the message if too large
-
+    async fn transmit(&self, message: &MessageTxPop) -> ZResult<()> {
         // Send the message on the link(s)
         let guard = self.links.lock().await;
         match &message.link {
@@ -325,53 +255,20 @@ impl Transport {
     /* SYNCHRONIZE THE RELIABLE CHANNEL  */
     /*************************************/
     async fn synchronize(&self) {
-        struct FutureSynchronized<'a> {
-            transport: &'a Transport
-        }
-        
-        impl<'a> Future for FutureSynchronized<'a> {
-            type Output = ();
-        
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                if let Some(guard) = self.transport.queue_retx.try_read() {
-                    match guard.len() {
-                        0 => return Poll::Ready(()),
-                        _ => {
-                            self.transport.w_sync.push(ctx.waker().clone());
-                            return Poll::Pending
-                        }
-                    }
-                }
-                Poll::Pending
-            }
-        }
-
         // Acquire a read guard
-        let r_guard = self.queue_retx.read().await;
+        let (base, count) = self.queue_tx.get_reliability_base_and_count().await;
 
         let reliable = true;
-        let sn = r_guard.get_base();
-        let count = Some(r_guard.len() as ZInt);
+        let sn = base;
+        let count = Some(count);
         let cid = None;     // TODO: Retrive the right conduit ID
         let properties = None;
-        let message = TxMessage{
+        let message = MessageTxPush {
             inner: Message::make_sync(reliable, sn, count, cid, properties),
             link: None
         };
 
-        // Drop the read guard
-        drop(r_guard);
-
-        // println!("> {:?} = Synchronize: START", zrwopt!(self.session).peer);
-        let _ = self.transmit(&message).await;
-        // println!("> {:?} = Synchronize: CONTINUE", zrwopt!(self.session).peer);
-
-        // Wait to be synchronized: queue_retx.len() == 0
-        FutureSynchronized {
-            transport: self
-        }.await;
-
-        // println!("> {:?} = Synchronize: STOP", zrwopt!(self.session).peer);
+        self.queue_tx.push(message).await;
     }
 
     async fn acknowledge(&self) {
@@ -387,13 +284,13 @@ impl Transport {
         let properties = None;
         // println!("> {:?} = Acknowledge: SN: {}, Mask: {:?}", zrwopt!(self.session).peer, sn, mask);
 
-        let message = TxMessage {
+        let message = MessageTxPush {
             inner: Message::make_ack_nack(sn, mask, cid, properties),
             link: None
         };
 
         // Transmit the AckNack message
-        let _ = self.transmit(&message).await;
+        self.queue_tx.push(message).await;
 
         // println!("> {:?} = Acknowledge: RETURN", zrwopt!(self.session).peer);
     }
@@ -412,7 +309,7 @@ impl Transport {
                     let _ = zrwopt!(self.callback).handle_message(message).await;
                 }
                 // Try to avoid filling up the queue by sending an ack_nack earlier
-                if l_guard.len() > QUEUE_RETX_SIZE/2 {
+                if l_guard.len() > l_guard.capacity()/2 {
                     // Drop the guard to allow the acknowledge to access to the queue
                     drop(l_guard);
                     // Send an acknowledgment triggering the retransmission
@@ -439,14 +336,13 @@ impl Transport {
 
     async fn process_acknack(&self, sn: &ZInt, mask: &Option<ZInt>) {
         // println!("> {:?} = ACKNACK: YES {} {:?}", zrwopt!(self.session).peer, sn, mask);
-        let mut w_guard = self.queue_retx.write().await;
         // Set the base of the queue  
-        w_guard.set_base(*sn);
+        self.queue_tx.set_reliability_base(*sn).await;
 
         // If there is a mask, schedule the retransmission of requested messages
         if let Some(mut mask) = mask {
             // println!("> {:?} = ACKNACK: RETRANSMISSION", zrwopt!(self.session).peer);
-            let mut sn = w_guard.get_base();
+            let mut sn = self.queue_tx.get_reliability_base().await;
             let count = mask.count_ones();
             for _ in 0..count {
                 // Increment the sn and shift the mask
@@ -455,22 +351,8 @@ impl Transport {
                     mask = mask >> 1;
                 }
                 // Retransmit the messages
-                let res = w_guard.try_remove(sn);
-                if let Some(message) = res {
-                    // Transmit the message
-                    let _ = self.transmit(&message).await;
-                    // Reinsert the message in the queue 
-                    w_guard.try_push(message, sn);
-                }
+                self.queue_tx.reschedule(sn).await;
             }
-        }
-
-        // Drop the guard allowing the read lock in the FutureSychronized
-        drop(w_guard);
-
-        // Wake up any pending futures for synchronization
-        while let Ok(waker) = self.w_sync.pop() {
-            waker.wake();
         }
     }
 
