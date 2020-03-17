@@ -80,13 +80,7 @@ fn main() {
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
     
-        let manager = SessionManager::new(0, WhatAmI::Peer, PeerId{id: pid}, 0, tables.clone());
-        let port = match args.next() { Some(port) => {port} None => {"7447".to_string()}};
-        let locator = ["tcp/127.0.0.1:", &port].concat().parse().unwrap();
-        if let Err(_err) = manager.add_locator(&locator, None).await {
-            println!("Unable to open listening port {}!", port);
-            std::process::exit(-1);
-        }
+        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, tables.clone());
 
         while let Some(locator) = args.next() {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
@@ -99,7 +93,8 @@ fn main() {
 
         primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
 
-        let res: ResKey = ["/demo/peer/", &port].concat().to_string().into();
+        let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()]
+            .concat().to_string().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;

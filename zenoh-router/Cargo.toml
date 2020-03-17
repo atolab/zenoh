@@ -20,16 +20,37 @@ name = "tables_bench"
 harness = false
 
 [[bin]]
+name = "broker"
+test = false
+bench = false
+
+[[bin]]
+name = "client"
+test = false
+bench = false
+
+[[bin]]
 name = "peer"
 test = false
 bench = false
 
 [[bin]]
-name = "thr_sub"
+name = "thr_sub_client"
+test = false
+bench = false
+
+
+[[bin]]
+name = "thr_pub_client"
 test = false
 bench = false
 
 [[bin]]
-name = "thr_pub"
+name = "thr_sub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_pub_peer"
 test = false
 bench = false
