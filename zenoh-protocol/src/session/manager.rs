@@ -458,15 +458,6 @@ impl Session {
             }))
         }
 
-        // Check if an already established session exists with the peer
-        let target = self.manager.get_or_new_session(&self.manager, pid, whatami.clone()).await?;
-
-        // Move the transport link to the transport of the target session
-        self.manager.move_link(dst, src, &target.transport).await?;
-
-        // Set the lease to the transport
-        target.transport.set_lease(*lease).await;
-
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None
         let properties = None; // Properties always None for the time being. May change in the future.
@@ -477,7 +468,16 @@ impl Session {
         // Schedule the message for transmission
         let priority = Some(HIGH_PRIO);                         // High priority
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.schedule(message, priority, link).await;
+        self.transport.send(message, priority, link).await;
+
+        // Check if an already established session exists with the peer
+        let target = self.manager.get_or_new_session(&self.manager, pid, whatami.clone()).await?;
+
+        // Move the transport link to the transport of the target session
+        self.manager.move_link(dst, src, &target.transport).await?;
+
+        // Set the lease to the transport
+        target.transport.set_lease(*lease).await;
 
         Ok(())
     }
