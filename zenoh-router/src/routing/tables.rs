@@ -116,8 +116,6 @@ impl Tables {
             (Arc::downgrade(t.faces.get(&sid).unwrap()), subs)
         };
 
-        async_std::task::sleep(core::time::Duration::from_millis(100)).await;
-
         for name in subs {
             primitives.subscriber(&ResKey::ResName {name}, &SubMode::Push).await;
         }
