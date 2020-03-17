@@ -6,11 +6,13 @@ use async_std::sync::{
 };
 use async_std::task::{
     Context, 
-    Poll
+    Poll,
+    Waker
 };
 use crossbeam::queue::{
     ArrayQueue,
-    PushError
+    PushError,
+    SegQueue
 };
 use std::fmt;
 use std::pin::Pin;
@@ -27,7 +29,6 @@ use crate::proto::{
     Message,
     MessageKind
 };
-use crate::session::WakerSet;
 
 
 // Struct to add additional fields to the message
@@ -91,17 +92,21 @@ pub type QueueRx<T> = Mutex<OrderedQueue<T>>;
 //        TX QUEUE          //
 // ************************ //
 pub struct QueueTx {
+    // The first 4 queues might be replaced by a priority queue (min-heap)?
     syncack: ArrayQueue<MessageTxPush>,
     control: ArrayQueue<MessageTxPush>,
     retransmission: ArrayQueue<MessageTxPop>,
     fragment: ArrayQueue<MessageTxPush>,
+    // This is a separate queue
     data: ArrayQueue<MessageTxPush>,
     reliability: Mutex<OrderedQueue<MessageTxPop>>,
+    // The sequence number for the reliable and unreliable channels
     sn_tx_reliable: AtomicZInt,
     sn_tx_unreliable: AtomicZInt,
-    w_pop: WakerSet,
-    w_push: WakerSet,
-    w_retx: WakerSet
+    // The unbounded queues storing the wakers for the futures
+    w_pop: SegQueue<Waker>,
+    w_push: SegQueue<Waker>,
+    w_retx: SegQueue<Waker>
 }
 
 impl QueueTx {
@@ -115,9 +120,9 @@ impl QueueTx {
             reliability: Mutex::new(OrderedQueue::new(capacity)),
             sn_tx_reliable: AtomicZInt::new(0),
             sn_tx_unreliable: AtomicZInt::new(0),
-            w_pop: WakerSet::new(),
-            w_push: WakerSet::new(),
-            w_retx: WakerSet::new()
+            w_pop: SegQueue::new(),
+            w_push: SegQueue::new(),
+            w_retx: SegQueue::new()
         }
     }
 
@@ -132,6 +137,11 @@ impl QueueTx {
 
     pub async fn set_reliability_base(&self, sn: ZInt) {
         self.reliability.lock().await.set_base(sn);
+        // We might have freed some space in the reliability queue
+        // Notify the pending pop operations
+        while let Ok(waker) = self.w_pop.pop() {
+            waker.wake();
+        }
     }
 
     fn try_pop(&self) -> QueueTxTryPopResult {
@@ -195,8 +205,10 @@ impl QueueTx {
                     };
 
                     // If the message is reliable, add it to the reliability queue
-                    if let Some(sn) = new_sn {
-                        guard.try_push(msg.clone(), sn);
+                    if is_reliable {
+                        if let Some(sn) = new_sn {
+                            guard.try_push(msg.clone(), sn);
+                        }
                     }
 
                     // If the reliability queue 
@@ -213,48 +225,35 @@ impl QueueTx {
 
     pub async fn pop(&self) -> QueueTxPopResult {
         struct FuturePop<'a> {
-            queue: &'a QueueTx,
-            opt_key: Option<usize>
+            queue: &'a QueueTx
         }
         
         impl<'a> Future for FuturePop<'a> {
             type Output = QueueTxPopResult;
         
-            fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                // If the current task is in the set, remove it.
-                if let Some(key) = self.opt_key.take() {
-                    self.queue.w_pop.remove(key);
-                }
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.queue.w_pop.push(ctx.waker().clone());
                 match self.queue.try_pop() {
-                    QueueTxTryPopResult::Ok(message) => {
-                        self.queue.w_retx.notify_any();
-                        self.queue.w_push.notify_any();
-                        Poll::Ready(QueueTxPopResult::Ok(message))
-                    },
-                    QueueTxTryPopResult::NeedSync(message) => {
-                        self.queue.w_retx.notify_any();
-                        self.queue.w_push.notify_any();
-                        Poll::Ready(QueueTxPopResult::NeedSync(message))
-                    },
-                    QueueTxTryPopResult::Empty => {
-                        self.opt_key = Some(self.queue.w_pop.insert(ctx));
-                        Poll::Pending
-                    }
+                    QueueTxTryPopResult::Ok(message) => Poll::Ready(QueueTxPopResult::Ok(message)),
+                    QueueTxTryPopResult::NeedSync(message) => Poll::Ready(QueueTxPopResult::NeedSync(message)),
+                    QueueTxTryPopResult::Empty => Poll::Pending
                 }
             }
         }
 
         impl Drop for FuturePop<'_> {
             fn drop(&mut self) {
-                if let Some(key) = self.opt_key {
-                    self.queue.w_pop.cancel(key);
+                while let Ok(waker) = self.queue.w_retx.pop() {
+                    waker.wake();
+                }
+                while let Ok(waker) = self.queue.w_push.pop() {
+                    waker.wake();
                 }
             }
         }
 
         FuturePop {
-            queue: self,
-            opt_key: None
+            queue: self
         }.await
     }
     
@@ -291,8 +290,9 @@ impl QueueTx {
                 if message.inner.is_reliable() || !is_data {
                     Some(message)
                 } else {
-                    // Drop the message for non reliable data messages
-                    None
+                    // Don't drop the message for the time being
+                    // Return None to drop the message
+                    Some(message)
                 }
             }
         }
@@ -301,8 +301,7 @@ impl QueueTx {
     pub async fn push(&self, message: MessageTxPush) {
         struct FuturePush<'a> {
             queue: &'a QueueTx,
-            message: Option<MessageTxPush>,
-            opt_key: Option<usize>
+            message: Option<MessageTxPush>
         }
 
         impl Unpin for FuturePush<'_> {}
@@ -311,19 +310,12 @@ impl QueueTx {
             type Output = ();
         
             fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                // If the current task is in the set, remove it.
-                if let Some(key) = self.opt_key.take() {
-                    self.queue.w_pop.remove(key);
-                }
+                self.queue.w_push.push(ctx.waker().clone());
                 let message = self.message.take().unwrap();
                 match self.queue.try_push(message) {
-                    None => {
-                        self.queue.w_pop.notify_any();
-                        Poll::Ready(())
-                    },
+                    None => Poll::Ready(()),
                     Some(message) => {
                         self.message = Some(message);
-                        self.opt_key = Some(self.queue.w_push.insert(ctx));
                         Poll::Pending
                     }
                 }
@@ -332,16 +324,15 @@ impl QueueTx {
 
         impl Drop for FuturePush<'_> {
             fn drop(&mut self) {
-                if let Some(key) = self.opt_key {
-                    self.queue.w_pop.cancel(key);
+                while let Ok(waker) = self.queue.w_pop.pop() {
+                    waker.wake();
                 }
             }
         }
 
         FuturePush {
             queue: self,
-            message: Some(message),
-            opt_key: None
+            message: Some(message)
         }.await
     }
 
@@ -363,43 +354,32 @@ impl QueueTx {
     pub async fn reschedule(&self, sn: ZInt) {
         struct FutureRetx<'a> {
             queue: &'a QueueTx,
-            sn: ZInt,
-            opt_key: Option<usize>
+            sn: ZInt
         }
         
         impl<'a> Future for FutureRetx<'a> {
             type Output = ();
         
-            fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                // If the current task is in the set, remove it.
-                if let Some(key) = self.opt_key.take() {
-                    self.queue.w_retx.remove(key);
-                }
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.queue.w_retx.push(ctx.waker().clone());
                 match self.queue.try_reschedule(self.sn) {
-                    true => {
-                        self.queue.w_pop.notify_any();
-                        Poll::Ready(())
-                    }
-                    false => {
-                        self.opt_key = Some(self.queue.w_push.insert(ctx));
-                        Poll::Pending
-                    }
+                    true => Poll::Ready(()),
+                    false => Poll::Pending
                 }
             }
         }
 
         impl Drop for FutureRetx<'_> {
             fn drop(&mut self) {
-                if let Some(key) = self.opt_key {
-                    self.queue.w_pop.cancel(key);
+                while let Ok(waker) = self.queue.w_pop.pop() {
+                    waker.wake();
                 }
             }
         }
 
         FutureRetx {
             queue: self,
-            sn,
-            opt_key: None
+            sn
         }.await
     }
 }

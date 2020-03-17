@@ -57,10 +57,10 @@ async fn consume_loop(transport: Arc<Transport>) {
         // TODO: Fragement the message if too large
         match transport.queue_tx.pop().await {
             QueueTxPopResult::Ok(message) => {
-                let _ = transport.transmit(&message).await;
+                transport.transmit(&message).await;
             },
             QueueTxPopResult::NeedSync(message) => {
-                let _ = transport.transmit(&message).await;
+                transport.transmit(&message).await;
                 transport.synchronize().await
             }
         }

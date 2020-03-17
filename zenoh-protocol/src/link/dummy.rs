@@ -2,6 +2,7 @@ use async_std::prelude::*;
 use async_std::sync::{
     Arc,
     channel,
+    RwLock,
     Sender,
     Receiver
 };
@@ -15,9 +16,13 @@ use crate::zerror;
 use crate::core::{
     ZError,
     ZErrorKind,
+    ZInt,
     ZResult
 };
-use crate::proto::Message;
+use crate::proto::{
+    Body,
+    Message
+};
 use crate::session::{
     SessionManagerInner,
     Transport
@@ -56,12 +61,13 @@ pub struct LinkDummy {
     transport: Arc<Transport>,
     ch_send: Sender<Command>,
     ch_recv: Receiver<Command>,
-    dropping_probability: f32,
+    dropping_probability: RwLock<f32>,
+    reordering_probability: RwLock<f32>,
 }
 
 impl LinkDummy {
-    pub fn new(src_addr: String, dst_addr: String, rx_port: Receiver<Message>, tx_port: Sender<Message>, 
-        transport: Arc<Transport>, dropping_probability: f32
+    pub fn new(src_addr: String, dst_addr: String, rx_port: Receiver<Message>, 
+        tx_port: Sender<Message>, transport: Arc<Transport>
     ) -> Self {
         let (sender, receiver) = channel::<Command>(1);
         Self {
@@ -72,8 +78,17 @@ impl LinkDummy {
             transport,
             ch_send: sender,
             ch_recv: receiver,
-            dropping_probability
+            dropping_probability: RwLock::new(0.0),
+            reordering_probability: RwLock::new(0.0)
         }
+    }
+
+    pub async fn set_dropping_probability(&self, dropping_probability: f32) {
+        *self.dropping_probability.write().await = dropping_probability;
+    }
+
+    pub async fn set_reordering_probability(&self, reordering_probability: f32) {
+        *self.reordering_probability.write().await = reordering_probability;
     }
 
     pub async fn close(&self, _reason: Option<ZError>) -> ZResult<()> {
@@ -120,11 +135,28 @@ impl LinkDummy {
 async fn receive_loop(link: Arc<LinkDummy>) {
     async fn read(link: &Arc<LinkDummy>, src: &Locator, dst: &Locator) -> Option<Command> {
         match link.rx_port.recv().await {
-            Some(message) => {
+            Some(mut message) => {
+                let dropping_probability = *link.dropping_probability.read().await;
                 let drop = {
                     let mut rng = thread_rng();
-                    rng.gen_range(0f32, 1f32) < link.dropping_probability
+                    rng.gen_range(0f32, 1f32) < dropping_probability
                 };
+                let reordering_probability = *link.reordering_probability.read().await;
+                {
+                    let mut rng = thread_rng();
+                    if rng.gen_range(0f32, 1f32) < reordering_probability {
+                        match message.body {
+                            Body::Data{reliable: _, ref mut sn, key: _, info: _, payload: _} |
+                            Body::Declare{ref mut sn, declarations: _} |
+                            Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
+                            Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                                // Update the sequence number
+                                *sn = rng.gen_range(ZInt::min_value(), ZInt::max_value());
+                            },
+                            _ => {}
+                        }
+                    }
+                }
                 if !drop {
                     link.transport.receive_message(src, dst, message).await;
                 } else {
@@ -154,11 +186,6 @@ async fn receive_loop(link: Arc<LinkDummy>) {
     }
 }
 
-// impl Drop for LinkDummy {
-//     fn drop(&mut self) {
-//         println!("> Dropping Link ({:?}) => ({:?})", self.get_src(), self.get_dst());
-//     }
-// }
 
 pub struct ManagerDummy {}
 

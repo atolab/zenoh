@@ -1,70 +1,10 @@
-use async_std::task;
 use rand::{
     Rng,
     thread_rng
 };
 
 use zenoh_protocol::core::ZInt;
-use zenoh_protocol::session::{
-    OrderedQueue,
-    // PriorityQueue
-};
-
-
-// async fn pq_run() {
-//     let size = 2;
-//     let prio = 2;
-//     let queue: PriorityQueue<usize> = PriorityQueue::new(size, prio);
-
-//     // High: 0, Low: 1
-//     queue.push(0, 0).await;
-//     queue.push(1, 1).await;
-//     let m = queue.pop().await;
-//     assert_eq!(m, (0, 0));
-//     let m = queue.pop().await;
-//     assert_eq!(m, (1, 1));
-
-//     // High: 1, Low: 0
-//     queue.push(0, 1).await;
-//     queue.push(1, 0).await;
-//     let m = queue.pop().await;
-//     assert_eq!(m, (1, 0));
-//     let m = queue.pop().await;
-//     assert_eq!(m, (0, 1));
-
-//     // Fill the low priority queue
-//     let res = queue.try_push(1, 1);
-//     assert_eq!(res, None);
-//     let res = queue.try_push(1, 1);
-//     assert_eq!(res, None);
-//     let res = queue.try_push(1, 1);
-//     assert_eq!(res, Some(1));
-
-//     // Fill the high priority queue
-//     let res = queue.try_push(0, 0);
-//     assert_eq!(res, None);
-//     let res = queue.try_push(0, 0);
-//     assert_eq!(res, None);
-//     let res = queue.try_push(0, 0);
-//     assert_eq!(res, Some(0));
-
-//     // Drain the queue
-//     let res = queue.try_pop();
-//     assert_eq!(res, Some((0, 0)));
-//     let res = queue.try_pop();
-//     assert_eq!(res, Some((0, 0)));
-//     let res = queue.try_pop();
-//     assert_eq!(res, Some((1, 1)));
-//     let res = queue.try_pop();
-//     assert_eq!(res, Some((1, 1)));
-//     let res = queue.try_pop();
-//     assert_eq!(res, None);
-// }
-
-// #[test]
-// fn priority_queue() {
-//     task::block_on(pq_run());
-// }
+use zenoh_protocol::session::OrderedQueue;
 
 #[test]
 fn ordered_queue_simple() {
