@@ -1,3 +1,10 @@
+use crate::zerror;
+use crate::core::{
+    AtomicZInt,
+    ZInt,
+    ZResult
+}
+
 #[derive(Debug, Clone)]
 pub struct InvalidResulition { pub msg: String }
 
@@ -9,12 +16,14 @@ pub struct SeqNumGenerator {
 }
 
 impl SeqNumGenerator {
-    pub fn make(sn0: ZInt, resolution: ZInt) -> Result<SeqNumGenerator, InvalidResulition> {
+    pub fn make(sn0: ZInt, resolution: ZInt) -> ZResult<Self> {
         if sn0 < resolution {
             Ok(SeqNumGenerator { next_sn: sn0, semi_int: resolution >> 1, resolution : resolution })
         }
         else {
-            Err(InvalidResulition("The initial sequence number should be smaller than resolution"))
+            Err(zerror!(ZErrorKind::Other{
+                descr: format!("The initial sequence number should be smaller than the resolution")
+            }))
         }
     }
 

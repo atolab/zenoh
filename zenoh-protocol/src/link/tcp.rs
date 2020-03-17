@@ -49,9 +49,9 @@ const WRITE_BUFFER_CAPACITY: usize = 256;
 macro_rules! get_tcp_addr {
     ($locator:expr) => (match $locator {
         Locator::Tcp(addr) => addr,
-        // _ => return Err(zerror!(ZErrorKind::InvalidLocator{
-        //     reason: format!("Not a TCP locator: {}", locator)
-        // }))
+        _ => return Err(zerror!(ZErrorKind::InvalidLocator {
+            descr: format!("Not a TCP locator: {}", $locator)
+        }))
     });
 }
 
@@ -107,7 +107,7 @@ impl LinkTcp {
         }
     }
     
-    pub async fn send(&self, message: &Arc<Message>) -> ZResult<()> {
+    pub async fn send(&self, message: &Message) -> ZResult<()> {
         let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
         buff.write_message(&message);
         for s in buff.get_slices() {
@@ -168,10 +168,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             let pos = buff.get_pos();
             match buff.read_message() {
                 Ok(message) => {
-                    match link.transport.receive_message(&dst, &src, message).await {
-                        Ok(_) => (),
-                        Err(_) => (),
-                    };
+                    link.transport.receive_message(&dst, &src, message).await;
                     buff.clean_read_slices();
                     continue
                 },

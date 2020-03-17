@@ -5,10 +5,11 @@ mod transport;
 pub use manager::{
     SessionManager,
     SessionManagerInner,
-    Session
+    Session,
+    SessionInner
 };
 pub use queue::*;
-pub(crate) use transport::Transport;
+pub use transport::Transport;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;

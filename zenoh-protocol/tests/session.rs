@@ -92,7 +92,7 @@ async fn run(locator: Locator) {
         let sessions = manager.get_sessions().await;
         assert_eq!(sessions.len(), 1);
         let ses1 = &sessions[0];
-        assert_eq!(ses1.peer, c_cid);
+        assert_eq!(ses1.get_peer(), c_cid);
         assert_eq!(ses1.get_links().await.len(), 1);
 
         // Notify the client
@@ -103,7 +103,7 @@ async fn run(locator: Locator) {
         let sessions = manager.get_sessions().await;
         assert_eq!(sessions.len(), 1);
         let ses2 = &sessions[0];
-        assert_eq!(Arc::ptr_eq(&ses1, &ses2), true);
+        assert_eq!(ses1, ses2);
         assert_eq!(ses2.get_links().await.len(), 2);
 
         // Notify the client
@@ -150,7 +150,7 @@ async fn run(locator: Locator) {
         assert_eq!(res1.is_ok(), true);
         let ses1 = res1.unwrap();
         assert_eq!(manager.get_sessions().await.len(), 1);
-        assert_eq!(ses1.peer, c_rid);
+        assert_eq!(ses1.get_peer(), c_rid);
         assert_eq!(ses1.get_links().await.len(), 1);
 
         // Notify the router
@@ -163,7 +163,7 @@ async fn run(locator: Locator) {
         assert_eq!(res2.is_ok(), true);
         let ses2 = res2.unwrap();
         assert_eq!(manager.get_sessions().await.len(), 1);
-        assert_eq!(Arc::ptr_eq(&ses1, &ses2), true);
+        assert_eq!(ses1, ses2);
         assert_eq!(ses2.get_links().await.len(), 2);
 
         // Notify the router 
@@ -172,7 +172,7 @@ async fn run(locator: Locator) {
         c_rbr.wait().await;
         
         // Close the open session
-        let res3 = manager.close_session(&ses1.peer, None).await;
+        let res3 = manager.close_session(&ses1.get_peer(), None).await;
         assert_eq!(res3.is_ok(), true);
         assert_eq!(manager.get_sessions().await.len(), 0);
 

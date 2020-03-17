@@ -1,5 +1,9 @@
 use async_std::prelude::Future;
-use async_std::sync::Mutex;
+use async_std::sync::{
+    Arc,
+    Mutex,
+    Sender
+};
 use async_std::task::{
     Context, 
     Poll,
@@ -12,113 +16,236 @@ use crossbeam::queue::{
 };
 use std::fmt;
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 
-use crate::core::ZInt;
+use crate::core::{
+    AtomicZInt,
+    ZInt,
+    ZResult
+};
+use crate::link::Locator;
+use crate::proto::{
+    Body,
+    Message,
+    MessageKind
+};
 
 
-pub const HIGH_PRIO: usize = 0;
-pub const LOW_PRIO: usize = 99;
-
-
-pub struct PriorityQueue<T> {
-    buff: Vec<ArrayQueue<T>>,
-    w_pop: SegQueue<Waker>,
-    w_push: SegQueue<Waker>
+// Struct to add additional fields to the message
+pub struct MessageTxPush {
+    // The inner message to transmit
+    pub inner: Message, 
+    // The preferred link to transmit the Message on
+    pub link: Option<(Locator, Locator)>,
+    pub notify: Option<Sender<ZResult<()>>>
 }
 
-impl<T> PriorityQueue<T> {
-    pub fn new(capacity: usize, priorities: usize) -> Self {
-        let mut v = Vec::new();
-        for _ in 0..priorities {
-            v.push(ArrayQueue::new(capacity))
-        }
-        Self {
-            buff: v,
-            w_pop: SegQueue::new(),
-            w_push: SegQueue::new()
-        }
-    }
+pub struct MessageTxPop {
+    // The inner message to transmit
+    pub inner: Arc<Message>, 
+    // The preferred link to transmit the Message on
+    pub link: Option<(Locator, Locator)>,
+    pub notify: Option<Sender<ZResult<()>>>
+}
 
-    pub fn try_pop(&self) -> Option<T> {
-        for i in 0..self.buff.len() {
-            if let Ok(msg) = self.buff[i].pop() {
-                return Some(msg)
+impl Clone for MessageTxPop {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            link: match &self.link {
+                Some((src, dst)) => Some((src.clone(), dst.clone())),
+                None => None
+            },
+            notify: match &self.notify {
+                Some(sender) => Some(sender.clone()),
+                None => None
             }
         }
-        None
     }
+}
 
-    pub fn try_push(&self, message: T, priority: usize) -> Option<T> {
-        let queue = if priority < self.buff.len() {
-            &self.buff[priority]
-        } else {
-            &self.buff[self.buff.len()-1]
-        };
-        match queue.push(message) {
-            Ok(_) => None,
-            Err(PushError(message)) => Some(message)
+pub enum MessageTxKind {
+    SyncAck,
+    Control,
+    Fragment,
+    Data
+}
+
+// Enum for the result of ZenohQueueTx push operation
+pub enum QueueTxPopResult {
+    Ok(MessageTxPop),
+    NeedSync(MessageTxPop)
+}
+
+pub enum QueueTxTryPopResult {
+    Ok(MessageTxPop),
+    NeedSync(MessageTxPop),
+    Empty
+}
+
+// ************************ //
+//        RX QUEUE          //
+// ************************ //
+pub type QueueRx<T> = Mutex<OrderedQueue<T>>;
+
+// ************************ //
+//        TX QUEUE          //
+// ************************ //
+pub struct QueueTx {
+    // The first 4 queues might be replaced by a priority queue (min-heap)?
+    syncack: ArrayQueue<MessageTxPush>,
+    control: ArrayQueue<MessageTxPush>,
+    retransmission: ArrayQueue<MessageTxPop>,
+    fragment: ArrayQueue<MessageTxPush>,
+    // This is a separate queue
+    data: ArrayQueue<MessageTxPush>,
+    reliability: Mutex<OrderedQueue<MessageTxPop>>,
+    // The sequence number for the reliable and unreliable channels
+    sn_tx_reliable: AtomicZInt,
+    sn_tx_unreliable: AtomicZInt,
+    // The unbounded queues storing the wakers for the futures
+    w_pop: SegQueue<Waker>,
+    w_push: SegQueue<Waker>,
+    w_retx: SegQueue<Waker>
+}
+
+impl QueueTx {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            syncack: ArrayQueue::new(capacity),
+            control: ArrayQueue::new(capacity),
+            retransmission: ArrayQueue::new(capacity),
+            fragment: ArrayQueue::new(capacity),
+            data: ArrayQueue::new(capacity),
+            reliability: Mutex::new(OrderedQueue::new(capacity)),
+            sn_tx_reliable: AtomicZInt::new(0),
+            sn_tx_unreliable: AtomicZInt::new(0),
+            w_pop: SegQueue::new(),
+            w_push: SegQueue::new(),
+            w_retx: SegQueue::new()
         }
     }
 
-    pub async fn push(&self, message: T, priority: usize) {
-        struct FuturePush<'a, U> {
-            queue: &'a PriorityQueue<U>,
-            message: Mutex<Option<U>>,
-            priority: usize
+    pub async fn get_reliability_base(&self) -> ZInt {
+        self.reliability.lock().await.get_base()
+    }
+
+    pub async fn get_reliability_base_and_count(&self) -> (ZInt, ZInt) {
+        let guard = self.reliability.lock().await;
+        (guard.get_base(), guard.len() as ZInt)
+    }
+
+    pub async fn set_reliability_base(&self, sn: ZInt) {
+        self.reliability.lock().await.set_base(sn);
+        // We might have freed some space in the reliability queue
+        // Notify the pending pop operations
+        while let Ok(waker) = self.w_pop.pop() {
+            waker.wake();
         }
-        
-        impl<'a, U> Future for FuturePush<'a, U> {
-            type Output = ();
-        
-            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-                if let Some(mut guard) = self.message.try_lock() {
-                    if let Some(message) = guard.take() {
-                        self.queue.w_push.push(ctx.waker().clone());
-                        match self.queue.try_push(message, self.priority) {
-                            None => return Poll::Ready(()),
-                            Some(message) => *guard = Some(message)
+    }
+
+    fn try_pop(&self) -> QueueTxTryPopResult {
+        if let Ok(msg) = self.syncack.pop() {
+            let msg = MessageTxPop {
+                inner: Arc::new(msg.inner),
+                link: msg.link,
+                notify: msg.notify
+            };
+            return QueueTxTryPopResult::Ok(msg)
+        }
+        if let Ok(msg) = self.control.pop() {
+            let msg = MessageTxPop {
+                inner: Arc::new(msg.inner),
+                link: msg.link,
+                notify: msg.notify
+            };
+            return QueueTxTryPopResult::Ok(msg)
+        }
+        if let Ok(msg) = self.retransmission.pop() {
+            return QueueTxTryPopResult::Ok(msg)
+        }
+        if let Ok(msg) = self.fragment.pop() {
+            let msg = MessageTxPop {
+                inner: Arc::new(msg.inner),
+                link: msg.link,
+                notify: msg.notify
+            };
+            return QueueTxTryPopResult::Ok(msg)
+        }
+        // Try to access the reliability queue before trying to pop from data
+        if let Some(mut guard) = self.reliability.try_lock() {
+            // If the reliability queue is not full, we are ready to try to pop from the data queue
+            if !guard.is_full() {
+                // Try to pop from the data queue
+                if let Ok(mut msg) = self.data.pop() {
+                    // Update the sequence number 
+                    let mut new_sn: Option<ZInt> = None;
+                    // Check if the message is reliable
+                    let is_reliable = msg.inner.is_reliable();
+                    match msg.inner.body {
+                        Body::Data{reliable: _, ref mut sn, key: _, info: _, payload: _} |
+                        Body::Declare{ref mut sn, declarations: _} |
+                        Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
+                        Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                            // Update the sequence number
+                            *sn = match is_reliable {
+                                true => self.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
+                                false => self.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
+                            };
+                            new_sn = Some(*sn);
+                        },
+                        _ => {}
+                    }
+
+                    // Create the message for reliability queue
+                    let msg = MessageTxPop {
+                        inner: Arc::new(msg.inner),
+                        link: msg.link,
+                        notify: msg.notify
+                    };
+
+                    // If the message is reliable, add it to the reliability queue
+                    if is_reliable {
+                        if let Some(sn) = new_sn {
+                            guard.try_push(msg.clone(), sn);
                         }
                     }
-                }
-                Poll::Pending
-            }
-        }
 
-        impl<U> Drop for FuturePush<'_, U> {
-            fn drop(&mut self) {
-                while let Ok(waker) = self.queue.w_pop.pop() {
-                    waker.wake();
+                    // If the reliability queue 
+                    match guard.is_full() {
+                        true => return QueueTxTryPopResult::NeedSync(msg),
+                        false => return QueueTxTryPopResult::Ok(msg)
+                    }
                 }
             }
-        }
+        } 
 
-        FuturePush {
-            queue: self,
-            message: Mutex::new(Some(message)),
-            priority
-        }.await
+        QueueTxTryPopResult::Empty
     }
 
-    
-    pub async fn pop(&self) -> T {
-        struct FuturePop<'a, U> {
-            queue: &'a PriorityQueue<U>
+    pub async fn pop(&self) -> QueueTxPopResult {
+        struct FuturePop<'a> {
+            queue: &'a QueueTx
         }
         
-        impl<'a, U> Future for FuturePop<'a, U> {
-            type Output = U;
+        impl<'a> Future for FuturePop<'a> {
+            type Output = QueueTxPopResult;
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
                 self.queue.w_pop.push(ctx.waker().clone());
                 match self.queue.try_pop() {
-                    Some(msg) => Poll::Ready(msg),
-                    None => Poll::Pending
+                    QueueTxTryPopResult::Ok(message) => Poll::Ready(QueueTxPopResult::Ok(message)),
+                    QueueTxTryPopResult::NeedSync(message) => Poll::Ready(QueueTxPopResult::NeedSync(message)),
+                    QueueTxTryPopResult::Empty => Poll::Pending
                 }
             }
         }
 
-        impl<U> Drop for FuturePop<'_, U> {
+        impl Drop for FuturePop<'_> {
             fn drop(&mut self) {
+                while let Ok(waker) = self.queue.w_retx.pop() {
+                    waker.wake();
+                }
                 while let Ok(waker) = self.queue.w_push.pop() {
                     waker.wake();
                 }
@@ -129,7 +256,132 @@ impl<T> PriorityQueue<T> {
             queue: self
         }.await
     }
+    
+    fn try_push(&self, message: MessageTxPush) -> Option<MessageTxPush> {
+        let (queue, is_data) = match message.inner.kind {
+            MessageKind::FullMessage => match message.inner.body {
+                // SyncAck messages
+                Body::AckNack{..} |
+                Body::Sync{..} => (&self.syncack, false),
+                // Control messages
+                Body::Accept{..} |
+                Body::Hello{..} |
+                Body::KeepAlive{..} |
+                Body::Open{..} |
+                Body::Ping{..} |
+                Body::Pong{..} |
+                Body::Scout{..} => (&self.control, false),
+                // Close message needs to be sent last
+                Body::Close{..} => (&self.data, false),
+                // Data messages
+                Body::Data{..} |
+                Body::Declare{..} |
+                Body::Pull{..} |
+                Body::Query{..} => (&self.data, true),
+            },
+            MessageKind::FirstFragment{..} |
+            MessageKind::InbetweenFragment |
+            MessageKind::LastFragment => (&self.fragment, false),
+        };
 
+        match queue.push(message) {
+            Ok(_) => None,
+            Err(PushError(message)) => {
+                if message.inner.is_reliable() || !is_data {
+                    Some(message)
+                } else {
+                    // Don't drop the message for the time being
+                    // Return None to drop the message
+                    Some(message)
+                }
+            }
+        }
+    }
+
+    pub async fn push(&self, message: MessageTxPush) {
+        struct FuturePush<'a> {
+            queue: &'a QueueTx,
+            message: Option<MessageTxPush>
+        }
+
+        impl Unpin for FuturePush<'_> {}
+        
+        impl<'a> Future for FuturePush<'a> {
+            type Output = ();
+        
+            fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.queue.w_push.push(ctx.waker().clone());
+                let message = self.message.take().unwrap();
+                match self.queue.try_push(message) {
+                    None => Poll::Ready(()),
+                    Some(message) => {
+                        self.message = Some(message);
+                        Poll::Pending
+                    }
+                }
+            }
+        }
+
+        impl Drop for FuturePush<'_> {
+            fn drop(&mut self) {
+                while let Ok(waker) = self.queue.w_pop.pop() {
+                    waker.wake();
+                }
+            }
+        }
+
+        FuturePush {
+            queue: self,
+            message: Some(message)
+        }.await
+    }
+
+    fn try_reschedule(&self, sn: ZInt) -> bool {
+        if let Some(guard) = self.reliability.try_lock() {
+            if let Some(message) = guard.try_get(sn) {
+                // Drop the guard
+                drop(guard);
+                // Reschedule 
+                match self.retransmission.push(message) {
+                    Ok(_) => return true,
+                    Err(PushError(_)) => return false
+                }
+            }
+        }
+        false
+    }
+
+    pub async fn reschedule(&self, sn: ZInt) {
+        struct FutureRetx<'a> {
+            queue: &'a QueueTx,
+            sn: ZInt
+        }
+        
+        impl<'a> Future for FutureRetx<'a> {
+            type Output = ();
+        
+            fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+                self.queue.w_retx.push(ctx.waker().clone());
+                match self.queue.try_reschedule(self.sn) {
+                    true => Poll::Ready(()),
+                    false => Poll::Pending
+                }
+            }
+        }
+
+        impl Drop for FutureRetx<'_> {
+            fn drop(&mut self) {
+                while let Ok(waker) = self.queue.w_pop.pop() {
+                    waker.wake();
+                }
+            }
+        }
+
+        FutureRetx {
+            queue: self,
+            sn
+        }.await
+    }
 }
 
 
@@ -149,6 +401,12 @@ impl<T> OrderedElement<T> {
 
     fn into_inner(self) -> T {
         self.element
+    }
+}
+
+impl<T: Clone> OrderedElement<T> {
+    fn inner_clone(&self) -> T {
+        self.element.clone()
     }
 }
 
@@ -172,6 +430,14 @@ impl<T> OrderedQueue<T> {
             first: 0,
             last: 0,
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
     }
 
     pub fn capacity(&self) -> usize {
@@ -212,28 +478,54 @@ impl<T> OrderedQueue<T> {
     }
 
     pub fn set_base(&mut self, base: ZInt) {
+        // Compute the circular gaps
         let gap_base = base.wrapping_sub(self.first) as usize;
         let gap_last = self.last.wrapping_sub(self.first) as usize;
-        if gap_base < gap_last {
-            // SHIFT
-            for _ in 0..gap_base {
-                if let Some(_) = self.buff[self.pointer].take() {
+        
+        let count = if gap_base <= gap_last {
+            gap_base 
+        } else {
+            self.capacity()
+        };
+
+        // Iterate over the queue and consume the inner elements
+        for _ in 0..count {
+            if let Some(_) = self.buff[self.pointer].take() {
+                // Decrement the counter
+                self.counter = self.counter - 1;
+            }
+            // Increment the pointer
+            self.pointer = (self.pointer + 1) % self.capacity();
+        }
+
+        // Align the first and last sequence numbers
+        self.first = base;
+        if self.len() == 0 {
+            self.last = self.first;
+        }
+    }
+
+    // This operation does not modify the base or the pointer
+    // It simply removes an element if it matches the sn 
+    pub fn try_remove(&mut self, sn: ZInt) -> Option<T> {
+        if self.len() > 0 {
+            let gap = sn.wrapping_sub(self.first) as usize;
+            let index = (self.pointer + gap) % self.capacity();
+            if let Some(element) = &self.buff[index] {
+                if element.sn == sn {
+                    // The element is the right one, take with unwrap
+                    let element = self.buff[index].take().unwrap();
                     // Decrement the counter
                     self.counter = self.counter - 1;
+                    // Align the last sequence number if the queue is empty
+                    if self.len() == 0 {
+                        self.last = self.first;
+                    }
+                    return Some(element.into_inner())
                 }
-                self.pointer = (self.pointer + 1) % self.capacity();
-            }
-            self.first = base;
-        } else {
-            // RESET
-            self.pointer = 0;
-            self.counter = 0;
-            self.first = base;
-            self.last = base;
-            for elem in self.buff.iter_mut() {
-                elem.take();
             }
         }
+        None
     }
 
     pub fn try_pop(&mut self) -> Option<T> {
@@ -274,6 +566,24 @@ impl<T> OrderedQueue<T> {
         let index = (self.pointer + gap) % self.capacity();
         self.buff[index] = Some(OrderedElement::new(element, sn));
         
+        None
+    }
+}
+
+impl<T: Clone> OrderedQueue<T> {
+    // This operation does not modify the base or the pointer
+    // It simply gets a clone of an element if it matches the sn 
+    pub fn try_get(&self, sn: ZInt) -> Option<T> {
+        if self.len() > 0 {
+            let gap = sn.wrapping_sub(self.first) as usize;
+            let index = (self.pointer + gap) % self.capacity();
+            if let Some(element) = &self.buff[index] {
+                if element.sn == sn {
+                    // The element is the right one, take with unwrap
+                    return Some(self.buff[index].as_ref().unwrap().inner_clone())
+                }
+            }
+        }
         None
     }
 }
