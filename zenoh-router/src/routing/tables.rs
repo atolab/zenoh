@@ -117,7 +117,7 @@ impl Tables {
         };
 
         for name in subs {
-            primitives.subscriber(&ResKey::ResName {name}, &SubMode::Push).await;
+            primitives.subscriber(&ResKey::RName(name), &SubMode::Push).await;
         }
 
         res        

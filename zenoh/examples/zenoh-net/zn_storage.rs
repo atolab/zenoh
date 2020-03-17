@@ -4,35 +4,15 @@ use std::collections::HashMap;
 use async_std::sync::Arc;
 use spin::RwLock;
 use zenoh::net::*;
-use zenoh::net::ResourceKey::*;
-
-/*
-fn data_handler(res_name: &str, payload: &[u8], data_info: &[u8]) {
-    println!(">> [Storage listener] Received ('{}': '{:02x?}')", res_name, payload);
-    unsafe {
-        stored.get_or_insert(HashMap::new()).insert(res_name.into(), payload.into());
-        // stored.map(|s| s.insert(res_name, payload));
-    }
-}
-
-fn query_handler(res_name: &str, predicate: &str, send_replies: &RepliesSender, query_handle: QueryHandle) {
-    println!(">> [Query handler] Handling '{}?{}'\n", res_name, predicate);
-
-
-
-    let data = "Eval from Rust!".as_bytes().to_vec();
-    let replies = vec![(res_name, data)];
-    send_replies(query_handle, replies);
-}
-*/
-
+use zenoh::net::ResKey::*;
 
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
-    let uri     = args.get(1).map_or("/demo/example/**", |s| &s);
-    let locator = args.get(2).map_or("", |s| &s);
+    args.pop(); // ignore arg[0] (exe name)
+    let uri     = args.pop().unwrap_or("/demo/example/**".to_string());
+    let locator = args.pop().unwrap_or("".to_string());
 
     // Create a HashMap to store the keys/values receveid in data_handler closure.
     // As this map has to be used also in query_handler closure, we need to wrap it
@@ -61,7 +41,7 @@ fn main() {
 
 
     println!("Openning session...");
-    let session = open(locator, None).unwrap();
+    let session = open(&locator, None).unwrap();
 
     println!("Declaring Storage on {}", uri);
     let storage = session.declare_storage(&RName(uri), data_handler, query_handler).unwrap();

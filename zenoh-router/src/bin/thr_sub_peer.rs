@@ -114,7 +114,7 @@ fn main() {
         let primitives = tables.new_primitives(my_primitives).await;
 
         primitives.resource(&1, &"/tp".to_string().into()).await;
-        let rid = ResKey::ResId{id:1};
+        let rid = ResKey::RId(1);
         primitives.subscriber(&rid, &SubMode::Push).await;
 
         loop {

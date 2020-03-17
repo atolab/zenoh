@@ -1,21 +1,21 @@
 use std::env;
 use std::io::Read;
 use zenoh::net::*;
-use zenoh::net::ResourceKey::*;
-
+use zenoh::net::ResKey::*;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
-    let uri     = args.get(1).map_or("/demo/example/zenoh-rust-eval", |s| &s);
-    let locator = args.get(2).map_or("", |s| &s);
+    args.pop(); // ignore arg[0] (exe name)
+    let uri     = args.pop().unwrap_or("/demo/example/zenoh-rust-eval".to_string());
+    let locator = args.pop().unwrap_or("".to_string());
 
     println!("Openning session...");
-    let session = open(locator, None).unwrap();
+    let session = open(&locator, None).unwrap();
 
     // We want to use uri in query_handler closure.
     // But as this closure must take the ownership, we clone uri as rname.
-    let rname = uri.to_string();
+    let rname = uri.clone();
     let query_handler = move |res_name: &str, predicate: &str, replies_sender: &RepliesSender, query_handle: QueryHandle| {
         println!(">> [Query handler] Handling '{}?{}'", res_name, predicate);
         let data = "Eval from Rust!".as_bytes().to_vec();

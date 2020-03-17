@@ -1,16 +1,17 @@
 use std::env;
 use zenoh::net::*;
-use zenoh::net::ResourceKey::*;
+use zenoh::net::ResKey::*;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
-    let uri     = args.get(1).map_or("/demo/example/zenoh-rs-write", |s| &s);
-    let value   = args.get(2).map_or("Write from Rust!", |s| &s);
-    let locator = args.get(3).map_or("", |s| &s);
+    args.pop(); // ignore arg[0] (exe name)
+    let uri     = args.pop().unwrap_or("/demo/example/zenoh-rs-write".to_string());
+    let value   = args.pop().unwrap_or("Write from Rust!".to_string());
+    let locator = args.pop().unwrap_or("".to_string());
 
     println!("Openning session...");
-    let mut session = open(locator, None).unwrap();
+    let mut session = open(&locator, None).unwrap();
 
     // Split the uri on the last '/'. 
     // The first part will be declared as resource,
@@ -19,13 +20,13 @@ fn main() {
     let suffix = resource_name.split_off(resource_name.rfind('/').unwrap());
 
     println!("Declaring Resource {} ", resource_name);
-    let rid = session.declare_resource(&RName(&resource_name)).unwrap();
+    let rid = session.declare_resource(&RName(resource_name.clone())).unwrap();
 
     println!("Declaring Publisher on {}/**", resource_name);
-    let publ = session.declare_publisher(&RIdWithSuffix(&rid, "/**")).unwrap();
+    let publ = session.declare_publisher(&RIdWithSuffix(rid.clone(), "/**".to_string())).unwrap();
 
     println!("Writing Data ('{}': '{}')...\n", uri, value);
-    session.write(&RIdWithSuffix(&rid, &suffix), value.as_bytes()).unwrap();
+    session.write(&RIdWithSuffix(rid, suffix), value.as_bytes()).unwrap();
 
     session.undeclare_publisher(publ).unwrap();
     session.close().unwrap();

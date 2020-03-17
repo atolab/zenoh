@@ -38,6 +38,7 @@ use crate::link::{
 };
 
 
+#[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
 
 impl SessionManager {
