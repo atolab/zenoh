@@ -4,21 +4,23 @@ use spin::RwLock;
 use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, PeerId, ResKey};
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubMode, QueryTarget, QueryConsolidation, ReplySource};
+use zenoh_protocol::proto::{Primitives, SubMode, QueryTarget, QueryConsolidation, ReplySource, WhatAmI};
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 
 pub struct Face {
     pub(super) id: usize,
+    pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
     pub(super) mappings: HashMap<u64, Arc<RwLock<Resource>>>,
     pub(super) subs: Vec<Arc<RwLock<Resource>>>,
 }
 
 impl Face {
-    pub(super) fn new(id: usize, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<RwLock<Face>> {
+    pub(super) fn new(id: usize, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<RwLock<Face>> {
         Arc::new(RwLock::new(Face {
             id,
+            whatami,
             primitives,
             mappings: HashMap::new(),
             subs: Vec::new(),
@@ -42,9 +44,9 @@ impl Primitives for FaceHdl {
         Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), *rid).await;
     }
     
-    async fn subscriber(&self, reskey: &ResKey, _mode: &SubMode) {
+    async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, mode).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {

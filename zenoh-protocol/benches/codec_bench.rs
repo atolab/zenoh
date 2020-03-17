@@ -48,7 +48,7 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut WBuf)) -> ZResult<()> {
 }
 
 fn bench_make_data(payload: ArcSlice) {
-  let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload, None, None, None);
+  let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::RId(10), None, payload, None, None, None);
 }
 
 fn bench_write_data(buf: &mut WBuf, data: &Message) {
@@ -82,7 +82,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     // reply_context: Option<ReplyContext>,
     // ps: Option<Arc<Vec<Property>>> 
     let payload = ArcSlice::from(vec![0u8, 32]);
-    let data = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::ResId { id: 10 }, None, payload.clone(), None, None, None);
+    let data = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::RId(10), None, payload.clone(), None, None, None);
 
     c.bench_function(&format!("bench_one_zint_codec {}", len), |b| b.iter(|| {
       let _ = bench_one_zint_codec(black_box((rs3[0], &mut buf)));

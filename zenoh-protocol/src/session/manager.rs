@@ -38,6 +38,7 @@ use crate::link::{
 };
 
 
+#[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
 
 impl SessionManager {
@@ -52,6 +53,7 @@ impl SessionManager {
         let callback = Arc::new(DummyHandler::new());
         let session = Arc::new(Session::new(inner.clone(), 0, id, lease));
         // Start the session
+        session.start();
         session.initialize(&session, callback);
         // Add the session to the inner session manager
         inner.initialize(session.clone());
@@ -290,9 +292,11 @@ impl SessionManagerInner {
         let session = Arc::new(Session::new(a_self.clone(), id, peer.clone(), self.lease));
         // Add the session to the list of active sessions
         self.sessions.write().await.insert(peer.clone(), session.clone());
+        // Start the session 
+        session.start();
         // Notify the upper layer that a new session has been created
         let callback = self.handler.new_session(whatami, session.clone()).await;
-        // Start the session 
+        // initialize the session 
         session.initialize(&session, callback);
 
         Ok(session)
@@ -334,9 +338,12 @@ impl Session {
         }
     }
 
+    fn start(&self) {
+        Transport::start(self.transport.clone());
+    }
+
     fn initialize(&self, a_self: &Arc<Self>, callback: Arc<dyn MsgHandler + Send + Sync>) {
         self.transport.initialize(a_self.clone(), callback);
-        Transport::start(self.transport.clone());
     }
 
     async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, 
@@ -458,15 +465,6 @@ impl Session {
             }))
         }
 
-        // Check if an already established session exists with the peer
-        let target = self.manager.get_or_new_session(&self.manager, pid, whatami.clone()).await?;
-
-        // Move the transport link to the transport of the target session
-        self.manager.move_link(dst, src, &target.transport).await?;
-
-        // Set the lease to the transport
-        target.transport.set_lease(*lease).await;
-
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None
         let properties = None; // Properties always None for the time being. May change in the future.
@@ -477,7 +475,16 @@ impl Session {
         // Schedule the message for transmission
         let priority = Some(HIGH_PRIO);                         // High priority
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.schedule(message, priority, link).await;
+        self.transport.send(message, priority, link).await;
+
+        // Check if an already established session exists with the peer
+        let target = self.manager.get_or_new_session(&self.manager, pid, whatami.clone()).await?;
+
+        // Move the transport link to the transport of the target session
+        self.manager.move_link(dst, src, &target.transport).await?;
+
+        // Set the lease to the transport
+        target.transport.set_lease(*lease).await;
 
         Ok(())
     }

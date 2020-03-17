@@ -1,4 +1,5 @@
 use std::fmt;
+use super::ResourceId;
 
 #[derive(Debug, PartialEq)]
 pub enum ZErrorKind {
@@ -6,6 +7,7 @@ pub enum ZErrorKind {
     BufferUnderflow { missing: usize },
     InvalidMessage { descr: String },
     InvalidLocator { descr: String },
+    UnkownResourceId { rid: ResourceId },
     IOError { descr: String },
     Other { descr: String }
 }
@@ -22,6 +24,8 @@ impl fmt::Display for ZErrorKind {
                 write!(f, "Invalid message ({})", descr),
             ZErrorKind::InvalidLocator { descr } =>
                 write!(f, "Invalid locator ({})", descr),
+            ZErrorKind::UnkownResourceId { rid } =>
+                write!(f, "Unkown ResourceId ({})", rid),
             ZErrorKind::IOError { descr } =>
                 write!(f, "IO error ({})", descr),
             ZErrorKind::Other { descr } =>

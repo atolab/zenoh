@@ -252,59 +252,13 @@ impl Transport {
     /*************************************/
     /*   MESSAGE RECEIVE FROM THE LINK   */
     /*************************************/
-    async fn process_reliable_message(&self, message: Message, sn: ZInt) -> ZResult<()> {
-        let mut l_guard = self.queue_rx.lock().await;
-        match l_guard.try_push(message, sn) {
-            None => {
-                while let Some(message) = l_guard.try_pop() {
-                    zrwopt!(self.callback).handle_message(message).await?;
-                }
-                // A message went lost, trigger an AckNack
-                if l_guard.len() > 0 {
-                    // Create the AckNack message
-                    let sn = l_guard.get_base();
-                    let mask = match l_guard.get_mask() {
-                        0 => None,
-                        m => Some(m)
-                    };
-                    let cid = None;
-                    let properties = None;
-                    let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
-
-                    // Schedule the AckNack message
-                    let priority = Some(HIGH_PRIO);
-                    let link = None;
-                    self.schedule(acknack, priority, link).await;
-                }
-            },
-            Some(_) => {
-                // The queue is out of synch, need to synchronize with the peer
-                // Create the AckNack message
-                let sn = l_guard.get_base();
-                let mask = match l_guard.get_mask() {
-                    0 => None,
-                    m => Some(m)
-                };
-                let cid = None;
-                let properties = None;
-                let acknack = Arc::new(Message::make_ack_nack(sn, mask, cid, properties));
-
-                // Schedule the AckNack message
-                let priority = Some(HIGH_PRIO);
-                let link = None;
-                self.schedule(acknack, priority, link).await;
-        }
-        }
+    async fn process_reliable_message(&self, message: Message, _sn: ZInt) -> ZResult<()> {
+        zrwopt!(self.callback).handle_message(message).await?;
         Ok(())
     }
 
-    async fn process_unreliable_message(&self, message: Message, sn: ZInt) -> ZResult<()> {
-        let mut l_guard = self.last_sn_unreliable.lock().await;
-        let gap = sn.wrapping_sub(*l_guard);
-        if gap < ZInt::max_value()/2 {
-            *l_guard = sn;
-            zrwopt!(self.callback).handle_message(message).await?;
-        }
+    async fn process_unreliable_message(&self, message: Message, _sn: ZInt) -> ZResult<()> {
+        zrwopt!(self.callback).handle_message(message).await?;
         Ok(())
     }
 

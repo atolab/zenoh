@@ -1,26 +1,27 @@
 use std::env;
 use std::io::Read;
 use zenoh::net::*;
-use zenoh::net::ResourceKey::*;
+use zenoh::net::ResKey::*;
 
 fn data_handler(res_name: &str, payload: &[u8], data_info: &[u8]) {
     println!("FUNCTION >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let mut args: Vec<String> = env::args().collect();
 
-    let uri     = args.get(1).map_or("/demo/example/**", |s| &s);
-    let locator = args.get(2).map_or("", |s| &s);
+    args.pop(); // ignore arg[0] (exe name)
+    let uri     = args.pop().unwrap_or("/demo/example/**".to_string());
+    let locator = args.pop().unwrap_or("".to_string());
 
     println!("Openning session...");
-    let session = open(locator, None).unwrap();
+    let session = open(&locator, None).unwrap();
 
     println!("Declaring Subscriber on {}", uri);
 
-    let sub = session.declare_subscriber(&RName(uri), SubMode::Push, data_handler).unwrap();
+    let sub = session.declare_subscriber(&RName(uri.clone()), &SubMode::Push, data_handler).unwrap();
 
-    let sub2 = session.declare_subscriber(&RName(uri), SubMode::Push,
+    let sub2 = session.declare_subscriber(&RName(uri), &SubMode::Push,
         |res_name: &str, payload: &[u8], data_info: &[u8]| {
             println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
         }

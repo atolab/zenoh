@@ -3,17 +3,16 @@ use std::sync::{Arc, Weak};
 use spin::RwLock;
 use std::collections::{HashMap};
 use zenoh_protocol::core::rname::intersect;
+use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::Primitives;
+use zenoh_protocol::proto::{Primitives, SubMode, Mux, DeMux, WhatAmI};
+use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
-use zenoh_protocol::proto::{Mux, DeMux, WhatAmI};
-use zenoh_protocol::session::{SessionHandler, MsgHandler};
 
 /// # Example: 
 /// ```
 ///   use async_std::sync::Arc;
-///   use zenoh_protocol::core::ResKey::*;
 ///   use zenoh_protocol::core::PeerId;
 ///   use zenoh_protocol::io::ArcSlice;
 ///   use zenoh_protocol::proto::WhatAmI::Peer;
@@ -57,17 +56,17 @@ impl TablesHdl {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, primitives).await.upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, WhatAmI::Client, primitives).await.upgrade().unwrap().clone(),
         })
     }
 }
 
 #[async_trait]
 impl SessionHandler for TablesHdl {
-    async fn new_session(&self, _whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, Arc::new(Mux::new(session))).await.upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, whatami, Arc::new(Mux::new(session))).await.upgrade().unwrap().clone(),
         }))
     }
 }
@@ -98,14 +97,30 @@ impl Tables {
         Resource::print_tree(&tables.read().root_res)
     }
 
-    pub async fn declare_session(tables: &Arc<RwLock<Tables>>, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
-        let mut t = tables.write();
-        let sid = t.sex_counter;
-        t.sex_counter += 1;
-        if ! t.faces.contains_key(&sid) {
-            t.faces.insert(sid, Face::new(sid, primitives));
+    pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
+        let (res, subs) = {
+            let mut t = tables.write();
+            let sid = t.sex_counter;
+            t.sex_counter += 1;
+            if ! t.faces.contains_key(&sid) {
+                t.faces.insert(sid, Face::new(sid, whatami, primitives.clone()));
+            }
+            let subs = t.faces.iter().map(|(id, face)| {
+                if *id != sid {
+                    let rface = face.read();
+                    rface.subs.iter().map(|sub| sub.read().name()).collect::<Vec<String>>()
+                } else {
+                    vec![]
+                }
+            }).collect::<Vec<Vec<String>>>().concat();
+            (Arc::downgrade(t.faces.get(&sid).unwrap()), subs)
+        };
+
+        for name in subs {
+            primitives.subscriber(&ResKey::RName(name), &SubMode::Push).await;
         }
-        Arc::downgrade(t.faces.get(&sid).unwrap())
+
+        res        
     }
 
     pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
@@ -154,7 +169,7 @@ impl Tables {
 
     fn make_and_match_resource(from: &Arc<RwLock<Resource>>, prefix: &Arc<RwLock<Resource>>, suffix: &str) -> Arc<RwLock<Resource>> {
         let res = Resource::make_resource(prefix, suffix);
-        let matches = Tables::get_matches_from(suffix, from);
+        let matches = Tables::get_matches_from(&res.read().name(), from);
 
         fn matches_contain(matches: &Vec<Weak<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
@@ -243,49 +258,69 @@ impl Tables {
         }
     }
 
-    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str) {
-        let t = tables.write();
-        match sex.upgrade() {
-            Some(sex) => {
-                let mut wsex = sex.write();
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(&t.root_res)}
-                        prefixid => {
-                            match wsex.mappings.get(&prefixid) {
-                                Some(prefix) => {Some(prefix)}
-                                None => {None}
-                            }
-                        }
-                    }
-                };
-                match prefix {
-                    Some(prefix) => {
-                        let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
-                        {
-                            let mut wres = res.write();
-                            match wres.contexts.get(&wsex.id) {
-                                Some(ctx) => {
-                                    ctx.write().subs = Some(false);
-                                }
-                                None => {
-                                    wres.contexts.insert(wsex.id, 
-                                        Arc::new(RwLock::new(Context {
-                                            face: sex.clone(),
-                                            rid: None,
-                                            subs: Some(false),
-                                        }))
-                                    );
+    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str, mode: &SubMode) {
+        let result = {
+            let t = tables.write();
+            match sex.upgrade() {
+                Some(sex) => {
+                    let mut wsex = sex.write();
+                    let prefix = {
+                        match prefixid {
+                            0 => {Some(&t.root_res)}
+                            prefixid => {
+                                match wsex.mappings.get(&prefixid) {
+                                    Some(prefix) => {Some(prefix)}
+                                    None => {None}
                                 }
                             }
                         }
-                        Tables::build_matches_direct_tables(&res);
-                        wsex.subs.push(res);
+                    };
+                    match prefix {
+                        Some(prefix) => {
+                            let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
+                            {
+                                let mut wres = res.write();
+                                match wres.contexts.get(&wsex.id) {
+                                    Some(ctx) => {
+                                        ctx.write().subs = Some(false);
+                                    }
+                                    None => {
+                                        wres.contexts.insert(wsex.id, 
+                                            Arc::new(RwLock::new(Context {
+                                                face: sex.clone(),
+                                                rid: None,
+                                                subs: Some(false),
+                                            }))
+                                        );
+                                    }
+                                }
+                            }
+                            Tables::build_matches_direct_tables(&res);
+                            wsex.subs.push(res.clone());
+
+                            let name = res.read().name();
+                            let mut faces = vec![];
+
+                            for (id, face) in &t.faces {
+                                if wsex.id != *id {
+                                    let rface = face.read();
+                                    if wsex.whatami != WhatAmI::Peer || rface.whatami != WhatAmI::Peer {
+                                        faces.push(rface.primitives.clone());
+                                    }
+                                }
+                            }
+                            Some((name, faces))
+                        }
+                        None => {println!("Declare subscription for unknown rid {}!", prefixid); None}
                     }
-                    None => println!("Declare subscription for unknown rid {}!", prefixid)
                 }
+                None => {println!("Declare subscription for closed session!"); None}
             }
-            None => println!("Declare subscription for closed session!")
+        };
+        if let Some((name, faces)) = result {
+            for face in faces {
+                face.subscriber(&(name.clone().into()), mode).await;
+            }
         }
     }
 
@@ -463,21 +498,35 @@ impl Tables {
                     }
                 }
             }
-            None => {println!("Declare subscription for closed session!"); None}
+            None => {println!("Route data for closed session!"); None}
         }
     }
 
     pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
-        if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
-            for (_, (face, rid, suffix)) in outfaces {
-                // TODO move primitives out of inner mutability
-                let primitives = {
-                    let strongface = face.upgrade().unwrap();
-                    let rface = strongface.read();
-                    rface.primitives.clone()
-                };
-                primitives.data(&(rid, suffix).into(), info, payload).await;
+        match sex.upgrade() {
+            Some(strongsex) => {
+                if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
+                    for (_id, (face, rid, suffix)) in outfaces {
+                        if ! Weak::ptr_eq(sex, &face) {
+                            // TODO move primitives out of inner mutability
+                            let strongface = face.upgrade().unwrap();
+                            let primitives = {
+                                let rface = strongface.read();
+                                if strongsex.read().whatami != WhatAmI::Peer || rface.whatami != WhatAmI::Peer {
+                                    Some(rface.primitives.clone())
+                                } else {
+                                    None
+                                }
+                            };
+                            match primitives {
+                                Some(primitives) => {primitives.data(&(rid, suffix).into(), info, payload).await}
+                                None => ()
+                            }
+                        }
+                    }
+                }
             }
+            None => {println!("Route data for closed session!")}
         }
     }
 }

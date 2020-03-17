@@ -1,5 +1,5 @@
 use crate::io::WBuf;
-use crate::core::{ZInt, Property, ResKey, TimeStamp};
+use crate::core::{ZInt, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
@@ -288,15 +288,15 @@ impl WBuf {
 
     fn write_reskey(&mut self, key: &ResKey) {
         match key {
-            ResKey::ResId { id } => {
-                self.write_zint(*id);
+            ResKey::RId(rid) => {
+                self.write_zint(*rid);
             }
-            ResKey::ResName { name } => {
-                self.write_zint(0 as ZInt);
+            ResKey::RName(name) => {
+                self.write_zint(NO_RESOURCE_ID);
                 self.write_string(name);
             }
-            ResKey::ResGenId{ id, suffix} => {
-                self.write_zint(*id);
+            ResKey::RIdWithSuffix(rid, suffix) => {
+                self.write_zint(*rid);
                 self.write_string(suffix);
             }
         }

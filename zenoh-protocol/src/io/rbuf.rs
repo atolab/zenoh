@@ -97,6 +97,13 @@ impl RBuf {
         &self.slices[self.pos.0]
     }
 
+    pub fn clean_read_slices(&mut self) {
+        if self.pos.0 > 0 {
+            self.slices.drain(0..self.pos.0);
+            self.pos.0 = 0;
+        }
+    }
+
     #[inline]
     pub fn can_read(&self) -> bool {
         self.pos.0 < self.slices.len() &&
@@ -104,7 +111,7 @@ impl RBuf {
     }
 
     pub fn readable(&self) -> usize {
-        if self.is_emtpy() {
+        if ! self.can_read() {
             0
         } else {
             let mut result = self.current_slice().len() - self.pos.1;
