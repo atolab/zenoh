@@ -52,6 +52,7 @@ impl SessionManager {
         let callback = Arc::new(DummyHandler::new());
         let session = Arc::new(Session::new(inner.clone(), 0, id, lease));
         // Start the session
+        session.start();
         session.initialize(&session, callback);
         // Add the session to the inner session manager
         inner.initialize(session.clone());
@@ -290,9 +291,11 @@ impl SessionManagerInner {
         let session = Arc::new(Session::new(a_self.clone(), id, peer.clone(), self.lease));
         // Add the session to the list of active sessions
         self.sessions.write().await.insert(peer.clone(), session.clone());
+        // Start the session 
+        session.start();
         // Notify the upper layer that a new session has been created
         let callback = self.handler.new_session(whatami, session.clone()).await;
-        // Start the session 
+        // initialize the session 
         session.initialize(&session, callback);
 
         Ok(session)
@@ -334,9 +337,12 @@ impl Session {
         }
     }
 
+    fn start(&self) {
+        Transport::start(self.transport.clone());
+    }
+
     fn initialize(&self, a_self: &Arc<Self>, callback: Arc<dyn MsgHandler + Send + Sync>) {
         self.transport.initialize(a_self.clone(), callback);
-        Transport::start(self.transport.clone());
     }
 
     async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, 
