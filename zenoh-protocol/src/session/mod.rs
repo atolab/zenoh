@@ -15,7 +15,7 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
-use crate::proto::Message;
+use crate::proto::{Message, WhatAmI};
 
 
 /*********************************************************/
@@ -29,7 +29,7 @@ pub trait MsgHandler {
 
 #[async_trait]
 pub trait SessionHandler {
-    async fn new_session(&self, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync>;
+    async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync>;
 }
 
 // Define an empty SessionCallback for the listener session
@@ -43,7 +43,8 @@ impl DummyHandler {
 
 #[async_trait]
 impl MsgHandler for DummyHandler {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        println!("!!! WARNING: DummyHandler::handle_message({:?}) => dropped", message.body);
         Ok(())
     }
     async fn close(&self) {}

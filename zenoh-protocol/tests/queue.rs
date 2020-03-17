@@ -291,6 +291,10 @@ fn ordered_queue_rebase() {
 
     // Verify that the correct length of the queue
     assert_eq!(queue.len(), 0);
+
+    // Verify that the mask is correct
+    let mask = 0b0;
+    assert_eq!(queue.get_mask(), mask);
 }
 
 #[test]

@@ -165,9 +165,19 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             })))
         }
         loop {
+            let pos = buff.get_pos();
             match buff.read_message() {
-                Ok(message) => link.transport.receive_message(&dst, &src, message).await,
-                Err(_) => break
+                Ok(message) => {
+                    link.transport.receive_message(&dst, &src, message).await;
+                    buff.clean_read_slices();
+                    continue
+                },
+                Err(_) => {
+                    if let Err(_) = buff.set_pos(pos) {
+                        panic!("Unrecoverable error in TCP read loop!")
+                    }
+                    break
+                }
             }
         }
         Some(Command::Ok)

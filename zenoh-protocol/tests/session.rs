@@ -28,7 +28,7 @@ impl SHRouter {
 
 #[async_trait]
 impl SessionHandler for SHRouter {
-    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, _whatami: WhatAmI, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DummyHandler::new())
     }
 }
@@ -45,7 +45,7 @@ impl SHClient {
 
 #[async_trait]
 impl SessionHandler for SHClient {
-    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, _whatami: WhatAmI, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DummyHandler::new())
     }
 }

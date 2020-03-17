@@ -64,7 +64,6 @@ async fn consume_loop(transport: Arc<Transport>) {
                 transport.synchronize().await
             }
         }
-
         Some(true)
     }
     
@@ -307,28 +306,7 @@ impl Transport {
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
     async fn process_reliable_message(&self, message: Message, sn: ZInt) {
-        let mut l_guard = self.queue_rx.lock().await;
-        // Add the message to the receiving queue and trigger an AckNack when necessary
-        match l_guard.try_push(message, sn) {
-            None => {
-                while let Some(message) = l_guard.try_pop() {
-                    let _ = zrwopt!(self.callback).handle_message(message).await;
-                }
-                // Try to avoid filling up the queue by sending an ack_nack earlier
-                if l_guard.len() > l_guard.capacity()/2 {
-                    // Drop the guard to allow the acknowledge to access to the queue
-                    drop(l_guard);
-                    // Send an acknowledgment triggering the retransmission
-                    self.acknowledge().await;
-                }
-            },
-            Some(_) => {
-                // Drop the guard to allow the acknowledge to access to the queue
-                drop(l_guard);
-                // Send an acknowledgment triggering the retransmission
-                self.acknowledge().await;
-            }
-        }
+        let _ = zrwopt!(self.callback).handle_message(message).await;
     }
 
     async fn process_unreliable_message(&self, message: Message, sn: ZInt) {
@@ -369,8 +347,8 @@ impl Transport {
 
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) {
         match &message.body {
-            Body::Accept{opid, apid, lease} => {
-                zrwopt!(self.session).process_accept(src, dst, opid, apid, lease).await;
+            Body::Accept{whatami, opid, apid, lease} => {
+                zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, lease).await;
             },
             Body::AckNack{sn, mask} => {
                 self.process_acknack(sn, mask).await;

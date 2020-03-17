@@ -171,20 +171,22 @@ fn open_tests() {
   test_open(true, gen!(u8), WhatAmI::Client, gen_pid(), gen!(ZInt), Some(locators.clone()));
 }
 
-fn test_accept(with_decorators: bool, opid: PeerId, apid: PeerId, lease: ZInt)
+fn test_accept(with_decorators: bool, whatami: WhatAmI, opid: PeerId, apid: PeerId, lease: ZInt)
 {
   let msg = if with_decorators {
-    Message::make_accept(opid, apid, lease, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
+    Message::make_accept(whatami, opid, apid, lease, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
-    Message::make_accept(opid, apid, lease, None, None)
+    Message::make_accept(whatami, opid, apid, lease, None, None)
   };
   test_write_read_message(msg);
 }
 
 #[test]
 fn accept_tests() {
-  test_accept(false, gen_pid(), gen_pid(), gen!(ZInt));
-  test_accept(true, gen_pid(), gen_pid(), gen!(ZInt));
+  test_accept(false, WhatAmI::Broker, gen_pid(), gen_pid(), gen!(ZInt));
+  test_accept(true, WhatAmI::Broker, gen_pid(), gen_pid(), gen!(ZInt));
+  test_accept(false, WhatAmI::Client, gen_pid(), gen_pid(), gen!(ZInt));
+  test_accept(true, WhatAmI::Client, gen_pid(), gen_pid(), gen!(ZInt));
 }
 
 fn test_close(with_decorators: bool, pid: Option<PeerId>, reason: u8)

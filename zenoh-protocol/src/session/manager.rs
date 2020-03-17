@@ -37,6 +37,7 @@ use crate::link::{
 };
 
 
+#[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
 
 impl SessionManager {
@@ -51,9 +52,10 @@ impl SessionManager {
         let callback = Arc::new(DummyHandler::new());
         let session_inner = Arc::new(SessionInner::new(manager_inner.clone(), 0, id, lease));
         // Start the session
-        session_inner.initialize(&session_inner, callback);
+        session_inner.start();
+        session_inner.initialize(&session_inner.clone(), callback);
         // Add the session to the inner session manager
-        manager_inner.initialize(session_inner.clone());
+        manager_inner.initialize(session_inner);
 
         Self(manager_inner)
     }
@@ -82,7 +84,7 @@ impl SessionManager {
         };
 
         // Check if an already established session exists with the peer
-        let session_inner = self.0.get_or_new_session(&self.0, &notification.peer).await;
+        let session_inner = self.0.get_or_new_session(&self.0, &notification.peer, &notification.whatami).await;
 
         // Move the link to the target session
         self.0.move_link(&notification.dst, &notification.src, &session_inner.transport).await?;
@@ -98,8 +100,8 @@ impl SessionManager {
         session_inner.close(reason).await
     }
 
-    pub async fn init_session(&self, peer: &PeerId) -> ZResult<Session> {
-        let inner = self.0.new_session(&self.0, peer).await?;
+    pub async fn init_session(&self, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Session> {
+        let inner = self.0.new_session(&self.0, peer, whatami).await?;
         Ok(Session::new(inner))
     }
 
@@ -247,13 +249,13 @@ impl SessionManagerInner {
         zrwopt!(self.initial).clone()
     }
 
-    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> Arc<SessionInner> {
+    async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId, whatami: &WhatAmI) -> Arc<SessionInner> {
         let r_guard = self.sessions.read().await;
         match r_guard.get(peer) {
             Some(wrapper) => wrapper.clone(),
             None => {
                 drop(r_guard);
-                self.new_session(a_self, peer).await.unwrap()
+                self.new_session(a_self, peer, whatami).await.unwrap()
             }
         }
     }
@@ -270,7 +272,7 @@ impl SessionManagerInner {
         }
     }
 
-    async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
+    async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Arc<SessionInner>> {
         if let Some(_) = self.sessions.read().await.get(peer) {
             return Err(zerror!(ZErrorKind::Other{
                 descr: format!("Session with peer ({:?}) already exists.", peer)
@@ -283,9 +285,11 @@ impl SessionManagerInner {
         let session_inner = Arc::new(SessionInner::new(a_self.clone(), id, peer.clone(), self.lease));
         // Add the session to the list of active sessions
         self.sessions.write().await.insert(peer.clone(), session_inner.clone());
-        // Notify the upper layer that a new session has been created
-        let callback = self.handler.new_session(session_inner.clone()).await;
         // Start the session 
+        session_inner.start();
+        // Notify the upper layer that a new session has been created
+        let callback = self.handler.new_session(whatami.clone(), session_inner.clone()).await;
+        // initialize the session 
         session_inner.initialize(&session_inner, callback);
 
         Ok(session_inner)
@@ -298,14 +302,15 @@ impl SessionManagerInner {
 /*************************************/
 struct NotificationNewSession {
     peer: PeerId,
+    whatami: WhatAmI,
     lease: ZInt,
     src: Locator,
     dst: Locator
 }
 
 impl NotificationNewSession {
-    fn new(peer: PeerId, lease: ZInt, src: Locator, dst: Locator) -> Self {
-        Self { peer, lease, src, dst }
+    fn new(peer: PeerId, whatami: WhatAmI, lease: ZInt, src: Locator, dst: Locator) -> Self {
+        Self { peer, whatami, lease, src, dst }
     }
 }
 
@@ -383,9 +388,12 @@ impl SessionInner {
         }
     }
 
+    fn start(&self) {
+        Transport::start(self.transport.clone());
+    }
+
     fn initialize(&self, a_self: &Arc<Self>, callback: Arc<dyn MsgHandler + Send + Sync>) {
         self.transport.initialize(a_self.clone(), callback);
-        Transport::start(self.transport.clone());
     }
 
     async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, 
@@ -453,7 +461,7 @@ impl SessionInner {
     /*              PROCESS              */
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
-        opid: &PeerId, apid: &PeerId, lease: &ZInt
+        whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: &ZInt
     ) {
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
@@ -464,7 +472,7 @@ impl SessionInner {
         let key = (dst.clone(), src.clone());
         if let Some(sender) = self.channels.write().await.remove(&key) {
             let notification = NotificationNewSession::new(
-                apid.clone(), lease.clone(), src.clone(), dst.clone()
+                apid.clone(), whatami.clone(), lease.clone(), src.clone(), dst.clone()
             );
             sender.send(Ok(notification)).await;
         }
@@ -482,7 +490,7 @@ impl SessionInner {
     }
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
-        version: &u8, _whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
+        version: &u8, whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
     ) { 
         // Ignore whatami and locators for the time being
 
@@ -492,7 +500,7 @@ impl SessionInner {
         }
 
         // Check if an already established session exists with the peer
-        let target = self.manager.get_or_new_session(&self.manager, pid).await;
+        let target = self.manager.get_or_new_session(&self.manager, pid, whatami).await;
 
         // Move the transport link to the transport of the target session
         let _ = self.manager.move_link(dst, src, &target.transport).await;
@@ -504,7 +512,7 @@ impl SessionInner {
         let conduit_id = None;  // Conduit ID always None
         let properties = None;  // Properties always None for the time being. May change in the future.
         let message = Message::make_accept(
-            pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
+            self.manager.whatami.clone(), pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
         );
 
         // Schedule the message for transmission

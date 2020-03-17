@@ -15,6 +15,9 @@ pub type ZInt = u64;
 pub type AtomicZInt = AtomicU64;
 pub const ZINT_MAX_BYTES : usize = 10;
 
+pub type ResourceId = ZInt;
+pub const NO_RESOURCE_ID: ResourceId = 0;
+
 ///  7 6 5 4 3 2 1 0
 /// +-+-+-+-+-+-+-+-+
 /// ~      id       — if ResName{name} : id=0
@@ -24,50 +27,90 @@ pub const ZINT_MAX_BYTES : usize = 10;
 ///
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum ResKey {
-  ResId { id: ZInt},
-  ResName { name: String},
-  ResGenId{ id: ZInt, suffix: String},  // id cannot be 0 in this case
+  RName(String),
+  RId(ResourceId),
+  RIdWithSuffix(ResourceId, String),
+}
+use ResKey::*;
+
+impl ResKey {
+  pub fn rid(&self) -> ResourceId {
+      match self {
+          RName(_) => NO_RESOURCE_ID,
+          RId(rid) | RIdWithSuffix(rid, _) => *rid,
+      }
+  }
+
+  pub fn is_numerical(&self) -> bool {
+    match self {
+      RId(_) => true,
+      _ => false
+    }
+  }
 }
 
-impl From<ZInt> for ResKey {
-  fn from(id: ZInt) -> ResKey {
-    ResKey::ResId { id }
+impl fmt::Display for ResKey {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      match self {
+          RName(name) => write!(f, "{}", name),
+          RId(rid) => write!(f, "{}", rid),
+          RIdWithSuffix(rid, suffix) => write!(f, "{}+{}", rid, suffix),
+      }
+  }
+}
+
+impl From<ResourceId> for ResKey {
+  fn from(rid: ResourceId) -> ResKey {
+      RId(rid)
+  }
+}
+
+impl From<&str> for ResKey {
+  fn from(name: &str) -> ResKey {
+      RName(name.to_string())
   }
 }
 
 impl From<String> for ResKey {
   fn from(name: String) -> ResKey {
-    ResKey::ResName { name }
+      RName(name)
   }
 }
 
-impl From<(ZInt, String)> for ResKey {
-  fn from((id, suffix): (ZInt, String)) -> ResKey {
-    match id {  
-      0 => ResKey::ResName { name: suffix },
-      _ => ResKey::ResGenId { id, suffix }
+impl From<(ResourceId, &str)> for ResKey {
+  fn from(tuple: (ResourceId, &str)) -> ResKey {
+    if tuple.1.len() == 0 {
+      RId(tuple.0)
+    } else if tuple.0 == NO_RESOURCE_ID {
+      RName(tuple.1.to_string())
+    } else {
+      RIdWithSuffix(tuple.0, tuple.1.to_string())
     }
   }
 }
 
-impl<'a> From<&'a ResKey> for (ZInt, &'a str) {
-  fn from(key: &'a ResKey) -> (ZInt, &'a str) {
+impl From<(ResourceId, String)> for ResKey {
+  fn from(tuple: (ResourceId, String)) -> ResKey {
+    if tuple.1.len() == 0 {
+      RId(tuple.0)
+    } else if tuple.0 == NO_RESOURCE_ID {
+      RName(tuple.1)
+    } else {
+      RIdWithSuffix(tuple.0, tuple.1)
+    }
+  }
+}
+
+impl<'a> From<&'a ResKey> for (ResourceId, &'a str) {
+  fn from(key: &'a ResKey) -> (ResourceId, &'a str) {
     match key {
-      ResKey::ResId {id} => {(*id, "")} 
-      ResKey::ResName {name} => {(0, &name[..])} //(&(0 as u64)
-      ResKey::ResGenId{id, suffix} => {(*id, &suffix[..])} 
+      RId(rid) => (*rid, ""),
+      RName(name) => (NO_RESOURCE_ID, &name[..]), //(&(0 as u64)
+      RIdWithSuffix(rid, suffix) => (*rid, &suffix[..])
     }
   }
 }
 
-impl ResKey {
-  pub fn is_numerical(&self) -> bool {
-    match self {
-      ResKey::ResId {id: _} => true,
-      _ => false
-    }
-  }
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Property {

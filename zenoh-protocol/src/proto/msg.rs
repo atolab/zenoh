@@ -226,15 +226,17 @@ pub enum Body {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X|  ACCEPT |
+    /// |X|X|W|  ACCEPT |
     /// +---------------+
+    /// ~    whatami    ~ if (W==1) -- otherwise the answer if from a broker
+	/// +---------------+
     /// ~     OPID      ~  -- PID of the sender of the OPEN
     /// +---------------+  -- PID of the "responder" to the OPEN, i.e. accepting entity.
     /// ~     APID      ~
 	/// +---------------+
 	/// ~ lease_period  ~
     /// +---------------+
-    Accept { opid: PeerId, apid: PeerId, lease: ZInt },
+    Accept { whatami: WhatAmI, opid: PeerId, apid: PeerId, lease: ZInt },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -495,13 +497,17 @@ impl Message {
         }
     }
     
-    pub fn make_accept(opid: PeerId, apid: PeerId, lease: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
-        let header = id::ACCEPT;
+    pub fn make_accept(whatami: WhatAmI, opid: PeerId, apid: PeerId, lease: ZInt, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+        let wflag = match whatami {
+            WhatAmI::Broker=> 0,
+            _ => flag::W
+        };
+        let header = id::ACCEPT | wflag;
         Message {
             has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
-            body: Body::Accept { opid, apid, lease },
+            body: Body::Accept { whatami, opid, apid, lease },
             kind: MessageKind::FullMessage,
             reply_context: None,
             properties: ps

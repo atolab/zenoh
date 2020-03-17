@@ -1,6 +1,6 @@
 [package]
 name = "zenoh-router"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,6 +9,7 @@ edition = "2018"
 async-std = { version = "1.4.0", features = ["unstable"] }
 async-trait = "0.1.22"
 spin = "0.5.2"
+rand = "0.7.3"
 zenoh-protocol =  { version = "0.5.0", path = "../zenoh-protocol" }
 
 [dev-dependencies]
@@ -17,3 +18,39 @@ criterion = "0.3.1"
 [[bench]]
 name = "tables_bench"
 harness = false
+
+[[bin]]
+name = "broker"
+test = false
+bench = false
+
+[[bin]]
+name = "client"
+test = false
+bench = false
+
+[[bin]]
+name = "peer"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_sub_client"
+test = false
+bench = false
+
+
+[[bin]]
+name = "thr_pub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_sub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_pub_peer"
+test = false
+bench = false

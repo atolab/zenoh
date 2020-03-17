@@ -49,7 +49,7 @@ impl SHRouter {
 
 #[async_trait]
 impl SessionHandler for SHRouter {
-    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, _whatami: WhatAmI, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         let arc = Arc::new(SCRouter::new());
         self.session.lock().await.push(arc.clone());
         arc
@@ -105,7 +105,7 @@ impl SHClient {
 
 #[async_trait]
 impl SessionHandler for SHClient {
-    async fn new_session(&self, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
+    async fn new_session(&self, _whatami: WhatAmI, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(SCClient::new())
     }
 }
@@ -173,7 +173,7 @@ async fn transport_base_inner() {
         let manager = SessionManager::new(version, whatami, id, lease, routing.clone());
 
         // Create an empty session with the client
-        let session = manager.init_session(&c_client_id).await.unwrap();
+        let session = manager.init_session(&c_client_id, &WhatAmI::Client).await.unwrap();
         // Manually create a dummy link
         let link_inner = Arc::new(LinkDummy::new(
             c_router_addr, c_client_addr, router_receiver, c_client_sender, 
@@ -232,7 +232,7 @@ async fn transport_base_inner() {
         let manager = SessionManager::new(version, whatami, id, lease, client);
 
         // Create an empty session with the client
-        let session = manager.init_session(&c_router_id).await.unwrap();
+        let session = manager.init_session(&c_router_id, &WhatAmI::Router).await.unwrap();
         // Manually create a dummy link
         let link_inner = Arc::new(LinkDummy::new(
             c_client_addr, c_router_addr, client_receiver, c_router_sender, 
@@ -252,7 +252,7 @@ async fn transport_base_inner() {
         let kind = MessageKind::FullMessage;
         let reliable = false; // This will need to be changed at true
         let sn = 0;
-        let key = ResKey::ResName{ name: "test".to_string() };
+        let key = ResKey::RName("test".to_string());
         let info = None;
         let payload = ArcSlice::new(Arc::new(vec![0u8; 1]), 0, 1);
         let reply_context = None;
@@ -276,7 +276,7 @@ async fn transport_base_inner() {
         let kind = MessageKind::FullMessage;
         let reliable = false; 
         let sn = 0;
-        let key = ResKey::ResName{ name: "test".to_string() };
+        let key = ResKey::RName("test".to_string());
         let info = None;
         let payload = ArcSlice::new(Arc::new(vec![0u8; 1]), 0, 1);
         let reply_context = None;

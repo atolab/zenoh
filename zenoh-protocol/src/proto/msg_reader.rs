@@ -1,5 +1,5 @@
 use crate::io::{ArcSlice, RBuf};
-use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::core::{ZError, ZInt, PeerId, Property, ResourceId, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
@@ -69,10 +69,13 @@ impl RBuf {
                 }
 
                 ACCEPT => {
+                    let whatami = if flag::has_flag(header, flag::W) {
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
                     let opid = self.read_peerid()?;
                     let apid = self.read_peerid()?;
                     let lease = self.read_zint()?;
-                    return Ok(Message::make_accept(opid, apid, lease, cid, properties));
+                    return Ok(Message::make_accept(whatami, opid, apid, lease, cid, properties));
                 }
 
                 CLOSE => {
@@ -301,13 +304,13 @@ impl RBuf {
     fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, ZError> {
         let id = self.read_zint()?;
         if is_numeric {
-            Ok(ResKey::ResId{ id })
+            Ok(ResKey::RId(id))
         } else {
             let s = self.read_string()?;
-            if id == 0 {
-                Ok(ResKey::ResName{ name: s })
+            if id == NO_RESOURCE_ID {
+                Ok(ResKey::RName(s))
             } else {
-                Ok(ResKey::ResGenId{ id, suffix: s })
+                Ok(ResKey::RIdWithSuffix(id, s))
             }
         }
     }
