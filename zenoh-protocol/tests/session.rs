@@ -147,31 +147,24 @@ async fn run(locator: Locator) {
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&c_loc).await;
-        println!("< OPENED!");
         assert_eq!(res1.is_ok(), true);
         let ses1 = res1.unwrap();
         assert_eq!(manager.get_sessions().await.len(), 1);
-        println!("< LEN!");
         assert_eq!(ses1.get_peer(), c_rid);
         assert_eq!(ses1.get_links().await.len(), 1);
-        println!("< LINKS!");
 
         // Notify the router
         c_cbr.wait().await;
         // Wait for the router
         c_rbr.wait().await;
 
-        println!("< READY TO START!");
         // Open session -> This should be accepted
         let res2 = manager.open_session(&c_loc).await;
-        println!("< OPENED!");
         assert_eq!(res2.is_ok(), true);
         let ses2 = res2.unwrap();
         assert_eq!(manager.get_sessions().await.len(), 1);
-        println!("< LEN!");
         assert_eq!(ses1, ses2);
         assert_eq!(ses2.get_links().await.len(), 2);
-        println!("< LINKS!");
 
         // Notify the router 
         c_cbr.wait().await;

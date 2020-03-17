@@ -81,22 +81,14 @@ impl SessionManager {
             }))
         };
 
-        println!("> NOTIFICATION RECEIVED!");
-
         // Check if an already established session exists with the peer
         let session_inner = self.0.get_or_new_session(&self.0, &notification.peer).await;
-
-        println!("> GET OR NEW!");
 
         // Move the link to the target session
         self.0.move_link(&notification.dst, &notification.src, &session_inner.transport).await?;
 
-        println!("> MOVE LINK!");
-
         // Set the lease on the session
         session_inner.transport.set_lease(notification.lease);
-
-        println!("> LEASE!");
 
         Ok(Session::new(session_inner))
     }
@@ -254,17 +246,6 @@ impl SessionManagerInner {
     pub(crate) fn get_initial_session(&self) -> Arc<SessionInner> {
         zrwopt!(self.initial).clone()
     }
-
-    // async fn find_session(&self, id: usize) -> Option<Arc<SessionWrapper>> {
-    //     let mut session = None;
-    //     for s in self.session.read().await.values() {
-    //         if s.get_session().await.get_id() == id {
-    //             session = Some(s.clone());
-    //             break
-    //         }
-    //     }
-    //     session
-    // }
 
     async fn get_or_new_session(&self, a_self: &Arc<Self>, peer: &PeerId) -> Arc<SessionInner> {
         let r_guard = self.sessions.read().await;
@@ -439,9 +420,7 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.schedule(message, link).await;
-
-        Ok(())
+        self.transport.send(message, link).await
     }
 
     async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
@@ -462,11 +441,12 @@ impl SessionInner {
         // Send the message for transmission
         let link = None;    // The preferred link to reply on 
         // TODO: If error in send, retry
-        self.transport.schedule(message, link).await;
+        let res = self.transport.send(message, link).await;
+
         // Close the session
         let _ = self.transport.close(reason).await;
 
-        Ok(())
+        res
     }
 
     /*************************************/
@@ -475,36 +455,27 @@ impl SessionInner {
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
         opid: &PeerId, apid: &PeerId, lease: &ZInt
     ) {
-        println!("> ACCEPT!");
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
-            println!("> ERROR!");
             return 
-            // Err(zerror!(ZErrorKind::InvalidMessage{
-            //     descr: format!("Received an Accept with an Opener Peer ID different from self!")
-            // }))
         }
 
         // Check if had previously triggered the opening of a new connection
         let key = (dst.clone(), src.clone());
         if let Some(sender) = self.channels.write().await.remove(&key) {
-            println!("> NOTIFICATION!");
             let notification = NotificationNewSession::new(
                 apid.clone(), lease.clone(), src.clone(), dst.clone()
             );
             sender.send(Ok(notification)).await;
         }
-        println!("> BYE!");
     }
 
     pub(crate) async fn process_close(&self, _src: &Locator, _dst: &Locator,
         pid: &Option<PeerId>, _reason: &u8
     ) {
+        // Check if the close target is me
         if pid != &Some(self.peer.clone()) {
             return 
-            // Err(zerror!(ZErrorKind::InvalidMessage{
-            //     descr: format!("Received a Close with a Peer ID different from self!")
-            // }))
         } 
         let _ = self.manager.del_session(&self.peer, None).await;
         let _ = self.transport.close(None).await;
@@ -518,10 +489,6 @@ impl SessionInner {
         // Check if the version is supported
         if version > &self.manager.version {
             return 
-            // Should we send an error message to the opener?
-            // Err(zerror!(ZErrorKind::Other{
-                // descr: format!("Zenoh version not supported ({}).", version)
-            // }))
         }
 
         // Check if an already established session exists with the peer
@@ -535,7 +502,7 @@ impl SessionInner {
 
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None
-        let properties = None; // Properties always None for the time being. May change in the future.
+        let properties = None;  // Properties always None for the time being. May change in the future.
         let message = Message::make_accept(
             pid.clone(), self.manager.id.clone(), self.manager.lease, conduit_id, properties
         );

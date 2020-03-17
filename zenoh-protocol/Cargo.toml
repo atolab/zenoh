@@ -18,6 +18,7 @@ env_logger = "0.7.1"
 log = "0.4.8"
 net2 = "0.2.33"
 rand = "0.7.3"
+slab = "0.4.2"
 time = "0.2.2"
 uuid = { version = "0.8.1", features = ["v4"] }
 

@@ -11,7 +11,6 @@ use async_std::sync::{
 use async_std::task;
 use std::fmt;
 use std::sync::atomic::{
-    // AtomicUsize,
     Ordering
 };
 
@@ -58,12 +57,10 @@ async fn consume_loop(transport: Arc<Transport>) {
         // TODO: Fragement the message if too large
         match transport.queue_tx.pop().await {
             QueueTxPopResult::Ok(message) => {
-                println!("> POP OK {:?}", message.inner);
-                transport.transmit(&message).await;
+                let _ = transport.transmit(&message).await;
             },
             QueueTxPopResult::NeedSync(message) => {
-                println!("> POP SYNC {:?}", message.inner);
-                transport.transmit(&message).await;
+                let _ = transport.transmit(&message).await;
                 transport.synchronize().await
             }
         }
@@ -73,7 +70,6 @@ async fn consume_loop(transport: Arc<Transport>) {
     
     // The loop to consume the messages in the queue
     loop {
-        println!("> LOOP!");
         // Future to wait for the stop signal
         let stop = transport.signal_recv.recv();
         // Future to wait for a message to send
@@ -109,8 +105,6 @@ pub struct Transport {
     queue_tx: QueueTx,
     queue_rx: Mutex<OrderedQueue<Message>>,
     // Keeping track of the last sequence numbers
-    sn_tx_reliable: AtomicZInt,
-    sn_tx_unreliable: AtomicZInt,
     sn_rx_unreliable: Mutex<ZInt>, // A Mutex is required to avoid race conditions (same as queue_rx)
     // The channel endpoints for terminating the consume_loop task
     signal_send: Sender<bool>,
@@ -127,8 +121,6 @@ impl Transport {
             links: Mutex::new(Vec::new()),
             queue_tx: QueueTx::new(QUEUE_TX_SIZE),
             queue_rx: Mutex::new(OrderedQueue::new(QUEUE_RX_SIZE)),
-            sn_tx_reliable: AtomicZInt::new(0),
-            sn_tx_unreliable: AtomicZInt::new(0),
             sn_rx_unreliable: Mutex::new(0),
             signal_send: sender,
             signal_recv: receiver
@@ -208,27 +200,41 @@ impl Transport {
 
 
     /*************************************/
-    /*    SCHEDULE, SEND AND TRANSMIT    */
+    /*       SCHEDULE AND TRANSMIT       */
     /*************************************/
     // Schedule the message to be sent asynchronsly
     pub(crate) async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
         let message = MessageTxPush {
             inner: message,
-            link
+            link,
+            notify: None
         };
-        if message.inner.is_reliable() {
-            // Wait for the queue to have space for the message
-            self.queue_tx.push(message).await;
-        } else {
-            // If the queue is full, the message is automatically dropped
-            self.queue_tx.try_push(message);
+        // Wait for the queue to have space for the message
+        self.queue_tx.push(message).await;
+    }
+
+    // Schedule the message to be sent asynchronsly and notify once sent
+    pub(crate) async fn send(&self, message: Message, link: Option<(Locator, Locator)>) -> ZResult<()> {
+        let (sender, receiver) = channel::<ZResult<()>>(1);
+        let message = MessageTxPush {
+            inner: message,
+            link,
+            notify: Some(sender)
+        };
+        // Wait for the queue to have space for the message
+        self.queue_tx.push(message).await;
+        match receiver.recv().await {
+            Some(res) => res,
+            None => Err(zerror!(ZErrorKind::Other{
+                descr: format!("Send failed unexpectedly!")
+            }))
         }
     }
     
-    async fn transmit(&self, message: &MessageTxPop) -> ZResult<()> {
+    async fn transmit(&self, message: &MessageTxPop) {
         // Send the message on the link(s)
         let guard = self.links.lock().await;
-        match &message.link {
+        let res = match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
                 match self.find_link(&guard, &src, &dst) {
@@ -248,6 +254,10 @@ impl Transport {
                     }))
                 }
             }
+        };
+
+        if let Some(notify) = &message.notify {
+            notify.send(res).await;
         }
     }
 
@@ -265,14 +275,14 @@ impl Transport {
         let properties = None;
         let message = MessageTxPush {
             inner: Message::make_sync(reliable, sn, count, cid, properties),
-            link: None
+            link: None,
+            notify: None
         };
 
         self.queue_tx.push(message).await;
     }
 
     async fn acknowledge(&self) {
-        // println!("> {:?} = Acknowledge: YES", zrwopt!(self.session).peer);
         let l_guard = self.queue_rx.lock().await;
         // Create the AckNack message
         let sn = l_guard.get_base();
@@ -282,17 +292,15 @@ impl Transport {
         };
         let cid = None;
         let properties = None;
-        // println!("> {:?} = Acknowledge: SN: {}, Mask: {:?}", zrwopt!(self.session).peer, sn, mask);
 
         let message = MessageTxPush {
             inner: Message::make_ack_nack(sn, mask, cid, properties),
-            link: None
+            link: None,
+            notify: None
         };
 
-        // Transmit the AckNack message
+        // Schedule the AckNack message
         self.queue_tx.push(message).await;
-
-        // println!("> {:?} = Acknowledge: RETURN", zrwopt!(self.session).peer);
     }
 
     /*************************************/
@@ -303,9 +311,7 @@ impl Transport {
         // Add the message to the receiving queue and trigger an AckNack when necessary
         match l_guard.try_push(message, sn) {
             None => {
-                // println!("> {:?} = Receive: OK", zrwopt!(self.session).peer);
                 while let Some(message) = l_guard.try_pop() {
-                    // println!("> {:?} = Receive: Forward {}. Next: {}", zrwopt!(self.session).peer, sn, l_guard.get_base());
                     let _ = zrwopt!(self.callback).handle_message(message).await;
                 }
                 // Try to avoid filling up the queue by sending an ack_nack earlier
@@ -335,13 +341,11 @@ impl Transport {
     }
 
     async fn process_acknack(&self, sn: &ZInt, mask: &Option<ZInt>) {
-        // println!("> {:?} = ACKNACK: YES {} {:?}", zrwopt!(self.session).peer, sn, mask);
         // Set the base of the queue  
         self.queue_tx.set_reliability_base(*sn).await;
 
         // If there is a mask, schedule the retransmission of requested messages
         if let Some(mut mask) = mask {
-            // println!("> {:?} = ACKNACK: RETRANSMISSION", zrwopt!(self.session).peer);
             let mut sn = self.queue_tx.get_reliability_base().await;
             let count = mask.count_ones();
             for _ in 0..count {
@@ -357,7 +361,6 @@ impl Transport {
     }
 
     async fn process_sync(&self, sn: &ZInt, count: &Option<ZInt>) {
-        // println!("> {:?} = SYNC RECEIVED {} {:?}", zrwopt!(self.session).peer, sn, count);
         match count {
             Some(_) => self.acknowledge().await,
             None => self.queue_rx.lock().await.set_base(*sn)
@@ -459,11 +462,11 @@ impl Transport {
     }
 }
 
-// impl Drop for Transport {
-//     fn drop(&mut self) {
-//         println!("> Dropping Transport ({:?})", self);
-//     }
-// }
+impl Drop for Transport {
+    fn drop(&mut self) {
+        // TODO: stop and close the transport
+    }
+}
 
 impl fmt::Debug for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
