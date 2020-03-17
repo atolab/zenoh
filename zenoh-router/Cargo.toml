@@ -9,6 +9,7 @@ edition = "2018"
 async-std = { version = "1.4.0", features = ["unstable"] }
 async-trait = "0.1.22"
 spin = "0.5.2"
+rand = "0.7.3"
 zenoh-protocol =  { version = "0.5.0", path = "../zenoh-protocol" }
 
 [dev-dependencies]
@@ -17,3 +18,18 @@ criterion = "0.3.1"
 [[bench]]
 name = "tables_bench"
 harness = false
+
+[[bin]]
+name = "peer"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_sub"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_pub"
+test = false
+bench = false
