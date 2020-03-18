@@ -234,10 +234,10 @@ impl LinkManager {
         }
     }
 
-    pub async fn move_link(&self, src: &Locator, dst: &Locator, transport: Arc<Transport>) -> ZResult<()> {
+    pub async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
         match self {
-            Self::Dummy(manager) => manager.move_link(src, dst, transport).await,
-            Self::Tcp(manager) => manager.move_link(src, dst, transport).await
+            Self::Dummy(manager) => manager.get_link(src, dst).await,
+            Self::Tcp(manager) => manager.get_link(src, dst).await
         }
     }
 

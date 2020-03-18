@@ -43,8 +43,9 @@ impl Session {
             let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };
 
             // try to open locat TCP port 7447
-            if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
+            if let Err(err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
                 // if failed, try to connect to peer on locator
+                println!("OPEN ERROR {}", err);
                 println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
                 if let Err(_err) =  session_manager.open_session(&locator.parse().unwrap()).await {
                     println!("Unable to connect to {}!", locator);

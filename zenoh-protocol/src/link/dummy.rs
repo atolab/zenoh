@@ -2,6 +2,7 @@ use async_std::prelude::*;
 use async_std::sync::{
     Arc,
     channel,
+    Mutex,
     RwLock,
     Sender,
     Receiver
@@ -58,7 +59,7 @@ pub struct LinkDummy {
     tx_port: Sender<Message>,
     src_locator: Locator,
     dst_locator: Locator,
-    transport: Arc<Transport>,
+    transport: Mutex<Arc<Transport>>,
     ch_send: Sender<Command>,
     ch_recv: Receiver<Command>,
     dropping_probability: RwLock<f32>,
@@ -75,7 +76,7 @@ impl LinkDummy {
             tx_port,
             src_locator: Locator::Dummy(src_addr),
             dst_locator: Locator::Dummy(dst_addr),
-            transport,
+            transport: Mutex::new(transport),
             ch_send: sender,
             ch_recv: receiver,
             dropping_probability: RwLock::new(0.0),
@@ -158,7 +159,7 @@ async fn receive_loop(link: Arc<LinkDummy>) {
                     }
                 }
                 if !drop {
-                    link.transport.receive_message(src, dst, message).await;
+                    link.transport.lock().await.receive_message(src, dst, message).await;
                 } else {
                     // println!("DROPPED {:?}", message);
                 }
@@ -202,7 +203,7 @@ impl ManagerDummy {
         unimplemented!("ManagerDummy is not supposed to be implemented!");
     }
 
-    pub async fn move_link(&self, _src: &Locator, _dst: &Locator, _transport: Arc<Transport>) -> ZResult<()> {
+    pub async fn get_link(&self, _src: &Locator, _dst: &Locator) -> ZResult<Link> {
         unimplemented!("ManagerDummy is not supposed to be implemented!");
     }
 
