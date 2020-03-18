@@ -33,11 +33,12 @@ pub trait SessionHandler {
 }
 
 // Define an empty SessionCallback for the listener session
-pub struct DummyHandler {}
+#[derive(Default)]
+pub struct DummyHandler;
 
 impl DummyHandler {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 }
 

@@ -151,7 +151,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 // Reading zero bytes means error
                 if n == 0 {
                     return Some(Command::Err(zerror!(ZErrorKind::IOError {
-                        descr: format!("Failed to read from the TCP socket")
+                        descr: "Failed to read from the TCP socket".to_string()
                     })))
                 }
                 buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
@@ -172,7 +172,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                     continue
                 },
                 Err(_) => {
-                    if let Err(_) = buff.set_pos(pos) {
+                    if buff.set_pos(pos).is_err() {
                         panic!("Unrecoverable error in TCP read loop!")
                     }
                     break
@@ -196,14 +196,14 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 Command::Signal => {
                     signal = true;
                     break zerror!(ZErrorKind::Other {
-                        descr: format!("Stopped by a signal!")
+                        descr: "Stopped by a signal!".to_string()
                     })
                 }
             },
             None => {
                 signal = true;
                 break zerror!(ZErrorKind::Other {
-                    descr: format!("Error in the signal channel!")
+                    descr: "Error in the signal channel!".to_string()
                 })
             }
         }
@@ -260,6 +260,7 @@ impl ManagerTcp {
     }
 }
 
+#[allow(clippy::type_complexity)]
 struct ManagerTcpInner {
     inner: Arc<SessionManagerInner>,
     listener: RwLock<HashMap<SocketAddr, (Arc<TcpListener>, Sender<bool>)>>,
@@ -341,7 +342,7 @@ impl ManagerTcpInner {
 
         // Spawn the accept loop for the listener
         let c_self = a_self.clone();
-        let c_addr = addr.clone();
+        let c_addr = *addr;
         task::spawn(async move {
             // Wait for the accept loop to terminate
             accept_loop(&c_self, &socket, receiver).await; 

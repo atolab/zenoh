@@ -166,7 +166,7 @@ async fn receive_loop(link: Arc<LinkDummy>) {
                 Some(Command::Ok)
             },
             None => Some(Command::Err(zerror!(ZErrorKind::Other {
-                descr: format!("Link channel has failed!")
+                descr: "Link channel has failed!".to_string()
             })))
         }
     }

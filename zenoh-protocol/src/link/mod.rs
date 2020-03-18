@@ -69,7 +69,7 @@ impl FromStr for Locator {
     type Err = ZError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut iter = s.split("/");
+        let mut iter = s.split('/');
         let proto = iter.next().unwrap();
         let addr = iter.next().unwrap();
         match proto {
@@ -103,11 +103,12 @@ impl FromStr for Locator {
 
 impl fmt::Display for Locator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Ok(match self {
+        match self {
             Locator::Dummy(addr) => write!(f, "{}/{}", STR_DUMMY, addr)?,
             Locator::Tcp(addr) => write!(f, "{}/{}", STR_TCP, addr)?,
             // Locator::Udp(addr) => write!(f, "{}/{}", STR_UDP, addr)?,
-        })
+        }
+        Ok(())
     }
 }
 

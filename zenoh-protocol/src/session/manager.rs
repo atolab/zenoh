@@ -99,7 +99,7 @@ impl SessionManager {
                 Err(e) => return Err(e)
             },
             None => return Err(zerror!(ZErrorKind::Other{
-                descr: format!("Open session failed unexpectedly!")
+                descr: "Open session failed unexpectedly!".to_string()
             }))
         };
 
@@ -131,7 +131,7 @@ impl SessionManager {
     pub async fn del_locator(&self, locator: &Locator) -> ZResult<()> {
         let manager = self.0.get_link_manager(&locator.get_proto()).await?;
         manager.del_listener(locator).await?;
-        if manager.get_listeners().await.len() == 0 {
+        if manager.get_listeners().await.is_empty() {
             self.0.del_link_manager(&locator.get_proto()).await?;
         }
         Ok(())
@@ -153,7 +153,7 @@ impl IDManager {
 
     fn new_id(&mut self) -> usize {
         let id = self.0.remove(0);
-        if self.0.len() == 0 {
+        if self.0.is_empty() {
             self.0.insert(0, id + 1);
         }
         id
@@ -268,13 +268,13 @@ impl SessionManagerInner {
                 Ok(session)
             }
             None =>  Err(zerror!(ZErrorKind::Other{
-                descr: format!("Trying to delete a session that does not exist!")
+                descr: "Trying to delete a session that does not exist!".to_string()
             }))
         }
     }
 
     async fn new_session(&self, a_self: &Arc<Self>, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Arc<SessionInner>> {
-        if let Some(_) = self.sessions.read().await.get(peer) {
+        if self.sessions.read().await.get(peer).is_some() {
             return Err(zerror!(ZErrorKind::Other{
                 descr: format!("Session with peer ({:?}) already exists.", peer)
             }))
@@ -357,6 +357,7 @@ impl fmt::Debug for Session {
 }
 
 
+#[allow(clippy::type_complexity)]
 pub struct SessionInner {
     pub(crate) id: usize,
     pub(crate) peer: PeerId,
@@ -467,13 +468,13 @@ impl SessionInner {
     /*              PROCESS              */
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
-        whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: &ZInt
+        whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: ZInt
     ) -> ZResult<Arc<Transport>> {
 
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
             return Err(zerror!(ZErrorKind::Other{
-                descr: format!("Received an Accept with wrong Opener Peer Id")
+                descr: "Received an Accept with wrong Opener Peer Id".to_string()
             }))
         }
 
@@ -486,7 +487,7 @@ impl SessionInner {
                 // Get a new or an existing session
                 let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
                 // Configure the lease time on the transport
-                session_inner.transport.set_lease(*lease);
+                session_inner.transport.set_lease(lease);
                 // Add the link on the transport
                 session_inner.transport.add_link(link).await?;
                 // Notify the opener
@@ -495,13 +496,13 @@ impl SessionInner {
                 Ok(session_inner.transport.clone())
             },
             None => Err(zerror!(ZErrorKind::Other{
-                descr: format!("Received an unsolicited Accept because no Open message was sent")
+                descr: "Received an unsolicited Accept because no Open message was sent".to_string()
             }))
         }
     }
 
     pub(crate) async fn process_close(&self, _src: &Locator, _dst: &Locator,
-        pid: &Option<PeerId>, _reason: &u8
+        pid: &Option<PeerId>, _reason: u8
     ) {
         // Check if the close target is me
         if pid != &Some(self.peer.clone()) {
@@ -511,13 +512,14 @@ impl SessionInner {
         let _ = self.transport.close().await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
-        version: &u8, whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
+        version: u8, whatami: &WhatAmI, pid: &PeerId, lease: ZInt, _locators: &Option<Vec<Locator>> 
     ) -> ZResult<Arc<Transport>> { 
         // Ignore whatami and locators for the time being
 
         // Check if the version is supported
-        if version > &self.manager.version {
+        if version > self.manager.version {
             return Err(zerror!(ZErrorKind::Other{
                 descr: format!("Zenoh version not supported ({})", version)
             }))
@@ -527,7 +529,7 @@ impl SessionInner {
         let target = self.manager.get_or_new_session(&self.manager, pid, whatami).await;
 
         // Set the lease to the transport
-        target.transport.set_lease(*lease);
+        target.transport.set_lease(lease);
 
         // Remove the link from self
         let link = self.transport.del_link(dst, src).await?;

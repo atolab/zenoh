@@ -131,10 +131,6 @@ impl Transport {
         *self.callback.try_write().unwrap() = Some(callback);
     }
 
-    pub(crate) fn get_lease(&self) -> ZInt {
-        self.lease.load(Ordering::Acquire)
-    }
-
     pub(crate) fn set_lease(&self, lease: ZInt) {
         self.lease.store(lease, Ordering::Release);
     }
@@ -171,9 +167,10 @@ impl Transport {
             }
         }
 
-        match found {
-            true => Some(index),
-            false => None
+        if found {
+            Some(index)
+        } else {
+            None
         }
     }
 
@@ -181,9 +178,12 @@ impl Transport {
         let mut guard = self.links.lock().await;
         match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
             Some(_) => Err(zerror!(ZErrorKind::Other{
-                descr: format!("Trying to delete a link that does not exist!")
+                descr: "Trying to delete a link that does not exist!".to_string()
             })),
-            None => Ok(guard.push(link))
+            None => {
+                guard.push(link);
+                Ok(())
+            }
         }
     }
 
@@ -192,7 +192,7 @@ impl Transport {
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
             None => Err(zerror!(ZErrorKind::Other{
-                descr: format!("Trying to delete a link that does not exist!")
+                descr: "Trying to delete a link that does not exist!".to_string()
             }))
         }
     }
@@ -225,7 +225,7 @@ impl Transport {
         match receiver.recv().await {
             Some(res) => res,
             None => Err(zerror!(ZErrorKind::Other{
-                descr: format!("Send failed unexpectedly!")
+                descr: "Send failed unexpectedly!".to_string()
             }))
         }
     }
@@ -249,7 +249,7 @@ impl Transport {
                 match guard.get(0) {
                     Some(link) => link.send(&message.inner).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
-                        descr: format!("Message dropped because transport has no links!")
+                        descr: "Message dropped because transport has no links!".to_string()
                     }))
                 }
             }
@@ -318,9 +318,9 @@ impl Transport {
         }
     }
 
-    async fn process_acknack(&self, sn: &ZInt, mask: &Option<ZInt>) {
+    async fn process_acknack(&self, sn: ZInt, mask: &Option<ZInt>) {
         // Set the base of the queue  
-        self.queue_tx.set_reliability_base(*sn).await;
+        self.queue_tx.set_reliability_base(sn).await;
 
         // If there is a mask, schedule the retransmission of requested messages
         if let Some(mut mask) = mask {
@@ -330,7 +330,7 @@ impl Transport {
                 // Increment the sn and shift the mask
                 while (mask & 1) != 1 {
                     sn = sn.wrapping_add(1);
-                    mask = mask >> 1;
+                    mask >>= 1;
                 }
                 // Retransmit the messages
                 self.queue_tx.reschedule(sn).await;
@@ -338,27 +338,30 @@ impl Transport {
         }
     }
 
-    async fn process_sync(&self, sn: &ZInt, count: &Option<ZInt>) {
+    async fn process_sync(&self, sn: ZInt, count: &Option<ZInt>) {
         match count {
             Some(_) => self.acknowledge().await,
-            None => self.queue_rx.lock().await.set_base(*sn)
+            None => self.queue_rx.lock().await.set_base(sn)
         }
     }
 
     async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> Option<Arc<Self>> {
         match &message.body {
             Body::Accept{whatami, opid, apid, lease} => {
-                match zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, lease).await {
+                let c_lease = *lease;
+                match zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, c_lease).await {
                     Ok(transport) => Some(transport),
                     Err(_) => None
                 }
             },
             Body::AckNack{sn, mask} => {
-                self.process_acknack(sn, mask).await;
+                let c_sn = *sn;
+                self.process_acknack(c_sn, mask).await;
                 None
             },
             Body::Close{pid, reason} => {
-                zrwopt!(self.session).process_close(src, dst, pid, reason).await;
+                let c_reason = *reason;
+                zrwopt!(self.session).process_close(src, dst, pid, c_reason).await;
                 None
             },
             Body::Hello{whatami: _, locators: _} => {
@@ -368,7 +371,9 @@ impl Transport {
                 unimplemented!("Handling of KeepAlive Messages not yet implemented!");
             },
             Body::Open{version, whatami, pid, lease, locators} => {
-                match zrwopt!(self.session).process_open(src, dst, version, whatami, pid, lease, locators).await {
+                let c_version = *version;
+                let c_lease = *lease;
+                match zrwopt!(self.session).process_open(src, dst, c_version, whatami, pid, c_lease, locators).await {
                     Ok(transport) => Some(transport),
                     Err(_) => None
                 }
@@ -383,7 +388,8 @@ impl Transport {
                 unimplemented!("Handling of Scout Messages not yet implemented!");
             },
             Body::Sync{sn, count} => {
-                self.process_sync(sn, count).await;
+                let c_sn = *sn;
+                self.process_sync(c_sn, count).await;
                 None
             }
             Body::Data{reliable, sn, key: _, info: _, payload: _} => {

@@ -188,9 +188,10 @@ impl QueueTx {
                         Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
                         Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
                             // Update the sequence number
-                            *sn = match is_reliable {
-                                true => self.sn_tx_reliable.fetch_add(1, Ordering::Relaxed),
-                                false => self.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed),
+                            *sn = if is_reliable {
+                                self.sn_tx_reliable.fetch_add(1, Ordering::Relaxed)
+                            } else {
+                                self.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed)
                             };
                             new_sn = Some(*sn);
                         },
@@ -212,9 +213,10 @@ impl QueueTx {
                     }
 
                     // If the reliability queue 
-                    match guard.is_full() {
-                        true => return QueueTxTryPopResult::NeedSync(msg),
-                        false => return QueueTxTryPopResult::Ok(msg)
+                    if guard.is_full() {
+                        return QueueTxTryPopResult::NeedSync(msg)
+                    } else {
+                        return QueueTxTryPopResult::Ok(msg)
                     }
                 }
             }
@@ -258,7 +260,7 @@ impl QueueTx {
     }
     
     fn try_push(&self, message: MessageTxPush) -> Option<MessageTxPush> {
-        let (queue, is_data) = match message.inner.kind {
+        let (queue, _is_data) = match message.inner.kind {
             MessageKind::FullMessage => match message.inner.body {
                 // SyncAck messages
                 Body::AckNack{..} |
@@ -456,7 +458,7 @@ impl<T> OrderedQueue<T> {
         let mut mask: ZInt = 0;
 
         // Check if the queue is empty
-        if self.len() == 0 {
+        if self.is_empty() {
             return mask
         }
 
@@ -468,9 +470,9 @@ impl<T> OrderedQueue<T> {
                 Some(element) => if element.sn == self.last {
                     break
                 },
-                None => mask = mask | (1 << iteration)
+                None => mask |= 1 << iteration
             }
-            iteration = iteration + 1;
+            iteration += 1;
             index = (index + 1) % self.capacity();
         }
         
@@ -494,9 +496,9 @@ impl<T> OrderedQueue<T> {
 
         // Iterate over the queue and consume the inner elements
         for _ in 0..count {
-            if let Some(_) = self.buff[self.pointer].take() {
+            if self.buff[self.pointer].take().is_some() {
                 // Decrement the counter
-                self.counter = self.counter - 1;
+                self.counter -= 1;
             }
             // Increment the pointer
             self.pointer = (self.pointer + 1) % self.capacity();
@@ -504,7 +506,7 @@ impl<T> OrderedQueue<T> {
 
         // Align the first and last sequence numbers
         self.first = base;
-        if self.len() == 0 {
+        if self.is_empty() {
             self.last = self.first;
         }
     }
@@ -512,7 +514,7 @@ impl<T> OrderedQueue<T> {
     // This operation does not modify the base or the pointer
     // It simply removes an element if it matches the sn 
     pub fn try_remove(&mut self, sn: ZInt) -> Option<T> {
-        if self.len() > 0 {
+        if !self.is_empty() {
             let gap = sn.wrapping_sub(self.first) as usize;
             let index = (self.pointer + gap) % self.capacity();
             if let Some(element) = &self.buff[index] {
@@ -520,9 +522,9 @@ impl<T> OrderedQueue<T> {
                     // The element is the right one, take with unwrap
                     let element = self.buff[index].take().unwrap();
                     // Decrement the counter
-                    self.counter = self.counter - 1;
+                    self.counter -= 1;
                     // Align the last sequence number if the queue is empty
-                    if self.len() == 0 {
+                    if self.is_empty() {
                         self.last = self.first;
                     }
                     return Some(element.into_inner())
@@ -533,16 +535,16 @@ impl<T> OrderedQueue<T> {
     }
 
     pub fn try_pop(&mut self) -> Option<T> {
-        if self.len() > 0 {
+        if !self.is_empty() {
             if let Some(element) = self.buff[self.pointer].take() {
                 // Update the pointer in the buffer
                 self.pointer = (self.pointer + 1) % self.capacity();
                 // Decrement the counter
-                self.counter = self.counter - 1;
+                self.counter -= 1;
                 // Increment the next target sequence number
                 self.first = self.first.wrapping_add(1);
                 // Align the last sequence number if the queue is empty
-                if self.len() == 0 {
+                if self.is_empty() {
                     self.last = self.first;
                 }
                 return Some(element.into_inner())
@@ -560,7 +562,7 @@ impl<T> OrderedQueue<T> {
         }
 
         // Increment the counter
-        self.counter = self.counter + 1;
+        self.counter += 1;
 
         // Update the sequence number
         if sn > self.last {
@@ -578,7 +580,7 @@ impl<T: Clone> OrderedQueue<T> {
     // This operation does not modify the base or the pointer
     // It simply gets a clone of an element if it matches the sn 
     pub fn try_get(&self, sn: ZInt) -> Option<T> {
-        if self.len() > 0 {
+        if !self.is_empty() {
             let gap = sn.wrapping_sub(self.first) as usize;
             let index = (self.pointer + gap) % self.capacity();
             if let Some(element) = &self.buff[index] {
@@ -598,9 +600,10 @@ impl<T> fmt::Debug for OrderedQueue<T> {
         let mut first = true;
         let mut index = self.pointer;
         for _ in 0..self.buff.capacity() {
-            match first {
-                true => first = false,
-                false => s.push_str(", ")
+            if first {
+                first = false;
+            } else {
+                s.push_str(", ");
             }
             match &self.buff[index] {
                 Some(e) => s.push_str(&format!("{}", e.sn)),
