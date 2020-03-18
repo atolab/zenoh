@@ -108,7 +108,7 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
     }
 
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
-        self.handler.handle_message(Message::make_pull(is_final, 0, reskey.clone(), pull_id, max_samples.clone(), None, None)).await;
+        self.handler.handle_message(Message::make_pull(is_final, 0, reskey.clone(), pull_id, *max_samples, None, None)).await;
     }
 
     async fn close(&self) {

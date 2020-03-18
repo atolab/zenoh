@@ -457,12 +457,10 @@ impl Tables {
                     let rres = res.read();
                     for (sid, context) in &rres.contexts {
                         let rcontext = context.read();
-                        if rcontext.subs.is_some() {
-                            if ! sexs.contains_key(sid)
-                            {
-                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
-                                sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
-                            }
+                        if rcontext.subs.is_some() && ! sexs.contains_key(sid)
+                        {
+                            let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
+                            sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                         }
                     }
                 };

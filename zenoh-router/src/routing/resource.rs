@@ -17,9 +17,12 @@ impl Resource {
 
     fn new(parent: &Arc<RwLock<Resource>>, suffix: &str) -> Resource {
         let nonwild_prefix = match &parent.read().nonwild_prefix {
-            None => match suffix.contains('*') {
-                true => {Some((parent.clone(), String::from(suffix)))}
-                false => {None}
+            None => {
+                if suffix.contains('*') {
+                    Some((parent.clone(), String::from(suffix)))
+                } else {
+                    None
+                }
             }
             prefix => {prefix.clone()}
         };
@@ -37,13 +40,13 @@ impl Resource {
 
     pub fn name(&self) -> String {
         match &self.parent {
-            Some(parent) => {String::from([&parent.read().name() as &str, &self.suffix].concat())}
+            Some(parent) => {[&parent.read().name() as &str, &self.suffix].concat()}
             None => {String::from("")}
         }
     }
 
     pub fn is_key(&self) -> bool {
-        self.contexts.len() != 0
+        !self.contexts.is_empty()
     }
 
     pub fn root() -> Arc<RwLock<Resource>> {
@@ -61,7 +64,7 @@ impl Resource {
     pub fn clean(res: &Arc<RwLock<Resource>>) {
         let rres = res.read();
         if let Some(parent) = &rres.parent {
-            if Arc::strong_count(res) <= 2 && rres.childs.len() == 0 {
+            if Arc::strong_count(res) <= 2 && rres.childs.is_empty() {
                 for match_ in &rres.matches {
                     let match_ = &match_.upgrade().unwrap();
                     if ! Arc::ptr_eq(match_, res) {
@@ -83,7 +86,7 @@ impl Resource {
         for match_ in &from.read().matches.clone() {
             println!("  -> {}", match_.upgrade().unwrap().read().name());
         }
-        for (_, child) in &from.read().childs {
+        for child in from.read().childs.values() {
             Resource::print_tree(&child)
         }
     }
