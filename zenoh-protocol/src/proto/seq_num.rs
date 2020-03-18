@@ -53,7 +53,7 @@ impl SeqNumGenerator {
 
     /// Generates the next sequence number
     pub fn next(&self) -> ZInt {
-        let mut n = self.next_sn.fetch_add(1, Ordering::SeqCst);
+        let n = self.next_sn.fetch_add(1, Ordering::SeqCst);
         let mut a = n + 1;
         if a >= self.resolution {        
             let b = a % self.resolution;
