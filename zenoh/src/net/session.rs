@@ -378,13 +378,13 @@ impl InnerSession {
             RId(rid) => {
                 match self.resources.get(&rid) {
                     Some(name) => Ok(name.clone()),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: rid.clone()}))
+                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
             },
             RIdWithSuffix(rid, suffix) => {
                 match self.resources.get(&rid) {
                     Some(name) => Ok(name.clone() + suffix),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: rid.clone()}))
+                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
             }
         }
