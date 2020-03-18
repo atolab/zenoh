@@ -18,11 +18,13 @@ use zenoh_protocol:: {
 use zenoh_router::routing::tables::TablesHdl;
 use super::*;
 
-
+// rename to avoid conflicts
+type TxSession = zenoh_protocol::session::Session;
 
 #[derive(Clone)]
 pub struct Session {
     session_manager: SessionManager,
+    tx_session: Option<Arc<TxSession>>,
     tables: Arc<TablesHdl>,
     inner: Arc<RwLock<InnerSession>>,
 }
@@ -42,24 +44,29 @@ impl Session {
             // @TODO: scout if locator = "". For now, replace by "tcp/127.0.0.1:7447"
             let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };
 
-            // try to open locat TCP port 7447
-            if let Err(err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
+            let mut tx_session: Option<Arc<TxSession>> = None;
+
+            // @TODO: manage a tcp.port property (and tcp.interface?)
+            // try to open TCP port 7447
+            if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
                 // if failed, try to connect to peer on locator
-                println!("OPEN ERROR {}", err);
                 println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
-                if let Err(_err) =  session_manager.open_session(&locator.parse().unwrap()).await {
-                    println!("Unable to connect to {}!", locator);
-                    std::process::exit(-1);
+                match session_manager.open_session(&locator.parse().unwrap()).await {
+                    Ok(s) => tx_session = Some(Arc::new(s)),
+                    Err(err) => {
+                        println!("Unable to connect to {}! {:?}", locator, err);
+                        std::process::exit(-1);
+                    }
                 }
             } else {
                 println!("Listening on TCP: 127.0.0.1:7447.");
             }
-    
+
             let inner = Arc::new(RwLock::new(
                 InnerSession::new()
             ));
             let inner2 = inner.clone();
-            let session = Session{ session_manager, tables, inner };
+            let session = Session{ session_manager, tx_session, tables, inner };
 
             let prim = session.tables.new_primitives(Arc::new(session.clone())).await;
             inner2.write().primitives = Some(prim);
@@ -68,10 +75,23 @@ impl Session {
         })
     }
 
-    pub fn close(&self) -> ZResult<()> {
+    pub fn close(self) -> ZResult<()> {
         // @TODO: implement
         println!("---- CLOSE");
-        Ok(())
+        let ref mut inner = self.inner.write();
+        let primitives = inner.primitives.as_ref().unwrap();
+
+        let res = task::block_on( async {
+            primitives.close().await;
+
+            if let Some(tx_session) = &self.tx_session {
+                return tx_session.close().await
+            }
+            Ok(())
+        });
+
+        // @TODO: session_manager.del_locator()
+        res
     }
 
     pub fn info(&self) -> Properties {

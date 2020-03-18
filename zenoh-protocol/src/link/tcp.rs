@@ -99,12 +99,8 @@ impl LinkTcp {
 
     pub async fn close(&self) -> ZResult<()> {
         let _ = self.socket.shutdown(Shutdown::Both);
-        match self.manager.del_link(&self.get_src(), &self.get_dst()).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(zerror!(ZErrorKind::Other{
-                descr: format!("{}", e)
-            }))
-        }
+        self.manager.del_link(&self.get_src(), &self.get_dst()).await?;
+        Ok(())
     }
     
     pub async fn send(&self, message: &Message) -> ZResult<()> {

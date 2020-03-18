@@ -21,3 +21,6 @@ pub use msg_reader::*;
 
 mod locator;
 pub use locator::*;
+
+mod seq_num;
+pub use seq_num::*;

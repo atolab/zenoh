@@ -30,6 +30,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "light_client"
+test = false
+bench = false
+
+[[bin]]
 name = "peer"
 test = false
 bench = false
@@ -39,9 +44,18 @@ name = "thr_sub_client"
 test = false
 bench = false
 
-
 [[bin]]
 name = "thr_pub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_sub_light_client"
+test = false
+bench = false
+
+[[bin]]
+name = "thr_pub_light_client"
 test = false
 bench = false
 

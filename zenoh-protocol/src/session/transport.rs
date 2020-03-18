@@ -231,39 +231,26 @@ impl Transport {
     }
     
     async fn transmit(&self, message: &MessageTxPop) {
-        // println!("Transmitting {:?}", message.inner.body);
         // Send the message on the link(s)
         let guard = self.links.lock().await;
         let res = match &message.link {
             // Send the message to the indicated link
             Some((src, dst)) => {
                 match self.find_link(&guard, &src, &dst) {
-                    Some(index) => {
-                        // println!("~~~ TX FOUND LINK");
-                        guard[index].send(&message.inner).await
-                    },
-                    None => {
-                        // println!("~~~ TX NOT FOUND LINK");
-                        Err(zerror!(ZErrorKind::Other{
-                            descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
-                        }))
-                    }
+                    Some(index) => guard[index].send(&message.inner).await,
+                    None => Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
+                    }))
                 }
             },
             None => {
                 // Send the message on the first link
                 // This might change in the future
                 match guard.get(0) {
-                    Some(link) => {
-                        // println!("~~~ TX SEND ON LINK");
-                        link.send(&message.inner).await
-                    },
-                    None => {
-                        // println!("~~~ TX NO LINK");
-                        Err(zerror!(ZErrorKind::Other{
-                            descr: format!("Message dropped because transport has no links!")
-                        }))
-                    }
+                    Some(link) => link.send(&message.inner).await,
+                    None =>  Err(zerror!(ZErrorKind::Other{
+                        descr: format!("Message dropped because transport has no links!")
+                    }))
                 }
             }
         };
@@ -454,7 +441,7 @@ impl Transport {
 
         // Remove and close all the links
         for l in self.links.lock().await.drain(..) {
-            l.close().await?;
+            let _ = l.close().await;
         }
 
         // Remove the reference to the session
