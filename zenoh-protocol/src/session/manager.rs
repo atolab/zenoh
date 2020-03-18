@@ -24,7 +24,6 @@ use crate::proto::{
     WhatAmI
 };
 use crate::session::{
-    DummyHandler,
     Transport,
     MsgHandler,
     SessionHandler
@@ -36,6 +35,25 @@ use crate::link::{
     LocatorProtocol,
 };
 
+
+// Define an empty SessionCallback for the initial session
+struct InitialHandler {}
+
+impl InitialHandler {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl MsgHandler for InitialHandler {
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        println!("!!! WARNING: InitialHandler::handle_message({:?}) => dropped", message.body);
+        Ok(())
+    }
+
+    async fn close(&self) {}
+}
 
 #[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
@@ -49,7 +67,7 @@ impl SessionManager {
 
         // Create a session used to establish new connections
         // This session wrapper does not require to contact the upper layer
-        let callback = Arc::new(DummyHandler::new());
+        let callback = Arc::new(InitialHandler::new());
         let session_inner = Arc::new(SessionInner::new(manager_inner.clone(), 0, id, lease));
         // Start the session
         session_inner.start();
@@ -68,14 +86,16 @@ impl SessionManager {
         let manager = self.0.new_link_manager(&self.0, &locator.get_proto()).await?;
 
         // Create a channel for knowing when a session is open
-        let (sender, receiver) = channel::<ZResult<NotificationNewSession>>(1);
+        let (sender, receiver) = channel::<ZResult<Arc<SessionInner>>>(1);
 
+        // Trigger the open session
         zrwopt!(self.0.initial).open(manager, locator, sender).await?;
 
         // Wait the accept message to finalize the session
-        let notification = match receiver.recv().await {
-            Some(session) => match session {
-                Ok(s) => s,
+        // TODO: implement a timeout
+        let session_inner = match receiver.recv().await {
+            Some(res) => match res {
+                Ok(session_inner) => session_inner,
                 Err(e) => return Err(e)
             },
             None => return Err(zerror!(ZErrorKind::Other{
@@ -83,21 +103,7 @@ impl SessionManager {
             }))
         };
 
-        // Check if an already established session exists with the peer
-        let session_inner = self.0.get_or_new_session(&self.0, &notification.peer, &notification.whatami).await;
-
-        // Move the link to the target session
-        self.0.move_link(&notification.dst, &notification.src, &session_inner.transport).await?;
-
-        // Set the lease on the session
-        session_inner.transport.set_lease(notification.lease);
-
         Ok(Session::new(session_inner))
-    }
-
-    pub async fn close_session(&self, peer: &PeerId, reason: Option<ZError>) -> ZResult<()> {
-        let session_inner = self.0.del_session(peer, None).await?;
-        session_inner.close(reason).await
     }
 
     pub async fn init_session(&self, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Session> {
@@ -237,11 +243,6 @@ impl SessionManagerInner {
         vec
     }
 
-    async fn move_link(&self, src: &Locator, dst: &Locator, transport: &Arc<Transport>) -> ZResult<()> {
-        let manager = self.get_link_manager(&src.get_proto()).await?;
-        manager.move_link(src, dst, transport.clone()).await
-    }
-
     /*************************************/
     /*              SESSION              */
     /*************************************/
@@ -260,7 +261,7 @@ impl SessionManagerInner {
         }
     }
     
-    async fn del_session(&self, peer: &PeerId, _reason: Option<ZError>) -> ZResult<Arc<SessionInner>> {
+    async fn del_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
         match self.sessions.write().await.remove(peer) {
             Some(session) => {
                 self.id_mgmt.write().await.del_id(session.id);
@@ -298,26 +299,9 @@ impl SessionManagerInner {
 
 
 /*************************************/
-/*      SESSION NOTIFICATION         */
-/*************************************/
-struct NotificationNewSession {
-    peer: PeerId,
-    whatami: WhatAmI,
-    lease: ZInt,
-    src: Locator,
-    dst: Locator
-}
-
-impl NotificationNewSession {
-    fn new(peer: PeerId, whatami: WhatAmI, lease: ZInt, src: Locator, dst: Locator) -> Self {
-        Self { peer, whatami, lease, src, dst }
-    }
-}
-
-
-/*************************************/
 /*              SESSION              */
 /*************************************/
+#[derive(Clone)]
 pub struct Session(Arc<SessionInner>);
 
 impl Session {
@@ -337,6 +321,10 @@ impl Session {
         self.0.transport.clone()
     }
 
+    pub async fn close(&self) -> ZResult<()> {
+        self.0.close().await
+    }
+
     pub async fn get_links(&self) -> Vec<Link> {
         self.0.transport.get_links().await
     }
@@ -346,7 +334,7 @@ impl Session {
     }
 
     pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
-        self.0.transport.del_link(src, dst, None).await
+        self.0.transport.del_link(src, dst).await
     }
 
     pub async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
@@ -374,7 +362,17 @@ pub struct SessionInner {
     pub(crate) peer: PeerId,
     pub(crate) transport: Arc<Transport>,
     manager: Arc<SessionManagerInner>,
-    channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<NotificationNewSession>>>>
+    channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Arc<SessionInner>>>>>
+}
+
+#[async_trait]
+impl MsgHandler for SessionInner {
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        self.transport.schedule(message, None).await;
+        Ok(())
+    }
+
+    async fn close(&self) {}
 }
 
 impl SessionInner {
@@ -397,10 +395,13 @@ impl SessionInner {
     }
 
     async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, 
-        sender: Sender<ZResult<NotificationNewSession>>
+        sender: Sender<ZResult<Arc<SessionInner>>>
     ) -> ZResult<()> {
-        // Create a new link associated to self.session by calling the Link Manager
+        // Create a new link associated by calling the Link Manager
         let link = manager.new_link(locator, self.transport.clone()).await?;
+
+        // Add the link to the transport
+        self.transport.add_link(link.clone()).await?;
 
         // Store the sender for the callback to be used in the process_message
         let key = (link.get_src(), link.get_dst());
@@ -428,10 +429,12 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.send(message, link).await
+        self.transport.send(message, link).await?;
+
+        Ok(())
     }
 
-    async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
+    async fn close(&self) -> ZResult<()> {
         // PeerId
         let peer_id = Some(self.manager.id.clone());
         // Reason
@@ -451,8 +454,11 @@ impl SessionInner {
         // TODO: If error in send, retry
         let res = self.transport.send(message, link).await;
 
-        // Close the session
-        let _ = self.transport.close(reason).await;
+        // Close the transport
+        self.transport.close().await?;
+
+        // Remove the session from the manager
+        self.manager.del_session(&self.peer).await?;
 
         res
     }
@@ -462,19 +468,35 @@ impl SessionInner {
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
         whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: &ZInt
-    ) {
+    ) -> ZResult<Arc<Transport>> {
+
         // Check if the opener peer of this accept was me
         if opid != &self.manager.id {
-            return 
+            return Err(zerror!(ZErrorKind::Other{
+                descr: format!("Received an Accept with wrong Opener Peer Id")
+            }))
         }
 
         // Check if had previously triggered the opening of a new connection
         let key = (dst.clone(), src.clone());
-        if let Some(sender) = self.channels.write().await.remove(&key) {
-            let notification = NotificationNewSession::new(
-                apid.clone(), whatami.clone(), lease.clone(), src.clone(), dst.clone()
-            );
-            sender.send(Ok(notification)).await;
+        match self.channels.write().await.remove(&key) {
+            Some(sender) => {
+                // Remove the link from self
+                let link = self.transport.del_link(dst, src).await?;
+                // Get a new or an existing session
+                let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
+                // Configure the lease time on the transport
+                session_inner.transport.set_lease(*lease);
+                // Add the link on the transport
+                session_inner.transport.add_link(link).await?;
+                // Notify the opener
+                sender.send(Ok(session_inner.clone())).await;
+
+                Ok(session_inner.transport.clone())
+            },
+            None => Err(zerror!(ZErrorKind::Other{
+                descr: format!("Received an unsolicited Accept because no Open message was sent")
+            }))
         }
     }
 
@@ -485,28 +507,32 @@ impl SessionInner {
         if pid != &Some(self.peer.clone()) {
             return 
         } 
-        let _ = self.manager.del_session(&self.peer, None).await;
-        let _ = self.transport.close(None).await;
+        let _ = self.manager.del_session(&self.peer).await;
+        let _ = self.transport.close().await;
     }
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
         version: &u8, whatami: &WhatAmI, pid: &PeerId, lease: &ZInt, _locators: &Option<Vec<Locator>> 
-    ) { 
+    ) -> ZResult<Arc<Transport>> { 
         // Ignore whatami and locators for the time being
 
         // Check if the version is supported
         if version > &self.manager.version {
-            return 
+            return Err(zerror!(ZErrorKind::Other{
+                descr: format!("Zenoh version not supported ({})", version)
+            }))
         }
 
         // Check if an already established session exists with the peer
         let target = self.manager.get_or_new_session(&self.manager, pid, whatami).await;
 
-        // Move the transport link to the transport of the target session
-        let _ = self.manager.move_link(dst, src, &target.transport).await;
-
         // Set the lease to the transport
         target.transport.set_lease(*lease);
+
+        // Remove the link from self
+        let link = self.transport.del_link(dst, src).await?;
+        // Add the link to the target
+        target.transport.add_link(link).await?;
 
         // Build Accept message
         let conduit_id = None;  // Conduit ID always None
@@ -518,21 +544,7 @@ impl SessionInner {
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
         target.transport.schedule(message, link).await;
+
+        Ok(target.transport.clone())
     }
 }
-
-#[async_trait]
-impl MsgHandler for SessionInner {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.transport.schedule(message, None).await;
-        Ok(())
-    }
-
-    async fn close(&self) {}
-}
-
-// impl Drop for Session {
-//     fn drop(&mut self) {
-//         println!("> Dropping Session ({:?})", self.peer);
-//     }
-// }

@@ -150,7 +150,7 @@ async fn transport_base_inner() {
     let (router_sender, router_receiver) = channel::<Message>(1);
 
     // Reliable messages to send
-    let messages_count: ZInt = 1000;
+    let messages_count: ZInt = 10_000;
 
     // Router task
     let c_mbr = m_barrier.clone();

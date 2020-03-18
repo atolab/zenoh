@@ -81,15 +81,17 @@ impl Session {
         let ref mut inner = self.inner.write();
         let primitives = inner.primitives.as_ref().unwrap();
 
-        task::block_on( async {
+        let res = task::block_on( async {
             primitives.close().await;
+
+            if let Some(tx_session) = &self.tx_session {
+                return tx_session.close().await
+            }
+            Ok(())
         });
 
-        if let Some(tx_session) = &self.tx_session {
-            self.session_manager.close_session(&tx_session.get_peer(), None);
-        }
         // @TODO: session_manager.del_locator()
-        Ok(())
+        res
     }
 
     pub fn info(&self) -> Properties {

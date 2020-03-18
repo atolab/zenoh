@@ -187,7 +187,7 @@ impl Transport {
         }
     }
 
-    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
+    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {    
         let mut guard = self.links.lock().await;
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
@@ -305,7 +305,7 @@ impl Transport {
     /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    async fn process_reliable_message(&self, message: Message, sn: ZInt) {
+    async fn process_reliable_message(&self, message: Message, _sn: ZInt) {
         let _ = zrwopt!(self.callback).handle_message(message).await;
     }
 
@@ -345,16 +345,21 @@ impl Transport {
         }
     }
 
-    async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) {
+    async fn receive_full_message(&self, src: &Locator, dst: &Locator, message: Message) -> Option<Arc<Self>> {
         match &message.body {
             Body::Accept{whatami, opid, apid, lease} => {
-                zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, lease).await;
+                match zrwopt!(self.session).process_accept(src, dst, whatami, opid, apid, lease).await {
+                    Ok(transport) => Some(transport),
+                    Err(_) => None
+                }
             },
             Body::AckNack{sn, mask} => {
                 self.process_acknack(sn, mask).await;
+                None
             },
             Body::Close{pid, reason} => {
                 zrwopt!(self.session).process_close(src, dst, pid, reason).await;
+                None
             },
             Body::Hello{whatami: _, locators: _} => {
                 unimplemented!("Handling of Hello Messages not yet implemented!");
@@ -363,7 +368,10 @@ impl Transport {
                 unimplemented!("Handling of KeepAlive Messages not yet implemented!");
             },
             Body::Open{version, whatami, pid, lease, locators} => {
-                zrwopt!(self.session).process_open(src, dst, version, whatami, pid, lease, locators).await;
+                match zrwopt!(self.session).process_open(src, dst, version, whatami, pid, lease, locators).await {
+                    Ok(transport) => Some(transport),
+                    Err(_) => None
+                }
             },
             Body::Ping{hash: _} => {
                 unimplemented!("Handling of Ping Messages not yet implemented!");
@@ -376,6 +384,7 @@ impl Transport {
             },
             Body::Sync{sn, count} => {
                 self.process_sync(sn, count).await;
+                None
             }
             Body::Data{reliable, sn, key: _, info: _, payload: _} => {
                 let c_sn = *sn;
@@ -383,29 +392,31 @@ impl Transport {
                     true => self.process_reliable_message(message, c_sn).await,
                     false => self.process_unreliable_message(message, c_sn).await,
                 }
+                None
             },
             Body::Declare{sn, declarations: _} |
             Body::Pull{sn, key: _, pull_id: _, max_samples: _} |
             Body::Query{sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
                 let c_sn = *sn;
                 self.process_reliable_message(message, c_sn).await;
+                None
             }
         }
     }
 
-    async fn receive_first_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message, _number: Option<ZInt>) {
+    async fn receive_first_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message, _number: Option<ZInt>) -> Option<Arc<Self>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_middle_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) {
+    async fn receive_middle_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Option<Arc<Self>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_last_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) {
+    async fn receive_last_fragement(&self, _src: &Locator, _dst: &Locator, _message: Message) -> Option<Arc<Self>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) {
+    pub async fn receive_message(&self, src: &Locator, dst: &Locator, message: Message) -> Option<Arc<Self>> {
         match message.kind {
             MessageKind::FullMessage =>
                 self.receive_full_message(src, dst, message).await,
@@ -421,7 +432,7 @@ impl Transport {
     /*************************************/
     /*         CLOSE THE SESSION         */
     /*************************************/
-    pub async fn close(&self, _reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         // Notify the callback
         zrwopt!(self.callback).close().await;
 
@@ -430,7 +441,7 @@ impl Transport {
 
         // Remove and close all the links
         for l in self.links.lock().await.drain(..) {
-            l.close(None).await?;
+            let _ = l.close().await;
         }
 
         // Remove the reference to the session

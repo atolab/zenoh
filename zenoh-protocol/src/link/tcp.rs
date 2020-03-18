@@ -7,13 +7,13 @@ use async_std::prelude::*;
 use async_std::sync::{
     Arc,
     channel,
+    Mutex,
     Sender,
     RwLock,
     Receiver};
 use async_std::task;
 use std::collections::HashMap;
 use std::net::Shutdown;
-// use uuid::Uuid;
 
 use crate::{
     zerror,
@@ -72,7 +72,7 @@ pub struct LinkTcp {
     src_locator: Locator,
     dst_locator: Locator,
     buff_size: usize,
-    transport: Arc<Transport>,
+    transport: Mutex<Arc<Transport>>,
     manager: Arc<ManagerTcpInner>,
     ch_send: Sender<Command>,
     ch_recv: Receiver<Command>
@@ -90,21 +90,17 @@ impl LinkTcp {
             src_locator: Locator::Tcp(src_addr),
             dst_locator: Locator::Tcp(dst_addr),
             buff_size: READ_BUFFER_SIZE,
-            transport,
+            transport: Mutex::new(transport),
             manager,
             ch_send: sender,
             ch_recv: receiver
         }
     }
 
-    pub async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         let _ = self.socket.shutdown(Shutdown::Both);
-        match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
-            Ok(_) => Ok(()),
-            Err(e) => Err(zerror!(ZErrorKind::Other{
-                descr: format!("{}", e)
-            }))
-        }
+        self.manager.del_link(&self.get_src(), &self.get_dst()).await?;
+        Ok(())
     }
     
     pub async fn send(&self, message: &Message) -> ZResult<()> {
@@ -168,7 +164,10 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             let pos = buff.get_pos();
             match buff.read_message() {
                 Ok(message) => {
-                    link.transport.receive_message(&dst, &src, message).await;
+                    let mut guard = link.transport.lock().await;
+                    if let Some(transport) = guard.receive_message(&dst, &src, message).await {
+                        *guard = transport;
+                    }
                     buff.clean_read_slices();
                     continue
                 },
@@ -187,7 +186,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
     let src = link.get_src();
     let dst = link.get_dst();
     let mut buff = RBuf::new();
-    let err = loop {
+    let _err = loop {
         let stop = link.ch_recv.recv();
         let read = read(&link, &mut buff, &src, &dst);
         match read.race(stop).await {
@@ -212,8 +211,8 @@ async fn receive_loop(link: Arc<LinkTcp>) {
 
     // Remove the link in case of IO error
     if !signal {
-        let _ = link.manager.del_link(&src, &dst, None).await;
-        let _ = link.transport.del_link(&src, &dst, Some(err)).await;
+        let _ = link.manager.del_link(&src, &dst).await;
+        let _ = link.transport.lock().await.del_link(&src, &dst).await;
     }
 }
 
@@ -238,13 +237,14 @@ impl ManagerTcp {
         Ok(Link::Tcp(link))
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> ZResult<Link> {
-        let link = self.0.del_link(src, dst, reason).await?;
+    pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        let link = self.0.del_link(src, dst).await?;
         Ok(Link::Tcp(link))
     }
 
-    pub async fn move_link(&self, src: &Locator, dst: &Locator, transport: Arc<Transport>) -> ZResult<()> {
-        self.0.move_link(&self.0, src, dst, transport).await
+    pub async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        let link = self.0.get_link(src, dst).await?;
+        Ok(Link::Tcp(link))
     }
 
     pub  async fn new_listener(&self, locator: &Locator) -> ZResult<()> {
@@ -290,7 +290,6 @@ impl ManagerTcpInner {
         let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
         let key = (link.src_addr, link.dst_addr);
         self.link.write().await.insert(key, link.clone());
-        transport.add_link(Link::Tcp(link.clone())).await?;
         
         // Spawn the receive loop for the new link
         LinkTcp::start(link.clone());
@@ -298,7 +297,7 @@ impl ManagerTcpInner {
         Ok(link)
     }
 
-    async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Arc<LinkTcp>> {
+    async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
         let src = get_tcp_addr!(src);
         let dst = get_tcp_addr!(dst);
 
@@ -311,38 +310,17 @@ impl ManagerTcpInner {
         }
     }
 
-    async fn move_link(&self, a_self: &Arc<Self>, src: &Locator, dst: &Locator, transport: Arc<Transport>) -> ZResult<()> {
+    async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
         let src = get_tcp_addr!(src);
         let dst = get_tcp_addr!(dst);
 
-        // Remove the link from the session manager
-        let old_link = match self.link.write().await.remove(&(*src, *dst)) {
-            Some(link) => link,
-            None => return Err(zerror!(ZErrorKind::Other{
+        // Remove the link from the manager list
+        match self.link.write().await.get(&(*src, *dst)) {
+            Some(link) => Ok(link.clone()),
+            None => Err(zerror!(ZErrorKind::Other{
                 descr: format!("No active TCP link ({} => {})", src, dst)
             }))
-        };
-
-        // Remove the link from the session
-        let reason = Some(zerror!(ZErrorKind::Other{
-            descr: format!("Migrating the link to a new session")
-        }));
-        old_link.transport.del_link(&old_link.get_src(), &old_link.get_dst(), reason).await?;
-
-        // Stop the link
-        old_link.stop().await?;
-
-        // Create a new link object
-        let new_link = Arc::new(LinkTcp::new(old_link.socket.clone(), transport.clone(), a_self.clone()));
-        self.link.write().await.insert((new_link.src_addr, new_link.dst_addr), new_link.clone());
-
-        // Add the link to the new session
-        transport.add_link(Link::Tcp(new_link.clone())).await?;
-
-        // Start the link
-        LinkTcp::start(new_link);
-
-        Ok(())
+        }
     }
 
     async fn new_listener(&self, a_self: &Arc<Self>, locator: &Locator) -> ZResult<()> {
