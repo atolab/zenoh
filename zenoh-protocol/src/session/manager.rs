@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use async_std::future;
 use async_std::sync::{
     Arc,
     channel,
@@ -7,6 +8,7 @@ use async_std::sync::{
 };
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Duration;
 
 use crate::{
     zerror,
@@ -36,12 +38,16 @@ use crate::link::{
 };
 
 
+// Default timeout when opening a session
+const OPEN_SESSION_TIMEOUT: Duration = Duration::from_secs(10);
+
+
 // Define an empty SessionCallback for the initial session
-struct InitialHandler {}
+struct InitialHandler;
 
 impl InitialHandler {
     pub fn new() -> Self {
-        Self {}
+        Self
     }
 }
 
@@ -82,6 +88,10 @@ impl SessionManager {
     /*              SESSION              */
     /*************************************/
     pub async fn open_session(&self, locator: &Locator) -> ZResult<Session> {
+        // The timeout for opening a session
+        // @TODO: make the timeout configurable 
+        let timeout = OPEN_SESSION_TIMEOUT;
+
         // Automatically create a new link manager for the protocol if it does not exist
         let manager = self.0.new_link_manager(&self.0, &locator.get_proto()).await?;
 
@@ -92,8 +102,14 @@ impl SessionManager {
         zrwopt!(self.0.initial).open(manager, locator, sender).await?;
 
         // Wait the accept message to finalize the session
-        // TODO: implement a timeout
-        let session_inner = match receiver.recv().await {
+        let res = future::timeout(timeout, receiver.recv()).await;
+        if res.is_err() {
+            return Err(zerror!(ZErrorKind::Other{
+                descr: "Open session has timedout!".to_string()
+            }))
+        }
+
+        let session_inner = match res.unwrap() {
             Some(res) => match res {
                 Ok(session_inner) => session_inner,
                 Err(e) => return Err(e)
@@ -290,7 +306,7 @@ impl SessionManagerInner {
         session_inner.start();
         // Notify the upper layer that a new session has been created
         let callback = self.handler.new_session(whatami.clone(), session_inner.clone()).await;
-        // initialize the session 
+        // Initialize the session 
         session_inner.initialize(&session_inner, callback);
 
         Ok(session_inner)
