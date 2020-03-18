@@ -13,10 +13,10 @@ pub struct PrintPrimitives {
 #[async_trait]
 impl Primitives for PrintPrimitives {
 
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("  [RECV] RESOURCE ({:?}) ({:?})", rid, reskey);
     }
-    async fn forget_resource(&self, rid: &ZInt) {
+    async fn forget_resource(&self, rid: ZInt) {
         println!("  [RECV] FORGET RESOURCE ({:?})", rid);
     }
     
@@ -51,13 +51,13 @@ impl Primitives for PrintPrimitives {
     async fn data(&self, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
         println!("  [RECV] DATA ({:?})", reskey);
     }
-    async fn query(&self, reskey: &ResKey, predicate: &String, qid: &ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
         println!("  [RECV] QUERY ({:?}) ({:?}) ({:?}) ({:?}) ({:?})", reskey, predicate, qid, target, consolidation);
     }
-    async fn reply(&self, qid: &ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
         println!("  [RECV] REPLY ({:?}) ({:?}) ({:?}) ({:?})", qid, source, replierid, reskey);
     }
-    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: &ZInt, max_samples: &Option<ZInt>) {
+    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
         println!("  [RECV] PULL ({:?}) ({:?}) ({:?}) ({:?})", is_final, reskey, pull_id, max_samples);
     }
 
@@ -107,7 +107,7 @@ fn main() {
         primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
 
         let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()]
-            .concat().to_string().into();
+            .concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;

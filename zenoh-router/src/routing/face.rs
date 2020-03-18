@@ -35,13 +35,13 @@ pub struct FaceHdl {
 
 #[async_trait]
 impl Primitives for FaceHdl {
-    async fn resource(&self, rid: &u64, reskey: &ResKey) {
+    async fn resource(&self, rid: u64, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), *rid, prefixid, suffix).await;
+        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), rid, prefixid, suffix).await;
     }
 
-    async fn forget_resource(&self, rid: &u64) {
-        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), *rid).await;
+    async fn forget_resource(&self, rid: u64) {
+        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), rid).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
@@ -71,11 +71,11 @@ impl Primitives for FaceHdl {
         Tables::route_data(&self.tables, &Arc::downgrade(&self.face), &prefixid, suffix, info, payload).await;
     }
 
-    async fn query(&self, _reskey: &ResKey, _predicate: &String, _qid: &ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
 
-    async fn reply(&self, _qid: &ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
 
-    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: &ZInt, _max_samples: &Option<ZInt>) {}
+    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {
         Tables::undeclare_session(&self.tables, &Arc::downgrade(&self.face)).await;
