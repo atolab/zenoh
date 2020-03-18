@@ -287,13 +287,16 @@ impl QueueTx {
         match queue.push(message) {
             Ok(_) => None,
             Err(PushError(message)) => {
-                if message.inner.is_reliable() || !is_data {
-                    Some(message)
-                } else {
-                    // Don't drop the message for the time being
-                    // Return None to drop the message
-                    Some(message)
-                }
+                Some(message)
+                // @TODO: Currently the action  does not depend on the branch,
+                // once the proper action will be in place we'll put back in the branch.
+                //
+                // if message.inner.is_reliable() || !is_data {
+                //    Some(message)
+                // } else {
+                //     // Don't drop the message for the time being
+                //     // Return None to drop the message //
+                // }
             }
         }
     }
@@ -362,9 +365,10 @@ impl QueueTx {
         
             fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
                 self.queue.w_retx.push(ctx.waker().clone());
-                match self.queue.try_reschedule(self.sn) {
-                    true => Poll::Ready(()),
-                    false => Poll::Pending
+                if self.queue.try_reschedule(self.sn) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
                 }
             }
         }
