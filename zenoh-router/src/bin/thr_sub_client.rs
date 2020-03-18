@@ -77,9 +77,9 @@ impl Primitives for ThrouputPrimitives {
             stats.count = 0;
         }  
     }
-    async fn query(&self, _reskey: &ResKey, _predicate: &String, _qid: &ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
-    async fn reply(&self, _qid: &ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
-    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: &ZInt, _max_samples: &Option<ZInt>) {}
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
+    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {}
 }

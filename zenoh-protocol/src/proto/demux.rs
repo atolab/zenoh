@@ -58,14 +58,14 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
             Body::Data{key, info, payload, ..} => {
                 match &msg.reply_context {
                     None => {self.primitives.data(key, info, payload).await;}
-                    Some(rep) => {self.primitives.reply(&rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
+                    Some(rep) => {self.primitives.reply(rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
                 }
             }
             Body::Query{key, predicate, qid, target, consolidation, ..} => {
-                self.primitives.query(key, predicate, qid, target, consolidation).await;
+                self.primitives.query(key, predicate, *qid, target, consolidation).await;
             }
             Body::Pull{key, pull_id, max_samples, ..} => {
-                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, pull_id, max_samples).await;
+                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, *pull_id, max_samples).await;
             }
             _ => () 
         }
