@@ -365,6 +365,16 @@ pub struct SessionInner {
     channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Arc<SessionInner>>>>>
 }
 
+#[async_trait]
+impl MsgHandler for SessionInner {
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        self.transport.schedule(message, None).await;
+        Ok(())
+    }
+
+    async fn close(&self) {}
+}
+
 impl SessionInner {
     fn new(manager: Arc<SessionManagerInner>, id: usize, peer: PeerId, lease: ZInt ) -> Self {
         Self {
@@ -538,19 +548,3 @@ impl SessionInner {
         Ok(target.transport.clone())
     }
 }
-
-#[async_trait]
-impl MsgHandler for SessionInner {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.transport.schedule(message, None).await;
-        Ok(())
-    }
-
-    async fn close(&self) {}
-}
-
-// impl Drop for Session {
-//     fn drop(&mut self) {
-//         println!("> Dropping Session ({:?})", self.peer);
-//     }
-// }
