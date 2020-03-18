@@ -24,7 +24,6 @@ use crate::proto::{
     WhatAmI
 };
 use crate::session::{
-    DummyHandler,
     Transport,
     MsgHandler,
     SessionHandler
@@ -36,6 +35,25 @@ use crate::link::{
     LocatorProtocol,
 };
 
+
+// Define an empty SessionCallback for the initial session
+struct InitialHandler {}
+
+impl InitialHandler {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[async_trait]
+impl MsgHandler for InitialHandler {
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        println!("!!! WARNING: InitialHandler::handle_message({:?}) => dropped", message.body);
+        Ok(())
+    }
+
+    async fn close(&self) {}
+}
 
 #[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
@@ -49,7 +67,7 @@ impl SessionManager {
 
         // Create a session used to establish new connections
         // This session wrapper does not require to contact the upper layer
-        let callback = Arc::new(DummyHandler::new());
+        let callback = Arc::new(InitialHandler::new());
         let session_inner = Arc::new(SessionInner::new(manager_inner.clone(), 0, id, lease));
         // Start the session
         session_inner.start();
@@ -86,11 +104,6 @@ impl SessionManager {
         };
 
         Ok(Session::new(session_inner))
-    }
-
-    pub async fn close_session(&self, peer: &PeerId, reason: Option<ZError>) -> ZResult<()> {
-        let session_inner = self.0.del_session(peer, None).await?;
-        session_inner.close(reason).await
     }
 
     pub async fn init_session(&self, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Session> {
@@ -248,7 +261,7 @@ impl SessionManagerInner {
         }
     }
     
-    async fn del_session(&self, peer: &PeerId, _reason: Option<ZError>) -> ZResult<Arc<SessionInner>> {
+    async fn del_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
         match self.sessions.write().await.remove(peer) {
             Some(session) => {
                 self.id_mgmt.write().await.del_id(session.id);
@@ -288,6 +301,7 @@ impl SessionManagerInner {
 /*************************************/
 /*              SESSION              */
 /*************************************/
+#[derive(Clone)]
 pub struct Session(Arc<SessionInner>);
 
 impl Session {
@@ -307,6 +321,10 @@ impl Session {
         self.0.transport.clone()
     }
 
+    pub async fn close(&self) -> ZResult<()> {
+        self.0.close().await
+    }
+
     pub async fn get_links(&self) -> Vec<Link> {
         self.0.transport.get_links().await
     }
@@ -316,7 +334,7 @@ impl Session {
     }
 
     pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
-        self.0.transport.del_link(src, dst, None).await
+        self.0.transport.del_link(src, dst).await
     }
 
     pub async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
@@ -373,7 +391,7 @@ impl SessionInner {
         let link = manager.new_link(locator, self.transport.clone()).await?;
 
         // Add the link to the transport
-        self.transport.add_link(link.clone()).await;
+        self.transport.add_link(link.clone()).await?;
 
         // Store the sender for the callback to be used in the process_message
         let key = (link.get_src(), link.get_dst());
@@ -406,7 +424,7 @@ impl SessionInner {
         Ok(())
     }
 
-    async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
+    async fn close(&self) -> ZResult<()> {
         // PeerId
         let peer_id = Some(self.manager.id.clone());
         // Reason
@@ -426,8 +444,11 @@ impl SessionInner {
         // TODO: If error in send, retry
         let res = self.transport.send(message, link).await;
 
-        // Close the session
-        let _ = self.transport.close(reason).await;
+        // Close the transport
+        self.transport.close().await?;
+
+        // Remove the session from the manager
+        self.manager.del_session(&self.peer).await?;
 
         res
     }
@@ -451,13 +472,13 @@ impl SessionInner {
         match self.channels.write().await.remove(&key) {
             Some(sender) => {
                 // Remove the link from self
-                let link = self.transport.del_link(dst, src, None).await?;
+                let link = self.transport.del_link(dst, src).await?;
                 // Get a new or an existing session
                 let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
                 // Configure the lease time on the transport
                 session_inner.transport.set_lease(*lease);
                 // Add the link on the transport
-                session_inner.transport.add_link(link).await;
+                session_inner.transport.add_link(link).await?;
                 // Notify the opener
                 sender.send(Ok(session_inner.clone())).await;
 
@@ -476,8 +497,8 @@ impl SessionInner {
         if pid != &Some(self.peer.clone()) {
             return 
         } 
-        let _ = self.manager.del_session(&self.peer, None).await;
-        let _ = self.transport.close(None).await;
+        let _ = self.manager.del_session(&self.peer).await;
+        let _ = self.transport.close().await;
     }
 
     pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
@@ -499,7 +520,7 @@ impl SessionInner {
         target.transport.set_lease(*lease);
 
         // Remove the link from self
-        let link = self.transport.del_link(dst, src, None).await?;
+        let link = self.transport.del_link(dst, src).await?;
         // Add the link to the target
         target.transport.add_link(link).await?;
 

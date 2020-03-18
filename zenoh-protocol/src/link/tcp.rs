@@ -97,9 +97,9 @@ impl LinkTcp {
         }
     }
 
-    pub async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         let _ = self.socket.shutdown(Shutdown::Both);
-        match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
+        match self.manager.del_link(&self.get_src(), &self.get_dst()).await {
             Ok(_) => Ok(()),
             Err(e) => Err(zerror!(ZErrorKind::Other{
                 descr: format!("{}", e)
@@ -190,7 +190,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
     let src = link.get_src();
     let dst = link.get_dst();
     let mut buff = RBuf::new();
-    let err = loop {
+    let _err = loop {
         let stop = link.ch_recv.recv();
         let read = read(&link, &mut buff, &src, &dst);
         match read.race(stop).await {
@@ -215,8 +215,8 @@ async fn receive_loop(link: Arc<LinkTcp>) {
 
     // Remove the link in case of IO error
     if !signal {
-        let _ = link.manager.del_link(&src, &dst, None).await;
-        let _ = link.transport.lock().await.del_link(&src, &dst, Some(err)).await;
+        let _ = link.manager.del_link(&src, &dst).await;
+        let _ = link.transport.lock().await.del_link(&src, &dst).await;
     }
 }
 
@@ -241,8 +241,8 @@ impl ManagerTcp {
         Ok(Link::Tcp(link))
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> ZResult<Link> {
-        let link = self.0.del_link(src, dst, reason).await?;
+    pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        let link = self.0.del_link(src, dst).await?;
         Ok(Link::Tcp(link))
     }
 
@@ -301,7 +301,7 @@ impl ManagerTcpInner {
         Ok(link)
     }
 
-    async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Arc<LinkTcp>> {
+    async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
         let src = get_tcp_addr!(src);
         let dst = get_tcp_addr!(dst);
 

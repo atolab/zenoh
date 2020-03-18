@@ -92,7 +92,7 @@ impl LinkDummy {
         *self.reordering_probability.write().await = reordering_probability;
     }
 
-    pub async fn close(&self, _reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         self.ch_send.send(Command::Signal).await;
         Ok(())
     }
@@ -199,7 +199,7 @@ impl ManagerDummy {
         unimplemented!("ManagerDummy is not supposed to be implemented!");
     }
 
-    pub async fn del_link(&self, _src: &Locator, _dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {
+    pub async fn del_link(&self, _src: &Locator, _dst: &Locator) -> ZResult<Link> {
         unimplemented!("ManagerDummy is not supposed to be implemented!");
     }
 

@@ -172,7 +172,7 @@ async fn run(locator: Locator) {
         c_rbr.wait().await;
         
         // Close the open session
-        let res3 = manager.close_session(&ses1.get_peer(), None).await;
+        let res3 = ses1.close().await;
         assert_eq!(res3.is_ok(), true);
         assert_eq!(manager.get_sessions().await.len(), 0);
 

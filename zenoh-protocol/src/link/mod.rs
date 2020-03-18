@@ -131,10 +131,10 @@ pub enum Link {
 }
 
 impl Link {
-    pub async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         match self {
-            Self::Dummy(link) => link.close(reason).await,
-            Self::Tcp(link) => link.close(reason).await
+            Self::Dummy(link) => link.close().await,
+            Self::Tcp(link) => link.close().await
         }
     }
 
@@ -227,10 +227,10 @@ impl LinkManager {
         }
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> ZResult<Link> {
+    pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
         match self {
-            Self::Dummy(manager) => manager.del_link(src, dst, reason).await,
-            Self::Tcp(manager) => manager.del_link(src, dst, reason).await
+            Self::Dummy(manager) => manager.del_link(src, dst).await,
+            Self::Tcp(manager) => manager.del_link(src, dst).await
         }
     }
 

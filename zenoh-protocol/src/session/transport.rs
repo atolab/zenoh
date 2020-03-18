@@ -187,7 +187,7 @@ impl Transport {
         }
     }
 
-    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator, _reason: Option<ZError>) -> ZResult<Link> {    
+    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {    
         let mut guard = self.links.lock().await;
         match self.find_link(&guard, src, dst) {
             Some(index) => Ok(guard.remove(index)),
@@ -318,7 +318,7 @@ impl Transport {
     /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    async fn process_reliable_message(&self, message: Message, sn: ZInt) {
+    async fn process_reliable_message(&self, message: Message, _sn: ZInt) {
         let _ = zrwopt!(self.callback).handle_message(message).await;
     }
 
@@ -445,7 +445,7 @@ impl Transport {
     /*************************************/
     /*         CLOSE THE SESSION         */
     /*************************************/
-    pub async fn close(&self, _reason: Option<ZError>) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         // Notify the callback
         zrwopt!(self.callback).close().await;
 
@@ -454,7 +454,7 @@ impl Transport {
 
         // Remove and close all the links
         for l in self.links.lock().await.drain(..) {
-            l.close(None).await?;
+            l.close().await?;
         }
 
         // Remove the reference to the session
