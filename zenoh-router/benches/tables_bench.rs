@@ -28,15 +28,15 @@ fn tables_bench(c: &mut Criterion) {
       }
 
       tables_bench.bench_function(BenchmarkId::new("direct_route", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, &2, "")
+        Tables::route_data_to_map(&tables, &sex0, 2, "")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("known_resource", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, &0, "/bench/tables/*")
+        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/*")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("matches_lookup", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, &0, "/bench/tables/A*")
+        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/A*")
       }));
     }
     tables_bench.finish();

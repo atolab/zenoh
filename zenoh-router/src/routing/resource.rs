@@ -27,7 +27,7 @@ impl Resource {
         Resource {
             parent: Some(parent.clone()),
             suffix: String::from(suffix),
-            nonwild_prefix: nonwild_prefix,
+            nonwild_prefix,
             childs: HashMap::new(),
             contexts: HashMap::new(),
             matches: Vec::new(),
@@ -92,43 +92,41 @@ impl Resource {
     pub fn make_resource(from: &Arc<RwLock<Resource>>, suffix: &str) -> Arc<RwLock<Resource>> {
         if suffix.is_empty() {
             from.clone()
-        } else {
-            if suffix.starts_with('/') {
-                let (chunk, rest) = match suffix[1..].find('/') {
-                    Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                    None => (suffix, "")
-                };
-        
-                let rfrom = from.read();
-                match rfrom.childs.get(chunk) {
-                    Some(res) => {Resource::make_resource(res, rest)}
-                    None => {
-                        drop(rfrom);
-                        let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
-                        let res = Resource::make_resource(&new, rest);
-                        from.write().childs.insert(String::from(chunk), new);
-                        res
-                    }
+        } else if suffix.starts_with('/') {
+            let (chunk, rest) = match suffix[1..].find('/') {
+                Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                None => (suffix, "")
+            };
+    
+            let rfrom = from.read();
+            match rfrom.childs.get(chunk) {
+                Some(res) => {Resource::make_resource(res, rest)}
+                None => {
+                    drop(rfrom);
+                    let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
+                    let res = Resource::make_resource(&new, rest);
+                    from.write().childs.insert(String::from(chunk), new);
+                    res
                 }
-            } else {
-                let rfrom = from.read();
-                match &rfrom.parent {
-                    Some(parent) => {Resource::make_resource(&parent, &[&rfrom.suffix, suffix].concat())}
-                    None => {
-                        let (chunk, rest) = match suffix[1..].find('/') {
-                            Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                            None => (suffix, "")
-                        };
+            }
+        } else {
+            let rfrom = from.read();
+            match &rfrom.parent {
+                Some(parent) => {Resource::make_resource(&parent, &[&rfrom.suffix, suffix].concat())}
+                None => {
+                    let (chunk, rest) = match suffix[1..].find('/') {
+                        Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                        None => (suffix, "")
+                    };
 
-                        match rfrom.childs.get(chunk) {
-                            Some(res) => {Resource::make_resource(res, rest)}
-                            None => {
-                                drop(rfrom);
-                                let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
-                                let res = Resource::make_resource(&new, rest);
-                                from.write().childs.insert(String::from(chunk), new);
-                                res
-                            }
+                    match rfrom.childs.get(chunk) {
+                        Some(res) => {Resource::make_resource(res, rest)}
+                        None => {
+                            drop(rfrom);
+                            let new = Arc::new(RwLock::new(Resource::new(from, chunk)));
+                            let res = Resource::make_resource(&new, rest);
+                            from.write().childs.insert(String::from(chunk), new);
+                            res
                         }
                     }
                 }
@@ -139,31 +137,29 @@ impl Resource {
     pub fn get_resource(from: &Arc<RwLock<Resource>>, suffix: &str) -> Option<Weak<RwLock<Resource>>> {
         if suffix.is_empty() {
             Some(Arc::downgrade(from))
+        } else if suffix.starts_with('/') {
+            let (chunk, rest) = match suffix[1..].find('/') {
+                Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                None => (suffix, "")
+            };
+    
+            match from.read().childs.get(chunk) {
+                Some(res) => {Resource::get_resource(res, rest)}
+                None => {None}
+            }
         } else {
-            if suffix.starts_with('/') {
-                let (chunk, rest) = match suffix[1..].find('/') {
-                    Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                    None => (suffix, "")
-                };
-        
-                match from.read().childs.get(chunk) {
-                    Some(res) => {Resource::get_resource(res, rest)}
-                    None => {None}
-                }
-            } else {
-                let rfrom = from.read();
-                match &rfrom.parent {
-                    Some(parent) => {Resource::get_resource(&parent, &[&rfrom.suffix, suffix].concat())}
-                    None => {
-                        let (chunk, rest) = match suffix[1..].find('/') {
-                            Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                            None => (suffix, "")
-                        };
-                
-                        match rfrom.childs.get(chunk) {
-                            Some(res) => {Resource::get_resource(res, rest)}
-                            None => {None}
-                        }
+            let rfrom = from.read();
+            match &rfrom.parent {
+                Some(parent) => {Resource::get_resource(&parent, &[&rfrom.suffix, suffix].concat())}
+                None => {
+                    let (chunk, rest) = match suffix[1..].find('/') {
+                        Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                        None => (suffix, "")
+                    };
+            
+                    match rfrom.childs.get(chunk) {
+                        Some(res) => {Resource::get_resource(res, rest)}
+                        None => {None}
                     }
                 }
             }

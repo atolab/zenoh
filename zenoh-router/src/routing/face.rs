@@ -68,7 +68,7 @@ impl Primitives for FaceHdl {
 
     async fn data(&self, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), &prefixid, suffix, info, payload).await;
+        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, info, payload).await;
     }
 
     async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}

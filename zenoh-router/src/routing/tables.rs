@@ -56,8 +56,14 @@ impl TablesHdl {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, WhatAmI::Client, primitives).await.upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, WhatAmI::Client, primitives).await.upgrade().unwrap(),
         })
+    }
+}
+
+impl Default for TablesHdl {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -66,7 +72,7 @@ impl SessionHandler for TablesHdl {
     async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, whatami, Arc::new(Mux::new(session))).await.upgrade().unwrap().clone(),
+            face: Tables::declare_session(&self.tables, whatami, Arc::new(Mux::new(session))).await.upgrade().unwrap(),
         }))
     }
 }
@@ -102,9 +108,7 @@ impl Tables {
             let mut t = tables.write();
             let sid = t.sex_counter;
             t.sex_counter += 1;
-            if ! t.faces.contains_key(&sid) {
-                t.faces.insert(sid, Face::new(sid, whatami, primitives.clone()));
-            }
+            t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone()));
             let subs = t.faces.iter().map(|(id, face)| {
                 if *id != sid {
                     let rface = face.read();
@@ -128,7 +132,7 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let mut wsex = sex.write();
-                for (_, mapping) in &wsex.mappings {
+                for mapping in wsex.mappings.values() {
                     Resource::clean(&mapping);
                 }
                 wsex.mappings.clear();
@@ -148,8 +152,8 @@ impl Tables {
             let rmatch_ = match_.read();
             for (sid, context) in &rmatch_.contexts {
                 let rcontext = context.read();
-                if let Some(_) = rcontext.subs {
-                    let (rid, suffix) = Tables::get_best_key(res, "", sid);
+                if rcontext.subs.is_some() {
+                    let (rid, suffix) = Tables::get_best_key(res, "", *sid);
                     dests.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                 }
             }
@@ -174,10 +178,10 @@ impl Tables {
         fn matches_contain(matches: &Vec<Weak<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
                 if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
-                    return true;
+                    return true
                 }
             }
-            return false;
+            false
         }
         
         for match_ in &matches {
@@ -347,11 +351,8 @@ impl Tables {
                                 let res = res.upgrade().unwrap();
                                 {
                                     let wres = res.write();
-                                    match wres.contexts.get(&wsex.id) {
-                                        Some(ctx) => {
-                                            ctx.write().subs = None;
-                                        }
-                                        None => {}
+                                    if let Some(ctx) = wres.contexts.get(&wsex.id) {
+                                        ctx.write().subs = None;
                                     }
                                 }
                                 wsex.subs.retain(|x| ! Arc::ptr_eq(&x, &res));
@@ -368,18 +369,15 @@ impl Tables {
     }
 
     fn fst_chunk(rname: &str) -> (&str, &str) {
-        match rname.starts_with('/') {
-            true => {
-                match rname[1..].find('/') {
-                    Some(idx) => {(&rname[0..(idx+1)], &rname[(idx+1)..])}
-                    None => (rname, "")
-                }
+        if rname.starts_with('/') {
+            match rname[1..].find('/') {
+                Some(idx) => {(&rname[0..(idx+1)], &rname[(idx+1)..])}
+                None => (rname, "")
             }
-            false => {
-                match rname.find('/') {
-                    Some(idx) => {(&rname[0..(idx)], &rname[(idx)..])}
-                    None => (rname, "")
-                }
+        } else {
+            match rname.find('/') {
+                Some(idx) => {(&rname[0..(idx)], &rname[(idx)..])}
+                None => (rname, "")
             }
         }
     }
@@ -387,7 +385,7 @@ impl Tables {
     fn get_matches_from(rname: &str, from: &Arc<RwLock<Resource>>) -> Vec<Weak<RwLock<Resource>>> {
         let mut matches = Vec::new();
         if from.read().parent.is_none() {
-            for (_, child) in &from.read().childs {
+            for child in from.read().childs.values() {
                 matches.append(&mut Tables::get_matches_from(rname, child));
             }
             return matches
@@ -395,7 +393,7 @@ impl Tables {
         if rname.is_empty() {
             if from.read().suffix == "/**" || from.read().suffix == "/" {
                 matches.push(Arc::downgrade(from));
-                for (_, child) in &from.read().childs {
+                for child in from.read().childs.values() {
                     matches.append(&mut Tables::get_matches_from(rname, child));
                 }
             }
@@ -408,7 +406,7 @@ impl Tables {
             } else if chunk == "/**" || from.read().suffix == "/**" {
                 matches.append(&mut Tables::get_matches_from(rest, from));
             }
-            for (_, child) in &from.read().childs {
+            for child in from.read().childs.values() {
                 matches.append(&mut Tables::get_matches_from(rest, child));
                 if chunk == "/**" || from.read().suffix == "/**" {
                     matches.append(&mut Tables::get_matches_from(rname, child));
@@ -424,8 +422,8 @@ impl Tables {
     }
 
     #[inline]
-    fn get_best_key(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &usize) -> (u64, String) {
-        fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: &usize, checkchilds: bool) -> (u64, String) {
+    fn get_best_key(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: usize) -> (u64, String) {
+        fn get_best_key_(prefix: &Arc<RwLock<Resource>>, suffix: &str, sid: usize, checkchilds: bool) -> (u64, String) {
             let rprefix = prefix.read();
             if checkchilds && ! suffix.is_empty() {
                 let (chunk, rest) = Tables::fst_chunk(suffix);
@@ -433,7 +431,7 @@ impl Tables {
                     return get_best_key_(child, rest, sid, true)
                 }
             }
-            if let Some(ctx) = rprefix.contexts.get(sid) {
+            if let Some(ctx) = rprefix.contexts.get(&sid) {
                 if let Some(rid) = ctx.read().rid {
                     return (rid, suffix.to_string())
                 }
@@ -446,7 +444,7 @@ impl Tables {
         get_best_key_(prefix, suffix, sid, true)
     }
 
-    pub fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str) 
+    pub fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str) 
     -> Option<HashMap<usize, (Weak<RwLock<Face>>, u64, String)>> {
 
         let t = tables.read();
@@ -459,10 +457,10 @@ impl Tables {
                     let rres = res.read();
                     for (sid, context) in &rres.contexts {
                         let rcontext = context.read();
-                        if let Some(_) = rcontext.subs {
+                        if rcontext.subs.is_some() {
                             if ! sexs.contains_key(sid)
                             {
-                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, sid);
+                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
                                 sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
                             }
                         }
@@ -480,17 +478,17 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
-                match rsex.mappings.get(rid) {
+                match rsex.mappings.get(&rid) {
                     Some(res) => {
                         match suffix {
                             "" => {Some(res.read().route.clone())}
                             suffix => {
-                                build_route(rsex.mappings.get(rid).unwrap(), suffix)
+                                build_route(rsex.mappings.get(&rid).unwrap(), suffix)
                             }
                         }
                     }
                     None => {
-                        if *rid == 0 {
+                        if rid == 0 {
                             build_route(&t.root_res, suffix)
                         } else {
                             println!("Route data with unknown rid {}!", rid); None
@@ -502,7 +500,7 @@ impl Tables {
         }
     }
 
-    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: &u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
         match sex.upgrade() {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
@@ -518,9 +516,8 @@ impl Tables {
                                     None
                                 }
                             };
-                            match primitives {
-                                Some(primitives) => {primitives.data(&(rid, suffix).into(), info, payload).await}
-                                None => ()
+                            if let Some(primitives) = primitives {
+                                primitives.data(&(rid, suffix).into(), info, payload).await
                             }
                         }
                     }

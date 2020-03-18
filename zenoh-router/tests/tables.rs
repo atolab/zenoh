@@ -199,7 +199,7 @@ fn client_test() {
         Tables::declare_subscription(&tables, &sex2, 31, "/**", &SubMode::Push).await;
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, &0, "/test/client/z1_wr1"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1"); 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -222,7 +222,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_wr1");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, &11, "/z1_wr2"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 11, "/z1_wr2"); 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -245,7 +245,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_wr2");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, &0, "/test/client/**"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex1, 0, "/test/client/**"); 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -268,7 +268,7 @@ fn client_test() {
         assert_eq!(suffix, "/**");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, &12, ""); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 12, ""); 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -291,7 +291,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_pub1");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, &22, ""); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex1, 22, ""); 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
