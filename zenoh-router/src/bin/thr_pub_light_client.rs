@@ -47,7 +47,7 @@ fn main() {
     
         let primitives = Mux::new(session_handler.handler.lock().await.as_ref().unwrap().clone());
 
-        primitives.resource(&1, &"/tp".to_string().into()).await;
+        primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);
         primitives.publisher(&rid).await;
 

@@ -47,8 +47,8 @@ impl ThrouputPrimitives {
 #[async_trait]
 impl Primitives for ThrouputPrimitives {
 
-    async fn resource(&self, _rid: &ZInt, _reskey: &ResKey) {}
-    async fn forget_resource(&self, _rid: &ZInt) {}
+    async fn resource(&self, _rid: ZInt, _reskey: &ResKey) {}
+    async fn forget_resource(&self, _rid: ZInt) {}
     
     async fn publisher(&self, _reskey: &ResKey) {}
     async fn forget_publisher(&self, _reskey: &ResKey) {}
@@ -75,9 +75,9 @@ impl Primitives for ThrouputPrimitives {
             stats.count = 0;
         }  
     }
-    async fn query(&self, _reskey: &ResKey, _predicate: &String, _qid: &ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
-    async fn reply(&self, _qid: &ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
-    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: &ZInt, _max_samples: &Option<ZInt>) {}
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
+    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {}
 }
@@ -120,7 +120,7 @@ fn main() {
     
         let primitives = Mux::new(session_handler.handler.lock().await.as_ref().unwrap().clone());
 
-        primitives.resource(&1, &"/tp".to_string().into()).await;
+        primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);
         primitives.subscriber(&rid, &SubMode::Push).await;
 

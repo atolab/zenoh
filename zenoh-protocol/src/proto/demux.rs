@@ -9,7 +9,7 @@ pub struct DeMux<P: Primitives + Send + Sync> {
 
 impl<P: Primitives + Send + Sync> DeMux<P> {
     pub fn new(primitives: P) -> DeMux<P> {
-        DeMux {primitives: primitives,}
+        DeMux {primitives,}
     }
 }
 
@@ -18,11 +18,11 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
     async fn handle_message(&self, msg: Message) -> Result<(), ZError> {
         match msg.get_body() {
-            Body::Declare{sn: _, declarations} => {
+            Body::Declare{declarations, ..} => {
                 for declaration in declarations {
                     match declaration {
                         Declaration::Resource {rid, key} => {
-                            self.primitives.resource(rid, key).await;
+                            self.primitives.resource(*rid, key).await;
                         }
                         Declaration::Publisher {key} => {
                             self.primitives.publisher(key).await;
@@ -37,7 +37,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                             self.primitives.eval(key).await;
                         }
                         Declaration::ForgetResource {rid} => {
-                            self.primitives.forget_resource(rid).await;
+                            self.primitives.forget_resource(*rid).await;
                         }
                         Declaration::ForgetPublisher {key} => {
                             self.primitives.forget_publisher(key).await;
@@ -55,17 +55,17 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
                 }
             }
-            Body::Data{reliable:_, sn:_, key, info, payload} => {
+            Body::Data{key, info, payload, ..} => {
                 match &msg.reply_context {
                     None => {self.primitives.data(key, info, payload).await;}
-                    Some(rep) => {self.primitives.reply(&rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
+                    Some(rep) => {self.primitives.reply(rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
                 }
             }
-            Body::Query{sn:_, key, predicate, qid, target, consolidation} => {
-                self.primitives.query(key, predicate, qid, target, consolidation).await;
+            Body::Query{key, predicate, qid, target, consolidation, ..} => {
+                self.primitives.query(key, predicate, *qid, target, consolidation).await;
             }
-            Body::Pull{sn:_, key, pull_id, max_samples} => {
-                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, pull_id, max_samples).await;
+            Body::Pull{key, pull_id, max_samples, ..} => {
+                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, *pull_id, max_samples).await;
             }
             _ => () 
         }

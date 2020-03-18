@@ -38,7 +38,7 @@ DEFINE_INTERSECT!(sub_chunk_intersect, cend, cwild, cnext, cequal);
 #[inline(always)]
 fn chunk_intersect(c1: &str, c2: &str) -> bool{
     if(cend(c1) && !cend(c2)) || (!cend(c1) && cend(c2)) {return false;}
-    return sub_chunk_intersect(c1, c2);
+    sub_chunk_intersect(c1, c2)
 }
 
 #[inline(always)]

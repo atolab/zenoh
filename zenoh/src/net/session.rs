@@ -110,7 +110,7 @@ impl Session {
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
 
         task::block_on( async {
-            primitives.resource(&rid, &resource).await;
+            primitives.resource(rid, &resource).await;
         });
 
         let rname = inner.reskey_to_resname(resource)?;
@@ -268,11 +268,11 @@ impl Session {
 #[async_trait]
 impl Primitives for Session {
 
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("++++ recv Resource {} {:?} ", rid, reskey);
     }
 
-    async fn forget_resource(&self, rid: &ZInt) {
+    async fn forget_resource(&self, rid: ZInt) {
         println!("++++ recv Forget Resource {} ", rid);
     }
 
@@ -325,15 +325,15 @@ impl Primitives for Session {
         }
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &String, qid: &ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 
-    async fn reply(&self, qid: &ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
         println!("++++ recv Reply {} : {:?} ", qid, reskey);
     }
 
-    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: &ZInt, max_samples: &Option<ZInt>) {
+    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
         println!("++++ recv Pull {:?} ", reskey);
     }
 
@@ -378,13 +378,13 @@ impl InnerSession {
             RId(rid) => {
                 match self.resources.get(&rid) {
                     Some(name) => Ok(name.clone()),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: rid.clone()}))
+                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
             },
             RIdWithSuffix(rid, suffix) => {
                 match self.resources.get(&rid) {
                     Some(name) => Ok(name.clone() + suffix),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: rid.clone()}))
+                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
             }
         }
