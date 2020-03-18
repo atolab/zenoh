@@ -21,16 +21,16 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Mux<T> {
 #[allow(unused_must_use)] // TODO
 #[async_trait]
 impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
-    async fn resource(&self, rid: &u64, reskey: &ResKey) {
+    async fn resource(&self, rid: u64, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Resource{rid: *rid, key: reskey.clone()});
+        decls.push(Declaration::Resource{rid, key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_resource(&self, rid: &u64) {
+    async fn forget_resource(&self, rid: u64) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetResource{rid: *rid});
+        decls.push(Declaration::ForgetResource{rid});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }

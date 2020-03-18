@@ -13,10 +13,10 @@ pub struct PrintPrimitives {
 #[async_trait]
 impl Primitives for PrintPrimitives {
 
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("  [RECV] RESOURCE ({:?}) ({:?})", rid, reskey);
     }
-    async fn forget_resource(&self, rid: &ZInt) {
+    async fn forget_resource(&self, rid: ZInt) {
         println!("  [RECV] FORGET RESOURCE ({:?})", rid);
     }
     
@@ -107,7 +107,7 @@ fn main() {
         primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
 
         let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()]
-            .concat().to_string().into();
+            .concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;

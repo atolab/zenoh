@@ -110,7 +110,7 @@ impl Session {
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
 
         task::block_on( async {
-            primitives.resource(&rid, &resource).await;
+            primitives.resource(rid, &resource).await;
         });
 
         let rname = inner.reskey_to_resname(resource)?;
@@ -268,11 +268,11 @@ impl Session {
 #[async_trait]
 impl Primitives for Session {
 
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("++++ recv Resource {} {:?} ", rid, reskey);
     }
 
-    async fn forget_resource(&self, rid: &ZInt) {
+    async fn forget_resource(&self, rid: ZInt) {
         println!("++++ recv Forget Resource {} ", rid);
     }
 

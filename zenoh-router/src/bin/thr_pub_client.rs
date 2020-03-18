@@ -33,7 +33,7 @@ fn main() {
     
         let primitives = tables.new_primitives(my_primitives).await;
 
-        primitives.resource(&1, &"/tp".to_string().into()).await;
+        primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);
         primitives.publisher(&rid).await;
 

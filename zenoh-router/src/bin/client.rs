@@ -15,10 +15,10 @@ pub struct PrintPrimitives {
 #[async_trait]
 impl Primitives for PrintPrimitives {
 
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("  [RECV] RESOURCE ({:?}) ({:?})", rid, reskey);
     }
-    async fn forget_resource(&self, rid: &ZInt) {
+    async fn forget_resource(&self, rid: ZInt) {
         println!("  [RECV] FORGET RESOURCE ({:?})", rid);
     }
     

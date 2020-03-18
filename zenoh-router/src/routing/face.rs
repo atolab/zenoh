@@ -35,13 +35,13 @@ pub struct FaceHdl {
 
 #[async_trait]
 impl Primitives for FaceHdl {
-    async fn resource(&self, rid: &u64, reskey: &ResKey) {
+    async fn resource(&self, rid: u64, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), *rid, prefixid, suffix).await;
+        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), rid, prefixid, suffix).await;
     }
 
-    async fn forget_resource(&self, rid: &u64) {
-        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), *rid).await;
+    async fn forget_resource(&self, rid: u64) {
+        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), rid).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {

@@ -5,8 +5,8 @@ use crate::proto::{SubMode, QueryTarget, QueryConsolidation, ReplySource};
 
 #[async_trait]
 pub trait Primitives {
-    async fn resource(&self, rid: &ZInt, reskey: &ResKey);
-    async fn forget_resource(&self, rid: &ZInt);
+    async fn resource(&self, rid: ZInt, reskey: &ResKey);
+    async fn forget_resource(&self, rid: ZInt);
     
     async fn publisher(&self, reskey: &ResKey);
     async fn forget_publisher(&self, reskey: &ResKey);

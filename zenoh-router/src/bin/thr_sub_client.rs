@@ -49,8 +49,8 @@ impl ThrouputPrimitives {
 #[async_trait]
 impl Primitives for ThrouputPrimitives {
 
-    async fn resource(&self, _rid: &ZInt, _reskey: &ResKey) {}
-    async fn forget_resource(&self, _rid: &ZInt) {}
+    async fn resource(&self, _rid: ZInt, _reskey: &ResKey) {}
+    async fn forget_resource(&self, _rid: ZInt) {}
     
     async fn publisher(&self, _reskey: &ResKey) {}
     async fn forget_publisher(&self, _reskey: &ResKey) {}
@@ -107,7 +107,7 @@ fn main() {
     
         let primitives = tables.new_primitives(my_primitives).await;
 
-        primitives.resource(&1, &"/tp".to_string().into()).await;
+        primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);
         primitives.subscriber(&rid, &SubMode::Push).await;
 
