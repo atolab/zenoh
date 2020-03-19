@@ -206,11 +206,13 @@ impl QueueTx {
                     };
 
                     // If the message is reliable, add it to the reliability queue
-                    if is_reliable {
-                        if let Some(sn) = new_sn {
-                            guard.try_push(msg.clone(), sn);
-                        }
-                    }
+                    // @TODO: finalize the reliability queue free, then uncomment the 
+                    //     following code block to add reliable messages to the queue
+                    // if is_reliable {
+                    //     if let Some(sn) = new_sn {
+                    //         guard.try_push(msg.clone(), sn);
+                    //     }
+                    // }
 
                     // If the reliability queue 
                     if guard.is_full() {
