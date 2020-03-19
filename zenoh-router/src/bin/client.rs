@@ -82,7 +82,7 @@ fn main() {
     
         let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, tables.clone());
 
-        while let Some(locator) = args.next() {
+        for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
@@ -93,8 +93,7 @@ fn main() {
 
         primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
 
-        let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()]
-            .concat().to_string().into();
+        let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()].concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;

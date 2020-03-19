@@ -30,7 +30,7 @@ fn main() {
             std::process::exit(-1);
         }
 
-        while let Some(locator) = args.next() {
+        for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);

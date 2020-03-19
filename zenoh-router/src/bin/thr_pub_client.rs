@@ -24,7 +24,7 @@ fn main() {
     
         let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid}, 0, tables.clone());
 
-        while let Some(locator) = args.next() {
+        for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);

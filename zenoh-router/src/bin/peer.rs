@@ -88,7 +88,7 @@ fn main() {
             std::process::exit(-1);
         }
 
-        while let Some(locator) = args.next() {
+        for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
@@ -99,7 +99,7 @@ fn main() {
 
         primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
 
-        let res: ResKey = ["/demo/peer/", &port].concat().to_string().into();
+        let res: ResKey = ["/demo/peer/", &port].concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;

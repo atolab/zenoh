@@ -8,7 +8,7 @@ use zenoh_protocol::io::ArcSlice;
 use zenoh_protocol::proto::{Primitives, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
 
-const N: usize = 100000;
+const N: usize = 100_000;
 
 struct Stats {
     count: usize,
@@ -20,9 +20,9 @@ impl Stats {
 
     pub fn print(&self) {
         let t0 = self.start.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs()  as f64 
-            + self.start.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1000000000.0;
+            + self.start.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1_000_000_000.0;
         let t1 = self.stop.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs()  as f64 
-            + self.stop.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1000000000.0;
+            + self.stop.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1_000_000_000.0;
         let thpt = N as f64 / (t1 - t0);
         println!("{} msgs/sec", thpt);
     }
@@ -41,6 +41,12 @@ impl ThrouputPrimitives {
                 stop: UNIX_EPOCH,
             })
         }
+    }
+}
+
+impl Default for ThrouputPrimitives {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
