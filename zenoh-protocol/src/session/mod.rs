@@ -44,10 +44,7 @@ impl DummyHandler {
 
 #[async_trait]
 impl MsgHandler for DummyHandler {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
-        println!("!!! WARNING: DummyHandler::handle_message({:?}) => dropped", message.body);
-        Ok(())
-    }
+    async fn handle_message(&self, _message: Message) -> ZResult<()> {Ok(())}
     async fn close(&self) {}
 }
 
