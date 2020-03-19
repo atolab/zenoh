@@ -226,7 +226,7 @@ impl WBuf {
     fn write_declaration(&mut self, declaration: &Declaration) {
         use super::decl::{Declaration::*, id::*};
 
-        macro_rules! write_key_delc {
+        macro_rules! write_key_decl {
             ($buf:ident, $flag:ident, $key:ident) => {{
                 $buf.write($flag | (if $key.is_numerical() { flag::C } else { 0 }));
                 $buf.write_reskey($key);
@@ -247,7 +247,6 @@ impl WBuf {
             }
 
             Subscriber { key, info } =>  {
-                println!("***** WRITE SUBSCRIBER");
                 let sflag = if info.mode == SubMode::Push && info.period.is_none() { 0 } else { flag::S };
                 let rflag = if info.reliability == Reliability::Reliable { flag::R } else { 0 };
                 let cflag = if key.is_numerical() { flag::C } else { 0 };
@@ -258,26 +257,24 @@ impl WBuf {
                 }
             }
 
-            ForgetSubscriber { key } => write_key_delc!(self, FORGET_SUBSCRIBER, key),
-            Publisher { key }        => write_key_delc!(self, PUBLISHER, key),
-            ForgetPublisher { key }  => write_key_delc!(self, FORGET_PUBLISHER, key),
-            Storage { key }          => write_key_delc!(self, STORAGE, key),
-            ForgetStorage { key }    => write_key_delc!(self, FORGET_STORAGE, key),
-            Eval { key }             => write_key_delc!(self, EVAL, key),
-            ForgetEval { key }       => write_key_delc!(self, FORGET_EVAL, key),
+            ForgetSubscriber { key } => write_key_decl!(self, FORGET_SUBSCRIBER, key),
+            Publisher { key }        => write_key_decl!(self, PUBLISHER, key),
+            ForgetPublisher { key }  => write_key_decl!(self, FORGET_PUBLISHER, key),
+            Storage { key }          => write_key_decl!(self, STORAGE, key),
+            ForgetStorage { key }    => write_key_decl!(self, FORGET_STORAGE, key),
+            Eval { key }             => write_key_decl!(self, EVAL, key),
+            ForgetEval { key }       => write_key_decl!(self, FORGET_EVAL, key),
         }
     }
 
     fn write_submode(&mut self, mode: &SubMode, period: &Option<Period>) {
         use super::decl::{SubMode::*, id::*};
         let period_mask: u8 = if period.is_some() { PERIOD } else { 0x00 };
-        println!("***** period_mask: {:02x}", period_mask);
         match mode {
             Push => self.write(MODE_PUSH | period_mask),
             Pull => self.write(MODE_PULL | period_mask),
         }
         if let Some(p) = period {
-            println!("***** write period");
             self.write_zint(p.origin);
             self.write_zint(p.period);
             self.write_zint(p.duration);
