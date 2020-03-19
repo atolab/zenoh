@@ -7,7 +7,11 @@ use super::InnerSession;
 pub type ZInt = zenoh_protocol::core::ZInt;
 pub type ZError = zenoh_protocol::core::ZError;
 pub type ZResult<T> = zenoh_protocol::core::ZResult<T>;
-pub type SubMode = zenoh_protocol::proto::SubMode;
+
+pub type Reliability = zenoh_protocol::proto::Reliability;
+pub type SubMode     = zenoh_protocol::proto::SubMode;
+pub type Period      = zenoh_protocol::proto::Period;
+pub type SubInfo     = zenoh_protocol::proto::SubInfo;
 
 pub type Properties = HashMap<ZInt, Vec<u8>>;
 

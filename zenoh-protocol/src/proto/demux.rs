@@ -27,8 +27,8 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         Declaration::Publisher {key} => {
                             self.primitives.publisher(key).await;
                         }
-                        Declaration::Subscriber {key, mode} => {
-                            self.primitives.subscriber(key, mode).await;
+                        Declaration::Subscriber {key, info} => {
+                            self.primitives.subscriber(key, info).await;
                         }
                         Declaration::Storage {key} => {
                             self.primitives.storage(key).await;

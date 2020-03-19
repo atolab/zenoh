@@ -51,18 +51,35 @@ fn gen_reply_context(is_final: bool) -> ReplyContext {
 
 fn gen_declarations() -> Vec<Declaration> {
   use zenoh_protocol::proto::Declaration::*;
-  use zenoh_protocol::proto::SubMode::*;
   let mut decls = Vec::new();
   decls.push(Resource         { rid: gen!(ZInt), key: gen_key() });
   decls.push(ForgetResource   { rid: gen!(ZInt) });
   decls.push(Publisher        { key: gen_key() });
   decls.push(ForgetPublisher  { key: gen_key() });
-  decls.push(Subscriber       { key: gen_key(), mode: Push });
-  decls.push(Subscriber       { key: gen_key(), mode: Pull  });
-  decls.push(Subscriber       { key: gen_key(), mode:
-    PeriodicPush { origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt) } });
-  decls.push(Subscriber       { key: gen_key(), mode:
-    PeriodicPull { origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt) } });
+  decls.push(Subscriber       { key: gen_key(), info:
+    SubInfo { 
+      reliability: Reliability::Reliable,
+      mode: SubMode::Push,
+      period: None,
+    } });
+  decls.push(Subscriber       { key: gen_key(), info:
+    SubInfo { 
+      reliability: Reliability::BestEffort,
+      mode: SubMode::Pull,
+      period: None,
+    } });
+  decls.push(Subscriber       { key: gen_key(), info:
+    SubInfo { 
+      reliability: Reliability::Reliable,
+      mode: SubMode::Pull,
+      period: Some(Period {origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt)} ),
+    } });
+  decls.push(Subscriber       { key: gen_key(), info:
+    SubInfo { 
+      reliability: Reliability::BestEffort,
+      mode: SubMode::Push,
+      period: Some(Period {origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt)} ),
+    } });
   decls.push(ForgetSubscriber { key: gen_key() });
   decls.push(Storage          { key: gen_key() });
   decls.push(ForgetStorage    { key: gen_key() });

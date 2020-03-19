@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
 
 pub struct PrintPrimitives {
@@ -27,8 +27,8 @@ impl Primitives for PrintPrimitives {
         println!("  [RECV] FORGET PUBLISHER ({:?})", reskey);
     }
     
-    async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
-        println!("  [RECV] SUBSCRIBER ({:?}) ({:?})", reskey, mode);
+    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
+        println!("  [RECV] SUBSCRIBER ({:?}) ({:?})", reskey, sub_info);
     }
     async fn forget_subscriber(&self, reskey: &ResKey) {
         println!("  [RECV] FORGET SUBSCRIBER ({:?})", reskey);
@@ -104,7 +104,12 @@ fn main() {
     
         let primitives = Mux::new(session_handler.handler.lock().await.as_ref().unwrap().clone());
 
-        primitives.subscriber(&"/demo/**".to_string().into(), &SubMode::Push).await;
+        let sub_info = SubInfo {
+            reliability: Reliability::Reliable,
+            mode: SubMode::Push,
+            period: None
+        };
+        primitives.subscriber(&"/demo/**".to_string().into(), &sub_info).await;
 
         let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()]
             .concat().into();

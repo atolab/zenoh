@@ -104,6 +104,7 @@ impl LinkTcp {
     }
     
     pub async fn send(&self, message: &Message) -> ZResult<()> {
+        // println!(">>>> SEND MSG: {:?}", message.body);
         let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
         buff.write_message(&message);
         for s in buff.get_slices() {
@@ -160,6 +161,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 descr: format!("{}", e)
             })))
         }
+        // println!("++++++ TCP RECV loop");
         loop {
             let pos = buff.get_pos();
             match buff.read_message() {

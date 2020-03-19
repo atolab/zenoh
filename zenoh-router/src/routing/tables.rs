@@ -5,7 +5,7 @@ use std::collections::{HashMap};
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubMode, Mux, DeMux, WhatAmI};
+use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
@@ -121,8 +121,10 @@ impl Tables {
             (Arc::downgrade(t.faces.get(&sid).unwrap()), subs)
         };
 
+        // @TODO: manage propagation of Subscriber.info
+        let sub_info = SubInfo { reliability: Reliability::Reliable, mode: SubMode::Push, period: None }; 
         for name in subs {
-            primitives.subscriber(&ResKey::RName(name), &SubMode::Push).await;
+            primitives.subscriber(&ResKey::RName(name), &sub_info).await;
         }
 
         res        
@@ -263,7 +265,7 @@ impl Tables {
         }
     }
 
-    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str, mode: &SubMode) {
+    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str, sub_info: &SubInfo) {
         let result = {
             let t = tables.write();
             match sex.upgrade() {
@@ -324,7 +326,7 @@ impl Tables {
         };
         if let Some((name, faces)) = result {
             for face in faces {
-                face.subscriber(&(name.clone().into()), mode).await;
+                face.subscriber(&(name.clone().into()), sub_info).await;
             }
         }
     }

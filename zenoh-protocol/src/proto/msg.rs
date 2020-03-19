@@ -58,10 +58,10 @@ pub mod flag {
     pub const N        :   u8  = 0x40;
     pub const R        :   u8  = 0x40;
     pub const T        :   u8  = 0x40;
-    pub const S        :   u8  = 0x40;
 
     pub const F        :   u8  = 0x80;
     pub const I        :   u8  = 0x80;
+    pub const S        :   u8  = 0x80;
     pub const Z        :   u8  = 0x80;
 
     pub const MID_MASK      :   u8  = 0x1f;

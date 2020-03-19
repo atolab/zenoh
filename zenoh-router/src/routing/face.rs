@@ -4,7 +4,7 @@ use spin::RwLock;
 use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, PeerId, ResKey};
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubMode, QueryTarget, QueryConsolidation, ReplySource, WhatAmI};
+use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, ReplySource, WhatAmI};
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 
@@ -44,9 +44,9 @@ impl Primitives for FaceHdl {
         Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), rid).await;
     }
     
-    async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
+    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, mode).await;
+        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, sub_info).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {

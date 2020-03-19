@@ -19,9 +19,15 @@ fn main() {
 
     println!("Declaring Subscriber on {}", uri);
 
-    let sub = session.declare_subscriber(&RName(uri.clone()), &SubMode::Push, data_handler).unwrap();
+    let sub_info = SubInfo {
+        reliability: Reliability::Reliable,
+        mode: SubMode::Push,
+        period: None
+    };
 
-    let sub2 = session.declare_subscriber(&RName(uri), &SubMode::Push,
+    let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).unwrap();
+
+    let sub2 = session.declare_subscriber(&RName(uri), &sub_info,
         move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
             println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
         }

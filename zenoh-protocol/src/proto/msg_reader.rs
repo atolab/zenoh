@@ -2,7 +2,7 @@ use crate::io::{ArcSlice, RBuf};
 use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
-use super::decl::{Declaration, SubMode};
+use super::decl::{Declaration, SubInfo, SubMode, Reliability, Period};
 use std::sync::Arc;
 
 impl RBuf {
@@ -257,13 +257,18 @@ impl RBuf {
             }
 
             SUBSCRIBER => {
+                let reliability = if flag::has_flag(header, flag::R) {
+                    Reliability::Reliable 
+                } else {
+                    Reliability::BestEffort
+                };
                 let key = self.read_reskey(flag::has_flag(header, flag::C))?;
-                let mode = if flag::has_flag(header, flag::S) {
+                let (mode, period) = if flag::has_flag(header, flag::S) {
                     self.read_submode()?
                 } else {
-                    SubMode::Push
+                    (SubMode::Push, None)
                 };
-                Ok(Subscriber{ key, mode })
+                Ok(Subscriber{ key, info: SubInfo { reliability, mode, period } })
             }
 
             FORGET_SUBSCRIBER => read_key_delc!(self, header, ForgetSubscriber),
@@ -278,27 +283,24 @@ impl RBuf {
         }
     }
 
-    fn read_submode(&mut self) -> Result<SubMode, ZError> {
+    fn read_submode(&mut self) -> Result<(SubMode, Option<Period>), ZError> {
         use super::decl::{SubMode::*, id::*};
-        match self.read_zint()? {
-            MODE_PUSH => Ok(Push),
-            MODE_PULL => Ok(Pull),
-            MODE_PERIODIC_PUSH => {
-                Ok(PeriodicPush {
-                    origin:   self.read_zint()?,
-                    period:   self.read_zint()?,
-                    duration: self.read_zint()?
-                })
-            }
-            MODE_PERIODIC_PULL => {
-                Ok(PeriodicPull {
-                    origin:   self.read_zint()?,
-                    period:   self.read_zint()?,
-                    duration: self.read_zint()?
-                })
-            }
+        let mode_flag = self.read()?;
+        let mode = match mode_flag & !PERIOD {
+            MODE_PUSH => Push,
+            MODE_PULL => Pull,
             id => panic!("UNEXPECTED ID FOR SubMode: {}", id)   //@TODO: return error
-        }
+        };
+        let period = if mode_flag & PERIOD > 0{
+            Some(Period{
+                origin:   self.read_zint()?,
+                period:   self.read_zint()?,
+                duration: self.read_zint()?
+            })
+        } else {
+            None
+        };
+        Ok((mode, period))
     }
 
     fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, ZError> {

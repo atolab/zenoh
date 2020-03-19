@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::ArcSlice;
 use zenoh_protocol::proto::WhatAmI;
-use zenoh_protocol::proto::{Primitives, SubMode, QueryConsolidation, QueryTarget, ReplySource};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource};
 use zenoh_protocol::session::SessionManager;
 use zenoh_router::routing::tables::TablesHdl;
 
@@ -61,7 +61,7 @@ impl Primitives for ThrouputPrimitives {
     async fn publisher(&self, _reskey: &ResKey) {}
     async fn forget_publisher(&self, _reskey: &ResKey) {}
     
-    async fn subscriber(&self, _reskey: &ResKey, _mode: &SubMode) {}
+    async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {}
     async fn forget_subscriber(&self, _reskey: &ResKey) {}
     
     async fn storage(&self, _reskey: &ResKey) {}
@@ -121,7 +121,12 @@ fn main() {
 
         primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);
-        primitives.subscriber(&rid, &SubMode::Push).await;
+        let sub_info = SubInfo {
+            reliability: Reliability::Reliable,
+            mode: SubMode::Push,
+            period: None
+        };
+        primitives.subscriber(&rid, &sub_info).await;
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(10000));

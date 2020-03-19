@@ -2,7 +2,7 @@ use crate::io::WBuf;
 use crate::core::{ZInt, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
-use super::decl::{Declaration, SubMode};
+use super::decl::{Declaration, SubMode, Reliability, Period};
 
 impl WBuf {
     pub fn write_message(&mut self, msg: &Message) {
@@ -246,13 +246,15 @@ impl WBuf {
                 self.write_zint(*rid);
             }
 
-            Subscriber { key, mode } =>  {
-                let sflag = if let SubMode::Push = mode { 0 } else { flag::S };
+            Subscriber { key, info } =>  {
+                println!("***** WRITE SUBSCRIBER");
+                let sflag = if info.mode == SubMode::Push && info.period.is_none() { 0 } else { flag::S };
+                let rflag = if info.reliability == Reliability::Reliable { flag::R } else { 0 };
                 let cflag = if key.is_numerical() { flag::C } else { 0 };
-                self.write(SUBSCRIBER | sflag | cflag);
+                self.write(SUBSCRIBER | sflag | rflag | cflag);
                 self.write_reskey(key);
                 if sflag != 0 {
-                    self.write_submode(mode);
+                    self.write_submode(&info.mode, &info.period);
                 }
             }
 
@@ -266,23 +268,19 @@ impl WBuf {
         }
     }
 
-    fn write_submode(&mut self, mode: &SubMode) {
+    fn write_submode(&mut self, mode: &SubMode, period: &Option<Period>) {
         use super::decl::{SubMode::*, id::*};
+        let period_mask: u8 = if period.is_some() { PERIOD } else { 0x00 };
+        println!("***** period_mask: {:02x}", period_mask);
         match mode {
-            Push => self.write_zint(MODE_PUSH),
-            Pull => self.write_zint(MODE_PULL),
-            PeriodicPush{ origin, period, duration } => {
-                self.write_zint(MODE_PERIODIC_PUSH);
-                self.write_zint(*origin);
-                self.write_zint(*period);
-                self.write_zint(*duration);
-            }
-            PeriodicPull{ origin, period, duration } => {
-                self.write_zint(MODE_PERIODIC_PULL);
-                self.write_zint(*origin);
-                self.write_zint(*period);
-                self.write_zint(*duration);
-            }
+            Push => self.write(MODE_PUSH | period_mask),
+            Pull => self.write(MODE_PULL | period_mask),
+        }
+        if let Some(p) = period {
+            println!("***** write period");
+            self.write_zint(p.origin);
+            self.write_zint(p.period);
+            self.write_zint(p.duration);
         }
     }
 

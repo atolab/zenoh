@@ -26,7 +26,12 @@ fn main() {
     let mut start = SystemTime::now();
     let mut stop  = SystemTime::now();
 
-    let sub = session.declare_subscriber(&reskey, &SubMode::Push,
+    let sub_info = SubInfo {
+        reliability: Reliability::Reliable,
+        mode: SubMode::Push,
+        period: None
+    };
+    let sub = session.declare_subscriber(&reskey, &sub_info,
         move |_res_name: &str, _payload: &[u8], _data_info: &[u8]| {
             if count == 0 {
                 start = SystemTime::now();
