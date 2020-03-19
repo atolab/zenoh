@@ -11,6 +11,7 @@ use std::sync::Arc;
 //
 // zenoh's protocol messages IDs
 //
+#[allow(dead_code)]
 pub mod id {
     // Messages
     pub const SCOUT         :   u8 	= 0x01;
@@ -681,11 +682,10 @@ impl Message {
     // -- Message Predicates
     pub fn is_reliable(&self) -> bool {
         match self.body {
-            Body::Data { reliable: _, sn: _, key: _, info: _, payload: _ } =>
-                if self.header & flag::R == 0 { false } else { true },
-            Body::Declare { sn: _, declarations: _ } => true,
-            Body::Pull { sn: _, key: _, pull_id: _, max_samples: _} => true,
-            Body::Query {sn: _, key: _, predicate: _, qid: _, target: _, consolidation: _} => true,
+            Body::Data { .. } => self.header & flag::R != 0,
+            Body::Declare { .. } => true,
+            Body::Pull { .. } => true,
+            Body::Query { .. } => true,
             _ => false
         }
     }

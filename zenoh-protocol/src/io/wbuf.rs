@@ -27,8 +27,8 @@ impl WBuf {
     }
 
     #[inline]
-    pub fn is_emtpy(&self) -> bool {
-        self.rbuf.is_emtpy() && self.wpos == 0
+    pub fn is_empty(&self) -> bool {
+        self.rbuf.is_empty() && self.wpos == 0
     }
 
     pub fn clear(&mut self) {

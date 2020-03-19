@@ -12,7 +12,7 @@ pub use session::*;
 pub use zenoh_protocol::core::ResourceId;
 pub use zenoh_protocol::core::ResKey;
 
-pub const LOCATOR_AUTO: &'static str = "auto";
+pub const LOCATOR_AUTO: &str = "auto";
 
 pub fn rname_intersect(s1: &str, s2: &str) -> bool {
     core::rname::intersect(s1, s2)

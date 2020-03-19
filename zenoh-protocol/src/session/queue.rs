@@ -173,27 +173,27 @@ impl QueueTx {
             return QueueTxTryPopResult::Ok(msg)
         }
         // Try to access the reliability queue before trying to pop from data
-        if let Some(mut guard) = self.reliability.try_lock() {
+        if let Some(guard) = self.reliability.try_lock() {
             // If the reliability queue is not full, we are ready to try to pop from the data queue
             if !guard.is_full() {
                 // Try to pop from the data queue
                 if let Ok(mut msg) = self.data.pop() {
                     // Update the sequence number 
-                    let mut new_sn: Option<ZInt> = None;
+                    // let mut new_sn: Option<ZInt> = None;
                     // Check if the message is reliable
                     let is_reliable = msg.inner.is_reliable();
                     match msg.inner.body {
-                        Body::Data{reliable: _, ref mut sn, key: _, info: _, payload: _} |
-                        Body::Declare{ref mut sn, declarations: _} |
-                        Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
-                        Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                        Body::Data{ref mut sn, ..} |
+                        Body::Declare{ref mut sn, ..} |
+                        Body::Pull{ref mut sn, ..} |
+                        Body::Query{ref mut sn, ..} => {
                             // Update the sequence number
                             *sn = if is_reliable {
                                 self.sn_tx_reliable.fetch_add(1, Ordering::Relaxed)
                             } else {
                                 self.sn_tx_unreliable.fetch_add(1, Ordering::Relaxed)
                             };
-                            new_sn = Some(*sn);
+                            // new_sn = Some(*sn);
                         },
                         _ => {}
                     }

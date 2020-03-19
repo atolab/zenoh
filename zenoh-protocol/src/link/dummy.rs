@@ -147,10 +147,10 @@ async fn receive_loop(link: Arc<LinkDummy>) {
                     let mut rng = thread_rng();
                     if rng.gen_range(0f32, 1f32) < reordering_probability {
                         match message.body {
-                            Body::Data{reliable: _, ref mut sn, key: _, info: _, payload: _} |
-                            Body::Declare{ref mut sn, declarations: _} |
-                            Body::Pull{ref mut sn, key: _, pull_id: _, max_samples: _} |
-                            Body::Query{ref mut sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+                            Body::Data{ref mut sn, ..} |
+                            Body::Declare{ref mut sn, ..} |
+                            Body::Pull{ref mut sn, ..} |
+                            Body::Query{ref mut sn, ..} => {
                                 // Update the sequence number
                                 *sn = rng.gen_range(ZInt::min_value(), ZInt::max_value());
                             },

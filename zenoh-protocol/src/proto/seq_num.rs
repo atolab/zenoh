@@ -42,11 +42,11 @@ impl SeqNumGenerator {
     /// 
     pub fn make(sn0: ZInt, resolution: ZInt) -> ZResult<Self> {
         if sn0 < resolution {
-            Ok(SeqNumGenerator { next_sn: AtomicZInt::new(sn0), semi_int: resolution >> 1, resolution : resolution })
+            Ok(SeqNumGenerator { next_sn: AtomicZInt::new(sn0), semi_int: resolution >> 1, resolution })
         }
         else {
             Err(zerror!(ZErrorKind::InvalidResolution {
-                descr: format!("The initial sequence number should be smaller than the resolution")
+                descr: "The initial sequence number should be smaller than the resolution".to_string()
             }))
         }
     }

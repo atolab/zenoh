@@ -1,5 +1,5 @@
 use crate::io::{ArcSlice, RBuf};
-use crate::core::{ZError, ZInt, PeerId, Property, ResourceId, ResKey, TimeStamp, NO_RESOURCE_ID};
+use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubMode};
@@ -181,7 +181,7 @@ impl RBuf {
 
     fn read_decl_conduit(&mut self, header: u8) -> Result<ZInt, ZError> {
         if flag::has_flag(header, flag::Z) {
-            let hl = ((flag::flags(header) ^ flag::Z)) >> 5;
+            let hl = (flag::flags(header) ^ flag::Z) >> 5;
             Ok(hl as ZInt)
         } else {
             let id = self.read_zint()?;

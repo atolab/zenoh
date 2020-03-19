@@ -76,7 +76,7 @@ impl WBuf {
                 self.write_declarations(&declarations);
             }
 
-            Body::Data { reliable:_, sn, key, info, payload } => {
+            Body::Data { sn, key, info, payload, .. } => {
                 self.write_zint(*sn);
                 self.write_reskey(&key);
                 if let Some(i) = info {

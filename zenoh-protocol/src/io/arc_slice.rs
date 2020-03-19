@@ -23,6 +23,11 @@ impl ArcSlice {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    #[inline]
     pub fn as_slice(&self) -> &[u8] {
         &self.buf[self.start..self.end]
     }

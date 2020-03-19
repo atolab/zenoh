@@ -1,7 +1,6 @@
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 use async_std::task;
 use async_std::sync::Arc;
 use async_trait::async_trait;
@@ -11,7 +10,6 @@ use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::ArcSlice,
     proto::{ Primitives, QueryTarget, QueryConsolidation, ReplySource, WhatAmI },
-    link::Locator,
     session::SessionManager,
     zerror
 };
@@ -31,7 +29,7 @@ pub struct Session {
 
 impl Session {
 
-    pub(super) fn new(locator: &str, ps: Option<Properties>) -> Session {
+    pub(super) fn new(locator: &str, _ps: Option<Properties>) -> Session {
         task::block_on( async {
     
             let tables = Arc::new(TablesHdl::new());
@@ -78,34 +76,33 @@ impl Session {
     pub fn close(self) -> ZResult<()> {
         // @TODO: implement
         println!("---- CLOSE");
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let primitives = inner.primitives.as_ref().unwrap();
 
-        let res = task::block_on( async {
+        task::block_on( async {
             primitives.close().await;
 
             if let Some(tx_session) = &self.tx_session {
                 return tx_session.close().await
             }
             Ok(())
-        });
+        })
 
         // @TODO: session_manager.del_locator()
-        res
     }
 
     pub fn info(&self) -> Properties {
         // @TODO: implement
         println!("---- INFO");
         let mut info = Properties::new();
-        info.insert(ZN_INFO_PEER_KEY, "tcp/somewhere:7887".as_bytes().to_vec());
+        info.insert(ZN_INFO_PEER_KEY, b"tcp/somewhere:7887".to_vec());
         info.insert(ZN_INFO_PID_KEY, vec![1u8, 2, 3]);
         info.insert(ZN_INFO_PEER_PID_KEY, vec![4u8, 5, 6]);
         info
     }
 
     pub fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let primitives = inner.primitives.as_ref().unwrap();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
 
@@ -120,15 +117,15 @@ impl Session {
         Ok(rid)
     }
 
-    pub fn undeclare_resource(&self, rid: &ResourceId) -> ZResult<()> {
+    pub fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
         println!("---- UNDECL RES {}", rid);
-        self.inner.write().resources.remove(rid);
+        self.inner.write().resources.remove(&rid);
         Ok(())
     }
 
     pub fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
         // @TODO: implement
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
         let publ = Publisher{ id };
         println!("---- DECL PUB on {} => {:?}", resource, publ);
@@ -146,7 +143,7 @@ impl Session {
     pub fn declare_subscriber<DataHandler>(&self, resource: &ResKey, mode: &SubMode, data_handler: DataHandler) -> ZResult<Subscriber>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let resname = inner.reskey_to_resname(resource)?;
         let primitives = inner.primitives.as_ref().unwrap();
 
@@ -175,7 +172,7 @@ impl Session {
         QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         // @TODO: implement
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
         let dhandler = Arc::new(RwLock::new(data_handler));
         let qhandler = Arc::new(RwLock::new(query_handler));
@@ -186,11 +183,11 @@ impl Session {
         // Just to test storage callback:
         let payload = vec![1,2,3];
         let info = vec![4,5,6];
-        let ref mut sto2 = inner.storages.get(&id).unwrap();
-        let ref mut dhandler = *sto2.dhandler.write();
-        dhandler("/A/B".into(), &payload, &info);
-        let ref mut qhandler = *sto2.qhandler.write();
-        qhandler("/A/**".into(), "starttime=now()-1h".into(), 
+        let sto2 = &mut inner.storages.get(&id).unwrap();
+        let dhandler = &mut *sto2.dhandler.write();
+        dhandler("/A/B", &payload, &info);
+        let qhandler = &mut *sto2.qhandler.write();
+        qhandler("/A/**", "starttime=now()-1h", 
             &|handle, replies| {
                 println!("------- STORAGE RepliesSender for {} {:?}", handle, replies);
             },
@@ -211,7 +208,7 @@ impl Session {
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         // @TODO: implement
-        let ref mut inner = self.inner.write();
+        let inner = &mut self.inner.write();
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
         let eva = Eval{ id, qhandler };
@@ -219,9 +216,9 @@ impl Session {
         inner.evals.insert(id, eva.clone());
 
         // Just to test eval callback:
-        let ref mut eva2 = inner.evals.get(&id).unwrap();
-        let ref mut qhandler = *eva2.qhandler.write();
-        qhandler("/A/**".into(), "starttime=now()-1h".into(), 
+        let eva2 = &mut inner.evals.get(&id).unwrap();
+        let qhandler = &mut *eva2.qhandler.write();
+        qhandler("/A/**", "starttime=now()-1h", 
             &|handle, replies| {
                 println!("------- EVAL RepliesSender for {} {:?}", handle, replies);
             },
@@ -257,7 +254,7 @@ impl Session {
         // Just to test reply_handler callback:
         let payload = vec![1,2,3];
         let info = vec![];
-        replies_handler("/A/B".into(), &payload, &info);
+        replies_handler("/A/B", &payload, &info);
 
         Ok(())
     }
@@ -283,7 +280,7 @@ impl Primitives for Session {
         println!("++++ recv Forget Publisher {:?} ", reskey);
     }
 
-    async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
+    async fn subscriber(&self, reskey: &ResKey, _mode: &SubMode) {
         println!("++++ recv Subscriber {:?} ", reskey);
     }
 
@@ -307,15 +304,14 @@ impl Primitives for Session {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _info: &Option<ArcSlice>, payload: &ArcSlice) {
         let inner = self.inner.read();
-        let primitives = inner.primitives.as_ref().unwrap();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) =>
-                for (_, sub) in &inner.subscribers {
+                for sub in inner.subscribers.values() {
                     if rname::intersect(&sub.resname, &resname) {
                         let info = vec![4,5,6];   // @TODO
-                        let ref mut handler = *sub.dhandler.write();
+                        let handler = &mut *sub.dhandler.write();
                         handler(&resname, payload.as_slice(), &info);
                     }
                 },
@@ -323,15 +319,15 @@ impl Primitives for Session {
         }
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn reply(&self, qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
         println!("++++ recv Reply {} : {:?} ", qid, reskey);
     }
 
-    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
+    async fn pull(&self, _is_final: bool, reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {
         println!("++++ recv Pull {:?} ", reskey);
     }
 

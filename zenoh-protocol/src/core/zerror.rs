@@ -51,7 +51,7 @@ pub struct ZError {
 }
 
 impl ZError {
-    pub fn new<'a>(kind: ZErrorKind, file:&'static str, line: u32, source: Option<Box<dyn std::error::Error>>) -> ZError {
+    pub fn new(kind: ZErrorKind, file:&'static str, line: u32, source: Option<Box<dyn std::error::Error>>) -> ZError {
         ZError { kind, file, line, source }
     }
 

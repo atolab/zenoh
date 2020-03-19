@@ -77,6 +77,7 @@ impl SessionHandler for TablesHdl {
     }
 }
 
+pub type Route = HashMap<usize, (Weak<RwLock<Face>>, u64, String)>;
 
 pub struct Tables {
     sex_counter: usize,
@@ -175,7 +176,7 @@ impl Tables {
         let res = Resource::make_resource(prefix, suffix);
         let matches = Tables::get_matches_from(&res.read().name(), from);
 
-        fn matches_contain(matches: &Vec<Weak<RwLock<Resource>>>, res: &Arc<RwLock<Resource>>) -> bool {
+        fn matches_contain(matches: &[Weak<RwLock<Resource>>], res: &Arc<RwLock<Resource>>) -> bool {
             for match_ in matches {
                 if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
                     return true
@@ -445,7 +446,7 @@ impl Tables {
     }
 
     pub fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str) 
-    -> Option<HashMap<usize, (Weak<RwLock<Face>>, u64, String)>> {
+    -> Option<Route> {
 
         let t = tables.read();
 

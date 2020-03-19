@@ -79,7 +79,7 @@ impl From<String> for ResKey {
 
 impl From<(ResourceId, &str)> for ResKey {
   fn from(tuple: (ResourceId, &str)) -> ResKey {
-    if tuple.1.len() == 0 {
+    if tuple.1.is_empty() {
       RId(tuple.0)
     } else if tuple.0 == NO_RESOURCE_ID {
       RName(tuple.1.to_string())
@@ -91,7 +91,7 @@ impl From<(ResourceId, &str)> for ResKey {
 
 impl From<(ResourceId, String)> for ResKey {
   fn from(tuple: (ResourceId, String)) -> ResKey {
-    if tuple.1.len() == 0 {
+    if tuple.1.is_empty() {
       RId(tuple.0)
     } else if tuple.0 == NO_RESOURCE_ID {
       RName(tuple.1)

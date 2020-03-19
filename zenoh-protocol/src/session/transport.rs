@@ -364,10 +364,10 @@ impl Transport {
                 zrwopt!(self.session).process_close(src, dst, pid, c_reason).await;
                 None
             },
-            Body::Hello{whatami: _, locators: _} => {
+            Body::Hello{..} => {
                 unimplemented!("Handling of Hello Messages not yet implemented!");
             },
-            Body::KeepAlive{pid: _} => {
+            Body::KeepAlive{..} => {
                 unimplemented!("Handling of KeepAlive Messages not yet implemented!");
             },
             Body::Open{version, whatami, pid, lease, locators} => {
@@ -378,13 +378,13 @@ impl Transport {
                     Err(_) => None
                 }
             },
-            Body::Ping{hash: _} => {
+            Body::Ping{..} => {
                 unimplemented!("Handling of Ping Messages not yet implemented!");
             },
-            Body::Pong{hash: _} => {
+            Body::Pong{..} => {
                 unimplemented!("Handling of Pong Messages not yet implemented!");
             },
-            Body::Scout{what: _} => {
+            Body::Scout{..} => {
                 unimplemented!("Handling of Scout Messages not yet implemented!");
             },
             Body::Sync{sn, count} => {
@@ -392,7 +392,7 @@ impl Transport {
                 self.process_sync(c_sn, count).await;
                 None
             }
-            Body::Data{reliable, sn, key: _, info: _, payload: _} => {
+            Body::Data{reliable, sn, ..} => {
                 let c_sn = *sn;
                 match reliable {
                     true => self.process_reliable_message(message, c_sn).await,
@@ -400,9 +400,9 @@ impl Transport {
                 }
                 None
             },
-            Body::Declare{sn, declarations: _} |
-            Body::Pull{sn, key: _, pull_id: _, max_samples: _} |
-            Body::Query{sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
+            Body::Declare{sn, ..} |
+            Body::Pull{sn, ..} |
+            Body::Query{sn, ..} => {
                 let c_sn = *sn;
                 self.process_reliable_message(message, c_sn).await;
                 None

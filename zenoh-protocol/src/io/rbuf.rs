@@ -6,22 +6,21 @@ use crate::core::{ZError, ZErrorKind};
 use crate::zerror;
 
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RBuf {
     slices: Vec<ArcSlice>,
     pos: (usize, usize),
 }
 
 impl RBuf {
-
     pub fn new() -> RBuf {
         let slices = vec![];
         RBuf{ slices, pos:(0,0) } 
     }
 
     #[inline]
-    pub fn is_emtpy(&self) -> bool {
-        self.slices.len() == 0
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     #[inline]
@@ -167,7 +166,7 @@ impl fmt::Debug for RBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "RBuf{{ pos: {:?},",
             self.pos)?;
-        if self.slices.len() == 0 {
+        if self.slices.is_empty() {
             write!(f, " slices: none }}")
         } else {
             write!(f, " slices:")?;
@@ -209,7 +208,7 @@ mod tests {
 
         // test a 1st buffer
         let mut buf1 = RBuf::new();
-        assert!(buf1.is_emtpy());
+        assert!(buf1.is_empty());
         assert!(!buf1.can_read());
         assert_eq!(0, buf1.get_pos());
         assert_eq!(0, buf1.readable());
@@ -217,7 +216,7 @@ mod tests {
         assert_eq!(0, buf1.as_ioslices().len());
 
         buf1.add_slice(v1.clone());
-        assert!(!buf1.is_emtpy());
+        assert!(!buf1.is_empty());
         assert!(buf1.can_read());
         assert_eq!(0, buf1.get_pos());
         assert_eq!(10, buf1.readable());
@@ -226,7 +225,7 @@ mod tests {
         assert_eq!(Some(&[0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9][..]), buf1.as_ioslices()[0].get(0..10));
 
         buf1.add_slice(v2.clone());
-        assert!(!buf1.is_emtpy());
+        assert!(!buf1.is_empty());
         assert!(buf1.can_read());
         assert_eq!(0, buf1.get_pos());
         assert_eq!(20, buf1.readable());
@@ -235,7 +234,7 @@ mod tests {
         assert_eq!(Some(&[10u8, 11, 12, 13, 14, 15, 16, 17, 18, 19][..]), buf1.as_ioslices()[1].get(0..10));
 
         buf1.add_slice(v3.clone());
-        assert!(!buf1.is_emtpy());
+        assert!(!buf1.is_empty());
         assert!(buf1.can_read());
         assert_eq!(0, buf1.get_pos());
         assert_eq!(30, buf1.readable());
@@ -251,7 +250,7 @@ mod tests {
 
         // test reset_pos
         buf1.reset_pos();
-        assert!(!buf1.is_emtpy());
+        assert!(!buf1.is_empty());
         assert!(buf1.can_read());
         assert_eq!(30, buf1.readable());
         assert_eq!(30, buf1.len());
@@ -275,7 +274,7 @@ mod tests {
         // test other buffers sharing the same vecs
         let mut buf2 = RBuf::from(v1.clone());
         buf2.add_slice(v2.clone());
-        assert!(!buf2.is_emtpy());
+        assert!(!buf2.is_empty());
         assert!(buf2.can_read());
         assert_eq!(0, buf2.get_pos());
         assert_eq!(20, buf2.readable());
@@ -286,7 +285,7 @@ mod tests {
         }
 
         let mut buf3 = RBuf::from(v1.clone());
-        assert!(!buf3.is_emtpy());
+        assert!(!buf3.is_empty());
         assert!(buf3.can_read());
         assert_eq!(0, buf3.get_pos());
         assert_eq!(10, buf3.readable());
