@@ -54,3 +54,11 @@ path = "examples/zenoh-net/zn_storage.rs"
 name = "zn_query"
 path = "examples/zenoh-net/zn_query.rs"
 
+[[example]]
+name = "zn_pub_thr"
+path = "examples/zenoh-net/zn_pub_thr.rs"
+
+[[example]]
+name = "zn_sub_thr"
+path = "examples/zenoh-net/zn_sub_thr.rs"
+

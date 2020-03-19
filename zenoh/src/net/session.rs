@@ -158,7 +158,7 @@ impl Session {
         let dhandler = Arc::new(RwLock::new(data_handler));
         let sub = Subscriber{ id, resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
-        println!("---- DECL SUB on {} with {:?}  => {:?}", resource, mode, sub);        
+        println!("---- DECL SUB on {:?} with {:?}  => {:?}", resource, mode, sub);        
         Ok(sub)
     }
 
@@ -239,7 +239,6 @@ impl Session {
     }
 
     pub fn write(&self, resource: &ResKey, payload: &[u8]) -> ZResult<()> {
-        println!("---- WRITE on {} : {:02x?}", resource, payload);
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
@@ -309,7 +308,6 @@ impl Primitives for Session {
     }
 
     async fn data(&self, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
-        println!("++++ recv Data {:?} : {:?} ", reskey, payload);
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
         match inner.reskey_to_resname(reskey) {
@@ -359,7 +357,7 @@ impl InnerSession {
     pub(crate) fn new() -> InnerSession {
         InnerSession  { 
             primitives:  None,
-            rid_counter: AtomicUsize::new(0),
+            rid_counter: AtomicUsize::new(1),
             id_counter:  AtomicUsize::new(0),
             resources:   HashMap::new(),
             publishers:  HashMap::new(),
