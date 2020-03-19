@@ -559,6 +559,7 @@ impl Message {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn make_data(
         kind: MessageKind,
         reliable: bool,
@@ -601,6 +602,7 @@ impl Message {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn make_query(sn: ZInt, key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let tflag = if target.is_some() { flag::T } else { 0 };
         let cflag = if key.is_numerical() { flag::C } else { 0 };
