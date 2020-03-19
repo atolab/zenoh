@@ -10,9 +10,9 @@ use zenoh::net::ResKey::*;
 fn main() {
     let mut args: Vec<String> = env::args().collect();
 
-    args.pop(); // ignore arg[0] (exe name)
-    let uri     = args.pop().unwrap_or("/demo/example/**".to_string());
-    let locator = args.pop().unwrap_or("".to_string());
+    let mut options = args.drain(1..);
+    let uri     = options.next().unwrap_or("/demo/example/**".to_string());
+    let locator = options.next().unwrap_or("".to_string());
 
     // Create a HashMap to store the keys/values receveid in data_handler closure.
     // As this map has to be used also in query_handler closure, we need to wrap it
