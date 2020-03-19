@@ -1,5 +1,4 @@
 use std::env;
-use std::io::Read;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
 
@@ -14,12 +13,12 @@ fn main() {
     println!("Openning session...");
     let session = open(&locator, None).unwrap();
 
-    let replies_handler = move |res_name: &str, payload: &[u8], data_info: &[u8]| {
+    let replies_handler = move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
         println!(">> [Reply handler] received something... {} : {:02x?}'", res_name, payload);
     };
 
     println!("Sending Query '{}'...", uri);
-    let eval = session.query(&RName(uri), "", replies_handler).unwrap();
+    let _eval = session.query(&RName(uri), "", replies_handler).unwrap();
 
     session.close().unwrap();
 }

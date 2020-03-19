@@ -11,7 +11,7 @@ fn main() {
     let locator = options.next().unwrap_or("".to_string());
 
     println!("Openning session...");
-    let mut session = open(&locator, None).unwrap();
+    let session = open(&locator, None).unwrap();
 
     // Split the uri on the last '/'. 
     // The first part will be declared as resource,

@@ -3,7 +3,7 @@ use std::io::Read;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
 
-fn data_handler(res_name: &str, payload: &[u8], data_info: &[u8]) {
+fn data_handler(res_name: &str, payload: &[u8], _data_info: &[u8]) {
     println!(">> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
 }
 

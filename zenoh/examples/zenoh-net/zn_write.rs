@@ -11,7 +11,7 @@ fn main() {
     let locator = options.next().unwrap_or("".to_string());
 
     println!("Openning session...");
-    let mut session = open(&locator, None).unwrap();
+    let session = open(&locator, None).unwrap();
 
     println!("Writing Data ('{}': '{}')...\n", uri, value);
     session.write(&RName(uri), value.as_bytes()).unwrap();

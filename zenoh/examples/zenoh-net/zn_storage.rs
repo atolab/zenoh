@@ -21,7 +21,7 @@ fn main() {
         Arc::new(RwLock::new(HashMap::new()));
     let stored_shared = stored.clone();
 
-    let data_handler = move |res_name: &str, payload: &[u8], data_info: &[u8]| {
+    let data_handler = move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
         println!(">> [Storage listener] Received ('{}': '{:02x?}')", res_name, payload);
         stored.write().insert(res_name.into(), payload.into());
     };

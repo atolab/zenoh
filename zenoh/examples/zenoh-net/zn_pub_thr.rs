@@ -20,7 +20,7 @@ fn main() {
     let session = open(&locator, None).unwrap();
 
     let reskey = RId(session.declare_resource(&RName("/test/thr".to_string())).unwrap());
-    let publ = session.declare_publisher(&reskey).unwrap();
+    let _publ = session.declare_publisher(&reskey).unwrap();
 
     loop {
         session.write(&reskey, &data).unwrap();

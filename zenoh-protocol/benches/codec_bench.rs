@@ -4,9 +4,8 @@ extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use std::sync::Arc;
 use zenoh_protocol::core::{ZResult, ResKey};
-use zenoh_protocol::io::{ArcSlice, WBuf, RBuf};
+use zenoh_protocol::io::{ArcSlice, WBuf};
 use zenoh_protocol::proto::{Message, MessageKind};
 
 fn _bench_zint_write((v, buf): (u64, &mut WBuf)) {

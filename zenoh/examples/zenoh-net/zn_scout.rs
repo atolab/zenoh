@@ -1,4 +1,3 @@
-use std::env;
 use zenoh::net::*;
 
 fn main() {
