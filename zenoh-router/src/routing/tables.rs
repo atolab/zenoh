@@ -35,7 +35,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;
 ///     
 ///     // Use primitives
-///     primitives.data(&"/demo".to_string().into(), &None, &ArcSlice::from(vec![1, 2])).await;
+///     primitives.data(&"/demo".to_string().into(), true, &None, &ArcSlice::from(vec![1, 2])).await;
 /// 
 ///     // Close primitives
 ///     primitives.close().await;
@@ -501,7 +501,7 @@ impl Tables {
         }
     }
 
-    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str, reliable:bool, info: &Option<ArcSlice>, payload: &ArcSlice) {
         match sex.upgrade() {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
@@ -518,7 +518,7 @@ impl Tables {
                                 }
                             };
                             if let Some(primitives) = primitives {
-                                primitives.data(&(rid, suffix).into(), info, payload).await
+                                primitives.data(&(rid, suffix).into(), reliable, info, payload).await
                             }
                         }
                     }

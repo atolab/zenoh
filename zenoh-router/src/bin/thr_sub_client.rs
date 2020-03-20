@@ -70,7 +70,7 @@ impl Primitives for ThrouputPrimitives {
     async fn eval(&self, _reskey: &ResKey) {}
     async fn forget_eval(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
             stats.start = SystemTime::now();

@@ -50,7 +50,7 @@ impl Primitives for PrintPrimitives {
         println!("  [RECV] FORGET EVAL ({:?})", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
         println!("  [RECV] DATA ({:?})", reskey);
     }
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
@@ -101,7 +101,7 @@ fn main() {
         let res: ResKey = ["/demo/client/", &pid[0].to_string(), &pid[1].to_string(), &pid[2].to_string(), &pid[3].to_string()].concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
-            primitives.data(&res, &None, &ArcSlice::from(vec![1])).await;
+            primitives.data(&res, true, &None, &ArcSlice::from(vec![1])).await;
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     });

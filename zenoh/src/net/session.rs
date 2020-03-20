@@ -239,7 +239,7 @@ impl Session {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
-            primitives.data(resource, &None, &payload.to_vec().into()).await;
+            primitives.data(resource, true, &None, &payload.to_vec().into()).await;
         });
         Ok(())
     }
@@ -304,7 +304,7 @@ impl Primitives for Session {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: &ArcSlice) {
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) =>

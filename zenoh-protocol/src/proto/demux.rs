@@ -55,9 +55,9 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
                 }
             }
-            Body::Data{key, info, payload, ..} => {
+            Body::Data{reliable, key, info, payload, ..} => {
                 match &msg.reply_context {
-                    None => {self.primitives.data(key, info, payload).await;}
+                    None => {self.primitives.data(key, *reliable, info, payload).await;}
                     Some(rep) => {self.primitives.reply(rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
                 }
             }

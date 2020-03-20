@@ -46,7 +46,7 @@ fn main() {
         
         loop {
             let payload = ArcSlice::from(vec![0u8; pl_size]);
-            primitives.data(&rid, &None, &payload).await;
+            primitives.data(&rid, true, &None, &payload).await;
         }
     });
 }
