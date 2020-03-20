@@ -105,12 +105,27 @@ impl LinkTcp {
     
     pub async fn send(&self, message: &Message) -> ZResult<()> {
         // println!(">>>> SEND MSG: {:?}", message.body);
+
+        // let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
+        // buff.write_message(&message);
+        // let mut ioslices = buff.as_ioslices();
+        // while ! ioslices.is_empty() {
+        //     match (&self.socket).write_vectored(&ioslices).await {
+        //         Ok(size) => {IoSlice::advance(&mut ioslices, size);},
+        //         err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
+        //     }
+        // }
+        
         let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
         buff.write_message(&message);
+        let mut sendbuff = Vec::with_capacity(buff.readable());
         for s in buff.get_slices() {
-            (&self.socket).write_all(s.as_slice()).await
-                .map_err(to_zerror!(IOError, "on write_all".to_string()))?;
+            sendbuff.write_all(s.as_slice()).await
+                .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
         }
+        (&self.socket).write_all(&sendbuff).await
+            .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
+
         Ok(())
     }
 
