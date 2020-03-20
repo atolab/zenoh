@@ -14,7 +14,7 @@ pub struct RBuf {
 
 impl RBuf {
     pub fn new() -> RBuf {
-        let slices = vec![];
+        let slices = Vec::with_capacity(32);
         RBuf{ slices, pos:(0,0) } 
     }
 
