@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::core::{ZInt, PeerId, ResKey};
 use crate::io::ArcSlice;
 use crate::proto::{
-    Message, SubMode, Declaration, 
+    Message, SubInfo, Declaration, 
     Primitives, MessageKind, QueryTarget, 
     QueryConsolidation, ReplyContext, ReplySource};
 use crate::session::MsgHandler;
@@ -35,9 +35,9 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
     
-    async fn subscriber(&self, reskey: &ResKey, mode: &SubMode) {
+    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Subscriber{key: reskey.clone(), mode: mode.clone()});
+        decls.push(Declaration::Subscriber{key: reskey.clone(), info: sub_info.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
@@ -91,9 +91,9 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
 
-    async fn data(&self, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: &ArcSlice) {
         self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), None, None, None)).await;
+            MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload.clone(), None, None, None)).await;
     }
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {

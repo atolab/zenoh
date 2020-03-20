@@ -2,7 +2,7 @@ use crate::io::WBuf;
 use crate::core::{ZInt, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
-use super::decl::{Declaration, SubMode};
+use super::decl::{Declaration, SubMode, Reliability, Period};
 
 impl WBuf {
     pub fn write_message(&mut self, msg: &Message) {
@@ -226,7 +226,7 @@ impl WBuf {
     fn write_declaration(&mut self, declaration: &Declaration) {
         use super::decl::{Declaration::*, id::*};
 
-        macro_rules! write_key_delc {
+        macro_rules! write_key_decl {
             ($buf:ident, $flag:ident, $key:ident) => {{
                 $buf.write($flag | (if $key.is_numerical() { flag::C } else { 0 }));
                 $buf.write_reskey($key);
@@ -246,43 +246,38 @@ impl WBuf {
                 self.write_zint(*rid);
             }
 
-            Subscriber { key, mode } =>  {
-                let sflag = if let SubMode::Push = mode { 0 } else { flag::S };
+            Subscriber { key, info } =>  {
+                let sflag = if info.mode == SubMode::Push && info.period.is_none() { 0 } else { flag::S };
+                let rflag = if info.reliability == Reliability::Reliable { flag::R } else { 0 };
                 let cflag = if key.is_numerical() { flag::C } else { 0 };
-                self.write(SUBSCRIBER | sflag | cflag);
+                self.write(SUBSCRIBER | sflag | rflag | cflag);
                 self.write_reskey(key);
                 if sflag != 0 {
-                    self.write_submode(mode);
+                    self.write_submode(&info.mode, &info.period);
                 }
             }
 
-            ForgetSubscriber { key } => write_key_delc!(self, FORGET_SUBSCRIBER, key),
-            Publisher { key }        => write_key_delc!(self, PUBLISHER, key),
-            ForgetPublisher { key }  => write_key_delc!(self, FORGET_PUBLISHER, key),
-            Storage { key }          => write_key_delc!(self, STORAGE, key),
-            ForgetStorage { key }    => write_key_delc!(self, FORGET_STORAGE, key),
-            Eval { key }             => write_key_delc!(self, EVAL, key),
-            ForgetEval { key }       => write_key_delc!(self, FORGET_EVAL, key),
+            ForgetSubscriber { key } => write_key_decl!(self, FORGET_SUBSCRIBER, key),
+            Publisher { key }        => write_key_decl!(self, PUBLISHER, key),
+            ForgetPublisher { key }  => write_key_decl!(self, FORGET_PUBLISHER, key),
+            Storage { key }          => write_key_decl!(self, STORAGE, key),
+            ForgetStorage { key }    => write_key_decl!(self, FORGET_STORAGE, key),
+            Eval { key }             => write_key_decl!(self, EVAL, key),
+            ForgetEval { key }       => write_key_decl!(self, FORGET_EVAL, key),
         }
     }
 
-    fn write_submode(&mut self, mode: &SubMode) {
+    fn write_submode(&mut self, mode: &SubMode, period: &Option<Period>) {
         use super::decl::{SubMode::*, id::*};
+        let period_mask: u8 = if period.is_some() { PERIOD } else { 0x00 };
         match mode {
-            Push => self.write_zint(MODE_PUSH),
-            Pull => self.write_zint(MODE_PULL),
-            PeriodicPush{ origin, period, duration } => {
-                self.write_zint(MODE_PERIODIC_PUSH);
-                self.write_zint(*origin);
-                self.write_zint(*period);
-                self.write_zint(*duration);
-            }
-            PeriodicPull{ origin, period, duration } => {
-                self.write_zint(MODE_PERIODIC_PULL);
-                self.write_zint(*origin);
-                self.write_zint(*period);
-                self.write_zint(*duration);
-            }
+            Push => self.write(MODE_PUSH | period_mask),
+            Pull => self.write(MODE_PULL | period_mask),
+        }
+        if let Some(p) = period {
+            self.write_zint(p.origin);
+            self.write_zint(p.period);
+            self.write_zint(p.duration);
         }
     }
 

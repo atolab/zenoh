@@ -27,8 +27,8 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         Declaration::Publisher {key} => {
                             self.primitives.publisher(key).await;
                         }
-                        Declaration::Subscriber {key, mode} => {
-                            self.primitives.subscriber(key, mode).await;
+                        Declaration::Subscriber {key, info} => {
+                            self.primitives.subscriber(key, info).await;
                         }
                         Declaration::Storage {key} => {
                             self.primitives.storage(key).await;
@@ -55,9 +55,9 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
                 }
             }
-            Body::Data{key, info, payload, ..} => {
+            Body::Data{reliable, key, info, payload, ..} => {
                 match &msg.reply_context {
-                    None => {self.primitives.data(key, info, payload).await;}
+                    None => {self.primitives.data(key, *reliable, info, payload).await;}
                     Some(rep) => {self.primitives.reply(rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;}
                 }
             }

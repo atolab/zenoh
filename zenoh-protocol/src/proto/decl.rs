@@ -2,8 +2,6 @@
 use crate::core::{ZInt, ResKey};
 
 pub mod id {
-  use crate::core::ZInt;
-
   // Declarations
   pub const RESOURCE            :  u8 =  0x01;
   pub const PUBLISHER           :  u8 =  0x02;
@@ -18,18 +16,30 @@ pub mod id {
   pub const FORGET_EVAL         :  u8 =  0x15;
   
   // SubModes
-  pub const MODE_PUSH           : ZInt = 0x00;
-  pub const MODE_PULL           : ZInt = 0x01;
-  pub const MODE_PERIODIC_PUSH  : ZInt = 0x02;
-  pub const MODE_PERIODIC_PULL  : ZInt = 0x03;
+  pub const MODE_PUSH           : u8 = 0x00;
+  pub const MODE_PULL           : u8 = 0x01;
+  pub const PERIOD              : u8 = 0x80;
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Reliability { BestEffort, Reliable }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubMode { Push, Pull }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Period { 
+    pub origin: ZInt,
+    pub period: ZInt,
+    pub duration: ZInt
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SubMode {
-    Push,
-    Pull,
-    PeriodicPush { origin: ZInt, period: ZInt, duration: ZInt },
-    PeriodicPull { origin: ZInt, period: ZInt, duration: ZInt }
+pub struct SubInfo {
+    pub reliability: Reliability,
+    pub mode: SubMode,
+    pub period: Option<Period>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,15 +95,17 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|S|C|   SUB   |
+    /// |S|R|C|   SUB   |  R for Reliable
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if C==1 then only numerical id
     /// +---------------+
-    /// ~    SubMode    ~ if S==1. Otherwise: SubMode=Push
+    /// |    SubMode    | if S==1. Otherwise: SubMode=Push
+    /// +---------------+
+    /// ~    Period     ~ if SubMode && PERIOD. Otherwise: None
     /// +---------------+
     Subscriber {
         key: ResKey,
-        mode: SubMode
+        info: SubInfo
     },
 
     ///  7 6 5 4 3 2 1 0

@@ -140,7 +140,7 @@ impl Session {
         Ok(())
     }
 
-    pub fn declare_subscriber<DataHandler>(&self, resource: &ResKey, mode: &SubMode, data_handler: DataHandler) -> ZResult<Subscriber>
+    pub fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -148,14 +148,14 @@ impl Session {
         let primitives = inner.primitives.as_ref().unwrap();
 
         task::block_on( async {
-            primitives.subscriber(resource, mode).await;
+            primitives.subscriber(resource, info).await;
         });
 
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
         let dhandler = Arc::new(RwLock::new(data_handler));
         let sub = Subscriber{ id, resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
-        println!("---- DECL SUB on {:?} with {:?}  => {:?}", resource, mode, sub);        
+        println!("---- DECL SUB on {:?} with {:?}  => {:?}", resource, info, sub);        
         Ok(sub)
     }
 
@@ -239,7 +239,7 @@ impl Session {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
-            primitives.data(resource, &None, &payload.to_vec().into()).await;
+            primitives.data(resource, true, &None, &payload.to_vec().into()).await;
         });
         Ok(())
     }
@@ -280,8 +280,8 @@ impl Primitives for Session {
         println!("++++ recv Forget Publisher {:?} ", reskey);
     }
 
-    async fn subscriber(&self, reskey: &ResKey, _mode: &SubMode) {
-        println!("++++ recv Subscriber {:?} ", reskey);
+    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
+        println!("++++ recv Subscriber {:?} , {:?}", reskey, sub_info);
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {
@@ -304,7 +304,7 @@ impl Primitives for Session {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: &ArcSlice) {
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) =>

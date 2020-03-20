@@ -18,7 +18,12 @@ fn main() {
     let session = open(&locator, None).unwrap();
 
     println!("Declaring Subscriber on {}", uri);
-    let sub = session.declare_subscriber(&RName(uri), &SubMode::Pull, &data_handler).unwrap();
+    let sub_info = SubInfo {
+        reliability: Reliability::Reliable,
+        mode: SubMode::Pull,
+        period: None
+    };
+    let sub = session.declare_subscriber(&RName(uri), &sub_info, &data_handler).unwrap();
 
     println!("Press <enter> to pull data...");
     let mut reader = std::io::stdin();
