@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
 use std::collections::HashMap;
 use async_std::sync::Arc;
 use async_trait::async_trait;
@@ -264,17 +264,21 @@ impl Session {
         Ok(())
     }
 
-    pub async fn query<RepliesHandler>(&self, resource: &ResKey, predicate: &str, mut replies_handler: RepliesHandler) -> ZResult<()>
+    pub async fn query<RepliesHandler>(&self, resource: &ResKey, predicate: &str, replies_handler: RepliesHandler) -> ZResult<()>
         where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
-        // @TODO: implement
-        println!("---- QUERY on {} {}", resource, predicate);
+        let inner = &mut self.inner.write();
+        let qid = inner.qid_counter.fetch_add(1, Ordering::SeqCst);
+        inner.queries.insert(qid, Arc::new(RwLock::new(replies_handler)));
 
+        let primitives = inner.primitives.as_ref().unwrap();
+        primitives.query(resource, predicate, qid, &None, &QueryConsolidation::None).await;
 
-        // Just to test reply_handler callback:
+        // @TODO: REMOVE; Just to test reply_handler callback:
+        let rhandler = &mut *inner.queries.get(&qid).unwrap().write();
         let payload = vec![1,2,3];
         let info = vec![];
-        replies_handler("/A/B", &payload, &info);
+        rhandler("/A/B", &payload, &info);
 
         Ok(())
     }
@@ -353,8 +357,27 @@ impl Primitives for Session {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 
-    async fn reply(&self, qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn reply(&self, qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, payload: &ArcSlice) {
         println!("++++ recv Reply {} : {:?} ", qid, reskey);
+        let inner = &mut self.inner.write();
+        let rhandler = &mut * match inner.queries.get(&qid) {
+            Some(arc) => arc.write(),
+            None => {
+                println!("WARNING: received reply for unkown query: {}", qid);
+                return
+            }
+        };
+        let resname = match inner.reskey_to_resname(reskey) {
+            Ok(name) => name,
+            Err(e) => {
+                println!("WARNING: received reply with {}", e);
+                return
+            }
+        };
+        let info = vec![];   // @TODO
+        rhandler(&resname, payload.as_slice(), &info);
+
+        // @TODO: check if REPLY_FINAL and remove query
     }
 
     async fn pull(&self, _is_final: bool, reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {
@@ -371,12 +394,14 @@ impl Primitives for Session {
 pub(crate) struct InnerSession {
     primitives:      Option<Arc<dyn Primitives + Send + Sync>>, // @TODO replace with MaybeUninit ??
     rid_counter:     AtomicUsize,  // @TODO: manage rollover and uniqueness
+    qid_counter:     AtomicU64,
     decl_id_counter: AtomicUsize,
     resources:       HashMap<ResourceId, String>,
     publishers:      HashMap<Id, Publisher>,
     subscribers:     HashMap<Id, Subscriber>,
     storages:        HashMap<Id, Storage>,
     evals:           HashMap<Id, Eval>,
+    queries:         HashMap<ZInt, Arc<RwLock<RepliesHandler>>>,
 }
 
 impl InnerSession {
@@ -384,12 +409,14 @@ impl InnerSession {
         InnerSession  { 
             primitives:      None,
             rid_counter:     AtomicUsize::new(1),  // Note: start at 1 because 0 is reserved for NO_RESOURCE
+            qid_counter:     AtomicU64::new(0),
             decl_id_counter: AtomicUsize::new(0),
             resources:       HashMap::new(),
             publishers:      HashMap::new(),
             subscribers:     HashMap::new(),
             storages:        HashMap::new(),
             evals:           HashMap::new(),
+            queries:         HashMap::new(),
         }
     }
 }
