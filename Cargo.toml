@@ -4,4 +4,5 @@ members = [
   "zenoh",
   "zenoh-router",
   "zenoh-protocol",
+  "zenoh-util"
 ]
