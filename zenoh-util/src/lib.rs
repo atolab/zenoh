@@ -86,7 +86,7 @@ impl<T:Copy> CircularQueue<T> {
                         self.wait_pull_rx.recv().await;                        
                         self.notify_pull_tx.send(true).await;
                     }
-                    return ();
+                    return;
                 }
             } 
             self.wait_push_tx.send(true).await;
@@ -99,16 +99,13 @@ impl<T:Copy> CircularQueue<T> {
         loop {
             {
                 let mut q = self.state.lock().await;
-                match q.pull() {
-                    Some(e) => {
-                        if !self.wait_push_rx.is_empty() {
-                            self.wait_push_rx.recv().await;
-                            self.notify_push_tx.send(true).await;
-                        }                        
-                        return e;
-                    },
-                    None => ()
-                };
+                if let Some(e) = q.pull() {
+                    if !self.wait_push_rx.is_empty() {
+                        self.wait_push_rx.recv().await;
+                        self.notify_push_tx.send(true).await;
+                    }                        
+                    return e;
+                }                
                 
             }
             self.wait_pull_tx.send(true).await;
