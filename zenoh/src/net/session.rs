@@ -103,22 +103,22 @@ impl Session {
 
     pub fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
         let inner = &mut self.inner.write();
-        let primitives = inner.primitives.as_ref().unwrap();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
+        let rname = inner.reskey_to_resname(resource)?;
+        inner.resources.insert(rid, rname);
 
+        let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
             primitives.resource(rid, resource).await;
         });
 
-        let rname = inner.reskey_to_resname(resource)?;
-        inner.resources.insert(rid, rname);
         Ok(rid)
     }
 
     pub fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
         let inner = &mut self.inner.write();
-        let primitives = inner.primitives.as_ref().unwrap();
 
+        let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
             primitives.forget_resource(rid).await;
         });
@@ -129,15 +129,16 @@ impl Session {
 
     pub fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
         let inner = &mut self.inner.write();
-        let primitives = inner.primitives.as_ref().unwrap();
 
+        let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
+        let publ = Publisher{ id, reskey: resource.clone() };
+        inner.publishers.insert(id, publ.clone());
+
+        let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
             primitives.publisher(resource).await;
         });
 
-        let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
-        let publ = Publisher{ id, reskey: resource.clone() };
-        inner.publishers.insert(id, publ.clone());
         Ok(publ)
     }
 
@@ -160,17 +161,17 @@ impl Session {
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
+        let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let resname = inner.reskey_to_resname(resource)?;
-        let primitives = inner.primitives.as_ref().unwrap();
+        let dhandler = Arc::new(RwLock::new(data_handler));
+        let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
+        inner.subscribers.insert(id, sub.clone());
 
+        let primitives = inner.primitives.as_ref().unwrap();
         task::block_on( async {
             primitives.subscriber(resource, info).await;
         });
 
-        let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
-        let dhandler = Arc::new(RwLock::new(data_handler));
-        let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
-        inner.subscribers.insert(id, sub.clone());
         Ok(sub)
     }
 
@@ -194,16 +195,20 @@ impl Session {
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static ,
         QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
-        // @TODO: implement
         let inner = &mut self.inner.write();
-        let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
+        let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
+        let resname = inner.reskey_to_resname(resource)?;
         let dhandler = Arc::new(RwLock::new(data_handler));
         let qhandler = Arc::new(RwLock::new(query_handler));
-        let sto = Storage{ id, dhandler, qhandler };
-        println!("---- DECL STO on {} => {:?}", resource, sto);
+        let sto = Storage{ id, reskey: resource.clone(), resname, dhandler, qhandler };
         inner.storages.insert(id, sto.clone());
 
-        // Just to test storage callback:
+        let primitives = inner.primitives.as_ref().unwrap();
+        task::block_on( async {
+            primitives.storage(resource).await;
+        });
+
+        // @TODO: REMOVE; Just to test storage callback:
         let payload = vec![1,2,3];
         let info = vec![4,5,6];
         let sto2 = &mut inner.storages.get(&id).unwrap();
@@ -221,24 +226,35 @@ impl Session {
     }
 
     pub fn undeclare_storage(&self, storage: Storage) -> ZResult<()> {
-        // @TODO: implement
-        println!("---- UNDECL STO {:?}", storage);
-        self.inner.write().storages.remove(&storage.id);
+        let inner = &mut self.inner.write();
+        inner.storages.remove(&storage.id);
+
+        // Note: there might be several Storages on the same ResKey.
+        // Before calling forget_storage(reskey), check if this was the last one.
+        if !inner.storages.values().any(|s| s.reskey == storage.reskey) {
+            let primitives = inner.primitives.as_ref().unwrap();
+            task::block_on( async {
+                primitives.forget_storage(&storage.reskey).await;
+            });
+        }
         Ok(())
     }
 
     pub fn declare_eval<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
-        // @TODO: implement
         let inner = &mut self.inner.write();
-        let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
+        let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
-        let eva = Eval{ id, qhandler };
-        println!("---- DECL EVAL on {} => {:?}", resource, eva);
+        let eva = Eval{ id, reskey: resource.clone(), qhandler };
         inner.evals.insert(id, eva.clone());
 
-        // Just to test eval callback:
+        let primitives = inner.primitives.as_ref().unwrap();
+        task::block_on( async {
+            primitives.eval(resource).await;
+        });
+
+        // @TODO: REMOVE; Just to test eval callback:
         let eva2 = &mut inner.evals.get(&id).unwrap();
         let qhandler = &mut *eva2.qhandler.write();
         qhandler("/A/**", "starttime=now()-1h", 
@@ -253,8 +269,17 @@ impl Session {
     }
 
     pub fn undeclare_eval(&self, eval: Eval) -> ZResult<()> {
-        // @TODO: implement
-        println!("---- UNDECL EVA {:?}", eval);
+        let inner = &mut self.inner.write();
+        inner.evals.remove(&eval.id);
+
+        // Note: there might be several Evals on the same ResKey.
+        // Before calling forget_eval(reskey), check if this was the last one.
+        if !inner.evals.values().any(|e| e.reskey == eval.reskey) {
+            let primitives = inner.primitives.as_ref().unwrap();
+            task::block_on( async {
+                primitives.forget_eval(&eval.reskey).await;
+            });
+        }
         Ok(())
     }
 
@@ -330,14 +355,24 @@ impl Primitives for Session {
     async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: &ArcSlice) {
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
-            Ok(resname) =>
+            Ok(resname) => {
+                // Call matching subscribers
                 for sub in inner.subscribers.values() {
                     if rname::intersect(&sub.resname, &resname) {
                         let info = vec![4,5,6];   // @TODO
                         let handler = &mut *sub.dhandler.write();
                         handler(&resname, payload.as_slice(), &info);
                     }
-                },
+                }
+                // Call matching storages
+                for sto in inner.storages.values() {
+                    if rname::intersect(&sto.resname, &resname) {
+                        let info = vec![4,5,6];   // @TODO
+                        let handler = &mut *sto.dhandler.write();
+                        handler(&resname, payload.as_slice(), &info);
+                    }
+                }
+            },
             Err(err) => println!("{}. Dropping received data", err)
         }
     }
@@ -363,8 +398,8 @@ impl Primitives for Session {
 
 pub(crate) struct InnerSession {
     primitives:      Option<Arc<dyn Primitives + Send + Sync>>, // @TODO replace with MaybeUninit ??
-    rid_counter:     AtomicUsize,
-    id_counter:      AtomicUsize,
+    rid_counter:     AtomicUsize,  // @TODO: manage rollover and uniqueness
+    decl_id_counter: AtomicUsize,
     resources:       HashMap<ResourceId, String>,
     publishers:      HashMap<Id, Publisher>,
     subscribers:     HashMap<Id, Subscriber>,
@@ -375,14 +410,14 @@ pub(crate) struct InnerSession {
 impl InnerSession {
     pub(crate) fn new() -> InnerSession {
         InnerSession  { 
-            primitives:  None,
-            rid_counter: AtomicUsize::new(1),
-            id_counter:  AtomicUsize::new(0),
-            resources:   HashMap::new(),
-            publishers:  HashMap::new(),
-            subscribers: HashMap::new(),
-            storages:    HashMap::new(),
-            evals:       HashMap::new(),
+            primitives:      None,
+            rid_counter:     AtomicUsize::new(1),  // Note: start at 1 because 0 is reserved for NO_RESOURCE
+            decl_id_counter: AtomicUsize::new(0),
+            resources:       HashMap::new(),
+            publishers:      HashMap::new(),
+            subscribers:     HashMap::new(),
+            storages:        HashMap::new(),
+            evals:           HashMap::new(),
         }
     }
 }

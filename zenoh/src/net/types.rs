@@ -86,6 +86,8 @@ impl fmt::Debug for Subscriber {
 #[derive(Clone)]
 pub struct Storage {
     pub(crate) id: Id,
+    pub(crate) reskey: ResKey,
+    pub(crate) resname: String,
     pub(crate) dhandler: Arc<RwLock<DataHandler>>,
     pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
 }
@@ -106,6 +108,7 @@ impl fmt::Debug for Storage {
 #[derive(Clone)]
 pub struct Eval {
     pub(crate) id: Id,
+    pub(crate) reskey: ResKey,
     pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
 }
 
