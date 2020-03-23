@@ -4,14 +4,21 @@ use async_std::sync::Arc;
 use spin::RwLock;
 use super::InnerSession;
 
-pub type ZInt = zenoh_protocol::core::ZInt;
-pub type ZError = zenoh_protocol::core::ZError;
-pub type ZResult<T> = zenoh_protocol::core::ZResult<T>;
+pub use zenoh_protocol::core::{
+    ZInt,
+    ZError,
+    ZErrorKind,
+    ZResult,
+    ResourceId,
+    ResKey,
+};
+pub use zenoh_protocol::proto::{
+    Reliability,
+    SubMode,
+    Period,
+    SubInfo
+};
 
-pub type Reliability = zenoh_protocol::proto::Reliability;
-pub type SubMode     = zenoh_protocol::proto::SubMode;
-pub type Period      = zenoh_protocol::proto::Period;
-pub type SubInfo     = zenoh_protocol::proto::SubInfo;
 
 pub type Properties = HashMap<ZInt, Vec<u8>>;
 
@@ -31,6 +38,7 @@ pub(crate) type Id = usize;
 #[derive(Clone)]
 pub struct Publisher {
     pub(crate) id: Id,
+    pub(crate) reskey: ResKey,
 }
 
 impl PartialEq for Publisher {
@@ -49,6 +57,7 @@ impl fmt::Debug for Publisher {
 #[derive(Clone)]
 pub struct Subscriber {
     pub(crate) id: Id,
+    pub(crate) reskey: ResKey,
     pub(crate) resname: String,
     pub(crate) dhandler: Arc<RwLock<DataHandler>>,
     pub(crate) session: Arc<RwLock<InnerSession>>

@@ -73,7 +73,7 @@ impl Session {
         })
     }
 
-    pub fn close(self) -> ZResult<()> {
+    pub fn close(&self) -> ZResult<()> {
         // @TODO: implement
         println!("---- CLOSE");
         let inner = &mut self.inner.write();
@@ -107,36 +107,52 @@ impl Session {
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
 
         task::block_on( async {
-            primitives.resource(rid, &resource).await;
+            primitives.resource(rid, resource).await;
         });
 
         let rname = inner.reskey_to_resname(resource)?;
         inner.resources.insert(rid, rname);
-
-        println!("---- DECL RES {} => {:?}", resource, rid);
         Ok(rid)
     }
 
     pub fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
-        println!("---- UNDECL RES {}", rid);
-        self.inner.write().resources.remove(&rid);
+        let inner = &mut self.inner.write();
+        let primitives = inner.primitives.as_ref().unwrap();
+
+        task::block_on( async {
+            primitives.forget_resource(rid).await;
+        });
+
+        inner.resources.remove(&rid);
         Ok(())
     }
 
     pub fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
-        // @TODO: implement
         let inner = &mut self.inner.write();
+        let primitives = inner.primitives.as_ref().unwrap();
+
+        task::block_on( async {
+            primitives.publisher(resource).await;
+        });
+
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
-        let publ = Publisher{ id };
-        println!("---- DECL PUB on {} => {:?}", resource, publ);
+        let publ = Publisher{ id, reskey: resource.clone() };
         inner.publishers.insert(id, publ.clone());
         Ok(publ)
     }
 
     pub fn undeclare_publisher(&self, publisher: Publisher) -> ZResult<()> {
-        // @TODO: implement
-        println!("---- UNDECL PUB {:?}", publisher);
-        self.inner.write().publishers.remove(&publisher.id);
+        let inner = &mut self.inner.write();
+        inner.publishers.remove(&publisher.id);
+
+        // Note: there might be several Publishers on the same ResKey.
+        // Before calling forget_publisher(reskey), check if this was the last one.
+        if !inner.publishers.values().any(|p| p.reskey == publisher.reskey) {
+            let primitives = inner.primitives.as_ref().unwrap();
+            task::block_on( async {
+                primitives.forget_publisher(&publisher.reskey).await;
+            });
+        }
         Ok(())
     }
 
@@ -153,17 +169,24 @@ impl Session {
 
         let id = inner.id_counter.fetch_add(1, Ordering::SeqCst);
         let dhandler = Arc::new(RwLock::new(data_handler));
-        let sub = Subscriber{ id, resname, dhandler, session: self.inner.clone() };
+        let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
-        println!("---- DECL SUB on {:?} with {:?}  => {:?}", resource, info, sub);        
         Ok(sub)
     }
 
     pub fn undeclare_subscriber(&self, subscriber: Subscriber) -> ZResult<()>
     {
-        // @TODO: implement
-        println!("---- UNDECL SUB {:?}", subscriber);
-        self.inner.write().subscribers.remove(&subscriber.id);
+        let inner = &mut self.inner.write();
+        inner.subscribers.remove(&subscriber.id);
+
+        // Note: there might be several Subscribers on the same ResKey.
+        // Before calling forget_subscriber(reskey), check if this was the last one.
+        if !inner.subscribers.values().any(|s| s.reskey == subscriber.reskey) {
+            let primitives = inner.primitives.as_ref().unwrap();
+            task::block_on( async {
+                primitives.forget_subscriber(&subscriber.reskey).await;
+            });
+        }
         Ok(())
     }
 
