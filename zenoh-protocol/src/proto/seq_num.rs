@@ -53,14 +53,9 @@ impl SeqNumGenerator {
 
     /// Generates the next sequence number
     pub fn next(&self) -> ZInt {
+        // The atomic automatically wraps to zero. 
         let n = self.next_sn.fetch_add(1, Ordering::SeqCst);
-        let mut a = n + 1;
-        if a >= self.resolution {        
-            let b = a % self.resolution;
-            self.next_sn.compare_and_swap(a, b, Ordering::SeqCst);    
-            a = b;
-        }
-        a
+        n % self.resolution
     }
 
     /// Checks to see if two sequence number are in a precedence relationship, 
