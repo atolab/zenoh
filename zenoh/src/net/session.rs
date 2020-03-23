@@ -1,7 +1,6 @@
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::HashMap;
-use async_std::task;
 use async_std::sync::Arc;
 use async_trait::async_trait;
 use spin::RwLock;
@@ -29,64 +28,59 @@ pub struct Session {
 
 impl Session {
 
-    pub(super) fn new(locator: &str, _ps: Option<Properties>) -> Session {
-        task::block_on( async {
-    
-            let tables = Arc::new(TablesHdl::new());
-            
-            let mut pid = vec![0, 0, 0, 0];
-            rand::thread_rng().fill_bytes(&mut pid);
+    pub(super) async fn new(locator: &str, _ps: Option<Properties>) -> Session {
+        let tables = Arc::new(TablesHdl::new());
+        
+        let mut pid = vec![0, 0, 0, 0];
+        rand::thread_rng().fill_bytes(&mut pid);
 
-            let session_manager = SessionManager::new(0, WhatAmI::Peer, PeerId{id: pid}, 0, tables.clone());
+        let session_manager = SessionManager::new(0, WhatAmI::Peer, PeerId{id: pid}, 0, tables.clone());
 
-            // @TODO: scout if locator = "". For now, replace by "tcp/127.0.0.1:7447"
-            let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };
+        // @TODO: scout if locator = "". For now, replace by "tcp/127.0.0.1:7447"
+        let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };
 
-            let mut tx_session: Option<Arc<TxSession>> = None;
+        let mut tx_session: Option<Arc<TxSession>> = None;
 
-            // @TODO: manage a tcp.port property (and tcp.interface?)
-            // try to open TCP port 7447
-            if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
-                // if failed, try to connect to peer on locator
-                println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
-                match session_manager.open_session(&locator.parse().unwrap()).await {
-                    Ok(s) => tx_session = Some(Arc::new(s)),
-                    Err(err) => {
-                        println!("Unable to connect to {}! {:?}", locator, err);
-                        std::process::exit(-1);
-                    }
+        // @TODO: manage a tcp.port property (and tcp.interface?)
+        // try to open TCP port 7447
+        if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
+            // if failed, try to connect to peer on locator
+            println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
+            match session_manager.open_session(&locator.parse().unwrap()).await {
+                Ok(s) => tx_session = Some(Arc::new(s)),
+                Err(err) => {
+                    println!("Unable to connect to {}! {:?}", locator, err);
+                    std::process::exit(-1);
                 }
-            } else {
-                println!("Listening on TCP: 127.0.0.1:7447.");
             }
+        } else {
+            println!("Listening on TCP: 127.0.0.1:7447.");
+        }
 
-            let inner = Arc::new(RwLock::new(
-                InnerSession::new()
-            ));
-            let inner2 = inner.clone();
-            let session = Session{ session_manager, tx_session, tables, inner };
+        let inner = Arc::new(RwLock::new(
+            InnerSession::new()
+        ));
+        let inner2 = inner.clone();
+        let session = Session{ session_manager, tx_session, tables, inner };
 
-            let prim = session.tables.new_primitives(Arc::new(session.clone())).await;
-            inner2.write().primitives = Some(prim);
+        let prim = session.tables.new_primitives(Arc::new(session.clone())).await;
+        inner2.write().primitives = Some(prim);
 
-            session
-        })
+        session
     }
 
-    pub fn close(&self) -> ZResult<()> {
+    pub async fn close(&self) -> ZResult<()> {
         // @TODO: implement
         println!("---- CLOSE");
         let inner = &mut self.inner.write();
         let primitives = inner.primitives.as_ref().unwrap();
 
-        task::block_on( async {
-            primitives.close().await;
+        primitives.close().await;
 
-            if let Some(tx_session) = &self.tx_session {
-                return tx_session.close().await
-            }
-            Ok(())
-        })
+        if let Some(tx_session) = &self.tx_session {
+            return tx_session.close().await
+        }
+        Ok(())
 
         // @TODO: session_manager.del_locator()
     }
@@ -101,33 +95,29 @@ impl Session {
         info
     }
 
-    pub fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
+    pub async fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
         let inner = &mut self.inner.write();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
         let rname = inner.reskey_to_resname(resource)?;
         inner.resources.insert(rid, rname);
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.resource(rid, resource).await;
-        });
+        primitives.resource(rid, resource).await;
 
         Ok(rid)
     }
 
-    pub fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
+    pub async fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
         let inner = &mut self.inner.write();
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.forget_resource(rid).await;
-        });
+        primitives.forget_resource(rid).await;
 
         inner.resources.remove(&rid);
         Ok(())
     }
 
-    pub fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
+    pub async fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
         let inner = &mut self.inner.write();
 
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -135,14 +125,12 @@ impl Session {
         inner.publishers.insert(id, publ.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.publisher(resource).await;
-        });
+        primitives.publisher(resource).await;
 
         Ok(publ)
     }
 
-    pub fn undeclare_publisher(&self, publisher: Publisher) -> ZResult<()> {
+    pub async fn undeclare_publisher(&self, publisher: Publisher) -> ZResult<()> {
         let inner = &mut self.inner.write();
         inner.publishers.remove(&publisher.id);
 
@@ -150,14 +138,12 @@ impl Session {
         // Before calling forget_publisher(reskey), check if this was the last one.
         if !inner.publishers.values().any(|p| p.reskey == publisher.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            task::block_on( async {
-                primitives.forget_publisher(&publisher.reskey).await;
-            });
+            primitives.forget_publisher(&publisher.reskey).await;
         }
         Ok(())
     }
 
-    pub fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
+    pub async fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -168,14 +154,12 @@ impl Session {
         inner.subscribers.insert(id, sub.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.subscriber(resource, info).await;
-        });
+        primitives.subscriber(resource, info).await;
 
         Ok(sub)
     }
 
-    pub fn undeclare_subscriber(&self, subscriber: Subscriber) -> ZResult<()>
+    pub async fn undeclare_subscriber(&self, subscriber: Subscriber) -> ZResult<()>
     {
         let inner = &mut self.inner.write();
         inner.subscribers.remove(&subscriber.id);
@@ -184,14 +168,12 @@ impl Session {
         // Before calling forget_subscriber(reskey), check if this was the last one.
         if !inner.subscribers.values().any(|s| s.reskey == subscriber.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            task::block_on( async {
-                primitives.forget_subscriber(&subscriber.reskey).await;
-            });
+            primitives.forget_subscriber(&subscriber.reskey).await;
         }
         Ok(())
     }
 
-    pub fn declare_storage<DataHandler, QueryHandler>(&self, resource: &ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
+    pub async fn declare_storage<DataHandler, QueryHandler>(&self, resource: &ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static ,
         QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
@@ -204,9 +186,7 @@ impl Session {
         inner.storages.insert(id, sto.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.storage(resource).await;
-        });
+        primitives.storage(resource).await;
 
         // @TODO: REMOVE; Just to test storage callback:
         let payload = vec![1,2,3];
@@ -225,7 +205,7 @@ impl Session {
         Ok(sto)
     }
 
-    pub fn undeclare_storage(&self, storage: Storage) -> ZResult<()> {
+    pub async fn undeclare_storage(&self, storage: Storage) -> ZResult<()> {
         let inner = &mut self.inner.write();
         inner.storages.remove(&storage.id);
 
@@ -233,14 +213,12 @@ impl Session {
         // Before calling forget_storage(reskey), check if this was the last one.
         if !inner.storages.values().any(|s| s.reskey == storage.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            task::block_on( async {
-                primitives.forget_storage(&storage.reskey).await;
-            });
+            primitives.forget_storage(&storage.reskey).await;
         }
         Ok(())
     }
 
-    pub fn declare_eval<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
+    pub async fn declare_eval<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -250,9 +228,7 @@ impl Session {
         inner.evals.insert(id, eva.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.eval(resource).await;
-        });
+        primitives.eval(resource).await;
 
         // @TODO: REMOVE; Just to test eval callback:
         let eva2 = &mut inner.evals.get(&id).unwrap();
@@ -268,7 +244,7 @@ impl Session {
 
     }
 
-    pub fn undeclare_eval(&self, eval: Eval) -> ZResult<()> {
+    pub async fn undeclare_eval(&self, eval: Eval) -> ZResult<()> {
         let inner = &mut self.inner.write();
         inner.evals.remove(&eval.id);
 
@@ -276,23 +252,19 @@ impl Session {
         // Before calling forget_eval(reskey), check if this was the last one.
         if !inner.evals.values().any(|e| e.reskey == eval.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            task::block_on( async {
-                primitives.forget_eval(&eval.reskey).await;
-            });
+            primitives.forget_eval(&eval.reskey).await;
         }
         Ok(())
     }
 
-    pub fn write(&self, resource: &ResKey, payload: &[u8]) -> ZResult<()> {
+    pub async fn write(&self, resource: &ResKey, payload: &[u8]) -> ZResult<()> {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
-        task::block_on( async {
-            primitives.data(resource, true, &None, &payload.to_vec().into()).await;
-        });
+        primitives.data(resource, true, &None, &payload.to_vec().into()).await;
         Ok(())
     }
 
-    pub fn query<RepliesHandler>(&self, resource: &ResKey, predicate: &str, mut replies_handler: RepliesHandler) -> ZResult<()>
+    pub async fn query<RepliesHandler>(&self, resource: &ResKey, predicate: &str, mut replies_handler: RepliesHandler) -> ZResult<()>
         where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
         // @TODO: implement

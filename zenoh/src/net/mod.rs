@@ -15,15 +15,15 @@ pub fn rname_intersect(s1: &str, s2: &str) -> bool {
     core::rname::intersect(s1, s2)
 }
 
-pub fn scout(iface: &str, tries: usize, period: usize) -> Vec<String> {
+pub async fn scout(iface: &str, tries: usize, period: usize) -> Vec<String> {
     // @TODO: implement
     println!("---- SCOUT via {} : {} tries each {} second", iface, tries, period);
     vec![]
 }
 
-pub fn open(locator: &str, ps: Option<Properties>) -> ZResult<Session> {
+pub async fn open(locator: &str, ps: Option<Properties>) -> ZResult<Session> {
     // @TODO: implement
     println!("---- OPEN to \"{}\"", locator);
-    Ok(Session::new(locator, ps))
+    Ok(Session::new(locator, ps).await)
 }
 

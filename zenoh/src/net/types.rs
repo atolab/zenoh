@@ -64,7 +64,7 @@ pub struct Subscriber {
 }
 
 impl Subscriber {
-    pub fn pull(&self) -> ZResult<()> {
+    pub async fn pull(&self) -> ZResult<()> {
         // @TODO: implement
         println!("---- PULL on {:?}", self);
         Ok(())
