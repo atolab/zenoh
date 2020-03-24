@@ -19,7 +19,7 @@ use zenoh_protocol::proto::{
 use zenoh_protocol::session::{
     OrderedQueue,
     QueueInner,
-    QueuePrio,
+    MutexQueuePrio,
     MessageTx
 };
 
@@ -31,7 +31,7 @@ fn stress_test_queue_priority() {
     let capacity = 256;
 
     let inner = QueueInner::<MessageTx>::new(num_queues, capacity);
-    let queue = Arc::new(QueuePrio::new(inner, num_queues));
+    let queue = Arc::new(MutexQueuePrio::new(inner, num_queues));
 
     // Build reliable data messages of 64 bytes payload
     let kind = MessageKind::FullMessage;
@@ -45,11 +45,13 @@ fn stress_test_queue_priority() {
     let properties = None;
     let message_reliable = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);  
 
-    for _ in 0..2 {
+    let tot_msg = 10_000_000u32;
+    let num_prs = 1;
+    for _ in 0..num_prs {
         let c_queue = queue.clone();
         let c_message = message_reliable.clone();
         task::spawn(async move  {
-            for i in 0..5_000_000u32 {   
+            for i in 0..tot_msg/num_prs {   
                 let to_send = MessageTx {
                     inner: c_message.clone(),
                     link: None,
@@ -68,14 +70,10 @@ fn stress_test_queue_priority() {
     let c_queue = queue.clone();
     let now = Instant::now();
     let f2 = task::spawn(async move {
-        let mut count = 0;
-        loop {
+        for i in 0..tot_msg {
             let mut guard = c_queue.lock_pop().await;
-            while guard.pop().is_some() {
-                count += 1;
-                if count == 10_000_000u32 {
-                    return
-                }
+            if guard.pop().is_none() {
+                println!("POP ERROR! {}", i);
             }
             c_queue.update_mask(guard.get_mask());  
         }

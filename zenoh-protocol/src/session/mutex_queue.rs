@@ -105,7 +105,33 @@ impl<T> QueueInner<T> {
 }
 
 
-pub struct QueuePrio<T: ?Sized> {
+// pub struct QueuePrio<T>(MutexQueuePrio<QueueInner<T>>);
+
+// impl<T> QueuePrio<T> {
+//     pub fn new(queues: usize, capacity: usize) -> QueuePrio<T> {
+//         Self(MutexQueuePrio::new(QueueInner::new(queues, capacity), queues))
+//     }
+
+//     #[inline(always)]
+//     pub async fn push(&self, t: T, priority: usize) {
+//         let mut guard = self.0.lock_push(priority).await;
+//         guard.push(t, priority);
+//         self.0.update_mask(guard.get_mask());
+//     }
+
+//     #[inline(always)]
+//     pub async fn pop(&self) -> (usize, T) {
+//         let mut guard = self.0.lock_pop().await;
+//         let t = guard.pop().unwrap();
+//         self.0.update_mask(guard.get_mask());
+//         t
+//     }
+// }
+
+
+
+
+pub struct MutexQueuePrio<T: ?Sized> {
     locked: AtomicBool,
     wakers_push: Vec<WakerSet>,
     wakers_pop: WakerSet,
@@ -114,16 +140,16 @@ pub struct QueuePrio<T: ?Sized> {
     value: UnsafeCell<T>
 }
 
-unsafe impl<T: ?Sized + Send> Send for QueuePrio<T> {}
-unsafe impl<T: ?Sized + Send> Sync for QueuePrio<T> {}
+unsafe impl<T: ?Sized + Send> Send for MutexQueuePrio<T> {}
+unsafe impl<T: ?Sized + Send> Sync for MutexQueuePrio<T> {}
 
-impl<T> QueuePrio<T> {
-    pub fn new(t: T, queues: usize) -> QueuePrio<T> {
+impl<T> MutexQueuePrio<T> {
+    pub fn new(t: T, queues: usize) -> MutexQueuePrio<T> {
         let mut wakers_push = Vec::with_capacity(queues);
         for _ in 0..queues {
             wakers_push.push(WakerSet::new());
         }
-        QueuePrio {
+        MutexQueuePrio {
             locked: AtomicBool::new(false),
             wakers_push,
             wakers_pop: WakerSet::new(),
@@ -134,20 +160,20 @@ impl<T> QueuePrio<T> {
     }
 }
 
-impl<T: ?Sized> QueuePrio<T> {
+impl<T: ?Sized> MutexQueuePrio<T> {
     pub fn update_mask(&self, mask: usize) {
-        self.mask.store(mask, Ordering::SeqCst);
+        self.mask.store(mask, Ordering::Release);
     }
 
-    pub async fn lock_push(&self, priority: usize) -> QueuePrioPushGuard<'_, T> {
+    pub async fn lock_push(&self, priority: usize) -> MutexQueuePrioPushGuard<'_, T> {
         pub struct LockPushFuture<'a, T: ?Sized> {
-            mutex: &'a QueuePrio<T>,
+            mutex: &'a MutexQueuePrio<T>,
             priority: usize,
             opt_key: Option<usize>,
         }
 
         impl<'a, T: ?Sized> Future for LockPushFuture<'a, T> {
-            type Output = QueuePrioPushGuard<'a, T>;
+            type Output = MutexQueuePrioPushGuard<'a, T>;
 
             fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 loop {
@@ -156,17 +182,16 @@ impl<T: ?Sized> QueuePrio<T> {
                         self.mutex.wakers_push[self.priority].remove(key);
                     }
 
-                    // Check if the queue we are trying to push on is full or not
-                    if self.mutex.mask.load(Ordering::SeqCst) & (H_BIT >> self.priority) != 0 {
-                        // Insert this lock operation.
-                        self.opt_key = Some(self.mutex.wakers_push[self.priority].insert(cx));
-
-                        return Poll::Pending;
-                    }
-
                     // Try acquiring the lock.
                     match self.mutex.try_lock_push() {
                         Some(guard) => {
+                            // Check if the queue we are trying to push on is full or not
+                            if self.mutex.mask.load(Ordering::Acquire) & (H_BIT >> self.priority) != 0 {
+                                // Insert this lock operation.
+                                self.opt_key = Some(self.mutex.wakers_push[self.priority].insert(cx));
+
+                                return Poll::Pending;
+                            }
                             return Poll::Ready(guard)
                         },
                         None => {
@@ -174,7 +199,7 @@ impl<T: ?Sized> QueuePrio<T> {
                             self.opt_key = Some(self.mutex.wakers_push[self.priority].insert(cx));
 
                             // If the mutex is still locked, return.
-                            if self.mutex.locked.load(Ordering::SeqCst) {
+                            if self.mutex.locked.load(Ordering::Acquire) {
                                 return Poll::Pending;
                             }
                         }
@@ -200,14 +225,14 @@ impl<T: ?Sized> QueuePrio<T> {
     }
 
 
-    pub async fn lock_pop(&self) -> QueuePrioPopGuard<'_, T> {
+    pub async fn lock_pop(&self) -> MutexQueuePrioPopGuard<'_, T> {
         pub struct LockPopFuture<'a, T: ?Sized> {
-            mutex: &'a QueuePrio<T>,
+            mutex: &'a MutexQueuePrio<T>,
             opt_key: Option<usize>
         }
 
         impl<'a, T: ?Sized> Future for LockPopFuture<'a, T> {
-            type Output = QueuePrioPopGuard<'a, T>;
+            type Output = MutexQueuePrioPopGuard<'a, T>;
 
             fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
                 loop {
@@ -216,17 +241,16 @@ impl<T: ?Sized> QueuePrio<T> {
                         self.mutex.wakers_pop.remove(key);
                     }
 
-                    // Check if there is at least one message to pop
-                    if self.mutex.mask.load(Ordering::SeqCst) & self.mutex.l_filter == 0 {
-                        // Insert this lock operation.
-                        self.opt_key = Some(self.mutex.wakers_pop.insert(cx));
-
-                        return Poll::Pending;
-                    }
-
                     // Try acquiring the lock.
                     match self.mutex.try_lock_pop() {
                         Some(guard) => {
+                            // Check if there is at least one message to pop
+                            if self.mutex.mask.load(Ordering::Acquire) & self.mutex.l_filter == 0 {
+                                // Insert this lock operation.
+                                self.opt_key = Some(self.mutex.wakers_pop.insert(cx));
+
+                                return Poll::Pending;
+                            }
                             return Poll::Ready(guard)
                         },
                         None => {
@@ -259,18 +283,18 @@ impl<T: ?Sized> QueuePrio<T> {
     }
 
     #[inline]
-    pub fn try_lock_push(&self) -> Option<QueuePrioPushGuard<'_, T>> {
+    pub fn try_lock_push(&self) -> Option<MutexQueuePrioPushGuard<'_, T>> {
         if !self.locked.swap(true, Ordering::SeqCst) {
-            Some(QueuePrioPushGuard(self))
+            Some(MutexQueuePrioPushGuard(self))
         } else {
             None
         }
     }
 
     #[inline]
-    pub fn try_lock_pop(&self) -> Option<QueuePrioPopGuard<'_, T>> {
+    pub fn try_lock_pop(&self) -> Option<MutexQueuePrioPopGuard<'_, T>> {
         if !self.locked.swap(true, Ordering::SeqCst) {
-            Some(QueuePrioPopGuard(self))
+            Some(MutexQueuePrioPopGuard(self))
         } else {
             None
         }
@@ -279,14 +303,15 @@ impl<T: ?Sized> QueuePrio<T> {
 
 
 /// A push guard that releases the lock when dropped.
-pub struct QueuePrioPushGuard<'a, T: ?Sized>(&'a QueuePrio<T>);
+pub struct MutexQueuePrioPushGuard<'a, T: ?Sized>(&'a MutexQueuePrio<T>);
 
-unsafe impl<T: ?Sized + Send> Send for QueuePrioPushGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for QueuePrioPushGuard<'_, T> {}
+unsafe impl<T: ?Sized + Send> Send for MutexQueuePrioPushGuard<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for MutexQueuePrioPushGuard<'_, T> {}
 
-impl<T: ?Sized> Drop for QueuePrioPushGuard<'_, T> {
+impl<T: ?Sized> Drop for MutexQueuePrioPushGuard<'_, T> {
     fn drop(&mut self) {
-        let mask = self.0.mask.load(Ordering::SeqCst);
+        // Load the mask
+        let mask = self.0.mask.load(Ordering::Acquire);
 
         // Use `SeqCst` ordering to synchronize with `WakerSet::insert()` and `WakerSet::update()`.
         self.0.locked.store(false, Ordering::SeqCst);
@@ -311,7 +336,7 @@ impl<T: ?Sized> Drop for QueuePrioPushGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> Deref for QueuePrioPushGuard<'_, T> {
+impl<T: ?Sized> Deref for MutexQueuePrioPushGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -319,7 +344,7 @@ impl<T: ?Sized> Deref for QueuePrioPushGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> DerefMut for QueuePrioPushGuard<'_, T> {
+impl<T: ?Sized> DerefMut for MutexQueuePrioPushGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.0.value.get() }
     }
@@ -327,20 +352,20 @@ impl<T: ?Sized> DerefMut for QueuePrioPushGuard<'_, T> {
 
 
 /// A pop guard that releases the lock when dropped.
-pub struct QueuePrioPopGuard<'a, T: ?Sized>(&'a QueuePrio<T>);
+pub struct MutexQueuePrioPopGuard<'a, T: ?Sized>(&'a MutexQueuePrio<T>);
 
-unsafe impl<T: ?Sized + Send> Send for QueuePrioPopGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for QueuePrioPopGuard<'_, T> {}
+unsafe impl<T: ?Sized + Send> Send for MutexQueuePrioPopGuard<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for MutexQueuePrioPopGuard<'_, T> {}
 
-impl<T: ?Sized> Drop for QueuePrioPopGuard<'_, T> {
+impl<T: ?Sized> Drop for MutexQueuePrioPopGuard<'_, T> {
     fn drop(&mut self) {
-        let mask = self.0.mask.load(Ordering::SeqCst);
+        // Load the mask
+        let mask = self.0.mask.load(Ordering::Acquire);
 
         // Use `SeqCst` ordering to synchronize with `WakerSet::insert()` and `WakerSet::update()`.
         self.0.locked.store(false, Ordering::SeqCst);
 
         // Notify a blocked `lock()` operation if none were notified already.
-        // let mask = self.0.mask.load(Ordering::SeqCst);
         for priority in 0..self.0.wakers_push.len() {
             // Wake up a pending push if the queue is not full
             if mask & (H_BIT >> priority) == 0 {
@@ -355,7 +380,7 @@ impl<T: ?Sized> Drop for QueuePrioPopGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> Deref for QueuePrioPopGuard<'_, T> {
+impl<T: ?Sized> Deref for MutexQueuePrioPopGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -363,7 +388,7 @@ impl<T: ?Sized> Deref for QueuePrioPopGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> DerefMut for QueuePrioPopGuard<'_, T> {
+impl<T: ?Sized> DerefMut for MutexQueuePrioPopGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.0.value.get() }
     }
