@@ -1,4 +1,3 @@
-
 use async_std::sync::Mutex;
 use std::collections::VecDeque;
 use crate::sync::Condition;
@@ -14,7 +13,6 @@ impl<T> CQueue<T> {
         let buffer = VecDeque::<T>::with_capacity(capacity);        
         CQueue {buffer, capacity, n: 0}
     }
-
 
     fn push(&mut self, elem: T) -> bool {
         if self.n < self.capacity {
@@ -52,7 +50,6 @@ pub struct CircularQueue<T: Copy> {
     not_full: Condition
 }
 
-
 impl<T:Copy> CircularQueue<T> {
     pub fn new(capacity: usize, concurrency_level: usize) -> CircularQueue<T> {
         CircularQueue { 
@@ -61,7 +58,6 @@ impl<T:Copy> CircularQueue<T> {
             not_full: Condition::new(concurrency_level)            
         }
     }
-    
 
     pub async fn push(&self, x: T) {
         loop {
