@@ -2,6 +2,9 @@ mod manager;
 mod queue;
 mod transport;
 
+mod mutex_queue;
+mod waker_set;
+
 pub use manager::{
     SessionManager,
     SessionManagerInner,
@@ -10,6 +13,9 @@ pub use manager::{
 };
 pub use queue::*;
 pub use transport::Transport;
+
+pub use waker_set::WakerSet;
+pub use mutex_queue::*;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;

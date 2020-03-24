@@ -1,10 +1,91 @@
+// use async_std::prelude::*;
+use async_std::sync::Arc;
+use async_std::task;
 use rand::{
     Rng,
     thread_rng
 };
+use std::time::Instant;
 
-use zenoh_protocol::core::ZInt;
-use zenoh_protocol::session::OrderedQueue;
+use zenoh_protocol::core::{
+    ResKey,
+    ZInt
+};
+use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::proto::{
+    Message,
+    MessageKind
+};
+use zenoh_protocol::session::{
+    OrderedQueue,
+    QueueInner,
+    QueuePrio,
+    MessageTx
+};
+
+
+#[test]
+fn stress_test_queue_priority() {
+    println!("GO GO GO");          
+    let num_queues = 1;
+    let capacity = 256;
+
+    let inner = QueueInner::<MessageTx>::new(num_queues, capacity);
+    let queue = Arc::new(QueuePrio::new(inner, num_queues));
+
+    // Build reliable data messages of 64 bytes payload
+    let kind = MessageKind::FullMessage;
+    let reliable = true;
+    let sn = 0;
+    let key = ResKey::RName("test".to_string());
+    let info = None;
+    let payload = ArcSlice::new(Arc::new(vec![0u8; 64]), 0, 1);
+    let reply_context = None;
+    let cid = None;
+    let properties = None;
+    let message_reliable = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);  
+
+    for _ in 0..4 {
+        let c_queue = queue.clone();
+        let c_message = message_reliable.clone();
+        task::spawn(async move  {
+            for i in 0..2_500_000u32 {   
+                let to_send = MessageTx {
+                    inner: c_message.clone(),
+                    link: None,
+                    notify: None
+                };
+                let mut guard = c_queue.lock_push(0).await;
+                if guard.push(to_send, 0).is_some() {
+                    println!("PUSH ERROR! {}", i);
+                }
+                // Update the bitmask on the queue having messages
+                c_queue.update_mask(guard.get_mask());             
+            }
+        });
+    }
+
+    let c_queue = queue.clone();
+    let now = Instant::now();
+    let f2 = task::spawn(async move {
+        let mut count = 0;
+        loop {
+            let mut guard = c_queue.lock_pop().await;
+            while guard.pop().is_some() {
+                count += 1;
+                if count == 10_000_000u32 {
+                    return
+                }
+            }
+            c_queue.update_mask(guard.get_mask());  
+        }
+    });
+
+    task::block_on(f2);
+  
+    println!("Test run in: {}", now.elapsed().as_millis());
+}
+
 
 #[test]
 fn ordered_queue_simple() {
