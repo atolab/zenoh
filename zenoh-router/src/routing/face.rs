@@ -12,7 +12,8 @@ pub struct Face {
     pub(super) id: usize,
     pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
-    pub(super) mappings: HashMap<u64, Arc<RwLock<Resource>>>,
+    pub(super) local_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
+    pub(super) remote_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
     pub(super) subs: Vec<Arc<RwLock<Resource>>>,
 }
 
@@ -22,9 +23,31 @@ impl Face {
             id,
             whatami,
             primitives,
-            mappings: HashMap::new(),
+            local_mappings: HashMap::new(),
+            remote_mappings: HashMap::new(),
             subs: Vec::new(),
         }))
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub(super) fn get_mapping(&self, prefixid: &ZInt) -> Option<&std::sync::Arc<RwLock<Resource>>> {
+        match self.remote_mappings.get(prefixid) {
+            Some(prefix) => {Some(prefix)}
+            None => {
+                match self.local_mappings.get(prefixid) {
+                    Some(prefix) => {Some(prefix)}
+                    None => {None}
+                }
+            }
+        }
+    }
+
+    pub(super) fn get_next_local_id(&self) -> ZInt {
+        let mut id = 1;
+        while self.local_mappings.get(&id).is_some() {
+            id += 1;
+        }
+        id
     }
 }
 

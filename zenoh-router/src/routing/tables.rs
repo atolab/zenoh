@@ -3,7 +3,7 @@ use std::sync::{Arc, Weak};
 use spin::RwLock;
 use std::collections::{HashMap};
 use zenoh_protocol::core::rname::intersect;
-use zenoh_protocol::core::ResKey;
+use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::ArcSlice;
 use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
@@ -105,29 +105,83 @@ impl Tables {
     }
 
     pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<RwLock<Face>> {
-        let (res, subs) = {
+        let (face, subs) = {
             let mut t = tables.write();
             let sid = t.sex_counter;
             t.sex_counter += 1;
-            t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone()));
-            let subs = t.faces.iter().map(|(id, face)| {
-                if *id != sid {
-                    let rface = face.read();
-                    rface.subs.iter().map(|sub| sub.read().name()).collect::<Vec<String>>()
-                } else {
-                    vec![]
-                }
-            }).collect::<Vec<Vec<String>>>().concat();
-            (Arc::downgrade(t.faces.get(&sid).unwrap()), subs)
+            let newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
+            
+            // @TODO temporarily propagate to everybody (clients)
+            // if whatami != WhatAmI::Client {
+            if true {
+                let mut local_id = 0;
+                let subs = t.faces.iter().map(|(id, face)| {
+                    if *id != sid {
+                        let rface = face.read();
+                        rface.subs.iter().map(|sub| {
+                            let (nonwild_prefix, wildsuffix) = {
+                                let rsub = sub.read();
+                                match &rsub.nonwild_prefix {
+                                    None => {
+                                        local_id += 1;
+                                        (Some((sub.clone(), local_id)), "".to_string())
+                                    }
+                                    Some((nonwild_prefix, wildsuffix)) => {
+                                        if ! nonwild_prefix.read().name().is_empty() {
+                                            local_id += 1;
+                                            (Some((nonwild_prefix.clone(), local_id)), wildsuffix.clone())
+                                        }else {
+                                            (None, rsub.name())
+                                        }
+                                    }
+                                }
+                            };
+
+                            match nonwild_prefix {
+                                Some((nonwild_prefix, local_id)) => {
+                                    let mut wnonwild_prefix = nonwild_prefix.write();
+                                    wnonwild_prefix.contexts.insert(sid, 
+                                        Arc::new(RwLock::new(Context {
+                                            face: newface.clone(),
+                                            local_rid: Some(local_id),
+                                            remote_rid: None,
+                                            subs: None,
+                                    })));
+                                    newface.write().local_mappings.insert(local_id, nonwild_prefix.clone());
+                                    (Some((wnonwild_prefix.name(), local_id)), wildsuffix)
+                                }
+                                None => {
+                                    (None, wildsuffix)
+                                }
+                            }
+                        }).collect::<Vec<(Option<(String, ZInt)>, String)>>()
+                    } else {
+                        vec![]
+                    }
+                }).collect::<Vec<Vec<(Option<(String, ZInt)>, String)>>>().concat();
+                (Arc::downgrade(&newface), Some(subs))
+            } else {
+                (Arc::downgrade(&newface), None)
+            }
         };
 
-        // @TODO: manage propagation of Subscriber.info
-        let sub_info = SubInfo { reliability: Reliability::Reliable, mode: SubMode::Push, period: None }; 
-        for name in subs {
-            primitives.subscriber(&ResKey::RName(name), &sub_info).await;
+        if let Some(subs) = subs {
+            // @TODO: manage propagation of Subscriber.info
+            let sub_info = SubInfo { reliability: Reliability::Reliable, mode: SubMode::Push, period: None }; 
+            for (nonwild_prefix, wildsuffix) in subs {
+                match nonwild_prefix {
+                    Some((nonwild_prefix, local_id)) => {
+                        primitives.resource(local_id, &ResKey::RName(nonwild_prefix)).await;
+                        primitives.subscriber(&ResKey::RIdWithSuffix(local_id, wildsuffix), &sub_info).await;
+                    }
+                    None => {
+                        primitives.subscriber(&ResKey::RName(wildsuffix), &sub_info).await;
+                    }
+                }
+            }
         }
 
-        res        
+        face
     }
 
     pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>) {
@@ -135,10 +189,14 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let mut wsex = sex.write();
-                for mapping in wsex.mappings.values() {
+                for mapping in wsex.remote_mappings.values() {
                     Resource::clean(&mapping);
                 }
-                wsex.mappings.clear();
+                wsex.remote_mappings.clear();
+                for mapping in wsex.local_mappings.values() {
+                    Resource::clean(&mapping);
+                }
+                wsex.local_mappings.clear();
                 while let Some(res) = wsex.subs.pop() {
                     Resource::clean(&res);
                 }
@@ -202,7 +260,7 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
-                match rsex.mappings.get(&rid) {
+                match rsex.remote_mappings.get(&rid) {
                     Some(_res) => {
                         // if _res.read().name() != rname {
                         //     // TODO : mapping change 
@@ -212,12 +270,7 @@ impl Tables {
                         let prefix = {
                             match prefixid {
                                 0 => {Some(&t.root_res)}
-                                prefixid => {
-                                    match rsex.mappings.get(&prefixid) {
-                                        Some(prefix) => {Some(prefix)}
-                                        None => {None}
-                                    }
-                                }
+                                prefixid => {rsex.get_mapping(&prefixid)}
                             }
                         };
                         match prefix {
@@ -231,7 +284,8 @@ impl Tables {
                                             wres.contexts.insert(rsex.id, 
                                                 Arc::new(RwLock::new(Context {
                                                     face: sex.clone(),
-                                                    rid: Some(rid),
+                                                    local_rid: None,
+                                                    remote_rid: Some(rid),
                                                     subs: None,
                                                 }))
                                             );
@@ -240,7 +294,7 @@ impl Tables {
                                 }
                                 drop(rsex);
                                 Tables::build_matches_direct_tables(&res);
-                                sex.write().mappings.insert(rid, res);
+                                sex.write().remote_mappings.insert(rid, res);
                             }
                             None => println!("Declare resource with unknown prefix {}!", prefixid)
                         }
@@ -256,7 +310,7 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let mut wsex = sex.write();
-                match wsex.mappings.remove(&rid) {
+                match wsex.remote_mappings.remove(&rid) {
                     Some(res) => {Resource::clean(&res)}
                     None => println!("Undeclare unknown resource!")
                 }
@@ -266,7 +320,7 @@ impl Tables {
     }
 
     pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, prefixid: u64, suffix: &str, sub_info: &SubInfo) {
-        let result = {
+        let route = {
             let t = tables.write();
             match sex.upgrade() {
                 Some(sex) => {
@@ -274,12 +328,7 @@ impl Tables {
                     let prefix = {
                         match prefixid {
                             0 => {Some(&t.root_res)}
-                            prefixid => {
-                                match wsex.mappings.get(&prefixid) {
-                                    Some(prefix) => {Some(prefix)}
-                                    None => {None}
-                                }
-                            }
+                            prefixid => {wsex.get_mapping(&prefixid)}
                         }
                     };
                     match prefix {
@@ -295,28 +344,58 @@ impl Tables {
                                         wres.contexts.insert(wsex.id, 
                                             Arc::new(RwLock::new(Context {
                                                 face: sex.clone(),
-                                                rid: None,
+                                                local_rid: None,
+                                                remote_rid: None,
                                                 subs: Some(false),
                                             }))
                                         );
                                     }
                                 }
                             }
+                            
                             Tables::build_matches_direct_tables(&res);
-                            wsex.subs.push(res.clone());
-
-                            let name = res.read().name();
-                            let mut faces = vec![];
+                            
+                            let mut wprefix = prefix.write();
+                            let mut route = HashMap::new();
 
                             for (id, face) in &t.faces {
                                 if wsex.id != *id {
-                                    let rface = face.read();
-                                    if wsex.whatami != WhatAmI::Peer || rface.whatami != WhatAmI::Peer {
-                                        faces.push(rface.primitives.clone());
+                                    let mut wface = face.write();
+                                    if wsex.whatami != WhatAmI::Peer || wface.whatami != WhatAmI::Peer {
+                                        if let Some(ctx) = wprefix.contexts.get(id) {
+                                            let mut wctx = ctx.write();
+                                            if let Some(rid) = wctx.local_rid {
+                                                route.insert(*id, (wface.primitives.clone(), false, rid, suffix));
+                                            } else if let Some(rid) = wctx.remote_rid {
+                                                route.insert(*id, (wface.primitives.clone(), false, rid, suffix));
+                                            } else {
+                                                let rid = wface.get_next_local_id();
+                                                wctx.local_rid = Some(rid);
+                                                wface.local_mappings.insert(rid, prefix.clone());
+    
+                                                route.insert(*id, (wface.primitives.clone(), true, rid, suffix));
+                                            }
+                                        } else {
+                                            let rid = wface.get_next_local_id();
+                                            wprefix.contexts.insert(*id, 
+                                                Arc::new(RwLock::new(Context {
+                                                    face: face.clone(),
+                                                    local_rid: Some(rid),
+                                                    remote_rid: None,
+                                                    subs: None,
+                                            })));
+                                            wface.local_mappings.insert(rid, prefix.clone());
+
+                                            route.insert(*id, (wface.primitives.clone(), true, rid, suffix));
+                                        }
                                     }
                                 }
                             }
-                            Some((name, faces))
+                            let prefixname = wprefix.name();
+                            drop(wprefix);
+                            wsex.subs.push(res);
+                            
+                            Some((prefixname, route))
                         }
                         None => {println!("Declare subscription for unknown rid {}!", prefixid); None}
                     }
@@ -324,9 +403,17 @@ impl Tables {
                 None => {println!("Declare subscription for closed session!"); None}
             }
         };
-        if let Some((name, faces)) = result {
-            for face in faces {
-                face.subscriber(&(name.clone().into()), sub_info).await;
+        // if let Some(faces) = result {
+        //     for (face in faces {
+        //         face.subscriber(&(name.clone().into()), sub_info).await;
+        //     }
+        // }
+        if let Some((prefixname, faces)) = route {
+            for (_id, (primitives, declare_res, rid, suffix)) in faces {
+                if declare_res {
+                    primitives.resource(rid, &(prefixname.clone()).into()).await
+                }
+                primitives.subscriber(&(rid, suffix).into(), sub_info).await
             }
         }
     }
@@ -339,12 +426,7 @@ impl Tables {
                 let prefix = {
                     match prefixid {
                         0 => {Some(&t.root_res)}
-                        prefixid => {
-                            match wsex.mappings.get(&prefixid) {
-                                Some(prefix) => {Some(prefix)}
-                                None => {None}
-                            }
-                        }
+                        prefixid => {wsex.get_mapping(&prefixid)}
                     }
                 };
                 match prefix {
@@ -435,7 +517,9 @@ impl Tables {
                 }
             }
             if let Some(ctx) = rprefix.contexts.get(&sid) {
-                if let Some(rid) = ctx.read().rid {
+                if let Some(rid) = ctx.read().local_rid {
+                    return (rid, suffix.to_string())
+                } else if let Some(rid) = ctx.read().remote_rid {
                     return (rid, suffix.to_string())
                 }
             }
@@ -479,12 +563,12 @@ impl Tables {
         match sex.upgrade() {
             Some(sex) => {
                 let rsex = sex.read();
-                match rsex.mappings.get(&rid) {
+                match rsex.get_mapping(&rid) {
                     Some(res) => {
                         match suffix {
                             "" => {Some(res.read().route.clone())}
                             suffix => {
-                                build_route(rsex.mappings.get(&rid).unwrap(), suffix)
+                                build_route(res, suffix)
                             }
                         }
                     }
