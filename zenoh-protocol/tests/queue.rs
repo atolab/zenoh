@@ -45,11 +45,11 @@ fn stress_test_queue_priority() {
     let properties = None;
     let message_reliable = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);  
 
-    for _ in 0..4 {
+    for _ in 0..2 {
         let c_queue = queue.clone();
         let c_message = message_reliable.clone();
         task::spawn(async move  {
-            for i in 0..2_500_000u32 {   
+            for i in 0..5_000_000u32 {   
                 let to_send = MessageTx {
                     inner: c_message.clone(),
                     link: None,
