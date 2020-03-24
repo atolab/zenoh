@@ -24,7 +24,7 @@ impl Resource {
                     None
                 }
             }
-            prefix => {prefix.clone()}
+            Some((prefix, wildsuffix)) => {Some((prefix.clone(), [wildsuffix, suffix].concat()))}
         };
 
         Resource {
@@ -172,6 +172,7 @@ impl Resource {
 
 pub(super) struct Context {
     pub(super) face: Arc<RwLock<Face>>,
-    pub(super) rid: Option<u64>,
+    pub(super) local_rid: Option<u64>,
+    pub(super) remote_rid: Option<u64>,
     pub(super) subs: Option<bool>,
 }
