@@ -97,7 +97,7 @@ impl Primitives for FaceHdl {
 
     async fn forget_eval(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: ArcSlice) {
         let (prefixid, suffix) = reskey.into();
         Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, reliable, info, payload).await;
     }

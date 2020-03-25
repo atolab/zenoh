@@ -260,7 +260,7 @@ impl Session {
     pub async fn write(&self, resource: &ResKey, payload: Vec<u8>) -> ZResult<()> {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
-        primitives.data(resource, true, &None, &payload.into()).await;
+        primitives.data(resource, true, &None, payload.into()).await;
         Ok(())
     }
 
@@ -333,7 +333,7 @@ impl Primitives for Session {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: ArcSlice) {
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) => {

@@ -52,9 +52,9 @@ fn main() {
         primitives.publisher(&rid).await;
 
         
+        let payload = ArcSlice::from(vec![0u8; pl_size]);
         loop {
-            let payload = ArcSlice::from(vec![0u8; pl_size]);
-            primitives.data(&rid, true, &None, &payload).await;
+            primitives.data(&rid, true, &None, payload.clone()).await;
         }
     });
 }

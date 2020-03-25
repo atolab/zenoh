@@ -74,7 +74,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                 match &msg.reply_context {
                     None => {
                         trace!("DATA key({:?}) relibale({:?})", key, reliable);
-                        self.primitives.data(key, *reliable, info, payload).await;
+                        self.primitives.data(key, *reliable, info, payload.clone()).await;
                     }
                     Some(rep) => {
                         trace!("REPLY qid({:?}) source({:?}) replier_id({:?}) key({:?})", rep.qid, &rep.source, &rep.replier_id, key);
