@@ -20,7 +20,12 @@ fn main() {
         };
 
         println!("Sending Query '{}'...", uri);
-        let _eval = session.query(&RName(uri), "", replies_handler).await.unwrap();
+        let _eval = session.query(
+            &RName(uri), "",
+            replies_handler,
+            QueryTarget::default(),
+            QueryConsolidation::default()
+        ).await.unwrap();
 
         session.close().await.unwrap();
     })

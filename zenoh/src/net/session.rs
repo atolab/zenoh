@@ -264,7 +264,13 @@ impl Session {
         Ok(())
     }
 
-    pub async fn query<RepliesHandler>(&self, resource: &ResKey, predicate: &str, replies_handler: RepliesHandler) -> ZResult<()>
+    pub async fn query<RepliesHandler>(&self,
+        resource:        &ResKey,
+        predicate:       &str,
+        replies_handler: RepliesHandler,
+        target:          QueryTarget,
+        consolidation:   QueryConsolidation
+    ) -> ZResult<()>
         where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -272,7 +278,7 @@ impl Session {
         inner.queries.insert(qid, Arc::new(RwLock::new(replies_handler)));
 
         let primitives = inner.primitives.as_ref().unwrap();
-        primitives.query(resource, predicate, qid, &None, &QueryConsolidation::None).await;
+        primitives.query(resource, predicate, qid, target, consolidation).await;
 
         // @TODO: REMOVE; Just to test reply_handler callback:
         let rhandler = &mut *inner.queries.get(&qid).unwrap().write();
@@ -282,7 +288,6 @@ impl Session {
 
         Ok(())
     }
-
 }
 
 #[async_trait]
@@ -353,7 +358,7 @@ impl Primitives for Session {
         }
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 

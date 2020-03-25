@@ -84,7 +84,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
             }
             Body::Query{key, predicate, qid, target, consolidation, ..} => {
                 trace!("QUERY key({:?}) predicate({:?}) qid({:?}) target({:?}) consolidation({:?})", key, predicate, *qid, target, consolidation);
-                self.primitives.query(key, predicate, *qid, target, consolidation).await;
+                self.primitives.query(key, predicate, *qid, target.clone().unwrap_or_default(), consolidation.clone()).await;
             }
             Body::Pull{key, pull_id, max_samples, ..} => {
                 trace!("PULL is_final({:?}) key({:?}) pull_id({:?}) max_samples({:?})", flag::has_flag(msg.header, flag::F), key, *pull_id, max_samples);

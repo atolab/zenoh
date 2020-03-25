@@ -16,7 +16,10 @@ pub use zenoh_protocol::proto::{
     Reliability,
     SubMode,
     Period,
-    SubInfo
+    SubInfo,
+    Target,
+    QueryTarget,
+    QueryConsolidation
 };
 
 

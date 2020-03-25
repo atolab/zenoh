@@ -96,9 +96,10 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload.clone(), None, None, None)).await;
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
+        let target_opt = if target == QueryTarget::default() { None } else { Some(target) };
         self.handler.handle_message(Message::make_query(
-            0, reskey.clone(), predicate.to_string(), qid, target.clone(), consolidation.clone(), None, None)).await;
+            0, reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None, None)).await;
     }
 
     async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {

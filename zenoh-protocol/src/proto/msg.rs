@@ -155,6 +155,10 @@ pub enum QueryConsolidation {
     // @TODO: add more if necessary
 }
 
+impl Default for QueryConsolidation {
+    fn default() -> Self { QueryConsolidation::Incremental }
+}
+
 // @TODO: The query target is incomplete
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
@@ -164,7 +168,11 @@ pub enum Target {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Default for Target {
+    fn default() -> Self { Target::BestMatching }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct QueryTarget {
     pub storage: Target,
     pub eval: Target,
