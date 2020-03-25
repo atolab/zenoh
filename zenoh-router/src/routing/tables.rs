@@ -35,7 +35,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;
 ///     
 ///     // Use primitives
-///     primitives.data(&"/demo".to_string().into(), true, &None, &ArcSlice::from(vec![1, 2])).await;
+///     primitives.data(&"/demo".to_string().into(), true, &None, ArcSlice::from(vec![1, 2])).await;
 /// 
 ///     // Close primitives
 ///     primitives.close().await;
