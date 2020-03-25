@@ -38,7 +38,8 @@ fn main() {
             }        
         });
 
-      join!(p1, p2, c1, c2);
-      println!("Test run in: {}", now.elapsed().as_millis());
+        join!(p1, p2, c1, c2);
+        // join!(p1, c2);
+        println!("Test run in: {}", now.elapsed().as_millis());
   });
 }
