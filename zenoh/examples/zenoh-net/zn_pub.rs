@@ -28,7 +28,7 @@ fn main() {
         let publ = session.declare_publisher(&RIdWithSuffix(rid.clone(), "/**".to_string())).await.unwrap();
 
         println!("Writing Data ('{}': '{}')...\n", uri, value);
-        session.write(&RIdWithSuffix(rid, suffix), value.as_bytes()).await.unwrap();
+        session.write(&RIdWithSuffix(rid, suffix), value.as_bytes().to_vec()).await.unwrap();
 
         session.undeclare_publisher(publ).await.unwrap();
         session.close().await.unwrap();

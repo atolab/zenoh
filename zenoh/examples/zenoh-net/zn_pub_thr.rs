@@ -25,7 +25,7 @@ fn main() {
         let _publ = session.declare_publisher(&reskey).await.unwrap();
 
         loop {
-            session.write(&reskey, &data).await.unwrap();
+            session.write(&reskey, data.clone()).await.unwrap();
         }
     })
 }
