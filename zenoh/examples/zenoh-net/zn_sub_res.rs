@@ -1,0 +1,46 @@
+use std::env;
+use std::io::Read;
+use async_std::task;
+use zenoh::net::*;
+
+fn data_handler(res_name: &str, payload: &[u8], _data_info: &[u8]) {
+    println!("FUNCTION >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+}
+
+fn main() {
+    task::block_on( async {
+        let mut args: Vec<String> = env::args().collect();
+
+        let mut options = args.drain(1..);
+        let uri     = options.next().unwrap_or("/zenoh/demo/quote".to_string());
+        let locator = options.next().unwrap_or("".to_string());
+
+        println!("Openning session...");
+        let session = open(&locator, None).await.unwrap();
+
+        println!("Declaring Subscriber on {}", uri);
+        let sub_info = SubInfo {
+            reliability: Reliability::Reliable,
+            mode: SubMode::Push,
+            period: None
+        };
+        
+        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
+
+        let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
+            move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
+                println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+            }
+        ).await.unwrap();
+
+        let mut reader = std::io::stdin();
+        let mut input = [0u8];
+        while input[0] != 'q' as u8 {
+            reader.read_exact(&mut input).unwrap();
+        }
+
+        session.undeclare_subscriber(sub).await.unwrap();
+        session.undeclare_subscriber(sub2).await.unwrap();
+        session.close().await.unwrap();
+    })
+}
