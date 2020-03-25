@@ -30,13 +30,17 @@ path = "examples/zenoh-net/zn_info.rs"
 name = "zn_write"
 path = "examples/zenoh-net/zn_write.rs"
 
-[[example]]
-name = "zn_pub"
-path = "examples/zenoh-net/zn_pub.rs"
-
 [[example]] 
 name = "zn_pub_res"
 path = "examples/zenoh-net/zn_pub_res.rs"
+
+[[example]] 
+name = "zn_sub_res"
+path = "examples/zenoh-net/zn_sub_res.rs"
+
+[[example]]
+name = "zn_pub"
+path = "examples/zenoh-net/zn_pub.rs"
 
 [[example]] 
 name = "zn_sub"
