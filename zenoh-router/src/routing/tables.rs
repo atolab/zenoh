@@ -735,26 +735,25 @@ impl Tables {
         let t = tables.read();
 
         let build_route = |prefix: &Arc<RwLock<Resource>>, suffix: &str| {
-            let consolidate = |matches: &Vec<Weak<RwLock<Resource>>>| {
-                let mut sexs = HashMap::new();
-                for res in matches {
-                    let res = res.upgrade().unwrap();
-                    let rres = res.read();
-                    for (sid, context) in &rres.contexts {
-                        let rcontext = context.read();
-                        if (rcontext.subs.is_some() || rcontext.stor) && ! sexs.contains_key(sid)
-                        {
-                            let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
-                            sexs.insert(*sid, (Arc::downgrade(&rcontext.face), rid, suffix));
-                        }
-                    }
-                };
-                sexs
-            };
-    
             Some(match Resource::get_resource(prefix, suffix) {
                 Some(res) => {res.upgrade().unwrap().read().route.clone()}
-                None => {consolidate(&Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), &t.root_res))}
+                None => {
+                    let mut sexs = HashMap::new();
+                    for res in Tables::get_matches_from(&[&prefix.read().name(), suffix].concat(), &t.root_res) {
+                        let res = res.upgrade().unwrap();
+                        let rres = res.read();
+                        for (sid, context) in &rres.contexts {
+                            let rcontext = context.read();
+                            if rcontext.subs.is_some() || rcontext.stor {
+                                sexs.entry(*sid).or_insert_with( || {
+                                    let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
+                                    (Arc::downgrade(&rcontext.face), rid, suffix)
+                                });
+                            }
+                        }
+                    };
+                    sexs
+                }
             })
         };
 
