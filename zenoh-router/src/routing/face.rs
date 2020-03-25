@@ -15,6 +15,7 @@ pub struct Face {
     pub(super) local_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
     pub(super) remote_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
     pub(super) subs: Vec<Arc<RwLock<Resource>>>,
+    pub(super) stos: Vec<Arc<RwLock<Resource>>>,
 }
 
 impl Face {
@@ -26,6 +27,7 @@ impl Face {
             local_mappings: HashMap::new(),
             remote_mappings: HashMap::new(),
             subs: Vec::new(),
+            stos: Vec::new(),
         }))
     }
 
@@ -81,9 +83,15 @@ impl Primitives for FaceHdl {
 
     async fn forget_publisher(&self, _reskey: &ResKey) {}
     
-    async fn storage(&self, _reskey: &ResKey) {}
+    async fn storage(&self, reskey: &ResKey) {
+        let (prefixid, suffix) = reskey.into();
+        Tables::declare_storage(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    }
 
-    async fn forget_storage(&self, _reskey: &ResKey) {}
+    async fn forget_storage(&self, reskey: &ResKey) {
+        let (prefixid, suffix) = reskey.into();
+        Tables::undeclare_storage(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    }
     
     async fn eval(&self, _reskey: &ResKey) {}
 

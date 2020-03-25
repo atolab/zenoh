@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use spin::RwLock;
+use zenoh_protocol::proto::SubInfo;
 use crate::routing::face::Face;
 
 pub struct Resource {
@@ -174,5 +175,8 @@ pub(super) struct Context {
     pub(super) face: Arc<RwLock<Face>>,
     pub(super) local_rid: Option<u64>,
     pub(super) remote_rid: Option<u64>,
-    pub(super) subs: Option<bool>,
+    pub(super) subs: Option<SubInfo>,
+    pub(super) stor: bool,
+    #[allow(dead_code)]
+    pub(super) eval: bool,
 }
