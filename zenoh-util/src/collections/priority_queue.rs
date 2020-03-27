@@ -1,4 +1,5 @@
 use async_std::sync::Mutex;
+use std::sync::atomic::spin_loop_hint;
 
 use crate::collections::CQueue;
 use crate::sync::Condition;
@@ -28,17 +29,32 @@ impl<T> PriorityQueue<T> {
         }
     }
 
+    // The try_lock in this function requires the returned guard to stay in scope
+    // Using .is_some() instead of let Some(_) results in the lock guard being dropped
+    #[allow(clippy::redundant_pattern_matching)]
     pub async fn push(&self, t: T, priority: usize) {
         loop {
             {
-                let mut q = self.state[priority].lock().await;
+                // Spinlock to access the queue
+                let mut q = loop {
+                    if let Some(q) = self.state[priority].try_lock() {
+                        break q
+                    }
+                    spin_loop_hint();
+                };
+                // Push on the queue if it is not full
                 if !q.is_full() {
                     q.push(t);
-                    // Lock before notifying
-                    let _g = self.not_empty_lock.lock().await;
-                    if self.not_empty.has_waiting_list() {
-                        self.not_empty.notify().await;
-                    }  
+                    // Spinlock before notifying
+                    loop {
+                        if let Some(_) = self.not_empty_lock.try_lock() {
+                            if self.not_empty.has_waiting_list() {
+                                self.not_empty.notify().await;
+                            }  
+                            break;
+                        }
+                        spin_loop_hint();
+                    }
                     return;
                 }
                 self.not_full[priority].going_to_waiting_list();
@@ -49,7 +65,7 @@ impl<T> PriorityQueue<T> {
 
     pub async fn pull(&self) -> T {
         loop {
-            // First attempt a pull with a try_lock
+            // First, we attempt to pull from the queues with a try_lock
             // If a queue is locked by a push, a pull from the next queue is attempted 
             for priority in 0usize..self.state.len() {
                 if let Some(mut q) = self.state[priority].try_lock() {
@@ -61,10 +77,10 @@ impl<T> PriorityQueue<T> {
                     }
                 }
             }
-            // Try lock has failed, this might be due to two possibilities:
-            //  1) All the queues where blocked by simultaneous push
-            //  2) The queue was empty
-            // Therefore, we perform a blocking lock and try to pull from the queue
+            // try_lock has failed, this is due to one of the following two possibilities:
+            //  1) All the queues where blocked by simultaneous pushes
+            //  2) All the queues were empty
+            // Therefore, we perform a lock().await and we try to pull from the queue
             // If this succedes, it means that we were in case 1) otherwise in case 2) 
             for priority in 0usize..self.state.len() {
                 let mut q = self.state[priority].lock().await;
@@ -76,7 +92,7 @@ impl<T> PriorityQueue<T> {
                 }
             }
             // The blocking pull did not succeed. The queue is empty.
-            // We block here and wait for a notification
+            // We block here and wait for a not_empty notification
             {
                 let _g = self.not_empty_lock.lock().await;
                 self.not_empty.going_to_waiting_list();
