@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
 
 pub struct PrintPrimitives {
@@ -54,8 +54,8 @@ impl Primitives for PrintPrimitives {
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         println!("  [RECV] QUERY ({:?}) ({:?}) ({:?}) ({:?}) ({:?})", reskey, predicate, qid, target, consolidation);
     }
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
-        println!("  [RECV] REPLY ({:?}) ({:?}) ({:?}) ({:?})", qid, source, replierid, reskey);
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        println!("  [RECV] REPLY ({:?}) ({:?})", qid, reply);
     }
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
         println!("  [RECV] PULL ({:?}) ({:?}) ({:?}) ({:?})", is_final, reskey, pull_id, max_samples);

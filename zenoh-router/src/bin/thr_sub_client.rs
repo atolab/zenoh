@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::ArcSlice;
 use zenoh_protocol::proto::WhatAmI;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::SessionManager;
 use zenoh_router::routing::tables::TablesHdl;
 
@@ -84,7 +84,7 @@ impl Primitives for ThrouputPrimitives {
         }  
     }
     async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
-    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {}

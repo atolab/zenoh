@@ -8,7 +8,7 @@ use rand::prelude::*;
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::ArcSlice,
-    proto::{ Primitives, QueryTarget, QueryConsolidation, ReplySource, WhatAmI },
+    proto::{ Primitives, QueryTarget, QueryConsolidation, Reply, WhatAmI },
     session::SessionManager,
     zerror
 };
@@ -362,8 +362,8 @@ impl Primitives for Session {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 
-    async fn reply(&self, qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, payload: &ArcSlice) {
-        println!("++++ recv Reply {} : {:?} ", qid, reskey);
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        println!("++++ recv Reply {} : {:?} ", qid, reply);
         let inner = &mut self.inner.write();
         let rhandler = &mut * match inner.queries.get(&qid) {
             Some(arc) => arc.write(),
@@ -372,17 +372,20 @@ impl Primitives for Session {
                 return
             }
         };
-        let resname = match inner.reskey_to_resname(reskey) {
-            Ok(name) => name,
-            Err(e) => {
-                println!("WARNING: received reply with {}", e);
-                return
+        match reply {
+            Reply::ReplyData {reskey, info, payload, ..} => {
+                let resname = match inner.reskey_to_resname(&reskey) {
+                    Ok(name) => name,
+                    Err(e) => {
+                        println!("WARNING: received reply with {}", e);
+                        return
+                    }
+                };
+                rhandler(&resname, payload.as_slice(), info.as_ref().unwrap().as_slice()); // @ TODO info may be None
             }
-        };
-        let info = vec![];   // @TODO
-        rhandler(&resname, payload.as_slice(), &info);
-
-        // @TODO: check if REPLY_FINAL and remove query
+            Reply::SourceFinal {..} => {} // @ TODO
+            Reply::ReplyFinal {..} => {} // @ TODO remove query
+        }
     }
 
     async fn pull(&self, _is_final: bool, reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {
