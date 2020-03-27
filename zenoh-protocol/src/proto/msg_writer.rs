@@ -85,6 +85,10 @@ impl WBuf {
                 self.write_bytes_slice(&payload);
             }
 
+            Body::Unit { sn, .. } => {
+                self.write_zint(*sn);
+            }
+
             Body::Pull { sn, key, pull_id, max_samples } => {
                 self.write_zint(*sn);
                 self.write_reskey(&key);

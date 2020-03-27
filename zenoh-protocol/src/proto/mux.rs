@@ -5,7 +5,7 @@ use crate::io::ArcSlice;
 use crate::proto::{
     Message, SubInfo, Declaration, 
     Primitives, MessageKind, QueryTarget, 
-    QueryConsolidation, ReplyContext, Reply};
+    QueryConsolidation, ReplyContext, Reply, ReplySource};
 use crate::session::MsgHandler;
 
 pub struct Mux<T: MsgHandler + Send + Sync + ?Sized> {
@@ -103,14 +103,20 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
-        #[allow(clippy::single_match)]
         match reply {
             Reply::ReplyData {source, replier_id, reskey, info, payload} => {
                 self.handler.handle_message(Message::make_data(
                     MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
                     Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
             }
-            _ => {} // @TODO
+            Reply::SourceFinal {source, replier_id} => {
+                self.handler.handle_message(Message::make_unit(
+                    true, 0, Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            }
+            Reply::ReplyFinal {} => {
+                self.handler.handle_message(Message::make_unit(
+                    true, 0, Some(ReplyContext::make(qid, ReplySource::Storage, None)), None, None)).await;
+            }
         }
     }
 

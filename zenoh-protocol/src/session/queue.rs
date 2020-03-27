@@ -279,6 +279,7 @@ impl QueueTx {
                 Body::Close{..} => (&self.data, false),
                 // Data messages
                 Body::Data{..} |
+                Body::Unit{..} |
                 Body::Declare{..} |
                 Body::Pull{..} |
                 Body::Query{..} => (&self.data, true),

@@ -90,7 +90,7 @@ impl RBuf {
                     let pid = if flag::has_flag(header, flag::P) {
                         Some(self.read_peerid()?)
                     } else { None };
-                    return Ok(Message::make_keep_alive(pid, reply_context, cid, properties));
+                    return Ok(Message::make_keep_alive(pid, cid, properties));
                 }
 
                 DECLARE => {
@@ -108,6 +108,12 @@ impl RBuf {
                     } else { None };
                     let payload = ArcSlice::from(self.read_bytes_array()?);
                     return Ok(Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties))
+                }
+
+                UNIT => {
+                    let reliable = flag::has_flag(header, flag::R);
+                    let sn = self.read_zint()?;
+                    return Ok(Message::make_unit(reliable, sn, reply_context, cid, properties))
                 }
 
                 PULL => {

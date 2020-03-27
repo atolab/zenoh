@@ -224,24 +224,22 @@ fn close_tests() {
   test_close(true, Some(gen_pid()), gen!(u8));
 }
 
-fn test_keep_alive(with_decorators: bool, pid: Option<PeerId>, reply_context: Option<ReplyContext>)
+fn test_keep_alive(with_decorators: bool, pid: Option<PeerId>)
 {
   let msg = if with_decorators {
-    Message::make_keep_alive(pid, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
+    Message::make_keep_alive(pid, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
   } else {
-    Message::make_keep_alive(pid, reply_context, None, None)
+    Message::make_keep_alive(pid,  None, None)
   };
   test_write_read_message(msg);
 }
 
 #[test]
 fn keep_alive_tests() {
-  test_keep_alive(false, None, None);
-  test_keep_alive(true, None, None);
-  test_keep_alive(false, Some(gen_pid()), Some(gen_reply_context(false)));
-  test_keep_alive(true, Some(gen_pid()), Some(gen_reply_context(false)));
-  test_keep_alive(false, Some(gen_pid()), Some(gen_reply_context(true)));
-  test_keep_alive(true, Some(gen_pid()), Some(gen_reply_context(true)));
+  test_keep_alive(false, None);
+  test_keep_alive(true, None);
+  test_keep_alive(false, Some(gen_pid()));
+  test_keep_alive(true, Some(gen_pid()));
 }
 
 fn test_declare(with_decorators: bool, sn: ZInt, declarations: Vec<Declaration>)
@@ -293,6 +291,29 @@ fn data_tests() {
   test_data(true, FirstFragment{n: Some(gen!(ZInt))}, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, InbetweenFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, LastFragment, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
+}
+
+fn test_unit(with_decorators: bool,
+  reliable: bool,
+  sn: ZInt,
+  reply_context: Option<ReplyContext>)
+{
+  let msg = if with_decorators {
+    Message::make_unit(reliable, sn, reply_context, gen_cid(), gen_props(PROPS_LENGTH, PROP_MAX_SIZE))
+  } else {
+    Message::make_unit(reliable, sn, reply_context, None, None)
+  };
+  test_write_read_message(msg);
+}
+
+#[test]
+fn unit_tests() {
+  test_unit(false, gen!(bool), gen!(ZInt), None);
+  test_unit(true, gen!(bool), gen!(ZInt), None);
+  test_unit(false, gen!(bool), gen!(ZInt), Some(gen_reply_context(false)));
+  test_unit(true, gen!(bool), gen!(ZInt), Some(gen_reply_context(false)));
+  test_unit(false, gen!(bool), gen!(ZInt), Some(gen_reply_context(true)));
+  test_unit(true, gen!(bool), gen!(ZInt), Some(gen_reply_context(true)));
 }
 
 fn test_pull(with_decorators: bool, is_final: bool, sn: ZInt, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>)
