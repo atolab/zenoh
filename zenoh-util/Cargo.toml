@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 async-std = { version = "1.5.0", features = ["unstable"] }
+crossbeam = "0.7.3"
 futures = { version = "0.3.4", features = ["unstable"] }
 
 [[example]]

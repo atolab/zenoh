@@ -1,8 +1,8 @@
 use async_std::sync::Mutex;
+use crossbeam::utils::Backoff;
 use std::sync::atomic::{
     AtomicIsize,
-    Ordering,
-    spin_loop_hint
+    Ordering
 };
 
 use crate::collections::CQueue;
@@ -53,6 +53,7 @@ impl<T> CreditQueue<T> {
     pub async fn recharge(&self, priority: usize, amount: isize) {
         // Spinlock before notifying
         self.credit[priority].fetch_add(amount, Ordering::Release);
+        let backoff = Backoff::new();
         loop {
             if let Some(_) = self.not_empty_lock.try_lock() {
                 // Queue refilled, we might be able to pull now
@@ -61,7 +62,7 @@ impl<T> CreditQueue<T> {
                 }  
                 break;
             }
-            spin_loop_hint();
+            backoff.spin();
         }
     }
 
@@ -69,6 +70,7 @@ impl<T> CreditQueue<T> {
     // Using .is_some() instead of let Some(_) results in the lock guard being dropped
     #[allow(clippy::redundant_pattern_matching)]
     pub async fn push(&self, t: T, priority: usize) {
+        let backoff = Backoff::new();
         loop {
             {
                 // Spinlock to access the queue
@@ -76,11 +78,12 @@ impl<T> CreditQueue<T> {
                     if let Some(q) = self.state[priority].try_lock() {
                         break q
                     }
-                    spin_loop_hint();
+                    backoff.spin();
                 };
                 if !q.is_full() {
                     q.push(t);
                     // Spinlock before notifying
+                    backoff.reset();
                     loop {
                         if let Some(_) = self.not_empty_lock.try_lock() {
                             if self.not_empty.has_waiting_list() {
@@ -88,13 +91,14 @@ impl<T> CreditQueue<T> {
                             }  
                             break;
                         }
-                        spin_loop_hint();
+                        backoff.spin();
                     }
                     return;
                 }
                 self.not_full[priority].going_to_waiting_list();
             }
-            self.not_full[priority].wait().await;      
+            self.not_full[priority].wait().await;
+            backoff.reset();   
         }            
     }
 
