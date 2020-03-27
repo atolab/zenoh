@@ -40,9 +40,9 @@ use crate::link::{
 };
 
 // Size of buffer used to read from socket
-const READ_BUFFER_SIZE: usize = 8_192;
+const READ_BUFFER_SIZE: usize = 128*1024;
 // Initial capacity of WBuf to encode a Message to write
-const WRITE_BUFFER_CAPACITY: usize = 256;
+const WRITE_BUFFER_CAPACITY: usize = 128;
 
 
 #[macro_export]
