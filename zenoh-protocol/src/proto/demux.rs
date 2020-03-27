@@ -1,6 +1,7 @@
 use async_trait::async_trait;
-use crate::core::ZError;
-use crate::proto::{Message, Body, Declaration, Primitives, flag};
+use crate::zerror; 
+use crate::core::{ZError, ZErrorKind};
+use crate::proto::{Message, Body, Declaration, Primitives, Reply, flag};
 use crate::session::MsgHandler;
 
 #[cfg(demuxtraces)]
@@ -77,8 +78,13 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         self.primitives.data(key, *reliable, info, payload.clone()).await;
                     }
                     Some(rep) => {
-                        trace!("REPLY qid({:?}) source({:?}) replier_id({:?}) key({:?})", rep.qid, &rep.source, &rep.replier_id, key);
-                        self.primitives.reply(rep.qid, &rep.source, &rep.replier_id, key, info, payload).await;
+                        match &rep.replier_id {
+                            Some(replier_id) => {
+                                let reply = Reply::ReplyData {source: rep.source.clone(), replier_id: replier_id.clone(), reskey: key.clone(), info: info.clone(), payload: payload.clone()};
+                                trace!("REPLY qid({:?}) reply({:?})", rep.qid, &reply);
+                                self.primitives.reply(rep.qid, &reply).await}
+                            None => return Err(zerror!(ZErrorKind::Other{descr: "ReplyData with no replier_id".to_string()}))
+                        }
                     }
                 }
             }

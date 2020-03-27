@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use spin::RwLock;
 use std::collections::HashMap;
-use zenoh_protocol::core::{ZInt, PeerId, ResKey};
+use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, ReplySource, WhatAmI};
+use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 
@@ -104,7 +104,7 @@ impl Primitives for FaceHdl {
 
     async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
 
-    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 

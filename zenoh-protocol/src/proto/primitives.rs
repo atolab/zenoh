@@ -3,6 +3,13 @@ use crate::core::{ZInt, PeerId, ResKey};
 use crate::io::ArcSlice;
 use crate::proto::{SubInfo, QueryTarget, QueryConsolidation, ReplySource};
 
+#[derive(Debug, Clone)]
+pub enum Reply {
+    ReplyData {source: ReplySource, replier_id: PeerId, reskey: ResKey, info: Option<ArcSlice>, payload: ArcSlice, },
+    SourceFinal {source: ReplySource, replier_id: PeerId, },
+    ReplyFinal,
+} 
+
 #[async_trait]
 pub trait Primitives {
     async fn resource(&self, rid: ZInt, reskey: &ResKey);
@@ -22,7 +29,7 @@ pub trait Primitives {
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: ArcSlice);
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation);
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice);
+    async fn reply(&self, qid: ZInt, reply: &Reply);
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>);
 
     async fn close(&self);

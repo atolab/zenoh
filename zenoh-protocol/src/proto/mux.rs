@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use async_trait::async_trait;
-use crate::core::{ZInt, PeerId, ResKey};
+use crate::core::{ZInt, ResKey};
 use crate::io::ArcSlice;
 use crate::proto::{
     Message, SubInfo, Declaration, 
     Primitives, MessageKind, QueryTarget, 
-    QueryConsolidation, ReplyContext, ReplySource};
+    QueryConsolidation, ReplyContext, Reply};
 use crate::session::MsgHandler;
 
 pub struct Mux<T: MsgHandler + Send + Sync + ?Sized> {
@@ -102,10 +102,16 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None, None)).await;
     }
 
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
-        self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
-            Some(ReplyContext::make(qid, source.clone(), replierid.clone())), None, None)).await;
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        #[allow(clippy::single_match)]
+        match reply {
+            Reply::ReplyData {source, replier_id, reskey, info, payload} => {
+                self.handler.handle_message(Message::make_data(
+                    MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
+                    Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            }
+            _ => {} // @TODO
+        }
     }
 
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
