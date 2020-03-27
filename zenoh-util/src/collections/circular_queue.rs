@@ -68,8 +68,9 @@ impl<T:Copy> CircularQueue<T> {
                     if self.not_empty.has_waiting_list() {
                       self.not_empty.notify().await;
                     }                    
-                    return;
+                    return;                    
                 }
+                self.not_full.going_to_waiting_list()
             }
             self.not_full.wait().await;            
         }            
@@ -84,7 +85,8 @@ impl<T:Copy> CircularQueue<T> {
                     self.not_full.notify().await;
                   }                   
                   return e;
-                }                                
+                }          
+                self.not_empty.going_to_waiting_list();                      
             }
             self.not_empty.wait().await;
         }
@@ -96,6 +98,9 @@ impl<T:Copy> CircularQueue<T> {
         while let Some(x) = q.pull() {
             xs.push(x);
         }         
+        if self.not_full.has_waiting_list() {
+            self.not_full.notify().await;
+          }                   
         xs
     }
 
@@ -104,5 +109,8 @@ impl<T:Copy> CircularQueue<T> {
         while let Some(x) = q.pull() {
             xs.push(x);
         }                 
+        if self.not_full.has_waiting_list() {
+            self.not_full.notify().await;
+        }                   
     }
 }

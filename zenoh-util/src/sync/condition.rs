@@ -26,8 +26,13 @@ impl Condition {
   /// Waits for the condition to be notified
   #[inline]
   pub async fn wait(&self) {    
-    self.waiters.fetch_add(1, Ordering::Release);
+    // self.waiters.fetch_add(1, Ordering::Release);
     let _ = self.wait_rx.recv().await;    
+  }
+
+  #[inline]
+  pub fn going_to_waiting_list(&self) {
+    self.waiters.fetch_add(1, Ordering::Release);
   }
 
   #[inline]
