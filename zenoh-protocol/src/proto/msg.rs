@@ -35,6 +35,8 @@ pub mod id {
 
     pub const PING_PONG     :   u8 	= 0x0d;
 
+    pub const UNIT          :   u8 	= 0x0e;
+
     // Decorators
     pub const REPLY         :   u8 =  0x10;
     pub const BATCH         :   u8  = 0x11;
@@ -292,6 +294,16 @@ pub enum Body {
     /// The message is sent on the reliable channel if R==1 best-effort otherwise.
     Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<ArcSlice>, payload: ArcSlice },
 
+    ///  7 6 5 4 3 2 1 0
+    /// +-+-+-+-+-+-+-+-+
+    /// |X|R|X|  UNIT   |
+    /// +-+-+-+-+-+-+-+-+
+    /// ~      sn       ~
+    /// +---------------+
+    ///
+    /// The message is sent on the reliable channel if R==1 best-effort otherwise.
+    Unit { reliable: bool, sn: ZInt },
+
     /// +-+-+-+---------+
     /// |F|N|C|  PULL   |
     /// +-+-+-+---------+
@@ -405,10 +417,10 @@ pub enum Body {
     /// E -> the message comes from an eval
     /// F -> the message is a REPLY_FINAL 
     ///
-    /// The **Reply** is a message decorator for eithr:
+    /// The **Reply** is a message decorator for either:
     ///   - the **Data** messages that result from a query
-    ///   - or a **KeepAlive** message in case the message is a
-    ///     STORAGE_FINAL, EVAL_FINAL or REPLY_FINAL.
+    ///   - or a **Unit** message in case the message is a
+    ///     SOURCE_FINAL or REPLY_FINAL.
     ///  The **replier-id** (eval or storage id) is represented as a byte-array.
     // Reply { is_final: bool, qid: ZInt, source: ReplySource, replier_id: Option<PeerId> }
 
@@ -538,18 +550,18 @@ impl Message {
             properties: ps    
         }
     }
-    pub fn make_keep_alive(pid: Option<PeerId>, reply_context: Option<ReplyContext>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+    pub fn make_keep_alive(pid: Option<PeerId>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = match pid {
             Some(_) => id::KEEP_ALIVE | flag::P,
             None    => id::KEEP_ALIVE,
         };
         Message {
-            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::KeepAlive { pid },
             kind: MessageKind::FullMessage,
-            reply_context,
+            reply_context: None,
             properties: ps
         }
     }
@@ -589,6 +601,26 @@ impl Message {
             header,
             body: Body::Data { reliable, sn, key, info, payload },
             kind,
+            reply_context,
+            properties: ps
+        }
+    }
+
+    pub fn make_unit(
+        reliable: bool,
+        sn: ZInt,
+        reply_context: Option<ReplyContext>,
+        cid: Option<ZInt>,
+        ps: Option<Arc<Vec<Property>>> ) -> Message
+    {
+        let rflag = if reliable { flag::R } else { 0 };
+        let header = id::UNIT | rflag;
+        Message {
+            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Unit { reliable, sn },
+            kind: MessageKind::FullMessage,
             reply_context,
             properties: ps
         }

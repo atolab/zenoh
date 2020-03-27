@@ -392,7 +392,8 @@ impl Transport {
                 self.process_sync(c_sn, count).await;
                 None
             }
-            Body::Data{reliable, sn, ..} => {
+            Body::Data{reliable, sn, ..} |
+            Body::Unit{reliable, sn} => {
                 let c_sn = *sn;
                 match reliable {
                     true => self.process_reliable_message(message, c_sn).await,
