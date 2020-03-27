@@ -14,7 +14,7 @@ fn main() {
         let cq5 = acb.clone();
         let cq6 = acb.clone();
         let now = Instant::now();
-        let n = 10_000_000u32;
+        let n = 1_000_000u32;
 
         let p1 = task::spawn(async move  {
             for i in 0..n {                

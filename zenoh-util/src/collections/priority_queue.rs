@@ -34,9 +34,9 @@ impl<T> PriorityQueue<T> {
                 let mut q = self.state[priority].lock().await;
                 if !q.is_full() {
                     q.push(t);
+                    // Lock before notifying
+                    let _g = self.not_empty_lock.lock().await;
                     if self.not_empty.has_waiting_list() {
-                        // Lock before notifying
-                        let _g = self.not_empty_lock.lock().await;
                         self.not_empty.notify().await;
                     }  
                     return;
