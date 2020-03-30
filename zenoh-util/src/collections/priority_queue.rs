@@ -26,7 +26,7 @@ impl<T> PriorityQueue<T> {
 
     pub async fn push(&self, t: T, priority: usize) {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             // Push on the queue if it is not full
             if !q[priority].is_full() {
                 q[priority].push(t);
@@ -41,7 +41,7 @@ impl<T> PriorityQueue<T> {
 
     pub async fn pull(&self) -> T {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             for priority in 0usize..q.len() {
                 if let Some(e) = q[priority].pull() {
                     if self.not_full.has_waiting_list() {

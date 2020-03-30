@@ -64,7 +64,7 @@ impl<T> CreditQueue<T> {
         // We had a negative credit, now it is recharged and it might be above zero
         // If the credit is positive, we might be able to pull from the queue
         if old <= 0 && self.get_credit(priority) > 0 {
-            let q = self.state.lock().await;
+            let q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             if self.not_empty.has_waiting_list() {
                 self.not_empty.notify(q).await;
             }
@@ -73,7 +73,7 @@ impl<T> CreditQueue<T> {
 
     pub async fn push(&self, t: T, priority: usize) {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             if !q[priority].is_full() {
                 q[priority].push(t);
                 if self.not_empty.has_waiting_list() {
@@ -87,7 +87,7 @@ impl<T> CreditQueue<T> {
 
     pub async fn pull(&self) -> T {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             for priority in 0usize..q.len() {
                 if self.credit[priority].load(Ordering::Acquire) > 0 {
                     if let Some(e) = q[priority].pull() {
