@@ -1,8 +1,10 @@
 use async_std::sync::Mutex;
-use crossbeam::utils::Backoff;
 
 use crate::collections::CQueue;
-use crate::sync::Condition;
+use crate::sync::{
+    Backoff,
+    Condition
+};
 
 
 pub struct PriorityQueue<T> {
@@ -33,7 +35,7 @@ impl<T> PriorityQueue<T> {
     // Using .is_some() instead of let Some(_) results in the lock guard being dropped
     #[allow(clippy::redundant_pattern_matching)]
     pub async fn push(&self, t: T, priority: usize) {
-        let backoff = Backoff::new();
+        let mut backoff = Backoff::new();
         loop {
             // Spinlock to access the queue
             let mut q = loop {

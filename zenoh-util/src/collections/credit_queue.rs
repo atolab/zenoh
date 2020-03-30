@@ -1,14 +1,24 @@
 use async_std::sync::Mutex;
-use crossbeam::utils::Backoff;
 use std::sync::atomic::{
     AtomicIsize,
     Ordering
 };
 
 use crate::collections::CQueue;
-use crate::sync::Condition;
+use crate::sync::{
+    Backoff,
+    Condition
+};
 
-
+/// Credit-based queue
+/// 
+/// This queue is meant to be used in scenario where a credit-based fair queueing (a.k.a. scheduling) is desired.
+/// The [`CreditQueue`][CreditQueue] implementation leverages the [`async-std`](https://docs.rs/async-std) library, 
+/// making it a good choice for all the applications using the [`async-std`](https://docs.rs/async-std) library.
+/// 
+/// Multiple priority queues can be configured with different queue capacity (i.e. number of elements
+/// that can be stored) and initial credit amount.
+/// 
 pub struct CreditQueue<T> {
     state: Vec<Mutex<CQueue<T>>>,
     credit: Vec<AtomicIsize>,
@@ -18,11 +28,18 @@ pub struct CreditQueue<T> {
 }
 
 impl<T> CreditQueue<T> {
-    pub fn new(capacity: Vec<(usize, isize)>, concurrency_level: usize) -> CreditQueue<T> {
-        let mut state = Vec::with_capacity(capacity.len());
-        let mut credit = Vec::with_capacity(capacity.len());
-        let mut not_full = Vec::with_capacity(capacity.len());
-        for (cap, cre) in capacity.iter() {
+    /// Create a new credit-based queue.
+    /// 
+    /// # Arguments
+    /// * `queue` - A vector containing the parameters for the queues in the form of tuples: (capacity, credits)      
+    ///
+    /// * `concurrency_level` - The desired concurrency_level when accessing a single priority queue.
+    /// 
+    pub fn new(queues: Vec<(usize, isize)>, concurrency_level: usize) -> CreditQueue<T> {
+        let mut state = Vec::with_capacity(queues.len());
+        let mut credit = Vec::with_capacity(queues.len());
+        let mut not_full = Vec::with_capacity(queues.len());
+        for (cap, cre) in queues.iter() {
             state.push(Mutex::new(CQueue::new(*cap)));
             credit.push(AtomicIsize::new(*cre));
             not_full.push(Condition::new(concurrency_level));
@@ -51,18 +68,23 @@ impl<T> CreditQueue<T> {
     // Using .is_some() instead of let Some(_) results in the lock guard being dropped
     #[allow(clippy::redundant_pattern_matching)]
     pub async fn recharge(&self, priority: usize, amount: isize) {
-        // Spinlock before notifying
-        self.credit[priority].fetch_add(amount, Ordering::Release);
-        let backoff = Backoff::new();
-        loop {
-            if let Some(q) = self.not_empty_lock.try_lock() {
-                // Queue refilled, we might be able to pull now
-                if self.not_empty.has_waiting_list() {
-                    self.not_empty.notify(q).await;
-                }  
-                break;
+        // Recharge the credit for a given priority queue
+        let old = self.credit[priority].fetch_add(amount, Ordering::Release);
+        // We had a negative credit, now it is recharged and above zero
+        // We might be able to pull from the queue
+        if old <= 0 && self.get_credit(priority) > 0 {
+            // Spinlock before notifying
+            let mut backoff = Backoff::new();
+            loop {
+                if let Some(q) = self.not_empty_lock.try_lock() {
+                    // Queue refilled, we might be able to pull now
+                    if self.not_empty.has_waiting_list() {
+                        self.not_empty.notify(q).await;
+                    }  
+                    break;
+                }
+                backoff.spin();
             }
-            backoff.spin();
         }
     }
 
@@ -70,7 +92,7 @@ impl<T> CreditQueue<T> {
     // Using .is_some() instead of let Some(_) results in the lock guard being dropped
     #[allow(clippy::redundant_pattern_matching)]
     pub async fn push(&self, t: T, priority: usize) {
-        let backoff = Backoff::new();
+        let mut backoff = Backoff::new();
         loop {
             // Spinlock to access the queue
             let mut q = loop {
