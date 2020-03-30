@@ -14,3 +14,12 @@ futures = { version = "0.3.4", features = ["unstable"] }
 [[example]]
 name = "async_queue"
 path = "examples/async_queue.rs"
+
+[[example]]
+name = "priority_queue"
+path = "examples/priority_queue.rs"
+
+
+[[example]]
+name = "credit_queue"
+path = "examples/credit_queue.rs"

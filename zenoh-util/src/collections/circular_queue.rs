@@ -61,35 +61,29 @@ impl<T:Copy> CircularQueue<T> {
 
     pub async fn push(&self, x: T) {
         loop {
-            {
-                let mut q = self.state.lock().await;
-                if !q.is_full() {
-                    q.push(x);
-                    if self.not_empty.has_waiting_list() {
-                      self.not_empty.notify().await;
-                    }                    
-                    return;                    
-                }
-                self.not_full.going_to_waiting_list()
+            let mut q = self.state.lock().await;
+            if !q.is_full() {
+                q.push(x);
+                if self.not_empty.has_waiting_list() {
+                    self.not_empty.notify(q).await;
+                }                    
+                return;                                    
             }
-            self.not_full.wait().await;            
+            self.not_full.wait(q).await;            
         }            
     }
 
     pub async fn pull(&self) -> T {
         loop {
-            {
-                let mut q = self.state.lock().await;
-                if let Some(e) = q.pull() {
-                  if self.not_full.has_waiting_list() {
-                    self.not_full.notify().await;
-                  }                   
-                  return e;
-                }          
-                self.not_empty.going_to_waiting_list();                      
-            }
-            self.not_empty.wait().await;
-        }
+            let mut q = self.state.lock().await;
+            if let Some(e) = q.pull() {
+                if self.not_full.has_waiting_list() {
+                    self.not_full.notify(q).await;
+                }                   
+                return e;
+            }          
+            self.not_empty.wait(q).await;
+        }                
     }
 
     pub async fn drain(&self) -> Vec<T> {
@@ -99,7 +93,7 @@ impl<T:Copy> CircularQueue<T> {
             xs.push(x);
         }         
         if self.not_full.has_waiting_list() {
-            self.not_full.notify().await;
+            self.not_full.notify_all(q).await;
           }                   
         xs
     }
@@ -110,7 +104,7 @@ impl<T:Copy> CircularQueue<T> {
             xs.push(x);
         }                 
         if self.not_full.has_waiting_list() {
-            self.not_full.notify().await;
+            self.not_full.notify_all(q).await;
         }                   
     }
 }
