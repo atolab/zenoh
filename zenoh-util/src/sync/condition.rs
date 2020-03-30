@@ -1,5 +1,5 @@
 use async_std::sync::{Receiver, Sender};
-use async_std::sync::channel;
+use async_std::sync::{channel, MutexGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// This is a Condition Variable similar to that provided by POSIX. 
@@ -11,7 +11,6 @@ pub struct Condition {
   wait_rx: Receiver<bool>,
   wait_tx: Sender<bool>,  
   waiters: AtomicUsize
-
 }
 
 impl Condition {
@@ -25,14 +24,10 @@ impl Condition {
 
   /// Waits for the condition to be notified
   #[inline]
-  pub async fn wait(&self) {    
-    // self.waiters.fetch_add(1, Ordering::Release);
+  pub async fn wait<T>(&self, guard: MutexGuard<'_, T>) {    
+    self.waiters.fetch_add(1, Ordering::AcqRel);
+    drop(guard);
     let _ = self.wait_rx.recv().await;    
-  }
-
-  #[inline]
-  pub fn going_to_waiting_list(&self) {
-    self.waiters.fetch_add(1, Ordering::Release);
   }
 
   #[inline]
@@ -43,10 +38,19 @@ impl Condition {
   /// Notify one task on the waiting list. The waiting list is 
   /// managed as a FIFO queue.
   #[inline]
-  pub async fn notify(&self) {
+  pub async fn notify<T>(&self, guard: MutexGuard<'_, T>) {
       if self.has_waiting_list() {
+        self.waiters.fetch_sub(1, Ordering::AcqRel);
+        drop(guard);
         self.wait_tx.send(true).await;
-        self.waiters.fetch_sub(1, Ordering::Release);
       }
     }
+
+  pub async fn notify_all<T>(&self, guard: MutexGuard<'_, T>) {
+    let w = self.waiters.swap(0, Ordering::AcqRel);
+    drop(guard);
+    for _ in 0..w {
+      self.wait_tx.send(true).await;
+    }
+  }
 }

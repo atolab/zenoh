@@ -1,13 +1,14 @@
 use async_std::sync::Mutex;
-// use crossbeam::utils::Backoff;
 use std::sync::atomic::{
     AtomicIsize,
     Ordering
 };
 
 use crate::collections::CQueue;
-use crate::sync::Backoff;
-use crate::sync::Condition;
+use crate::sync::{
+    Backoff,
+    Condition
+};
 
 /// Credit-based queue
 /// 
@@ -75,10 +76,10 @@ impl<T> CreditQueue<T> {
             // Spinlock before notifying
             let mut backoff = Backoff::new();
             loop {
-                if let Some(_) = self.not_empty_lock.try_lock() {
+                if let Some(q) = self.not_empty_lock.try_lock() {
                     // Queue refilled, we might be able to pull now
                     if self.not_empty.has_waiting_list() {
-                        self.not_empty.notify().await;
+                        self.not_empty.notify(q).await;
                     }  
                     break;
                 }
@@ -93,32 +94,29 @@ impl<T> CreditQueue<T> {
     pub async fn push(&self, t: T, priority: usize) {
         let mut backoff = Backoff::new();
         loop {
-            {
-                // Spinlock to access the queue
-                let mut q = loop {
-                    if let Some(q) = self.state[priority].try_lock() {
-                        break q
+            // Spinlock to access the queue
+            let mut q = loop {
+                if let Some(q) = self.state[priority].try_lock() {
+                    break q
+                }
+                backoff.spin();
+            };
+            if !q.is_full() {
+                q.push(t);
+                // Spinlock before notifying
+                backoff.reset();
+                loop {
+                    if let Some(q) = self.not_empty_lock.try_lock() {
+                        if self.not_empty.has_waiting_list() {
+                            self.not_empty.notify(q).await;
+                        }  
+                        break;
                     }
                     backoff.spin();
-                };
-                if !q.is_full() {
-                    q.push(t);
-                    // Spinlock before notifying
-                    backoff.reset();
-                    loop {
-                        if let Some(_) = self.not_empty_lock.try_lock() {
-                            if self.not_empty.has_waiting_list() {
-                                self.not_empty.notify().await;
-                            }  
-                            break;
-                        }
-                        backoff.spin();
-                    }
-                    return;
                 }
-                self.not_full[priority].going_to_waiting_list();
+                return;
             }
-            self.not_full[priority].wait().await;
+            self.not_full[priority].wait(q).await;
             backoff.reset();   
         }            
     }
@@ -132,7 +130,7 @@ impl<T> CreditQueue<T> {
                     if let Some(mut q) = self.state[priority].try_lock() {
                         if let Some(e) = q.pull() {
                             if self.not_full[priority].has_waiting_list() {
-                                self.not_full[priority].notify().await;
+                                self.not_full[priority].notify(q).await;
                             }
                             return e;
                         }
@@ -149,7 +147,7 @@ impl<T> CreditQueue<T> {
                     let mut q = self.state[priority].lock().await;
                     if let Some(e) = q.pull() {
                         if self.not_full[priority].has_waiting_list() {
-                            self.not_full[priority].notify().await;
+                            self.not_full[priority].notify(q).await;
                         }
                         return e;
                     }
@@ -157,11 +155,9 @@ impl<T> CreditQueue<T> {
             }
             // The blocking pull did not succeed. The queue is empty.
             // We block here and wait for a notification
-            {
-                let _g = self.not_empty_lock.lock().await;
-                self.not_empty.going_to_waiting_list();
-            }
-            self.not_empty.wait().await;
+
+            let _g = self.not_empty_lock.lock().await;
+            self.not_empty.wait(_g).await;
         }
     }
 }
