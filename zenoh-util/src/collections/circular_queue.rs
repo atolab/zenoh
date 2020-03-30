@@ -61,7 +61,7 @@ impl<T:Copy> CircularQueue<T> {
 
     pub async fn push(&self, x: T) {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             if !q.is_full() {
                 q.push(x);
                 if self.not_empty.has_waiting_list() {
@@ -75,7 +75,7 @@ impl<T:Copy> CircularQueue<T> {
 
     pub async fn pull(&self) -> T {
         loop {
-            let mut q = self.state.lock().await;
+            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
             if let Some(e) = q.pull() {
                 if self.not_full.has_waiting_list() {
                     self.not_full.notify(q).await;
@@ -87,7 +87,7 @@ impl<T:Copy> CircularQueue<T> {
     }
 
     pub async fn drain(&self) -> Vec<T> {
-        let mut q = self.state.lock().await;
+        let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };        
         let mut xs = Vec::with_capacity(q.len());        
         while let Some(x) = q.pull() {
             xs.push(x);
@@ -99,7 +99,7 @@ impl<T:Copy> CircularQueue<T> {
     }
 
     pub async fn drain_into(&self, xs: &mut Vec<T>){
-        let mut q = self.state.lock().await;        
+        let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
         while let Some(x) = q.pull() {
             xs.push(x);
         }                 
