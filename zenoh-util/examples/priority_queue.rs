@@ -6,7 +6,7 @@ use std::time::Instant;
 
 fn main() {    
     task::block_on(async {        
-        let acb = Arc::new(PriorityQueue::<u64>::new(vec![256, 256, 256, 256], 16));
+        let acb = Arc::new(PriorityQueue::<u64>::new(vec![256, 256, 256], 16));
         let cq1 = acb.clone();
         let cq2 = acb.clone();
         let cq3 = acb.clone();
@@ -36,7 +36,7 @@ fn main() {
 
         let p4 = task::spawn(async move  {
             for i in 0..n {                
-                cq4.push(i as u64, 3).await;                
+                cq4.push(i as u64, 2).await;                
             }
         });        
 
@@ -52,9 +52,7 @@ fn main() {
             }        
         });
 
-
         join!(p1, p2, p3, p4, c1, c2);
-
         println!("Test run in: {}", now.elapsed().as_millis());
   });
 }

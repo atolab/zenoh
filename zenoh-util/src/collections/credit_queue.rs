@@ -5,10 +5,8 @@ use std::sync::atomic::{
 };
 
 use crate::collections::CQueue;
-use crate::sync::{
-    Backoff,
-    Condition
-};
+use crate::sync::Condition;
+
 
 /// Credit-based queue
 /// 
@@ -20,11 +18,10 @@ use crate::sync::{
 /// that can be stored) and initial credit amount.
 /// 
 pub struct CreditQueue<T> {
-    state: Vec<Mutex<CQueue<T>>>,
+    state: Mutex<Vec<CQueue<T>>>,
     credit: Vec<AtomicIsize>,
-    not_full: Vec<Condition>,
-    not_empty: Condition,
-    not_empty_lock: Mutex<bool>
+    not_full: Condition,
+    not_empty: Condition
 }
 
 impl<T> CreditQueue<T> {
@@ -38,19 +35,16 @@ impl<T> CreditQueue<T> {
     pub fn new(queues: Vec<(usize, isize)>, concurrency_level: usize) -> CreditQueue<T> {
         let mut state = Vec::with_capacity(queues.len());
         let mut credit = Vec::with_capacity(queues.len());
-        let mut not_full = Vec::with_capacity(queues.len());
         for (cap, cre) in queues.iter() {
-            state.push(Mutex::new(CQueue::new(*cap)));
+            state.push(CQueue::new(*cap));
             credit.push(AtomicIsize::new(*cre));
-            not_full.push(Condition::new(concurrency_level));
         }
          
         CreditQueue { 
-            state,
+            state: Mutex::new(state),
             credit,
-            not_full,
+            not_full: Condition::new(concurrency_level),
             not_empty: Condition::new(concurrency_level),
-            not_empty_lock: Mutex::new(true)
         }
     }
 
@@ -61,103 +55,50 @@ impl<T> CreditQueue<T> {
 
     #[inline]
     pub async fn spend(&self, priority: usize, amount: isize) {
-        self.credit[priority].fetch_sub(amount, Ordering::Release);
+        self.credit[priority].fetch_sub(amount, Ordering::AcqRel);
     }
 
-    // The try_lock in this function requires the returned guard to stay in scope
-    // Using .is_some() instead of let Some(_) results in the lock guard being dropped
-    #[allow(clippy::redundant_pattern_matching)]
     pub async fn recharge(&self, priority: usize, amount: isize) {
         // Recharge the credit for a given priority queue
-        let old = self.credit[priority].fetch_add(amount, Ordering::Release);
-        // We had a negative credit, now it is recharged and above zero
-        // We might be able to pull from the queue
+        let old = self.credit[priority].fetch_add(amount, Ordering::AcqRel);
+        // We had a negative credit, now it is recharged and it might be above zero
+        // If the credit is positive, we might be able to pull from the queue
         if old <= 0 && self.get_credit(priority) > 0 {
-            // Spinlock before notifying
-            let mut backoff = Backoff::new();
-            loop {
-                if let Some(q) = self.not_empty_lock.try_lock() {
-                    // Queue refilled, we might be able to pull now
-                    if self.not_empty.has_waiting_list() {
-                        self.not_empty.notify(q).await;
-                    }  
-                    break;
-                }
-                backoff.spin();
+            let q = self.state.lock().await;
+            if self.not_empty.has_waiting_list() {
+                self.not_empty.notify(q).await;
             }
         }
     }
 
-    // The try_lock in this function requires the returned guard to stay in scope
-    // Using .is_some() instead of let Some(_) results in the lock guard being dropped
-    #[allow(clippy::redundant_pattern_matching)]
     pub async fn push(&self, t: T, priority: usize) {
-        let mut backoff = Backoff::new();
         loop {
-            // Spinlock to access the queue
-            let mut q = loop {
-                if let Some(q) = self.state[priority].try_lock() {
-                    break q
-                }
-                backoff.spin();
-            };
-            if !q.is_full() {
-                q.push(t);
-                // Spinlock before notifying
-                backoff.reset();
-                loop {
-                    if let Some(q) = self.not_empty_lock.try_lock() {
-                        if self.not_empty.has_waiting_list() {
-                            self.not_empty.notify(q).await;
-                        }  
-                        break;
-                    }
-                    backoff.spin();
-                }
+            let mut q = self.state.lock().await;
+            if !q[priority].is_full() {
+                q[priority].push(t);
+                if self.not_empty.has_waiting_list() {
+                    self.not_empty.notify(q).await;
+                } 
                 return;
             }
-            self.not_full[priority].wait(q).await;
-            backoff.reset();   
+            self.not_full.wait(q).await;  
         }            
     }
 
     pub async fn pull(&self) -> T {
         loop {
-            // First attempt a pull with a try_lock
-            // If a queue is locked by a push, a pull from the next queue is attempted 
-            for priority in 0usize..self.state.len() {
+            let mut q = self.state.lock().await;
+            for priority in 0usize..q.len() {
                 if self.credit[priority].load(Ordering::Acquire) > 0 {
-                    if let Some(mut q) = self.state[priority].try_lock() {
-                        if let Some(e) = q.pull() {
-                            if self.not_full[priority].has_waiting_list() {
-                                self.not_full[priority].notify(q).await;
-                            }
-                            return e;
-                        }
-                    }
-                }
-            }
-            // Try lock has failed, this might be due to two possibilities:
-            //  1) All the queues where blocked by simultaneous push
-            //  2) The queue was empty
-            // Therefore, we perform a blocking lock and try to pull from the queue
-            // If this succedes, it means that we were in case 1) otherwise in case 2) 
-            for priority in 0usize..self.state.len() {
-                if self.credit[priority].load(Ordering::Acquire) > 0 {
-                    let mut q = self.state[priority].lock().await;
-                    if let Some(e) = q.pull() {
-                        if self.not_full[priority].has_waiting_list() {
-                            self.not_full[priority].notify(q).await;
+                    if let Some(e) = q[priority].pull() {
+                        if self.not_full.has_waiting_list() {
+                            self.not_full.notify(q).await;
                         }
                         return e;
                     }
                 }
             }
-            // The blocking pull did not succeed. The queue is empty.
-            // We block here and wait for a notification
-
-            let _g = self.not_empty_lock.lock().await;
-            self.not_empty.wait(_g).await;
+            self.not_empty.wait(q).await;
         }
     }
 }

@@ -8,7 +8,7 @@ const CREDIT: isize = 100;
 
 fn main() {    
     task::block_on(async {        
-        let acb = Arc::new(CreditQueue::<usize>::new(vec![(256, 1), (256, 1), (256, 1), (256, CREDIT)], 16));
+        let acb = Arc::new(CreditQueue::<usize>::new(vec![(256, 1), (256, 1), (256, CREDIT)], 16));
         let cq1 = acb.clone();
         let cq2 = acb.clone();
         let cq3 = acb.clone();
@@ -38,14 +38,14 @@ fn main() {
 
         let p4 = task::spawn(async move  {
             for _ in 0..n {                
-                cq4.push(3, 3).await;
+                cq4.push(2, 2).await;
             }
         });        
 
         let c1 = task::spawn(async move {
             for _ in 0..(2*n) {
                 let j = cq5.pull().await;
-                if j == 3 {
+                if j == 2 {
                     cq5.spend(j, 1isize).await;
                     if cq5.get_credit(j) <= 0 {
                         cq5.recharge(j, CREDIT).await;
@@ -57,7 +57,7 @@ fn main() {
         let c2 = task::spawn(async move {
             for _ in 0usize..(2*n) {
                 let j = cq6.pull().await;
-                if j == 3 {
+                if j == 2 {
                     cq6.spend(j, 1isize).await;
                     if cq6.get_credit(j) <= 0 {
                         cq6.recharge(j, CREDIT).await;
