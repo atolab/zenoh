@@ -1,5 +1,7 @@
 use async_std::sync::Mutex;
 use std::collections::VecDeque;
+
+use crate::zasynclock;
 use crate::sync::Condition;
 
 pub(crate) struct CQueue<T> {
@@ -30,6 +32,7 @@ impl<T> CQueue<T> {
         }
         x
     }
+    
     #[allow(dead_code)]
     pub(crate) fn is_empty(&self) -> bool {
         self.buffer.is_empty()
@@ -61,7 +64,7 @@ impl<T:Copy> CircularQueue<T> {
 
     pub async fn push(&self, x: T) {
         loop {
-            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
+            let mut q = zasynclock!(self.state);
             if !q.is_full() {
                 q.push(x);
                 if self.not_empty.has_waiting_list() {
@@ -75,7 +78,7 @@ impl<T:Copy> CircularQueue<T> {
 
     pub async fn pull(&self) -> T {
         loop {
-            let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
+            let mut q = zasynclock!(self.state);
             if let Some(e) = q.pull() {
                 if self.not_full.has_waiting_list() {
                     self.not_full.notify(q).await;
@@ -87,7 +90,7 @@ impl<T:Copy> CircularQueue<T> {
     }
 
     pub async fn drain(&self) -> Vec<T> {
-        let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };        
+        let mut q = zasynclock!(self.state);
         let mut xs = Vec::with_capacity(q.len());        
         while let Some(x) = q.pull() {
             xs.push(x);
@@ -99,7 +102,7 @@ impl<T:Copy> CircularQueue<T> {
     }
 
     pub async fn drain_into(&self, xs: &mut Vec<T>){
-        let mut q = if let Some(g) = self.state.try_lock() { g } else { self.state.lock().await };
+        let mut q = zasynclock!(self.state);
         while let Some(x) = q.pull() {
             xs.push(x);
         }                 

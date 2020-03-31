@@ -25,6 +25,7 @@ use zenoh_protocol::proto::{
     Body,
     Message,
     MessageKind,
+    SeqNum,
     WhatAmI
 };
 use zenoh_protocol::session::{
@@ -32,17 +33,20 @@ use zenoh_protocol::session::{
     SessionHandler,
     SessionManager
 };
+use zenoh_util::zasynclock;
 
 
 // Session Handler for the router
 struct SHRouter {
-    session: Mutex<Vec<Arc<SCRouter>>>
+    session: Mutex<Vec<Arc<SCRouter>>>,
+    resolution: ZInt
 }
 
 impl SHRouter {
-    fn new() -> Self {
+    fn new(resolution: ZInt) -> Self {
         Self {
-            session: Mutex::new(Vec::new())
+            session: Mutex::new(Vec::new()),
+            resolution
         }
     }
 }
@@ -50,7 +54,7 @@ impl SHRouter {
 #[async_trait]
 impl SessionHandler for SHRouter {
     async fn new_session(&self, _whatami: WhatAmI, _session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
-        let arc = Arc::new(SCRouter::new());
+        let arc = Arc::new(SCRouter::new(self.resolution));
         self.session.lock().await.push(arc.clone());
         arc
     }
@@ -59,14 +63,14 @@ impl SessionHandler for SHRouter {
 // Session Callback for the router
 pub struct SCRouter {
     count: AtomicZInt,
-    next: AtomicZInt
+    last: Mutex<SeqNum>
 }
 
 impl SCRouter {
-    pub fn new() -> Self {
+    pub fn new(resolution: ZInt) -> Self {
         Self {
             count: AtomicZInt::new(0),
-            next: AtomicZInt::new(0)
+            last: Mutex::new(SeqNum::make(resolution-1, resolution).unwrap())
         }
     }
 }
@@ -74,16 +78,15 @@ impl SCRouter {
 #[async_trait]
 impl MsgHandler for SCRouter {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.count.fetch_add(1, Ordering::SeqCst);
+        self.count.fetch_add(1, Ordering::AcqRel);
         match message.get_body() {
-            Body::Data{reliable: _,  sn, key: _, info: _, payload: _} |
-            Body::Declare{sn, declarations: _} |
-            Body::Pull{sn, key: _, pull_id: _, max_samples: _} |
-            Body::Query{sn, key: _, predicate: _, qid: _, target: _, consolidation: _} => {
-                // println!("EXPECTED {}, RECEIVED {}", self.next.load(Ordering::SeqCst), sn);
-                let gap = sn.wrapping_sub(self.next.load(Ordering::SeqCst));
-                assert!(gap < ZInt::max_value()/2);
-                self.next.store(sn+1, Ordering::SeqCst);
+            Body::Data{sn, ..} |
+            Body::Declare{sn, ..} |
+            Body::Pull{sn, ..} |
+            Body::Query{sn, ..} => {
+                let mut l = zasynclock!(self.last);
+                assert!(l.precedes(*sn));
+                l.set(*sn).unwrap();
             },
             _ => {}
         }
@@ -139,6 +142,9 @@ async fn transport_base_inner() {
     let b_router = Arc::new(Barrier::new(2));
     let b_client = Arc::new(Barrier::new(2));
 
+    // Define the SN resolution
+    let resolution: ZInt = 256;
+
     // Define client IDs and Dummy Addresses
     let client_id = PeerId{id: vec![0u8]};
     let client_addr = "client".to_string();
@@ -150,7 +156,7 @@ async fn transport_base_inner() {
     let (router_sender, router_receiver) = channel::<Message>(1);
 
     // Reliable messages to send
-    let messages_count: ZInt = 10_000;
+    let messages_count: ZInt = 1_000;
 
     // Router task
     let c_mbr = m_barrier.clone();
@@ -163,7 +169,7 @@ async fn transport_base_inner() {
     let c_router_addr = router_addr.clone();
     task::spawn(async move {
         // Create the router session handler
-        let routing = Arc::new(SHRouter::new());
+        let routing = Arc::new(SHRouter::new(resolution));
 
         // Create the transport session manager
         let version = 0u8;
@@ -174,6 +180,7 @@ async fn transport_base_inner() {
 
         // Create an empty session with the client
         let session = manager.init_session(&c_client_id, &WhatAmI::Client).await.unwrap();
+        session.set_resolution(resolution).await;
         // Manually create a dummy link
         let link_inner = Arc::new(LinkDummy::new(
             c_router_addr, c_client_addr, router_receiver, c_client_sender, 
@@ -194,8 +201,9 @@ async fn transport_base_inner() {
 
         let count = routing.session.lock().await.get(0).unwrap().count.load(Ordering::SeqCst);
         assert_eq!(count, messages_count);
-        let next = routing.session.lock().await.get(0).unwrap().next.load(Ordering::SeqCst);
-        assert_eq!(count, next);
+        let sn = (messages_count % resolution) - 1;
+        let last = routing.session.lock().await.get(0).unwrap().last.lock().await.get();
+        assert_eq!(sn, last);
 
         link_inner.set_dropping_probability(0.5).await;
 
@@ -233,6 +241,7 @@ async fn transport_base_inner() {
 
         // Create an empty session with the client
         let session = manager.init_session(&c_router_id, &WhatAmI::Router).await.unwrap();
+        session.set_resolution(resolution).await;
         // Manually create a dummy link
         let link_inner = Arc::new(LinkDummy::new(
             c_client_addr, c_router_addr, client_receiver, c_router_sender, 

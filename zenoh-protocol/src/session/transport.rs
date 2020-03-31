@@ -9,15 +9,11 @@ use async_std::sync::{
     Sender,
 };
 use async_std::task;
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::{
-    Ordering
-};
+use std::sync::atomic::Ordering;
 
-use crate::{
-    zerror,
-    zrwopt
-};
+use crate::zerror;
 use crate::core::{
     AtomicZInt,
     ZError,
@@ -28,42 +24,78 @@ use crate::core::{
 use crate::proto::{
     Body,
     Message,
-    MessageKind
+    MessageKind,
+    SeqNum,
+    SeqNumGenerator
 };
 use crate::session::{
     MsgHandler,
     SessionInner
 };
-use crate::session::queue::{
-    MessageTxPop,
-    MessageTxPush,
-    OrderedQueue,
-    QueueTx,
-    QueueTxPopResult
-};
 use crate::link::{
     Link,
     Locator
 };
+use zenoh_util::{
+    zasynclock,
+    zrwopt
+};
+use zenoh_util::collections::CreditQueue;
 
 
 // Constants
-const QUEUE_RX_SIZE: usize = 16;
-const QUEUE_TX_SIZE: usize = 16;
+pub(crate) const PRIO_CTRL: usize = 0;
+const SIZE_CTRL: usize = 16;
+const CRED_CTRL: isize = 1;
+
+pub(crate) const _PRIO_RETX: usize = 1;
+const SIZE_RETX: usize = 256;
+const CRED_RETX: isize = 1;
+
+pub(crate) const _PRIO_FRAG: usize = 2;
+const SIZE_FRAG: usize = 256;
+const CRED_FRAG: isize = 1;
+
+pub(crate) const PRIO_DATA: usize = 3;
+const SIZE_DATA: usize = 256;
+const CRED_DATA: isize = 100;
+
+const CONCURRENCY: usize = 16;
+
+
 
 
 async fn consume_loop(transport: Arc<Transport>) {
     async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        // TODO: Fragement the message if too large
-        match transport.queue_tx.pop().await {
-            QueueTxPopResult::Ok(message) => {
-                transport.transmit(&message).await;
+        // @TODO: Fragement the message if too large
+        // @TODO: Implement the reliability queue
+        let mut message = transport.queue_tx.pull().await;
+
+        let is_reliable = message.inner.is_reliable();
+        match message.inner.body {
+            Body::Data{ref mut sn, ..} |
+            Body::Unit{ref mut sn, ..} |
+            Body::Declare{ref mut sn, ..} |
+            Body::Pull{ref mut sn, ..} |
+            Body::Query{ref mut sn, ..} => {
+                // Update the sequence number
+                let mut l_sn = zasynclock!(transport.conduit_tx_sn);
+                let sn_gen = match l_sn.get_mut(&message.inner.cid) {
+                    Some(sn_gen) => sn_gen,
+                    // This CID does not exist, return
+                    None => return Some(true)
+                };
+                *sn = if is_reliable {
+                    sn_gen.reliable.get()
+                } else {
+                    sn_gen.unreliable.get()
+                };
             },
-            QueueTxPopResult::NeedSync(message) => {
-                transport.transmit(&message).await;
-                transport.synchronize().await
-            }
+            _ => {}
         }
+
+        transport.transmit(&message).await;
+        
         Some(true)
     }
     
@@ -90,6 +122,45 @@ async fn consume_loop(transport: Arc<Transport>) {
 /*          TRANSPORT                */
 /*************************************/
 
+// Struct to add additional fields to the message required for transmission
+pub struct MessageTx {
+    // The inner message to transmit
+    pub inner: Message, 
+    // The preferred link to transmit the Message on
+    pub link: Option<(Locator, Locator)>,
+    pub notify: Option<Sender<ZResult<()>>>
+}
+
+// Structs to manage the sequence numbers of channels and conduits
+struct ConduitTxSeqNum {
+    reliable: SeqNumGenerator,
+    unreliable: SeqNumGenerator
+}
+
+impl ConduitTxSeqNum {
+    fn new(sn0_reliable: ZInt, sn0_unreliable: ZInt, resolution: ZInt) -> ConduitTxSeqNum {
+        ConduitTxSeqNum {
+            reliable: SeqNumGenerator::make(sn0_reliable, resolution).unwrap(),
+            unreliable: SeqNumGenerator::make(sn0_unreliable, resolution).unwrap()
+        }
+    }
+}
+
+struct ConduitRxSeqNum {
+    reliable: SeqNum,
+    unreliable: SeqNum
+}
+
+impl ConduitRxSeqNum {
+    fn new(sn0_reliable: ZInt, sn0_unreliable: ZInt, resolution: ZInt) -> ConduitRxSeqNum {
+        ConduitRxSeqNum {
+            reliable: SeqNum::make(sn0_reliable, resolution).unwrap(),
+            unreliable: SeqNum::make(sn0_unreliable, resolution).unwrap()
+        }
+    }
+}
+
+
 // Struct implementing the transport
 pub struct Transport {
     // The reference to the session
@@ -98,29 +169,58 @@ pub struct Transport {
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
     // The timeout after which the session is closed if no messages are received
     lease: AtomicZInt,
+    // The resolution to be used for the SN
+    resolution: AtomicZInt,
     // The list of transport links associated to this session
     links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
-    queue_tx: QueueTx,
-    queue_rx: Mutex<OrderedQueue<Message>>,
-    // Keeping track of the last sequence numbers
-    sn_rx_unreliable: Mutex<ZInt>, // A Mutex is required to avoid race conditions (same as queue_rx)
+    queue_tx: CreditQueue<MessageTx>,
+    // The conduits sequence number generators
+    conduit_tx_sn: Mutex<HashMap<ZInt, ConduitTxSeqNum>>,
+    conduit_rx_sn: Mutex<HashMap<ZInt, ConduitRxSeqNum>>,
     // The channel endpoints for terminating the consume_loop task
     signal_send: Sender<bool>,
     signal_recv: Receiver<bool>
 }
 
 impl Transport {
-    pub(crate) fn new(lease: ZInt) -> Self {
+    pub(crate) fn new(lease: ZInt, resolution: ZInt) -> Transport {
+        // Build the transmission queue
+        let queue_tx = vec![
+            (SIZE_CTRL, CRED_CTRL),
+            (SIZE_RETX, CRED_RETX),
+            (SIZE_FRAG, CRED_FRAG),
+            (SIZE_DATA, CRED_DATA)
+        ];
+
+        // Build the conduit zero sequence number manager
+        let zero: ZInt = 0;
+        // @TODO: randomly create the initial sequence numbers
+        let mut conduit_tx_sn = HashMap::new();
+        conduit_tx_sn.insert(zero, ConduitTxSeqNum::new(zero, zero, resolution));
+
+        let mut conduit_rx_sn = HashMap::new();
+        conduit_rx_sn.insert(zero, ConduitRxSeqNum::new(resolution-1, resolution-1, resolution));
+
+        // Build the channel used to terminate the consume task
         let (sender, receiver) = channel::<bool>(1);
-        Self {
+
+        Transport {
+            // Session manager and Callback
             session: RwLock::new(None), 
             callback: RwLock::new(None), 
+            // Session lease
             lease: AtomicZInt::new(lease),
+            // Session sequence number resolution
+            resolution: AtomicZInt::new(resolution),
+            // The links
             links: Mutex::new(Vec::new()),
-            queue_tx: QueueTx::new(QUEUE_TX_SIZE),
-            queue_rx: Mutex::new(OrderedQueue::new(QUEUE_RX_SIZE)),
-            sn_rx_unreliable: Mutex::new(0),
+            // The transmission queue
+            queue_tx: CreditQueue::new(queue_tx, CONCURRENCY),
+            // The sequence number generator
+            conduit_tx_sn: Mutex::new(conduit_tx_sn),
+            conduit_rx_sn: Mutex::new(conduit_rx_sn),
+            // The channels used to signal the termination of consume task
             signal_send: sender,
             signal_recv: receiver
         }
@@ -133,6 +233,26 @@ impl Transport {
 
     pub(crate) fn set_lease(&self, lease: ZInt) {
         self.lease.store(lease, Ordering::Release);
+    }
+
+    pub(crate) async fn set_resolution(&self, resolution: ZInt) {
+        let mut c_tx = zasynclock!(self.conduit_tx_sn);
+        let mut c_rx = zasynclock!(self.conduit_rx_sn);
+        for (_, v) in c_tx.iter_mut() {
+            *v = ConduitTxSeqNum::new(
+                v.reliable.get() % resolution, 
+                v.unreliable.get() % resolution, 
+                resolution
+            );
+        }
+        for (_, v) in c_rx.iter_mut() {
+            *v = ConduitRxSeqNum::new(
+                v.reliable.get() % resolution, 
+                v.unreliable.get() % resolution, 
+                resolution
+            );
+        }
+        self.resolution.store(resolution, Ordering::Release);
     }
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
@@ -202,26 +322,26 @@ impl Transport {
     /*       SCHEDULE AND TRANSMIT       */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(crate) async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
-        let message = MessageTxPush {
+    pub(crate) async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>, priority: usize) {
+        let message = MessageTx {
             inner: message,
             link,
             notify: None
         };
         // Wait for the queue to have space for the message
-        self.queue_tx.push(message).await;
+        self.queue_tx.push(message, priority).await;
     }
 
     // Schedule the message to be sent asynchronsly and notify once sent
-    pub(crate) async fn send(&self, message: Message, link: Option<(Locator, Locator)>) -> ZResult<()> {
+    pub(crate) async fn send(&self, message: Message, link: Option<(Locator, Locator)>, priority: usize) -> ZResult<()> {
         let (sender, receiver) = channel::<ZResult<()>>(1);
-        let message = MessageTxPush {
+        let message = MessageTx {
             inner: message,
             link,
             notify: Some(sender)
         };
-        // Wait for the queue to have space for the message
-        self.queue_tx.push(message).await;
+        // Wait for the transmission queue to have space for the message
+        self.queue_tx.push(message, priority).await;
         match receiver.recv().await {
             Some(res) => res,
             None => Err(zerror!(ZErrorKind::Other{
@@ -230,7 +350,7 @@ impl Transport {
         }
     }
     
-    async fn transmit(&self, message: &MessageTxPop) {
+    async fn transmit(&self, message: &MessageTx) {
         // Send the message on the link(s)
         let guard = self.links.lock().await;
         let res = match &message.link {
@@ -245,7 +365,7 @@ impl Transport {
             },
             None => {
                 // Send the message on the first link
-                // This might change in the future
+                // @TODO: Adopt an intelligent selection of the links to use
                 match guard.get(0) {
                     Some(link) => link.send(&message.inner).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
@@ -261,87 +381,26 @@ impl Transport {
     }
 
     /*************************************/
-    /* SYNCHRONIZE THE RELIABLE CHANNEL  */
-    /*************************************/
-    async fn synchronize(&self) {
-        // Acquire a read guard
-        let (base, count) = self.queue_tx.get_reliability_base_and_count().await;
-
-        let reliable = true;
-        let sn = base;
-        let count = Some(count);
-        let cid = None;     // TODO: Retrive the right conduit ID
-        let properties = None;
-        let message = MessageTxPush {
-            inner: Message::make_sync(reliable, sn, count, cid, properties),
-            link: None,
-            notify: None
-        };
-
-        self.queue_tx.push(message).await;
-    }
-
-    async fn acknowledge(&self) {
-        let l_guard = self.queue_rx.lock().await;
-        // Create the AckNack message
-        let sn = l_guard.get_base();
-        let mask = match l_guard.get_mask() {
-            0 => None,
-            m => Some(m)
-        };
-        let cid = None;
-        let properties = None;
-
-        let message = MessageTxPush {
-            inner: Message::make_ack_nack(sn, mask, cid, properties),
-            link: None,
-            notify: None
-        };
-
-        // Schedule the AckNack message
-        self.queue_tx.push(message).await;
-    }
-
-    /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    async fn process_reliable_message(&self, message: Message, _sn: ZInt) {
-        let _ = zrwopt!(self.callback).handle_message(message).await;
-    }
-
-    async fn process_unreliable_message(&self, message: Message, sn: ZInt) {
-        let mut l_guard = self.sn_rx_unreliable.lock().await;
-        let gap = sn.wrapping_sub(*l_guard);
-        if gap < ZInt::max_value()/2 {
-            *l_guard = sn;
-            let _ = zrwopt!(self.callback).handle_message(message).await;
-        }
-    }
-
-    async fn process_acknack(&self, sn: ZInt, mask: &Option<ZInt>) {
-        // Set the base of the queue  
-        self.queue_tx.set_reliability_base(sn).await;
-
-        // If there is a mask, schedule the retransmission of requested messages
-        if let Some(mut mask) = mask {
-            let mut sn = self.queue_tx.get_reliability_base().await;
-            let count = mask.count_ones();
-            for _ in 0..count {
-                // Increment the sn and shift the mask
-                while (mask & 1) != 1 {
-                    sn = sn.wrapping_add(1);
-                    mask >>= 1;
-                }
-                // Retransmit the messages
-                self.queue_tx.reschedule(sn).await;
+    async fn process_reliable_message(&self, message: Message, sn: ZInt) {
+        // @TODO: implement the reordering and wait for missing messages
+        let mut l_guard = zasynclock!(self.conduit_rx_sn);
+        // Messages with invalid CID or invalid SN are automatically dropped
+        if let Some(rx_sn) = l_guard.get_mut(&message.cid) {
+            if rx_sn.reliable.precedes(sn) && rx_sn.reliable.set(sn).is_ok() {
+                let _ = zrwopt!(self.callback).handle_message(message).await;
             }
         }
     }
 
-    async fn process_sync(&self, sn: ZInt, count: &Option<ZInt>) {
-        match count {
-            Some(_) => self.acknowledge().await,
-            None => self.queue_rx.lock().await.set_base(sn)
+    async fn process_unreliable_message(&self, message: Message, sn: ZInt) {
+        let mut l_guard = zasynclock!(self.conduit_rx_sn);
+        // Messages with invalid CID or invalid SN are automatically dropped
+        if let Some(rx_sn) = l_guard.get_mut(&message.cid) {
+            if rx_sn.unreliable.precedes(sn) && rx_sn.unreliable.set(sn).is_ok() {
+                let _ = zrwopt!(self.callback).handle_message(message).await;
+            }
         }
     }
 
@@ -354,10 +413,8 @@ impl Transport {
                     Err(_) => None
                 }
             },
-            Body::AckNack{sn, mask} => {
-                let c_sn = *sn;
-                self.process_acknack(c_sn, mask).await;
-                None
+            Body::AckNack{..} => {
+                unimplemented!("Handling of AckNack Messages not yet implemented!");
             },
             Body::Close{pid, reason} => {
                 let c_reason = *reason;
@@ -387,10 +444,8 @@ impl Transport {
             Body::Scout{..} => {
                 unimplemented!("Handling of Scout Messages not yet implemented!");
             },
-            Body::Sync{sn, count} => {
-                let c_sn = *sn;
-                self.process_sync(c_sn, count).await;
-                None
+            Body::Sync{..} => {
+                unimplemented!("Handling of Sync Messages not yet implemented!");
             }
             Body::Data{reliable, sn, ..} |
             Body::Unit{reliable, sn} => {
@@ -460,7 +515,7 @@ impl Transport {
 
 impl Drop for Transport {
     fn drop(&mut self) {
-        // TODO: stop and close the transport
+        // @TODO: stop and close the transport
     }
 }
 

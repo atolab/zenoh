@@ -1,10 +1,83 @@
-use zenoh_protocol::proto::SeqNumGenerator;
+use zenoh_protocol::core::ZInt;
+use zenoh_protocol::proto::{
+  SeqNum,
+  SeqNumGenerator
+};
+
+
+#[test]
+fn sn_ord_test() {
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a = SeqNum::make(1, 14).unwrap();
+  assert!(sn0a < sn1a);
+
+  let sn0b = SeqNum::make(0, 14).unwrap();
+  assert!(sn0a == sn0b);
+
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a = SeqNum::make(6, 14).unwrap();
+  assert!(sn0a < sn1a);
+
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a = SeqNum::make(7, 14).unwrap();
+  assert!(sn0a < sn1a);
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a = SeqNum::make(6, 14).unwrap();
+  assert!(sn0a > sn1a);
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a = SeqNum::make(1, 14).unwrap();
+  assert!(sn0a < sn1a);
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a = SeqNum::make(5, 14).unwrap();
+  assert!(sn0a < sn1a);
+}
+
+#[test]
+fn sn_pre_test() {
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a: ZInt = 1;
+  assert!(sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a: ZInt = 0;
+  assert!(!sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a: ZInt = 6;
+  assert!(sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(0, 14).unwrap();
+  let sn1a: ZInt = 7;
+  assert!(sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a: ZInt = 6;
+  assert!(!sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a: ZInt = 1;
+  assert!(sn0a.precedes(sn1a));
+
+  let sn0a = SeqNum::make(13, 14).unwrap();
+  let sn1a: ZInt = 5;
+  assert!(sn0a.precedes(sn1a));
+}
 
 #[test]
 fn sn_gen_test() {
-  let sng = SeqNumGenerator::make(0, 14).unwrap();
-  let a = sng.next();
-  let b = sng.next();
-  assert_eq!(sng.precedes(a, b), true);
-  assert_eq!(sng.precedes(b, a), false);
+  let mut sn0 = SeqNumGenerator::make(13, 14).unwrap();
+  let mut sn1 = SeqNumGenerator::make(5, 14).unwrap();
+
+  let sn = sn0.get();
+  assert_eq!(sn, 13);
+  let sn = sn1.get();
+  assert_eq!(sn, 5);
+
+  let sn = sn0.get();
+  assert_eq!(sn, 0);
+  let sn = sn1.get();
+  assert_eq!(sn, 6);
 }

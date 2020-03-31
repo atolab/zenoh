@@ -10,10 +10,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 
-use crate::{
-    zerror,
-    zrwopt
-};
+use crate::zerror;
 use crate::core::{
     PeerId,
     ZError,
@@ -28,7 +25,9 @@ use crate::proto::{
 use crate::session::{
     Transport,
     MsgHandler,
-    SessionHandler
+    SessionHandler,
+    PRIO_CTRL,
+    PRIO_DATA
 };
 use crate::link::{
     Link,
@@ -36,10 +35,14 @@ use crate::link::{
     Locator,
     LocatorProtocol,
 };
+use zenoh_util::zrwopt;
 
 
 // Default timeout when opening a session
 const OPEN_SESSION_TIMEOUT: Duration = Duration::from_secs(10);
+// The default sequence number resolution takes 2 bytes on the wire: 14 useful bits
+// 2^14 = 16_384 => Max Seq Num = 16_384 - 1
+const SEQ_NUM_RESOLUTION: ZInt = 16_384 - 1;
 
 
 // Define an empty SessionCallback for the initial session
@@ -68,6 +71,8 @@ impl SessionManager {
     pub fn new(version: u8, whatami: WhatAmI, id: PeerId, lease: ZInt, 
         handler: Arc<dyn SessionHandler + Send + Sync>,
     ) -> Self {
+        // @TODO: accept a sequence number resolution
+
         // Create the inner session manager
         let manager_inner = Arc::new(SessionManagerInner::new(version, whatami, id.clone(), lease, handler));
 
@@ -88,8 +93,9 @@ impl SessionManager {
     /*              SESSION              */
     /*************************************/
     pub async fn open_session(&self, locator: &Locator) -> ZResult<Session> {
-        // The timeout for opening a session
         // @TODO: make the timeout configurable 
+        
+        // The timeout for opening a session
         let timeout = OPEN_SESSION_TIMEOUT;
 
         // Automatically create a new link manager for the protocol if it does not exist
@@ -337,6 +343,10 @@ impl Session {
         self.0.transport.clone()
     }
 
+    pub async fn set_resolution(&self, resolution: ZInt) {
+        self.0.transport.set_resolution(resolution).await
+    }
+
     pub async fn close(&self) -> ZResult<()> {
         self.0.close().await
     }
@@ -354,7 +364,7 @@ impl Session {
     }
 
     pub async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
-        self.0.transport.schedule(message, link).await;
+        self.0.transport.schedule(message, link, PRIO_DATA).await;
     }
 }
 
@@ -385,7 +395,7 @@ pub struct SessionInner {
 #[async_trait]
 impl MsgHandler for SessionInner {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.transport.schedule(message, None).await;
+        self.transport.schedule(message, None, PRIO_DATA).await;
         Ok(())
     }
 
@@ -397,7 +407,8 @@ impl SessionInner {
         Self {
             id,
             peer,
-            transport: Arc::new(Transport::new(lease)),
+            // @TODO: make the sequence number resolution configurable
+            transport: Arc::new(Transport::new(lease, SEQ_NUM_RESOLUTION)),
             manager,
             channels: RwLock::new(HashMap::new())
         }
@@ -446,7 +457,7 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((link.get_src(), link.get_dst()));   // The link to reply on 
-        self.transport.send(message, link).await?;
+        self.transport.send(message, link, PRIO_CTRL).await?;
 
         Ok(())
     }
@@ -469,7 +480,7 @@ impl SessionInner {
         // Send the message for transmission
         let link = None;    // The preferred link to reply on 
         // TODO: If error in send, retry
-        let res = self.transport.send(message, link).await;
+        let res = self.transport.send(message, link, PRIO_DATA).await;
 
         // Close the transport
         self.transport.close().await?;
@@ -561,7 +572,7 @@ impl SessionInner {
 
         // Schedule the message for transmission
         let link = Some((dst.clone(), src.clone()));    // The link to reply on 
-        target.transport.schedule(message, link).await;
+        target.transport.schedule(message, link, PRIO_CTRL).await;
 
         Ok(target.transport.clone())
     }

@@ -21,6 +21,7 @@ rand = "0.7.3"
 slab = "0.4.2"
 time = "0.2.2"
 uuid = { version = "0.8.1", features = ["v4"] }
+zenoh-util =  { version = "0.1.0", path = "../zenoh-util" }
 
 [dev-dependencies]
 criterion = "0.3.0"
@@ -31,10 +32,6 @@ harness = false
 
 [[bench]]
 name = "rwbuf_bench"
-harness = false
-
-[[bench]]
-name = "queue_bench"
 harness = false
 
 [[bench]]
