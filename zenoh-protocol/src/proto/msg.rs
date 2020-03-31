@@ -1,6 +1,6 @@
 use crate::zerror;
 use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
-use crate::io::ArcSlice;
+use crate::io::RBuf;
 use crate::link::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
@@ -141,6 +141,29 @@ pub struct DataInfo {
     pub(in super) timestamp: Option<TimeStamp>,
     pub(in super) kind: Option<ZInt>,
     pub(in super) encoding: Option<ZInt>,
+}
+
+impl DataInfo {
+    pub fn make(
+        source_id: Option<PeerId>,
+        source_sn: Option<ZInt>,
+        fist_broker_id: Option<PeerId>,
+        fist_broker_sn: Option<ZInt>,
+        timestamp: Option<TimeStamp>,
+        kind: Option<ZInt>,
+        encoding: Option<ZInt>) -> DataInfo
+    {
+        let mut header = 0u8;
+        if source_id.is_some() { header |= info_flag::SRCID }
+        if source_sn.is_some() { header |= info_flag::SRCSN }
+        if fist_broker_id.is_some() { header |= info_flag::BKRID }
+        if fist_broker_sn.is_some() { header |= info_flag::BKRSN }
+        if timestamp.is_some() { header |= info_flag::TS }
+        if kind.is_some() { header |= info_flag::KIND }
+        if encoding.is_some() { header |= info_flag::ENC }
+        
+        DataInfo { header, source_id, source_sn, fist_broker_id, fist_broker_sn, timestamp, kind, encoding }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -292,7 +315,7 @@ pub enum Body {
     /// +---------------+
     ///
     /// The message is sent on the reliable channel if R==1 best-effort otherwise.
-    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<ArcSlice>, payload: ArcSlice },
+    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<RBuf>, payload: RBuf },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -585,8 +608,8 @@ impl Message {
         reliable: bool,
         sn: ZInt,
         key: ResKey,
-        info: Option<ArcSlice>,
-        payload: ArcSlice,
+        info: Option<RBuf>,
+        payload: RBuf,
         reply_context: Option<ReplyContext>,
         cid: Option<ZInt>,
         ps: Option<Arc<Vec<Property>>> ) -> Message

@@ -4,7 +4,7 @@ use spin::RwLock;
 use std::collections::{HashMap};
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::{ResKey, ZInt};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
@@ -14,7 +14,7 @@ use crate::routing::face::{Face, FaceHdl};
 /// ```
 ///   use async_std::sync::Arc;
 ///   use zenoh_protocol::core::PeerId;
-///   use zenoh_protocol::io::ArcSlice;
+///   use zenoh_protocol::io::RBuf;
 ///   use zenoh_protocol::proto::WhatAmI::Peer;
 ///   use zenoh_protocol::session::SessionManager;
 ///   use zenoh_router::routing::tables::TablesHdl;
@@ -35,7 +35,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;
 ///     
 ///     // Use primitives
-///     primitives.data(&"/demo".to_string().into(), true, &None, ArcSlice::from(vec![1, 2])).await;
+///     primitives.data(&"/demo".to_string().into(), true, &None, RBuf::from(vec![1, 2])).await;
 /// 
 ///     // Close primitives
 ///     primitives.close().await;
@@ -782,7 +782,7 @@ impl Tables {
         }
     }
 
-    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str, reliable:bool, info: &Option<ArcSlice>, payload: ArcSlice) {
+    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, suffix: &str, reliable:bool, info: &Option<RBuf>, payload: RBuf) {
         match sex.upgrade() {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {

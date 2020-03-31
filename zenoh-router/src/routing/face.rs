@@ -3,7 +3,7 @@ use std::sync::Arc;
 use spin::RwLock;
 use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, ResKey};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
@@ -97,7 +97,7 @@ impl Primitives for FaceHdl {
 
     async fn forget_eval(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: ArcSlice) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         let (prefixid, suffix) = reskey.into();
         Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, reliable, info, payload).await;
     }

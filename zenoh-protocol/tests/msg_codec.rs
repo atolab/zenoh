@@ -1,5 +1,5 @@
 
-use zenoh_protocol::io::{ArcSlice, WBuf};
+use zenoh_protocol::io::{ RBuf, WBuf };
 use zenoh_protocol::proto::*;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::core::*;
@@ -263,8 +263,8 @@ fn test_data(with_decorators: bool,
   reliable: bool,
   sn: ZInt,
   key: ResKey,
-  info: Option<ArcSlice>,
-  payload: ArcSlice,
+  info: Option<RBuf>,
+  payload: RBuf,
   reply_context: Option<ReplyContext>)
 {
   let msg = if with_decorators {
@@ -278,8 +278,8 @@ fn test_data(with_decorators: bool,
 #[test]
 fn data_tests() {
   use MessageKind::*;
-  let info = ArcSlice::from(gen_buffer(MAX_INFO_SIZE));
-  let payload = ArcSlice::from(gen_buffer(MAX_PAYLOAD_SIZE));
+  let info = RBuf::from(gen_buffer(MAX_INFO_SIZE));
+  let payload = RBuf::from(gen_buffer(MAX_PAYLOAD_SIZE));
   test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(true, FullMessage, gen!(bool), gen!(ZInt), gen_key(), None, payload.clone(), None);
   test_data(false, FullMessage, gen!(bool), gen!(ZInt), gen_key(), Some(info.clone()), payload.clone(), Some(gen_reply_context(false)));

@@ -4,6 +4,7 @@ use async_std::sync::Arc;
 use spin::RwLock;
 use super::InnerSession;
 
+pub use zenoh_protocol::io::RBuf;
 pub use zenoh_protocol::core::{
     ZInt,
     ZError,
@@ -19,7 +20,8 @@ pub use zenoh_protocol::proto::{
     SubInfo,
     Target,
     QueryTarget,
-    QueryConsolidation
+    QueryConsolidation,
+    DataInfo
 };
 
 
@@ -27,13 +29,13 @@ pub type Properties = HashMap<ZInt, Vec<u8>>;
 
 pub type QueryHandle = ZInt;
 
-pub type DataHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static;
+pub type DataHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static;
 
 pub type QueryHandler = dyn FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static;
 
-pub type RepliesSender = dyn Fn(/*query_handle:*/ QueryHandle, /*replies:*/ Vec<(&str, Vec<u8>)>) + Send + Sync + 'static;
+pub type RepliesSender = dyn Fn(/*query_handle:*/ QueryHandle, /*replies:*/ Vec<(&str, RBuf)>) + Send + Sync + 'static;
 
-pub type RepliesHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static;
+pub type RepliesHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static;
 
 
 pub(crate) type Id = usize;

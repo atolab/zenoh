@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
 
@@ -68,7 +68,7 @@ impl Primitives for ThrouputPrimitives {
     async fn eval(&self, _reskey: &ResKey) {}
     async fn forget_eval(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: ArcSlice) {
+    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
             stats.start = SystemTime::now();

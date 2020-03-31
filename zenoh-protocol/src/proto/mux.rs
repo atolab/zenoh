@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use async_trait::async_trait;
 use crate::core::{ZInt, ResKey};
-use crate::io::ArcSlice;
+use crate::io::RBuf;
 use crate::proto::{
     Message, SubInfo, Declaration, 
     Primitives, MessageKind, QueryTarget, 
@@ -91,7 +91,7 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
 
-    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: ArcSlice) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         self.handler.handle_message(Message::make_data(
             MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload, None, None, None)).await;
     }

@@ -79,10 +79,10 @@ impl WBuf {
             Body::Data { sn, key, info, payload, .. } => {
                 self.write_zint(*sn);
                 self.write_reskey(&key);
-                if let Some(i) = info {
-                    self.write_bytes_slice(&i);
+                if let Some(rbuf) = info {
+                    self.write_rbuf(&rbuf);
                 }
-                self.write_bytes_slice(&payload);
+                self.write_rbuf(&payload);
             }
 
             Body::Unit { sn, .. } => {
