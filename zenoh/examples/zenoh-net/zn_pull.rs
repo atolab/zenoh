@@ -4,7 +4,7 @@ use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
 
-fn data_handler(res_name: &str, payload: &[u8], _data_info: &[u8]) {
+fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
     println!(">> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
 }
 

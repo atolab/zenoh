@@ -3,7 +3,7 @@ use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
 
@@ -48,7 +48,7 @@ impl Primitives for PrintPrimitives {
         println!("  [RECV] FORGET EVAL ({:?})", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         println!("  [RECV] DATA ({:?})", reskey);
     }
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
@@ -115,7 +115,7 @@ fn main() {
             .concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
-            primitives.data(&res, true, &None, ArcSlice::from(vec![1])).await;
+            primitives.data(&res, true, &None, RBuf::from(vec![1])).await;
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     });

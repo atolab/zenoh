@@ -79,4 +79,12 @@ impl WBuf {
     self.add_slice(slice.clone());
   }
 
+  // Similar than write_bytes_array but zero-copy as RBuf contains slices that are shared
+  pub fn write_rbuf(&mut self, rbuf: &RBuf) {
+    self.write_zint(rbuf.len() as ZInt);
+    for slice in rbuf.get_slices() {
+      self.add_slice(slice.clone());
+    }
+  }
+
 }

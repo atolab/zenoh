@@ -3,8 +3,8 @@ use std::io::Read;
 use async_std::task;
 use zenoh::net::*;
 
-fn data_handler(res_name: &str, payload: &[u8], _data_info: &[u8]) {
-    println!("FUNCTION >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
+    println!("FUNCTION >> [Subscription listener] Received ('{}': '{}')", res_name, payload);
 }
 
 fn main() {
@@ -28,8 +28,8 @@ fn main() {
         let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
 
         let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
-            move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
-                println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+            move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
+                println!("CLOSURE >> [Subscription listener] Received ('{}': '{}')", res_name, payload);
             }
         ).await.unwrap();
 

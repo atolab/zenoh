@@ -2,7 +2,7 @@ use async_std::task;
 use async_std::sync::Arc;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{WhatAmI, Mux};
 use zenoh_protocol::session::{SessionManager, DummyHandler};
 use zenoh_router::routing::tables::TablesHdl;
@@ -44,7 +44,7 @@ fn main() {
         primitives.publisher(&rid).await;
 
         
-        let payload = ArcSlice::from(vec![0u8; pl_size]);
+        let payload = RBuf::from(vec![0u8; pl_size]);
         loop {
             primitives.data(&rid, true, &None, payload.clone()).await;
         }

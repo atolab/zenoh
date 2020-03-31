@@ -15,8 +15,8 @@ fn main() {
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
 
-        let replies_handler = move |res_name: &str, payload: &[u8], _data_info: &[u8]| {
-            println!(">> [Reply handler] received something... {} : {:02x?}'", res_name, payload);
+        let replies_handler = move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
+            println!(">> [Reply handler] received something... {} : {}'", res_name, payload);
         };
 
         println!("Sending Query '{}'...", uri);

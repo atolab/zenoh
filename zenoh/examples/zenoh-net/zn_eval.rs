@@ -20,8 +20,8 @@ fn main() {
         let rname = uri.clone();
         let query_handler = move |res_name: &str, predicate: &str, replies_sender: &RepliesSender, query_handle: QueryHandle| {
             println!(">> [Query handler] Handling '{}?{}'", res_name, predicate);
-            let data = "Eval from Rust!".as_bytes().to_vec();
-            let result: Vec<(&str, Vec<u8>)> = [(&rname[..], data)].to_vec();
+            let data: RBuf = "Eval from Rust!".as_bytes().into();
+            let result: Vec<(&str, RBuf)> = [(&rname[..], data)].to_vec();
             (*replies_sender)(query_handle, result);
         };
 

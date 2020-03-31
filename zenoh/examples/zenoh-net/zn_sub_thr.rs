@@ -34,7 +34,7 @@ fn main() {
             period: None
         };
         let sub = session.declare_subscriber(&reskey, &sub_info,
-            move |_res_name: &str, _payload: &[u8], _data_info: &[u8]| {
+            move |_res_name: &str, _payload: RBuf, _data_info: DataInfo| {
                 if count == 0 {
                     start = SystemTime::now();
                     count = count + 1;

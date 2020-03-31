@@ -132,6 +132,13 @@ impl RBuf {
     }
 
     pub fn read_bytes(&mut self,  bs: &mut [u8]) -> Result<(), ZError> {
+        self.copy_into(bs)?;
+        self.move_pos_no_check(bs.len());
+        Ok(())
+    }
+
+    // same than read_bytes() but not moving read position (allow not mutable self)
+    pub fn copy_into(&self,  bs: &mut [u8]) -> Result<(), ZError> {
         let mut len = bs.len();
         let remaining = self.readable();
         if len > remaining {
@@ -144,11 +151,17 @@ impl RBuf {
             let to_read = std::cmp::min(rem_in_current, len);
             let dest = &mut bs[offset .. offset+to_read];
             dest.copy_from_slice(self.current_slice().get_sub_slice(self.pos.1, self.pos.1+to_read));
-            self.move_pos_no_check(to_read);
             len -= to_read;
             offset += to_read;
         }
         Ok(())
+    }
+
+    // returns a Vec<u8> containing a copy of RBuf content (not considering read position)
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut vec = vec![0u8; self.len()];
+        self.copy_into(&mut vec[..]).unwrap();
+        vec
     }
 }
 
@@ -191,8 +204,30 @@ impl From<Vec<u8>> for RBuf {
     }
 }
 
+impl From<&[u8]> for RBuf {
+    fn from(slice: &[u8]) -> RBuf {
+        RBuf::from(slice.to_vec())
+    }
+}
 
-
+impl PartialEq for RBuf {
+    fn eq(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            false
+        } else {
+            let mut b1 = self.clone();
+            b1.reset_pos();
+            let mut b2 = other.clone();
+            b2.reset_pos();
+            for _ in 0..b1.len() {
+                if b1.read().unwrap() != b2.read().unwrap() {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+}
 
 
 
@@ -241,6 +276,11 @@ mod tests {
         assert_eq!(30, buf1.len());
         assert_eq!(3, buf1.as_ioslices().len());
         assert_eq!(Some(&[20u8, 21, 22, 23, 24, 25, 26, 27, 28, 29][..]), buf1.as_ioslices()[2].get(0..10));
+
+        // test PartialEq
+        let v4 = vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+            10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
+        assert_eq!(buf1, RBuf::from(v4));
 
         // test read
         for i in 0 .. buf1.len()-1 {

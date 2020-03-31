@@ -7,8 +7,8 @@ use spin::RwLock;
 use rand::prelude::*;
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
-    io::ArcSlice,
-    proto::{ Primitives, QueryTarget, QueryConsolidation, Reply, WhatAmI },
+    io::RBuf,
+    proto::{ DataInfo, Primitives, QueryTarget, QueryConsolidation, Reply, WhatAmI },
     session::SessionManager,
     zerror
 };
@@ -144,7 +144,7 @@ impl Session {
     }
 
     pub async fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
-        where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
+        where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -174,7 +174,7 @@ impl Session {
     }
 
     pub async fn declare_storage<DataHandler, QueryHandler>(&self, resource: &ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
-        where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static ,
+        where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static ,
         QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -189,11 +189,11 @@ impl Session {
         primitives.storage(resource).await;
 
         // @TODO: REMOVE; Just to test storage callback:
-        let payload = vec![1,2,3];
-        let info = vec![4,5,6];
+        let payload = RBuf::from(vec![1,2,3]);
+        let info = DataInfo::make(None, None, None, None, None, None, None);
         let sto2 = &mut inner.storages.get(&id).unwrap();
         let dhandler = &mut *sto2.dhandler.write();
-        dhandler("/A/B", &payload, &info);
+        dhandler("/A/B", payload, info);
         let qhandler = &mut *sto2.qhandler.write();
         qhandler("/A/**", "starttime=now()-1h", 
             &|handle, replies| {
@@ -271,7 +271,7 @@ impl Session {
         target:          QueryTarget,
         consolidation:   QueryConsolidation
     ) -> ZResult<()>
-        where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ &[u8], /*data_info:*/ &[u8]) + Send + Sync + 'static
+        where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let qid = inner.qid_counter.fetch_add(1, Ordering::SeqCst);
@@ -282,9 +282,9 @@ impl Session {
 
         // @TODO: REMOVE; Just to test reply_handler callback:
         let rhandler = &mut *inner.queries.get(&qid).unwrap().write();
-        let payload = vec![1,2,3];
-        let info = vec![];
-        rhandler("/A/B", &payload, &info);
+        let payload = RBuf::from(vec![1,2,3]);
+        let info = DataInfo::make(None, None, None, None, None, None, None);
+        rhandler("/A/B", payload, info);
 
         Ok(())
     }
@@ -333,24 +333,24 @@ impl Primitives for Session {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, payload: ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) => {
                 // Call matching subscribers
                 for sub in inner.subscribers.values() {
                     if rname::intersect(&sub.resname, &resname) {
-                        let info = vec![4,5,6];   // @TODO
+                        let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
                         let handler = &mut *sub.dhandler.write();
-                        handler(&resname, payload.as_slice(), &info);
+                        handler(&resname, payload.clone(), info);
                     }
                 }
                 // Call matching storages
                 for sto in inner.storages.values() {
                     if rname::intersect(&sto.resname, &resname) {
-                        let info = vec![4,5,6];   // @TODO
+                        let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
                         let handler = &mut *sto.dhandler.write();
-                        handler(&resname, payload.as_slice(), &info);
+                        handler(&resname, payload.clone(), info);
                     }
                 }
             },
@@ -373,7 +373,7 @@ impl Primitives for Session {
             }
         };
         match reply {
-            Reply::ReplyData {reskey, info, payload, ..} => {
+            Reply::ReplyData {reskey, info: _, payload, ..} => {
                 let resname = match inner.reskey_to_resname(&reskey) {
                     Ok(name) => name,
                     Err(e) => {
@@ -381,7 +381,8 @@ impl Primitives for Session {
                         return
                     }
                 };
-                rhandler(&resname, payload.as_slice(), info.as_ref().unwrap().as_slice()); // @ TODO info may be None
+                let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
+                rhandler(&resname, payload.clone(), info);
             }
             Reply::SourceFinal {..} => {} // @ TODO
             Reply::ReplyFinal {..} => {} // @ TODO remove query

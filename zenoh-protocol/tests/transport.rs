@@ -16,7 +16,7 @@ use zenoh_protocol::core::{
     ZInt,
     ZResult
 };
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::link::{
     Link,
     LinkDummy
@@ -254,7 +254,7 @@ async fn transport_base_inner() {
         let sn = 0;
         let key = ResKey::RName("test".to_string());
         let info = None;
-        let payload = ArcSlice::new(Arc::new(vec![0u8; 1]), 0, 1);
+        let payload = RBuf::from(vec![0u8; 1]);
         let reply_context = None;
         let cid = None;
         let properties = None;
@@ -278,7 +278,7 @@ async fn transport_base_inner() {
         let sn = 0;
         let key = ResKey::RName("test".to_string());
         let info = None;
-        let payload = ArcSlice::new(Arc::new(vec![0u8; 1]), 0, 1);
+        let payload = RBuf::from(vec![0u8; 1]);
         let reply_context = None;
         let cid = None;
         let properties = None;

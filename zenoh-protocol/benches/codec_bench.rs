@@ -5,7 +5,7 @@ extern crate rand;
 use criterion::{Criterion, black_box};
 
 use zenoh_protocol::core::{ZResult, ResKey};
-use zenoh_protocol::io::{ArcSlice, WBuf};
+use zenoh_protocol::io::{RBuf, WBuf};
 use zenoh_protocol::proto::{Message, MessageKind};
 
 fn _bench_zint_write((v, buf): (u64, &mut WBuf)) {
@@ -46,7 +46,7 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut WBuf)) -> ZResult<()> {
   rbuf.read_zint().map(|_| ())  
 }
 
-fn bench_make_data(payload: ArcSlice) {
+fn bench_make_data(payload: RBuf) {
   let _  = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::RId(10), None, payload, None, None, None);
 }
 
@@ -75,12 +75,12 @@ fn criterion_benchmark(c: &mut Criterion) {
     // // reliable: bool,
     // sn: ZInt,
     // key: ResKey,
-    // info: Option<Arc<Vec<u8>>>,
-    // payload: Arc<Vec<u8>>,
+    // info: Option<RBuf>,
+    // payload: RBuf,
     // cid: Option<ZInt>,
     // reply_context: Option<ReplyContext>,
     // ps: Option<Arc<Vec<Property>>> 
-    let payload = ArcSlice::from(vec![0u8, 32]);
+    let payload = RBuf::from(vec![0u8, 32]);
     let data = Message::make_data(MessageKind::FullMessage, false, 42, ResKey::RId(10), None, payload.clone(), None, None, None);
 
     c.bench_function(&format!("bench_one_zint_codec {}", len), |b| b.iter(|| {

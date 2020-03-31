@@ -3,7 +3,7 @@ use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
-use zenoh_protocol::io::ArcSlice;
+use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, WhatAmI, Mux};
 use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler, DummyHandler};
 
@@ -52,7 +52,7 @@ fn main() {
         primitives.publisher(&rid).await;
 
         
-        let payload = ArcSlice::from(vec![0u8; pl_size]);
+        let payload = RBuf::from(vec![0u8; pl_size]);
         loop {
             primitives.data(&rid, true, &None, payload.clone()).await;
         }
