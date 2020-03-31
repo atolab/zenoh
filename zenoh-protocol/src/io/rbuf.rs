@@ -146,11 +146,14 @@ impl RBuf {
         }
 
         let mut offset = 0;
+        let mut pos = self.pos;
         while len > 0 {
-            let rem_in_current = self.current_slice().len() - self.pos.1;
+            let rem_in_current = self.slices[pos.0].len() - pos.1;
             let to_read = std::cmp::min(rem_in_current, len);
             let dest = &mut bs[offset .. offset+to_read];
-            dest.copy_from_slice(self.current_slice().get_sub_slice(self.pos.1, self.pos.1+to_read));
+            dest.copy_from_slice(self.slices[pos.0].get_sub_slice(pos.1, pos.1+to_read));
+            pos.0 +=1;
+            pos.1 = 0;
             len -= to_read;
             offset += to_read;
         }
