@@ -373,7 +373,7 @@ impl Primitives for Session {
             }
         };
         match reply {
-            Reply::ReplyData {reskey, info: _, payload, ..} => {
+            Reply::ReplyData {reskey, payload, ..} => {
                 let resname = match inner.reskey_to_resname(&reskey) {
                     Ok(name) => name,
                     Err(e) => {
