@@ -320,54 +320,69 @@ impl Tables {
     }
 
     pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<RwLock<Face>>, rid: u64, prefixid: u64, suffix: &str) {
-        let t = tables.write();
-        match sex.upgrade() {
-            Some(sex) => {
-                let rsex = sex.read();
-                match rsex.remote_mappings.get(&rid) {
-                    Some(_res) => {
-                        // if _res.read().name() != rname {
+        let remap = {
+            let t = tables.write();
+            match sex.upgrade() {
+                Some(sex) => {
+                    let mut wsex = sex.write();
+                    match wsex.remote_mappings.get(&rid) {
+                        Some(_res) => {
+                            // if _res.read().name() != rname {
+                            //     // TODO : mapping change 
                         //     // TODO : mapping change 
-                        // }
-                    }
-                    None => {
-                        let prefix = {
-                            match prefixid {
-                                0 => {Some(&t.root_res)}
-                                prefixid => {rsex.get_mapping(&prefixid)}
-                            }
-                        };
-                        match prefix {
-                            Some(prefix) => {
-                                let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
-                                {
-                                    let mut wres = res.write();
-                                    match wres.contexts.get(&rsex.id) {
-                                        Some(_ctx) => {}
-                                        None => {
-                                            wres.contexts.insert(rsex.id, 
-                                                Arc::new(RwLock::new(Context {
-                                                    face: sex.clone(),
-                                                    local_rid: None,
-                                                    remote_rid: Some(rid),
-                                                    subs: None,
-                                                    stor: false,
-                                                    eval: false,
-                                                }))
-                                            );
-                                        }
-                                    }
+                            //     // TODO : mapping change 
+                            // }
+                            None
+                        }
+                        None => {
+                            let prefix = {
+                                match prefixid {
+                                    0 => {Some(&t.root_res)}
+                                    prefixid => {wsex.get_mapping(&prefixid)}
                                 }
-                                drop(rsex);
-                                Tables::build_matches_direct_tables(&res);
-                                sex.write().remote_mappings.insert(rid, res);
+                            };
+                            match prefix {
+                                Some(prefix) => {
+                                    let res = Tables::make_and_match_resource(&t.root_res, prefix, suffix);
+                                    let remap = {
+                                        let mut wres = res.write();
+                                        let ctx = wres.contexts.entry(wsex.id).or_insert_with( ||
+                                            Arc::new(RwLock::new(Context {
+                                                face: sex.clone(),
+                                                local_rid: None,
+                                                remote_rid: Some(rid),
+                                                subs: None,
+                                                stor: false,
+                                                eval: false,
+                                            }))
+                                        ).clone();
+
+                                        if wsex.local_mappings.get(&rid).is_some() {
+                                            let mut wctx = ctx.write();
+                                            if wctx.local_rid == None {
+                                                let local_rid = wsex.get_next_local_id();
+                                                wctx.local_rid = Some(local_rid);
+
+                                                wsex.local_mappings.insert(local_rid, res.clone());
+                                                Some((wsex.primitives.clone(), local_rid, ResKey::RName(wres.name())))
+                                            } else {None}
+                                        } else {None}
+                                    };
+                                    wsex.remote_mappings.insert(rid, res.clone());
+                                    drop(wsex);
+                                    Tables::build_matches_direct_tables(&res);
+                                    remap
+                                }
+                                None => {println!("Declare resource with unknown prefix {}!", prefixid); None}
                             }
-                            None => println!("Declare resource with unknown prefix {}!", prefixid)
                         }
                     }
                 }
+                None => {println!("Declare resource for closed session!"); None}
             }
-            None => println!("Declare resource for closed session!")
+        };
+        if let Some((primitives, rid, rname)) = remap {
+            primitives.resource(rid, &rname).await;
         }
     }
 
@@ -421,8 +436,6 @@ impl Tables {
                                 }
                             }
                             
-                            Tables::build_matches_direct_tables(&res);
-                            
                             let mut wprefix = prefix.write();
                             let mut route = HashMap::new();
 
@@ -463,6 +476,7 @@ impl Tables {
                             }
                             let prefixname = wprefix.name();
                             drop(wprefix);
+                            Tables::build_matches_direct_tables(&res);
                             wsex.subs.push(res);
                             
                             Some((prefixname, route))
@@ -554,8 +568,6 @@ impl Tables {
                                 }
                             }
                             
-                            Tables::build_matches_direct_tables(&res);
-                            
                             let mut wprefix = prefix.write();
                             let mut route = HashMap::new();
 
@@ -596,6 +608,7 @@ impl Tables {
                             }
                             let prefixname = wprefix.name();
                             drop(wprefix);
+                            Tables::build_matches_direct_tables(&res);
                             wsex.stos.push(res);
                             
                             Some((prefixname, route))

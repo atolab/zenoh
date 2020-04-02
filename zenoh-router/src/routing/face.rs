@@ -46,7 +46,8 @@ impl Face {
 
     pub(super) fn get_next_local_id(&self) -> ZInt {
         let mut id = 1;
-        while self.local_mappings.get(&id).is_some() {
+        while self.local_mappings.get(&id).is_some() || 
+              self.remote_mappings.get(&id).is_some() {
             id += 1;
         }
         id
