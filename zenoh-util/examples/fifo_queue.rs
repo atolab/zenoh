@@ -1,4 +1,4 @@
-use zenoh_util::collections::CircularQueue;
+use zenoh_util::collections::FifoQueue;
 use futures::*;
 use async_std::task;
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::time::Instant;
 
 fn main() {    
     task::block_on(async {        
-        let acb = Arc::new(CircularQueue::<u64>::new(256, 16));
+        let acb = Arc::new(FifoQueue::<u64>::new(256, 16));
         let cq1 = acb.clone();
         let cq2 = acb.clone();
         let cq3 = acb.clone();

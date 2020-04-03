@@ -1,62 +1,20 @@
 use async_std::sync::Mutex;
-use std::collections::VecDeque;
 
 use crate::zasynclock;
+use crate::collections::CircularBuffer;
 use crate::sync::Condition;
 
-pub(crate) struct CQueue<T> {
-    buffer: VecDeque<T>,
-    capacity: usize,
-    n: usize
-}
 
-impl<T> CQueue<T> {
-    pub(crate) fn new(capacity: usize) -> CQueue<T> {
-        let buffer = VecDeque::<T>::with_capacity(capacity);        
-        CQueue {buffer, capacity, n: 0}
-    }
-
-    pub(crate) fn push(&mut self, elem: T) -> bool {
-        if self.n < self.capacity {
-            self.buffer.push_back(elem);
-            self.n += 1;
-            true             
-        } else { false }
-    }
-
-    #[inline]
-    pub(crate) fn pull(&mut self) -> Option<T> {
-        let x = self.buffer.pop_front();
-        if x.is_some() {
-            self.n -= 1;
-        }
-        x
-    }
-    
-    #[allow(dead_code)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    pub(crate) fn is_full(&self) -> bool{
-        self.n == self.capacity
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.n
-    }
-}
-
-pub struct CircularQueue<T: Copy> {
-    state: Mutex<CQueue<T>>,
+pub struct FifoQueue<T: Copy> {
+    state: Mutex<CircularBuffer<T>>,
     not_empty: Condition,
     not_full: Condition
 }
 
-impl<T:Copy> CircularQueue<T> {
-    pub fn new(capacity: usize, concurrency_level: usize) -> CircularQueue<T> {
-        CircularQueue { 
-            state: Mutex::new(CQueue::new(capacity)),
+impl<T:Copy> FifoQueue<T> {
+    pub fn new(capacity: usize, concurrency_level: usize) -> FifoQueue<T> {
+        FifoQueue { 
+            state: Mutex::new(CircularBuffer::new(capacity)),
             not_empty: Condition::new(concurrency_level),
             not_full: Condition::new(concurrency_level)            
         }

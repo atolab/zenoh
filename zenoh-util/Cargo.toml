@@ -13,8 +13,8 @@ futures = { version = "0.3.4", features = ["unstable"] }
 rand = "0.7.3"
 
 [[example]]
-name = "async_queue"
-path = "examples/async_queue.rs"
+name = "fifo_queue"
+path = "examples/fifo_queue.rs"
 
 [[example]]
 name = "priority_queue"

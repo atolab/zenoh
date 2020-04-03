@@ -67,24 +67,36 @@ enum Command {
 /*              LINK                 */
 /*************************************/
 pub struct LinkTcp {
+    // The underlying socket as returned from the std library
     socket: TcpStream,
+    // The source socket address of this link (address used on the local host)
     src_addr: SocketAddr,
+    // The destination socket address of this link (address used on the remote host)
     dst_addr: SocketAddr,
+    // The source Zenoh locator of this link (locator used on the local host)
     src_locator: Locator,
+    // The destination Zenoh locator of this link (locator used on the local host)
     dst_locator: Locator,
+    // The buffer size to use in a read operation
     buff_size: usize,
+    // The reference to the associated transport
     transport: Mutex<Arc<Transport>>,
+    // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
+    // Channel for stopping the read task
     ch_send: Sender<Command>,
     ch_recv: Receiver<Command>
 }
 
 impl LinkTcp {
-    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> Self {
+    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> LinkTcp {
+        // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
+        // The channel for stopping the read task
         let (sender, receiver) = channel::<Command>(1);
-        Self {
+        // Build the LinkTcp
+        LinkTcp {
             socket,
             src_addr,
             dst_addr,

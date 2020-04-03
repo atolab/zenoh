@@ -5,7 +5,7 @@ use std::sync::atomic::{
 };
 
 use crate::zasynclock;
-use crate::collections::CQueue;
+use crate::collections::CircularBuffer;
 use crate::sync::Condition;
 
 
@@ -19,7 +19,7 @@ use crate::sync::Condition;
 /// that can be stored) and initial credit amount.
 /// 
 pub struct CreditQueue<T> {
-    state: Mutex<Vec<CQueue<T>>>,
+    state: Mutex<Vec<CircularBuffer<T>>>,
     credit: Vec<AtomicIsize>,
     not_full: Condition,
     not_empty: Condition
@@ -37,7 +37,7 @@ impl<T> CreditQueue<T> {
         let mut state = Vec::with_capacity(queues.len());
         let mut credit = Vec::with_capacity(queues.len());
         for (cap, cre) in queues.iter() {
-            state.push(CQueue::new(*cap));
+            state.push(CircularBuffer::new(*cap));
             credit.push(AtomicIsize::new(*cre));
         }
          

@@ -1,12 +1,12 @@
 use async_std::sync::Mutex;
 
 use crate::zasynclock;
-use crate::collections::CQueue;
+use crate::collections::CircularBuffer;
 use crate::sync::Condition;
 
 
 pub struct PriorityQueue<T> {
-    state: Mutex<Vec<CQueue<T>>>,
+    state: Mutex<Vec<CircularBuffer<T>>>,
     not_full: Condition,
     not_empty: Condition
 }
@@ -15,7 +15,7 @@ impl<T> PriorityQueue<T> {
     pub fn new(capacity: Vec<usize>, concurrency_level: usize) -> PriorityQueue<T> {
         let mut state = Vec::with_capacity(capacity.len());
         for c in capacity.iter() {
-            state.push(CQueue::new(*c));
+            state.push(CircularBuffer::new(*c));
         }
          
         PriorityQueue { 
