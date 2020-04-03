@@ -39,10 +39,10 @@ use zenoh_util::zrwopt;
 
 
 // Default timeout when opening a session
-const OPEN_SESSION_TIMEOUT: Duration = Duration::from_secs(10);
+pub const OPEN_SESSION_TIMEOUT: Duration = Duration::from_secs(10);
 // The default sequence number resolution takes 2 bytes on the wire: 14 useful bits
-// 2^14 = 16_384 => Max Seq Num = 16_384 - 1
-const SEQ_NUM_RESOLUTION: ZInt = 16_384 - 1;
+// 2^14 = 16_384 => Max Seq Num = 16_384
+pub const SEQ_NUM_RESOLUTION: ZInt = 16_384;
 
 
 // Define an empty SessionCallback for the initial session
@@ -126,11 +126,6 @@ impl SessionManager {
         };
 
         Ok(Session::new(session_inner))
-    }
-
-    pub async fn init_session(&self, peer: &PeerId, whatami: &WhatAmI) -> ZResult<Session> {
-        let inner = self.0.new_session(&self.0, peer, whatami).await?;
-        Ok(Session::new(inner))
     }
 
     pub async fn get_sessions(&self) -> Vec<Session> {

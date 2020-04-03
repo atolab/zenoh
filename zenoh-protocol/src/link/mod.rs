@@ -1,9 +1,3 @@
-mod dummy;
-pub use dummy::{
-    LinkDummy,
-    ManagerDummy
-};
-
 mod tcp;
 pub use tcp::{
     LinkTcp,
@@ -21,7 +15,6 @@ use crate::core::{
     ZErrorKind,
     ZResult
 };
-use crate::proto::Message;
 use crate::session::{
     SessionManagerInner,
     Transport
@@ -36,13 +29,11 @@ use std::str::FromStr;
 /*************************************/
 /*          LOCATOR                  */
 /*************************************/
-const STR_DUMMY: &str = "dmy";
 const STR_TCP: &str = "tcp";
 // const STR_UDP: &str = "udp";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LocatorProtocol {
-    Dummy,
     Tcp,
     // Udp
 }
@@ -50,7 +41,6 @@ pub enum LocatorProtocol {
 impl fmt::Display for LocatorProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LocatorProtocol::Dummy => write!(f, "{}", STR_DUMMY)?,
             LocatorProtocol::Tcp => write!(f, "{}", STR_TCP)?,
             // LocatorProtocol::Udp => write!(f, "{}", STR_UDP)?,
         };
@@ -60,7 +50,6 @@ impl fmt::Display for LocatorProtocol {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Locator {
-    Dummy(String),
     Tcp(SocketAddr),
     // Udp(SocketAddr)
 }
@@ -73,9 +62,6 @@ impl FromStr for Locator {
         let proto = iter.next().unwrap();
         let addr = iter.next().unwrap();
         match proto {
-            STR_DUMMY => {
-                Ok(Locator::Dummy(addr.to_string()))
-            },
             STR_TCP => {
                 let addr: SocketAddr = match addr.parse() {
                     Ok(addr) => addr,
@@ -104,7 +90,6 @@ impl FromStr for Locator {
 impl fmt::Display for Locator {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Locator::Dummy(addr) => write!(f, "{}/{}", STR_DUMMY, addr)?,
             Locator::Tcp(addr) => write!(f, "{}/{}", STR_TCP, addr)?,
             // Locator::Udp(addr) => write!(f, "{}/{}", STR_UDP, addr)?,
         }
@@ -115,7 +100,6 @@ impl fmt::Display for Locator {
 impl Locator {
     pub fn get_proto(&self) -> LocatorProtocol {
         match self {
-            Locator::Dummy(..) => LocatorProtocol::Dummy,
             Locator::Tcp(..) => LocatorProtocol::Tcp,
             // Locator::Udp(..) => LocatorProtocol::Udp
         }
@@ -127,70 +111,60 @@ impl Locator {
 /*              LINK                 */
 /*************************************/
 pub enum Link {
-    Dummy(Arc<LinkDummy>),
     Tcp(Arc<LinkTcp>)
 }
 
 impl Link {
     pub async fn close(&self) -> ZResult<()> {
         match self {
-            Self::Dummy(link) => link.close().await,
             Self::Tcp(link) => link.close().await
         }
     }
 
     pub fn get_mtu(&self) -> usize {
         match self {
-            Self::Dummy(link) => link.get_mtu(),
             Self::Tcp(link) => link.get_mtu()
         }
     }
 
     pub fn get_src(&self) -> Locator {
         match self {
-            Self::Dummy(link) => link.get_src(),
             Self::Tcp(link) => link.get_src()
         }
     }
 
     pub fn get_dst(&self) -> Locator {
         match self {
-            Self::Dummy(link) => link.get_dst(),
             Self::Tcp(link) => link.get_dst()
         }
     }
 
     pub fn is_ordered(&self) -> bool {
         match self {
-            Self::Dummy(link) => link.is_ordered(),
             Self::Tcp(link) => link.is_ordered()
         }
     }
 
     pub fn is_reliable(&self) -> bool {
         match self {
-            Self::Dummy(link) => link.is_reliable(),
             Self::Tcp(link) => link.is_reliable()
         }
     }
 
-    pub async fn send(&self, msg: &Message) -> ZResult<()> {
+    pub async fn send(&self, buffer: Vec<u8>) -> ZResult<()> {
         match self {
-            Self::Dummy(link) => link.send(msg).await,
-            Self::Tcp(link) => link.send(msg).await
+            Self::Tcp(link) => link.send(buffer).await
         }
     }
 
     pub fn start(&self) {
         match self {
-            Self::Dummy(link) => LinkDummy::start(link.clone()),
             Self::Tcp(link) => LinkTcp::start(link.clone())
         }
     } 
 
     pub async fn stop(&self) -> ZResult<()> {
         match self {
-            Self::Dummy(link) => link.stop().await,
             Self::Tcp(link) => link.stop().await
         }
     }
@@ -199,7 +173,6 @@ impl Link {
 impl Clone for Link {
     fn clone(&self) -> Self {
         match self {
-            Self::Dummy(link) => Link::Dummy(link.clone()),
             Self::Tcp(link) => Link::Tcp(link.clone())
         }
     }
@@ -209,55 +182,47 @@ impl Clone for Link {
 /*           LINK MANAGER            */
 /*************************************/
 pub enum LinkManager {
-    Dummy(ManagerDummy),
     Tcp(ManagerTcp)
 }
 
 impl LinkManager {
     pub fn new(manager: Arc<SessionManagerInner>, protocol: &LocatorProtocol) -> Self {
         match protocol {
-            LocatorProtocol::Dummy => LinkManager::Dummy(ManagerDummy::new(manager)),
             LocatorProtocol::Tcp => LinkManager::Tcp(ManagerTcp::new(manager)),
         }
     }
 
     pub async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
         match self {
-            Self::Dummy(manager) => manager.new_link(dst, transport).await,
             Self::Tcp(manager) => manager.new_link(dst, transport).await
         }
     }
 
     pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
         match self {
-            Self::Dummy(manager) => manager.del_link(src, dst).await,
             Self::Tcp(manager) => manager.del_link(src, dst).await
         }
     }
 
     pub async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
         match self {
-            Self::Dummy(manager) => manager.get_link(src, dst).await,
             Self::Tcp(manager) => manager.get_link(src, dst).await
         }
     }
 
     pub async fn new_listener(&self, locator: &Locator) -> ZResult<()> {
         match self {
-            Self::Dummy(manager) => manager.new_listener(locator).await,
             Self::Tcp(manager) => manager.new_listener(locator).await
         } 
     }
 
     pub async fn del_listener(&self, locator: &Locator) -> ZResult<()> {
         match self {
-            Self::Dummy(manager) => manager.del_listener(locator).await,
             Self::Tcp(manager) => manager.del_listener(locator).await
         } 
     }
     pub async fn get_listeners(&self) -> Vec<Locator> {
         match self {
-            Self::Dummy(manager) => manager.get_listeners().await,
             Self::Tcp(manager) => manager.get_listeners().await
         } 
     }

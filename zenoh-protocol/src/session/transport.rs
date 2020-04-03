@@ -11,7 +11,10 @@ use async_std::sync::{
 use async_std::task;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{
+    AtomicUsize,
+    Ordering
+};
 
 use crate::zerror;
 use crate::core::{
@@ -21,6 +24,7 @@ use crate::core::{
     ZInt,
     ZResult
 };
+use crate::io::WBuf;
 use crate::proto::{
     Body,
     Message,
@@ -43,7 +47,7 @@ use zenoh_util::{
 use zenoh_util::collections::CreditQueue;
 
 
-// Constants
+// Constants for transmission queue
 pub(crate) const PRIO_CTRL: usize = 0;
 const SIZE_CTRL: usize = 16;
 const CRED_CTRL: isize = 1;
@@ -62,17 +66,15 @@ const CRED_DATA: isize = 100;
 
 const CONCURRENCY: usize = 16;
 
-
+// Initial capacity of WBuf to encode a Message to write
+const WRITE_BUFFER_CAPACITY: usize = 128;
 
 
 async fn consume_loop(transport: Arc<Transport>) {
-    async fn consume(transport: &Arc<Transport>) -> Option<bool> {
-        // @TODO: Fragement the message if too large
-        // @TODO: Implement the reliability queue
-        let mut message = transport.queue_tx.pull().await;
-
-        let is_reliable = message.inner.is_reliable();
-        match message.inner.body {
+    // Update the sequence number
+    async fn update_sn(transport: &Arc<Transport>, message: &mut Message) -> bool {
+        let is_reliable = message.is_reliable();
+        match message.body {
             Body::Data{ref mut sn, ..} |
             Body::Unit{ref mut sn, ..} |
             Body::Declare{ref mut sn, ..} |
@@ -80,10 +82,11 @@ async fn consume_loop(transport: Arc<Transport>) {
             Body::Query{ref mut sn, ..} => {
                 // Update the sequence number
                 let mut l_sn = zasynclock!(transport.conduit_tx_sn);
-                let sn_gen = match l_sn.get_mut(&message.inner.cid) {
+                let sn_gen = match l_sn.get_mut(&message.cid) {
                     Some(sn_gen) => sn_gen,
                     // This CID does not exist, return
-                    None => return Some(true)
+                    // @TODO: Perform the mapping of the CID?
+                    None => return false
                 };
                 *sn = if is_reliable {
                     sn_gen.reliable.get()
@@ -93,9 +96,51 @@ async fn consume_loop(transport: Arc<Transport>) {
             },
             _ => {}
         }
+        true
+    }
 
-        transport.transmit(&message).await;
-        
+    // Consume returns a similarly typed future as the channel
+    // used to stop the consume task in such a way that the two
+    // futures can be raced and exit the consume loop when needed. 
+    async fn consume(transport: &Arc<Transport>) -> Option<bool> {
+        // @TODO: Implement the reliability queue
+        // @TODO: Implement the framentation
+
+        // Initialize the buffer for the message serialization
+        let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
+        let mut sendbuff = Vec::with_capacity(buff.readable());
+
+        // Pull one message from the queue
+        let mut message = transport.queue_tx.pull().await;
+        // Update the message sequence number
+        update_sn(&transport, &mut message.inner).await;
+
+        // Serialize on the buffer
+        buff.write_message(&message.inner);
+        for s in buff.get_slices() {
+            // @TODO: Error of write_all currently ignored
+            let _ = sendbuff.write_all(s.as_slice()).await;
+        }
+
+        // If the buffer is smalle rthan the MTU, try to read more messages 
+        // and add them to the sendbuff
+        while sendbuff.len() < transport.mtu.load(Ordering::Acquire) {
+            if let Some(mut message) = transport.queue_tx.try_pull().await {
+                let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
+                update_sn(&transport, &mut message.inner).await;
+                // Serialize on the buffer
+                buff.write_message(&message.inner);
+                for s in buff.get_slices() {
+                    // @TODO: Error of write_all currently ignored
+                    let _ = sendbuff.write_all(s.as_slice()).await;
+                }
+            } else {
+                break
+            }
+        }
+
+        transport.transmit(sendbuff, message.link, message.notify).await;
+
         Some(true)
     }
     
@@ -171,6 +216,8 @@ pub struct Transport {
     lease: AtomicZInt,
     // The resolution to be used for the SN
     resolution: AtomicZInt,
+    // The MTU (it is the minimum MTU among all the links)
+    mtu: AtomicUsize,
     // The list of transport links associated to this session
     links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
@@ -213,6 +260,8 @@ impl Transport {
             lease: AtomicZInt::new(lease),
             // Session sequence number resolution
             resolution: AtomicZInt::new(resolution),
+            // The MTU is initialized to 0
+            mtu: AtomicUsize::new(0),
             // The links
             links: Mutex::new(Vec::new()),
             // The transmission queue
@@ -294,27 +343,75 @@ impl Transport {
         }
     }
 
+    fn find_min_mtu(&self, guard: &MutexGuard<'_, Vec<Link>>) -> Option<usize> {
+        let mut min: Option<usize> = None;
+
+        for i in 0..guard.len() {
+            if let Some(mtu) = min {
+                let l_mtu = guard[i].get_mtu();
+                if l_mtu < mtu {
+                    min = Some(l_mtu);
+                }
+            } else {
+                min = Some(guard[i].get_mtu());
+            }
+        }
+
+        min
+    }
+
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
         let mut guard = self.links.lock().await;
-        match self.find_link(&guard, &link.get_src(), &link.get_dst()) {
-            Some(_) => Err(zerror!(ZErrorKind::Other{
-                descr: "Trying to delete a link that does not exist!".to_string()
-            })),
-            None => {
-                guard.push(link);
-                Ok(())
-            }
+        // Check if this link is not already present
+        if self.find_link(&guard, &link.get_src(), &link.get_dst()).is_some() {
+            return Err(zerror!(ZErrorKind::Other{
+                descr: "Trying to add a link that already exists!".to_string()
+            }))
+        }
+        // Add the link to the transport
+        guard.push(link);
+        // Find the minimum MTU among all the links
+        let mtu = self.find_min_mtu(&guard);
+        // If the minimum MTU is none, something wrong happened. 
+        // At least the MTU of the recently added link should be available.
+        if let Some(mtu) = mtu {
+            // Update the transport MTU
+            self.mtu.store(mtu, Ordering::Release);
+            Ok(())
+        } else {
+            Err(zerror!(ZErrorKind::Other{
+                descr: "No suitable MTU found!".to_string()
+            }))
         }
     }
 
     pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {    
         let mut guard = self.links.lock().await;
-        match self.find_link(&guard, src, dst) {
-            Some(index) => Ok(guard.remove(index)),
-            None => Err(zerror!(ZErrorKind::Other{
-                descr: "Trying to delete a link that does not exist!".to_string()
-            }))
+        // Check if the link is present in the transport
+        let index = self.find_link(&guard, src, dst);
+        // The link is not present, return an error
+        let link = if let Some(i) = index {
+                // Remove the link 
+                guard.remove(i)
+            } else {
+                return Err(zerror!(ZErrorKind::Other{
+                    descr: "Trying to delete a link that does not exist!".to_string()
+                }))
+        };
+        
+        // Find the minimum MTU among all the links
+        let mtu = self.find_min_mtu(&guard);
+        // If the minimum MTU is none, no links are left
+        if let Some(mtu) = mtu {
+            // Update the transport MTU
+            self.mtu.store(mtu, Ordering::Release);
+        } else {
+            // Update the transport MTU
+            // An MTU of 0 means that no messages can be sent
+            self.mtu.store(0, Ordering::Release);
         }
+
+        Ok(link)
     }
 
 
@@ -350,14 +447,14 @@ impl Transport {
         }
     }
     
-    async fn transmit(&self, message: &MessageTx) {
+    async fn transmit(&self, buffer: Vec<u8>, link: Option<(Locator, Locator)>, notify: Option<Sender<ZResult<()>>>) {
         // Send the message on the link(s)
-        let guard = self.links.lock().await;
-        let res = match &message.link {
+        let guard = zasynclock!(self.links);
+        let res = match link {
             // Send the message to the indicated link
             Some((src, dst)) => {
                 match self.find_link(&guard, &src, &dst) {
-                    Some(index) => guard[index].send(&message.inner).await,
+                    Some(index) => guard[index].send(buffer).await,
                     None => Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
                     }))
@@ -367,7 +464,7 @@ impl Transport {
                 // Send the message on the first link
                 // @TODO: Adopt an intelligent selection of the links to use
                 match guard.get(0) {
-                    Some(link) => link.send(&message.inner).await,
+                    Some(link) => link.send(buffer).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
                         descr: "Message dropped because transport has no links!".to_string()
                     }))
@@ -375,7 +472,7 @@ impl Transport {
             }
         };
 
-        if let Some(notify) = &message.notify {
+        if let Some(notify) = notify {
             notify.send(res).await;
         }
     }

@@ -26,10 +26,8 @@ use crate::core::{
 };
 use crate::io::{
     ArcSlice,
-    RBuf,
-    WBuf,
+    RBuf
 };
-use crate::proto::Message;
 use crate::session::{
     SessionManagerInner,
     Transport
@@ -38,20 +36,23 @@ use crate::link::{
     Link,
     Locator
 };
+use zenoh_util::zasynclock;
+
 
 // Size of buffer used to read from socket
-const READ_BUFFER_SIZE: usize = 128*1024;
-// Initial capacity of WBuf to encode a Message to write
-const WRITE_BUFFER_CAPACITY: usize = 128;
+const READ_BUFFER_SIZE: usize = 128 * 1_024;
+// Default MTU
+const DEFAULT_MTU: usize = 8_192;
 
 
 #[macro_export]
 macro_rules! get_tcp_addr {
     ($locator:expr) => (match $locator {
         Locator::Tcp(addr) => addr,
-        _ => return Err(zerror!(ZErrorKind::InvalidLocator {
-            descr: format!("Not a TCP locator: {}", $locator)
-        }))
+        // @TODO: uncomment the following when more links are added
+        // _ => return Err(zerror!(ZErrorKind::InvalidLocator {
+        //     descr: format!("Not a TCP locator: {}", $locator)
+        // }))
     });
 }
 
@@ -103,29 +104,9 @@ impl LinkTcp {
         Ok(())
     }
     
-    pub async fn send(&self, message: &Message) -> ZResult<()> {
-        // println!(">>>> SEND MSG: {:?}", message.body);
-
-        // let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
-        // buff.write_message(&message);
-        // let mut ioslices = buff.as_ioslices();
-        // while ! ioslices.is_empty() {
-        //     match (&self.socket).write_vectored(&ioslices).await {
-        //         Ok(size) => {IoSlice::advance(&mut ioslices, size);},
-        //         err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
-        //     }
-        // }
-        
-        let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
-        buff.write_message(&message);
-        let mut sendbuff = Vec::with_capacity(buff.readable());
-        for s in buff.get_slices() {
-            sendbuff.write_all(s.as_slice()).await
-                .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
-        }
-        (&self.socket).write_all(&sendbuff).await
+    pub async fn send(&self, buffer: Vec<u8>) -> ZResult<()> {
+        (&self.socket).write_all(&buffer).await
             .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
-
         Ok(())
     }
 
@@ -147,7 +128,7 @@ impl LinkTcp {
     }
 
     pub fn get_mtu(&self) -> usize {
-        65_536
+        DEFAULT_MTU
     }
 
     pub fn is_ordered(&self) -> bool {
@@ -176,12 +157,12 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 descr: format!("{}", e)
             })))
         }
-        // println!("++++++ TCP RECV loop");
+        // Read all the messages
         loop {
             let pos = buff.get_pos();
             match buff.read_message() {
                 Ok(message) => {
-                    let mut guard = link.transport.lock().await;
+                    let mut guard = zasynclock!(link.transport);
                     if let Some(transport) = guard.receive_message(&dst, &src, message).await {
                         *guard = transport;
                     }
@@ -196,6 +177,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
                 }
             }
         }
+
         Some(Command::Ok)
     }
 

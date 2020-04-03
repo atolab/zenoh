@@ -72,6 +72,18 @@ impl<T> CreditQueue<T> {
         }
     }
 
+    pub async fn try_push(&self, t: T, priority: usize) -> Option<T> {
+        let mut q = zasynclock!(self.state);
+        if !q[priority].is_full() {
+            q[priority].push(t);
+            if self.not_empty.has_waiting_list() {
+                self.not_empty.notify(q).await;
+            } 
+            return None;
+        }
+        Some(t)          
+    }
+
     pub async fn push(&self, t: T, priority: usize) {
         loop {
             let mut q = zasynclock!(self.state);
@@ -84,6 +96,21 @@ impl<T> CreditQueue<T> {
             }
             self.not_full.wait(q).await;  
         }            
+    }
+
+    pub async fn try_pull(&self) -> Option<T> {
+        let mut q = zasynclock!(self.state);
+        for priority in 0usize..q.len() {
+            if self.credit[priority].load(Ordering::Acquire) > 0 {
+                if let Some(e) = q[priority].pull() {
+                    if self.not_full.has_waiting_list() {
+                        self.not_full.notify(q).await;
+                    }
+                    return Some(e);
+                }
+            }
+        }
+        None
     }
 
     pub async fn pull(&self) -> T {
