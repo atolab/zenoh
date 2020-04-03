@@ -21,11 +21,11 @@ fn main() {
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
 
-        let reskey = RId(session.declare_resource(&RName("/test/thr".to_string())).await.unwrap());
-        let _publ = session.declare_publisher(&reskey).await.unwrap();
+        let rid = session.declare_resource(RName("/test/thr".to_string())).await.unwrap();
+        let _publ = session.declare_publisher(rid.into()).await.unwrap();
 
         loop {
-            session.write(&reskey, data.clone()).await.unwrap();
+            session.write(rid.into(), data.clone()).await.unwrap();
         }
     })
 }

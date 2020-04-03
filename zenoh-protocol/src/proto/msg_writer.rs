@@ -257,7 +257,7 @@ impl WBuf {
                 self.write(SUBSCRIBER | sflag | rflag | cflag);
                 self.write_reskey(key);
                 if sflag != 0 {
-                    self.write_submode(&info.mode, &info.period);
+                    self.write_submode(info.mode, info.period);
                 }
             }
 
@@ -271,7 +271,7 @@ impl WBuf {
         }
     }
 
-    fn write_submode(&mut self, mode: &SubMode, period: &Option<Period>) {
+    fn write_submode(&mut self, mode: SubMode, period: Option<Period>) {
         use super::decl::{SubMode::*, id::*};
         let period_mask: u8 = if period.is_some() { PERIOD } else { 0x00 };
         match mode {

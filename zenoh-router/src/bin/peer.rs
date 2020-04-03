@@ -15,51 +15,51 @@ pub struct PrintPrimitives {
 #[async_trait]
 impl Primitives for PrintPrimitives {
 
-    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: ResKey) {
         println!("  [RECV] RESOURCE ({:?}) ({:?})", rid, reskey);
     }
     async fn forget_resource(&self, rid: ZInt) {
         println!("  [RECV] FORGET RESOURCE ({:?})", rid);
     }
     
-    async fn publisher(&self, reskey: &ResKey) {
+    async fn publisher(&self, reskey: ResKey) {
         println!("  [RECV] PUBLISHER ({:?})", reskey);
     }
-    async fn forget_publisher(&self, reskey: &ResKey) {
+    async fn forget_publisher(&self, reskey: ResKey) {
         println!("  [RECV] FORGET PUBLISHER ({:?})", reskey);
     }
     
-    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
+    async fn subscriber(&self, reskey: ResKey, sub_info: SubInfo) {
         println!("  [RECV] SUBSCRIBER ({:?}) ({:?})", reskey, sub_info);
     }
-    async fn forget_subscriber(&self, reskey: &ResKey) {
+    async fn forget_subscriber(&self, reskey: ResKey) {
         println!("  [RECV] FORGET SUBSCRIBER ({:?})", reskey);
     }
     
-    async fn storage(&self, reskey: &ResKey) {
+    async fn storage(&self, reskey: ResKey) {
         println!("  [RECV] STORAGE ({:?})", reskey);
     }
-    async fn forget_storage(&self, reskey: &ResKey) {
+    async fn forget_storage(&self, reskey: ResKey) {
         println!("  [RECV] FORGET STORAGE ({:?})", reskey);
     }
     
-    async fn eval(&self, reskey: &ResKey) {
+    async fn eval(&self, reskey: ResKey) {
         println!("  [RECV] EVAL ({:?})", reskey);
     }
-    async fn forget_eval(&self, reskey: &ResKey) {
+    async fn forget_eval(&self, reskey: ResKey) {
         println!("  [RECV] FORGET EVAL ({:?})", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
+    async fn data(&self, reskey: ResKey, _reliable: bool, _info: Option<RBuf>, _payload: RBuf) {
         println!("  [RECV] DATA ({:?})", reskey);
     }
-    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
+    async fn query(&self, reskey: ResKey, predicate: String, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         println!("  [RECV] QUERY ({:?}) ({:?}) ({:?}) ({:?}) ({:?})", reskey, predicate, qid, target, consolidation);
     }
-    async fn reply(&self, qid: ZInt, reply: &Reply) {
+    async fn reply(&self, qid: ZInt, reply: Reply) {
         println!("  [RECV] REPLY ({:?}) ({:?})", qid, reply);
     }
-    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
+    async fn pull(&self, is_final: bool, reskey: ResKey, pull_id: ZInt, max_samples: Option<ZInt>) {
         println!("  [RECV] PULL ({:?}) ({:?}) ({:?}) ({:?})", is_final, reskey, pull_id, max_samples);
     }
 
@@ -102,12 +102,12 @@ fn main() {
             mode: SubMode::Push,
             period: None
         };
-        primitives.subscriber(&"/demo/**".to_string().into(), &sub_info).await;
+        primitives.subscriber("/demo/**".to_string().into(), sub_info).await;
 
         let res: ResKey = ["/demo/peer/", &port].concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
-            primitives.data(&res, true, &None, RBuf::from(vec![1])).await;
+            primitives.data(res.clone(), true, None, RBuf::from(vec![1])).await;
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     });

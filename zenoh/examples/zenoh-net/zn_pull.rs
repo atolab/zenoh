@@ -25,7 +25,7 @@ fn main() {
             mode: SubMode::Pull,
             period: None
         };
-        let sub = session.declare_subscriber(&RName(uri), &sub_info, &data_handler).await.unwrap();
+        let sub = session.declare_subscriber(RName(uri), sub_info, &data_handler).await.unwrap();
 
         println!("Press <enter> to pull data...");
         let mut reader = std::io::stdin();

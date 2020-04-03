@@ -21,7 +21,7 @@ fn base_test() {
             mode: SubMode::Push,
             period: None
         };
-            Tables::declare_subscription(&tables, &sex, 1, "/four/five", &sub_info).await;
+            Tables::declare_subscription(&tables, &sex, 1, "/four/five", sub_info).await;
 
         Tables::print(&tables);
     });
@@ -120,13 +120,13 @@ fn clean_test() {
             period: None
         };
     
-        Tables::declare_subscription(&tables, &sex0, 0, "/todrop1/todrop11", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 0, "/todrop1/todrop11", sub_info).await;
         let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
         assert!(optres2.is_some());
         let res2 = optres2.unwrap();
         assert!(res2.upgrade().is_some());
 
-        Tables::declare_subscription(&tables, &sex0, 1, "/todrop12", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 1, "/todrop12", sub_info).await;
         let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop12");
         assert!(optres3.is_some());
         let res3 = optres3.unwrap();
@@ -149,7 +149,7 @@ fn clean_test() {
 
         // --------------
         Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop3").await;
-        Tables::declare_subscription(&tables, &sex0, 0, "/todrop3", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 0, "/todrop3", sub_info).await;
         let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop3");
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
@@ -164,8 +164,8 @@ fn clean_test() {
         // --------------
         Tables::declare_resource(&tables, &sex0, 3, 0, "/todrop4").await;
         Tables::declare_resource(&tables, &sex0, 4, 0, "/todrop5").await;
-        Tables::declare_subscription(&tables, &sex0, 0, "/todrop5", &sub_info).await;
-        Tables::declare_subscription(&tables, &sex0, 0, "/todrop6", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 0, "/todrop5", sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 0, "/todrop6", sub_info).await;
 
         let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop4");
         assert!(optres1.is_some());
@@ -202,17 +202,17 @@ fn client_test() {
         
         let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
         Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client").await;
-        Tables::declare_subscription(&tables, &sex0, 11, "/**", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex0, 11, "/**", sub_info).await;
         Tables::declare_resource(&tables, &sex0, 12, 11, "/z1_pub1").await;
 
         let sex1 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
         Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client").await;
-        Tables::declare_subscription(&tables, &sex1, 21, "/**", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex1, 21, "/**", sub_info).await;
         Tables::declare_resource(&tables, &sex1, 22, 21, "/z2_pub1").await;
 
         let sex2 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
         Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client").await;
-        Tables::declare_subscription(&tables, &sex2, 31, "/**", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex2, 31, "/**", sub_info).await;
 
         
         let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1"); 

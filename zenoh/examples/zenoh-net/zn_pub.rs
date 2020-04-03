@@ -22,13 +22,13 @@ fn main() {
         let suffix = resource_name.split_off(resource_name.rfind('/').unwrap());
 
         println!("Declaring Resource {} ", resource_name);
-        let rid = session.declare_resource(&RName(resource_name.clone())).await.unwrap();
+        let rid = session.declare_resource(RName(resource_name.clone())).await.unwrap();
 
         println!("Declaring Publisher on {}/**", resource_name);
-        let publ = session.declare_publisher(&RIdWithSuffix(rid.clone(), "/**".to_string())).await.unwrap();
+        let publ = session.declare_publisher(RIdWithSuffix(rid, "/**".to_string())).await.unwrap();
 
         println!("Writing Data ('{}': '{}')...\n", uri, value);
-        session.write(&RIdWithSuffix(rid, suffix), value.as_bytes().to_vec()).await.unwrap();
+        session.write(RIdWithSuffix(rid, suffix), value.as_bytes().to_vec()).await.unwrap();
 
         session.undeclare_publisher(publ).await.unwrap();
         session.close().await.unwrap();

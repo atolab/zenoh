@@ -29,7 +29,7 @@ fn tables_bench(c: &mut Criterion) {
     for p in [8, 32, 256, 1024, 8192].iter() {
       for i in 1..(*p) {
         Tables::declare_resource(&tables, &sex1, i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
-        Tables::declare_subscription(&tables, &sex1, i, "", &sub_info).await;
+        Tables::declare_subscription(&tables, &sex1, i, "", sub_info).await;
       }
 
       tables_bench.bench_function(BenchmarkId::new("direct_route", p), |b| b.iter(|| {

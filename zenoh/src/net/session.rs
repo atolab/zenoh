@@ -95,10 +95,10 @@ impl Session {
         info
     }
 
-    pub async fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
+    pub async fn declare_resource(&self, resource: ResKey) -> ZResult<ResourceId> {
         let inner = &mut self.inner.write();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
-        let rname = inner.reskey_to_resname(resource)?;
+        let rname = inner.reskey_to_resname(&resource)?;
         inner.resources.insert(rid, rname);
 
         let primitives = inner.primitives.as_ref().unwrap();
@@ -117,7 +117,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
+    pub async fn declare_publisher(&self, resource: ResKey) -> ZResult<Publisher> {
         let inner = &mut self.inner.write();
 
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -138,17 +138,17 @@ impl Session {
         // Before calling forget_publisher(reskey), check if this was the last one.
         if !inner.publishers.values().any(|p| p.reskey == publisher.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_publisher(&publisher.reskey).await;
+            primitives.forget_publisher(publisher.reskey).await;
         }
         Ok(())
     }
 
-    pub async fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
+    pub async fn declare_subscriber<DataHandler>(&self, resource: ResKey, info: SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
-        let resname = inner.reskey_to_resname(resource)?;
+        let resname = inner.reskey_to_resname(&resource)?;
         let dhandler = Arc::new(RwLock::new(data_handler));
         let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
@@ -168,18 +168,18 @@ impl Session {
         // Before calling forget_subscriber(reskey), check if this was the last one.
         if !inner.subscribers.values().any(|s| s.reskey == subscriber.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_subscriber(&subscriber.reskey).await;
+            primitives.forget_subscriber(subscriber.reskey).await;
         }
         Ok(())
     }
 
-    pub async fn declare_storage<DataHandler, QueryHandler>(&self, resource: &ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
+    pub async fn declare_storage<DataHandler, QueryHandler>(&self, resource: ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static ,
         QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
-        let resname = inner.reskey_to_resname(resource)?;
+        let resname = inner.reskey_to_resname(&resource)?;
         let dhandler = Arc::new(RwLock::new(data_handler));
         let qhandler = Arc::new(RwLock::new(query_handler));
         let sto = Storage{ id, reskey: resource.clone(), resname, dhandler, qhandler };
@@ -213,12 +213,12 @@ impl Session {
         // Before calling forget_storage(reskey), check if this was the last one.
         if !inner.storages.values().any(|s| s.reskey == storage.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_storage(&storage.reskey).await;
+            primitives.forget_storage(storage.reskey).await;
         }
         Ok(())
     }
 
-    pub async fn declare_eval<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
+    pub async fn declare_eval<QueryHandler>(&self, resource: ResKey, query_handler: QueryHandler) -> ZResult<Eval>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -252,21 +252,21 @@ impl Session {
         // Before calling forget_eval(reskey), check if this was the last one.
         if !inner.evals.values().any(|e| e.reskey == eval.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_eval(&eval.reskey).await;
+            primitives.forget_eval(eval.reskey).await;
         }
         Ok(())
     }
 
-    pub async fn write(&self, resource: &ResKey, payload: Vec<u8>) -> ZResult<()> {
+    pub async fn write(&self, resource: ResKey, payload: Vec<u8>) -> ZResult<()> {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
-        primitives.data(resource, true, &None, payload.into()).await;
+        primitives.data(resource, true, None, payload.into()).await;
         Ok(())
     }
 
     pub async fn query<RepliesHandler>(&self,
-        resource:        &ResKey,
-        predicate:       &str,
+        resource:        ResKey,
+        predicate:       String,
         replies_handler: RepliesHandler,
         target:          QueryTarget,
         consolidation:   QueryConsolidation
@@ -293,7 +293,7 @@ impl Session {
 #[async_trait]
 impl Primitives for Session {
 
-    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
+    async fn resource(&self, rid: ZInt, reskey: ResKey) {
         println!("++++ recv Resource {} {:?} ", rid, reskey);
     }
 
@@ -301,41 +301,41 @@ impl Primitives for Session {
         println!("++++ recv Forget Resource {} ", rid);
     }
 
-    async fn publisher(&self, reskey: &ResKey) {
+    async fn publisher(&self, reskey: ResKey) {
         println!("++++ recv Publisher {:?} ", reskey);
     }
 
-    async fn forget_publisher(&self, reskey: &ResKey) {
+    async fn forget_publisher(&self, reskey: ResKey) {
         println!("++++ recv Forget Publisher {:?} ", reskey);
     }
 
-    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
+    async fn subscriber(&self, reskey: ResKey, sub_info: SubInfo) {
         println!("++++ recv Subscriber {:?} , {:?}", reskey, sub_info);
     }
 
-    async fn forget_subscriber(&self, reskey: &ResKey) {
+    async fn forget_subscriber(&self, reskey: ResKey) {
         println!("++++ recv Forget Subscriber {:?} ", reskey);
     }
 
-    async fn storage(&self, reskey: &ResKey) {
+    async fn storage(&self, reskey: ResKey) {
         println!("++++ recv Storage {:?} ", reskey);
     }
 
-    async fn forget_storage(&self, reskey: &ResKey) {
+    async fn forget_storage(&self, reskey: ResKey) {
         println!("++++ recv Forget Storage {:?} ", reskey);
     }
     
-    async fn eval(&self, reskey: &ResKey) {
+    async fn eval(&self, reskey: ResKey) {
         println!("++++ recv Eval {:?} ", reskey);
     }
 
-    async fn forget_eval(&self, reskey: &ResKey) {
+    async fn forget_eval(&self, reskey: ResKey) {
         println!("++++ recv Forget Eval {:?} ", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {
+    async fn data(&self, reskey: ResKey, _reliable: bool, _info: Option<RBuf>, payload: RBuf) {
         let inner = self.inner.read();
-        match inner.reskey_to_resname(reskey) {
+        match inner.reskey_to_resname(&reskey) {
             Ok(resname) => {
                 // Call matching subscribers
                 for sub in inner.subscribers.values() {
@@ -358,11 +358,11 @@ impl Primitives for Session {
         }
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {
+    async fn query(&self, reskey: ResKey, predicate: String, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {
         println!("++++ recv Query {:?} ? {} ", reskey, predicate);
     }
 
-    async fn reply(&self, qid: ZInt, reply: &Reply) {
+    async fn reply(&self, qid: ZInt, reply: Reply) {
         println!("++++ recv Reply {} : {:?} ", qid, reply);
         let inner = &mut self.inner.write();
         let rhandler = &mut * match inner.queries.get(&qid) {
@@ -382,14 +382,14 @@ impl Primitives for Session {
                     }
                 };
                 let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
-                rhandler(&resname, payload.clone(), info);
+                rhandler(&resname, payload, info);
             }
             Reply::SourceFinal {..} => {} // @ TODO
             Reply::ReplyFinal {..} => {} // @ TODO remove query
         }
     }
 
-    async fn pull(&self, _is_final: bool, reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {
+    async fn pull(&self, _is_final: bool, reskey: ResKey, _pull_id: ZInt, _max_samples: Option<ZInt>) {
         println!("++++ recv Pull {:?} ", reskey);
     }
 

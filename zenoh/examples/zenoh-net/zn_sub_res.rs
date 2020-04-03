@@ -25,9 +25,9 @@ fn main() {
             period: None
         };
         
-        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
+        let sub = session.declare_subscriber(uri.clone().into(), sub_info, data_handler).await.unwrap();
 
-        let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
+        let sub2 = session.declare_subscriber(uri.into(), sub_info,
             move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
                 println!("CLOSURE >> [Subscription listener] Received ('{}': '{}')", res_name, payload);
             }

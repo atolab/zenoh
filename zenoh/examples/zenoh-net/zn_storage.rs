@@ -46,7 +46,7 @@ fn main() {
         let session = open(&locator, None).await.unwrap();
 
         println!("Declaring Storage on {}", uri);
-        let storage = session.declare_storage(&RName(uri), data_handler, query_handler).await.unwrap();
+        let storage = session.declare_storage(RName(uri), data_handler, query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];
