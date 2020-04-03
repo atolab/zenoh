@@ -43,16 +43,19 @@ impl<T> CircularBuffer<T> {
         self.buffer.get(0)
     }
     
+    #[inline]
     #[allow(dead_code)]
     pub(crate) fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
 
+    #[inline]
     #[allow(dead_code)]
     pub(crate) fn is_full(&self) -> bool{
         self.n == self.capacity
     }
 
+    #[inline]
     #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.n

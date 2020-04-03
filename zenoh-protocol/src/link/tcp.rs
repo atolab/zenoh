@@ -287,6 +287,8 @@ impl ManagerTcpInner {
         }
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     async fn new_link(&self, a_self: &Arc<Self>, dst: &Locator, transport: Arc<Transport>) -> ZResult<Arc<LinkTcp>> {
         let dst = get_tcp_addr!(dst);
         
@@ -309,6 +311,8 @@ impl ManagerTcpInner {
         Ok(link)
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
         let src = get_tcp_addr!(src);
         let dst = get_tcp_addr!(dst);
@@ -322,6 +326,8 @@ impl ManagerTcpInner {
         }
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
         let src = get_tcp_addr!(src);
         let dst = get_tcp_addr!(dst);
@@ -335,6 +341,8 @@ impl ManagerTcpInner {
         }
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     async fn new_listener(&self, a_self: &Arc<Self>, locator: &Locator) -> ZResult<()> {
         let addr = get_tcp_addr!(locator);
   
@@ -363,6 +371,8 @@ impl ManagerTcpInner {
         Ok(())
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     async fn del_listener(&self, _a_self: &Arc<Self>, locator: &Locator) -> ZResult<()> {
         let addr = get_tcp_addr!(locator);
 
