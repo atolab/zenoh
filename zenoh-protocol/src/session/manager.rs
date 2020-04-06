@@ -43,6 +43,8 @@ pub const OPEN_SESSION_TIMEOUT: Duration = Duration::from_secs(10);
 // The default sequence number resolution takes 2 bytes on the wire: 14 useful bits
 // 2^14 = 16_384 => Max Seq Num = 16_384
 pub const SEQ_NUM_RESOLUTION: ZInt = 16_384;
+// The default batch size in bytes for the transport
+pub const BATCH_SIZE: usize = 8_192;
 
 
 // Define an empty SessionCallback for the initial session
@@ -338,10 +340,6 @@ impl Session {
         self.0.transport.clone()
     }
 
-    pub async fn set_resolution(&self, resolution: ZInt) {
-        self.0.transport.set_resolution(resolution).await
-    }
-
     pub async fn close(&self) -> ZResult<()> {
         self.0.close().await
     }
@@ -403,7 +401,7 @@ impl SessionInner {
             id,
             peer,
             // @TODO: make the sequence number resolution configurable
-            transport: Arc::new(Transport::new(lease, SEQ_NUM_RESOLUTION)),
+            transport: Arc::new(Transport::new(lease, SEQ_NUM_RESOLUTION, BATCH_SIZE)),
             manager,
             channels: RwLock::new(HashMap::new())
         }
@@ -472,22 +470,33 @@ impl SessionInner {
             peer_id, reason_id, conduit_id, properties
         );
 
-        // Send the message for transmission
-        let link = None;    // The preferred link to reply on 
-        // TODO: If error in send, retry
-        let res = self.transport.send(message, link, PRIO_DATA).await;
+        // Get the transport links
+        let links = self.transport.get_links().await;
+        for l in links.iter() {
+            // Send the message for transmission
+            let link = Some((l.get_src(), l.get_dst()));    // The preferred link to reply on 
+            // TODO: If error in send, retry
+            self.transport.send(message.clone(), link, PRIO_DATA).await?;
+        }
 
         // Close the transport
         self.transport.close().await?;
 
+        // Remove the sessino from the manager
+        self.delete().await?;
+
+        Ok(())
+    }
+
+    pub(crate) async fn delete(&self) -> ZResult<()> {
         // Remove the session from the manager
         self.manager.del_session(&self.peer).await?;
 
-        res
+        Ok(())
     }
 
     /*************************************/
-    /*              PROCESS              */
+    /*          PROCESS MESSAGES         */
     /*************************************/
     pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
         whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: ZInt
@@ -509,7 +518,7 @@ impl SessionInner {
                 // Get a new or an existing session
                 let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
                 // Configure the lease time on the transport
-                session_inner.transport.set_lease(lease);
+                session_inner.transport.set_lease(lease).await;
                 // Add the link on the transport
                 session_inner.transport.add_link(link).await?;
                 // Notify the opener
@@ -523,15 +532,17 @@ impl SessionInner {
         }
     }
 
-    pub(crate) async fn process_close(&self, _src: &Locator, _dst: &Locator,
+    pub(crate) async fn process_close(&self, 
+        src: &Locator, 
+        dst: &Locator,
         pid: &Option<PeerId>, _reason: u8
     ) {
         // Check if the close target is me
         if pid != &Some(self.peer.clone()) {
             return 
-        } 
-        let _ = self.manager.del_session(&self.peer).await;
-        let _ = self.transport.close().await;
+        }
+        // Delete the link
+        let _ = self.transport.del_link(dst, src).await;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -551,7 +562,7 @@ impl SessionInner {
         let target = self.manager.get_or_new_session(&self.manager, pid, whatami).await;
 
         // Set the lease to the transport
-        target.transport.set_lease(lease);
+        target.transport.set_lease(lease).await;
 
         // Remove the link from self
         let link = self.transport.del_link(dst, src).await?;

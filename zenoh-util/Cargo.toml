@@ -23,3 +23,7 @@ path = "examples/priority_queue.rs"
 [[example]]
 name = "credit_queue"
 path = "examples/credit_queue.rs"
+
+[[example]]
+name = "credit_queue_batching"
+path = "examples/credit_queue_batching.rs"

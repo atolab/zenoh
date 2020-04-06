@@ -42,7 +42,7 @@ use zenoh_util::zasynclock;
 // Size of buffer used to read from socket
 const READ_BUFFER_SIZE: usize = 128 * 1_024;
 // Default MTU
-const DEFAULT_MTU: usize = 8_192;
+const DEFAULT_MTU: usize = 65_535;
 
 
 #[macro_export]

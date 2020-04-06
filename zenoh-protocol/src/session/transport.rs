@@ -4,7 +4,6 @@ use async_std::sync::{
     channel,
     Mutex,
     MutexGuard,
-    Receiver,
     RwLock,
     Sender,
 };
@@ -12,6 +11,7 @@ use async_std::task;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::atomic::{
+    AtomicBool,
     AtomicUsize,
     Ordering
 };
@@ -98,17 +98,14 @@ async fn consume_loop(transport: Arc<Transport>) {
         }
         true
     }
-
-    // Consume returns a similarly typed future as the channel
-    // used to stop the consume task in such a way that the two
-    // futures can be raced and exit the consume loop when needed. 
-    async fn consume(transport: &Arc<Transport>) -> Option<bool> {
+    
+    // The loop to consume the messages in the queue
+    while transport.is_active() {
         // @TODO: Implement the reliability queue
-        // @TODO: Implement the framentation
+        // @TODO: Implement the fragmentation
 
         // Initialize the buffer for the message serialization
         let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
-        let mut sendbuff = Vec::with_capacity(buff.readable());
 
         // Pull one message from the queue
         let mut message = transport.queue_tx.pull().await;
@@ -117,48 +114,37 @@ async fn consume_loop(transport: Arc<Transport>) {
 
         // Serialize on the buffer
         buff.write_message(&message.inner);
+        // Create the send buffer
+        let mut sendbuff = Vec::with_capacity(buff.readable());
+
         for s in buff.get_slices() {
-            // @TODO: Error of write_all currently ignored
             let _ = sendbuff.write_all(s.as_slice()).await;
         }
 
-        // If the buffer is smalle rthan the MTU, try to read more messages 
-        // and add them to the sendbuff
-        while sendbuff.len() < transport.mtu.load(Ordering::Acquire) {
-            if let Some(mut message) = transport.queue_tx.try_pull().await {
+        // If the buffer is smaller than the batch size, try to read 
+        // more messages and add them to the sendbuff
+        let batchsize = transport.batchsize.load(Ordering::Acquire);
+        let mut guard = transport.queue_tx.lock().await;
+        while sendbuff.len() < batchsize {
+            if let Some(mut message) = guard.try_pull() {
                 let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
                 update_sn(&transport, &mut message.inner).await;
                 // Serialize on the buffer
                 buff.write_message(&message.inner);
+                // @TODO: If the new message does not fit in the batchsize, we need to 
+                //        we need to put it apart and send it in the next iteration.
+                //        Currently we stop the loop when the new message exceeds the
+                //        maximum batch size
                 for s in buff.get_slices() {
-                    // @TODO: Error of write_all currently ignored
                     let _ = sendbuff.write_all(s.as_slice()).await;
                 }
             } else {
                 break
             }
         }
+        guard.unlock().await;
 
         transport.transmit(sendbuff, message.link, message.notify).await;
-
-        Some(true)
-    }
-    
-    // The loop to consume the messages in the queue
-    loop {
-        // Future to wait for the stop signal
-        let stop = transport.signal_recv.recv();
-        // Future to wait for a message to send
-        let consume = consume(&transport);
-        // Race the two futures
-        match consume.race(stop).await {
-            // Message received, it is Ok, continue
-            Some(true) => continue,
-            // Stop signal received, it is Err, break
-            Some(false) => break,
-            // Error on the channel, it is Err, break
-            None => break
-        }
     }
 }
 
@@ -212,12 +198,18 @@ pub struct Transport {
     session: RwLock<Option<Arc<SessionInner>>>,
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
+    // Session is active or not
+    active: AtomicBool,
     // The timeout after which the session is closed if no messages are received
     lease: AtomicZInt,
     // The resolution to be used for the SN
     resolution: AtomicZInt,
     // The MTU (it is the minimum MTU among all the links)
     mtu: AtomicUsize,
+    // The default batchsize (it must be less or equal than the MTU)
+    default_batchsize: AtomicUsize,
+    // The active batchsize (it must be less or equal than the MTU)
+    batchsize: AtomicUsize,
     // The list of transport links associated to this session
     links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
@@ -225,13 +217,10 @@ pub struct Transport {
     // The conduits sequence number generators
     conduit_tx_sn: Mutex<HashMap<ZInt, ConduitTxSeqNum>>,
     conduit_rx_sn: Mutex<HashMap<ZInt, ConduitRxSeqNum>>,
-    // The channel endpoints for terminating the consume_loop task
-    signal_send: Sender<bool>,
-    signal_recv: Receiver<bool>
 }
 
 impl Transport {
-    pub(crate) fn new(lease: ZInt, resolution: ZInt) -> Transport {
+    pub(crate) fn new(lease: ZInt, resolution: ZInt, batchsize: usize) -> Transport {
         // Build the transmission queue
         let queue_tx = vec![
             (SIZE_CTRL, CRED_CTRL),
@@ -249,19 +238,22 @@ impl Transport {
         let mut conduit_rx_sn = HashMap::new();
         conduit_rx_sn.insert(zero, ConduitRxSeqNum::new(resolution-1, resolution-1, resolution));
 
-        // Build the channel used to terminate the consume task
-        let (sender, receiver) = channel::<bool>(1);
-
         Transport {
             // Session manager and Callback
             session: RwLock::new(None), 
             callback: RwLock::new(None), 
+            // Session is active or not
+            active: AtomicBool::new(false),
             // Session lease
             lease: AtomicZInt::new(lease),
             // Session sequence number resolution
             resolution: AtomicZInt::new(resolution),
             // The MTU is initialized to 0
             mtu: AtomicUsize::new(0),
+            // The default batchsize
+            default_batchsize: AtomicUsize::new(batchsize),
+            // The active batchsize, it is initialized to 0 as the MTU
+            batchsize: AtomicUsize::new(0),
             // The links
             links: Mutex::new(Vec::new()),
             // The transmission queue
@@ -269,9 +261,6 @@ impl Transport {
             // The sequence number generator
             conduit_tx_sn: Mutex::new(conduit_tx_sn),
             conduit_rx_sn: Mutex::new(conduit_rx_sn),
-            // The channels used to signal the termination of consume task
-            signal_send: sender,
-            signal_recv: receiver
         }
     }
 
@@ -280,10 +269,40 @@ impl Transport {
         *self.callback.try_write().unwrap() = Some(callback);
     }
 
-    pub(crate) fn set_lease(&self, lease: ZInt) {
+    pub(crate) fn start(transport: Arc<Transport>) {
+        transport.active.store(true, Ordering::Release);
+        task::spawn(consume_loop(transport));
+    }
+
+    pub(crate) async fn stop(&self) {
+        self.active.store(false, Ordering::Release);
+    }
+
+    #[inline]
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    pub(crate) async fn set_lease(&self, lease: ZInt) {
         self.lease.store(lease, Ordering::Release);
     }
 
+    #[allow(dead_code)]
+    pub(crate) async fn get_lease(&self) -> ZInt {
+        self.lease.load(Ordering::Acquire)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn set_batch_size(&self, size: usize) {
+        // Acquire the lock on the links, this is necessary to ensure
+        // that the right batch size is activated based on the available
+        // MTUs of the various links 
+        let guard = zasynclock!(self.links);
+        self.default_batchsize.store(size, Ordering::Release);
+        self.update_mtu_and_batchsize(&guard);
+    }
+
+    #[allow(dead_code)]
     pub(crate) async fn set_resolution(&self, resolution: ZInt) {
         let mut c_tx = zasynclock!(self.conduit_tx_sn);
         let mut c_rx = zasynclock!(self.conduit_rx_sn);
@@ -304,20 +323,17 @@ impl Transport {
         self.resolution.store(resolution, Ordering::Release);
     }
 
+    #[allow(dead_code)]
+    pub(crate) async fn get_resolution(&self) -> ZInt {
+        self.resolution.load(Ordering::Acquire)
+    }
+
     pub(crate) async fn get_links(&self) -> Vec<Link> {
         let mut vec = Vec::new();
         for l in self.links.lock().await.iter() {
             vec.push(l.clone());
         }
         vec
-    }
-
-    pub(crate) fn start(transport: Arc<Transport>) {
-        task::spawn(consume_loop(transport));
-    }
-
-    pub(crate) async fn stop(&self) {
-        self.signal_send.send(false).await;
     }
 
 
@@ -343,50 +359,60 @@ impl Transport {
         }
     }
 
-    fn find_min_mtu(&self, guard: &MutexGuard<'_, Vec<Link>>) -> Option<usize> {
-        let mut min: Option<usize> = None;
-
+    fn update_mtu_and_batchsize(&self, guard: &MutexGuard<'_, Vec<Link>>) {
+        // Find the minimum MTU
+        let mut min_mtu: Option<usize> = None;
         for i in 0..guard.len() {
-            if let Some(mtu) = min {
+            if let Some(mtu) = min_mtu {
                 let l_mtu = guard[i].get_mtu();
                 if l_mtu < mtu {
-                    min = Some(l_mtu);
+                    min_mtu = Some(l_mtu);
                 }
             } else {
-                min = Some(guard[i].get_mtu());
+                min_mtu = Some(guard[i].get_mtu());
             }
         }
-
-        min
+        // If the minimum MTU is found, update the batchsize accordingly.
+        // The active batchsize must be <= min(MTU)
+        if let Some(min) = min_mtu {
+            // Update the minimum MTU
+            self.mtu.store(min, Ordering::Release);
+            // Update the batchsize
+            let default_batchsize: usize = self.default_batchsize.load(Ordering::Acquire);
+            if min < default_batchsize {
+                self.batchsize.store(min, Ordering::Release);
+            } else {
+                self.batchsize.store(default_batchsize, Ordering::Release);
+            }
+        } else {
+            // Update the minimum MTU
+            self.mtu.store(0, Ordering::Release);
+            // Update the batchsize
+            self.batchsize.store(0, Ordering::Release);
+        }
     }
 
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        let mut guard = self.links.lock().await;
+        // Acquire the lock on the links
+        let mut guard = zasynclock!(self.links);
         // Check if this link is not already present
         if self.find_link(&guard, &link.get_src(), &link.get_dst()).is_some() {
             return Err(zerror!(ZErrorKind::Other{
                 descr: "Trying to add a link that already exists!".to_string()
             }))
         }
+
         // Add the link to the transport
         guard.push(link);
-        // Find the minimum MTU among all the links
-        let mtu = self.find_min_mtu(&guard);
-        // If the minimum MTU is none, something wrong happened. 
-        // At least the MTU of the recently added link should be available.
-        if let Some(mtu) = mtu {
-            // Update the transport MTU
-            self.mtu.store(mtu, Ordering::Release);
-            Ok(())
-        } else {
-            Err(zerror!(ZErrorKind::Other{
-                descr: "No suitable MTU found!".to_string()
-            }))
-        }
+
+        // Upadate the active MTU and batch size according to the capabilities of the links
+        self.update_mtu_and_batchsize(&guard);
+        Ok(())
     }
 
     pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {    
-        let mut guard = self.links.lock().await;
+        // Acquire the lock on the links
+        let mut guard = zasynclock!(self.links);
         // Check if the link is present in the transport
         let index = self.find_link(&guard, src, dst);
         // The link is not present, return an error
@@ -397,18 +423,19 @@ impl Transport {
                 return Err(zerror!(ZErrorKind::Other{
                     descr: "Trying to delete a link that does not exist!".to_string()
                 }))
-        };
+            };
         
-        // Find the minimum MTU among all the links
-        let mtu = self.find_min_mtu(&guard);
-        // If the minimum MTU is none, no links are left
-        if let Some(mtu) = mtu {
-            // Update the transport MTU
-            self.mtu.store(mtu, Ordering::Release);
+        // Check if there are links left
+        if guard.is_empty() {
+            // Drop the guard to allow the cleanup
+            drop(guard);
+            // Remove the session from the manager
+            // If this transport is associated to the initial session,
+            // this operation will silently fail.
+            let _ = zrwopt!(self.session).delete().await;
         } else {
-            // Update the transport MTU
-            // An MTU of 0 means that no messages can be sent
-            self.mtu.store(0, Ordering::Release);
+            // Update the active MTU and batch size according to the capabilities of the links
+            self.update_mtu_and_batchsize(&guard);
         }
 
         Ok(link)

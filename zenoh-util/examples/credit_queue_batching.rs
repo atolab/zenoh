@@ -42,14 +42,31 @@ fn main() {
         });        
 
         let c1 = task::spawn(async move {
-            for _ in 0..(4*n) {
+            let mut count: usize = 0;
+            while count < 4*n {
+                // We operate on the queue asynchronously
                 let j = cq5.pull().await;
+                count += 1;
                 if j == 2 {
                     cq5.spend(j, 1isize).await;
                     if cq5.get_credit(j).await <= 0 {
                         cq5.recharge(j, CREDIT).await;
                     }
                 }
+
+                // Let's acquire the lock and operate on the
+                // queue in a syncrhonous manner
+                let mut guard = cq5.lock().await;
+                while let Some(j) = guard.try_pull() {
+                    count += 1;
+                    if j == 2 {
+                        guard.spend(j, 1isize);
+                        if guard.get_credit(j) <= 0 {
+                            guard.recharge(j, CREDIT);
+                        }
+                    }
+                }
+                guard.unlock().await;
             }
         });
 
