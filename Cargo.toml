@@ -6,3 +6,6 @@ members = [
   "zenoh-protocol",
   "zenoh-util"
 ]
+
+[profile.release]
+debug=true
