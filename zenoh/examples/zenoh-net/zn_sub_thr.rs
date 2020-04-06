@@ -22,7 +22,7 @@ fn main() {
 
         let session = open(&locator, None).await.unwrap();
 
-        let reskey = RId(session.declare_resource(&RName("/test/thr".to_string())).await.unwrap());
+        let reskey = RId(session.declare_resource(RName("/test/thr".to_string())).await.unwrap());
 
         let mut count = 0u128;
         let mut start = SystemTime::now();
@@ -33,7 +33,7 @@ fn main() {
             mode: SubMode::Push,
             period: None
         };
-        let sub = session.declare_subscriber(&reskey, &sub_info,
+        let sub = session.declare_subscriber(reskey, sub_info,
             move |_res_name: &str, _payload: RBuf, _data_info: DataInfo| {
                 if count == 0 {
                     start = SystemTime::now();

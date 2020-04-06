@@ -15,14 +15,13 @@ fn main() {
         let session = open(&locator, None).await.unwrap();
         
         println!("Declaring Resource {} ", uri);
-        let rid = session.declare_resource(&uri.into()).await.unwrap();
+        let rid = session.declare_resource(uri.into()).await.unwrap();
         
         println!("Declaring Publisher on {}", rid);
-        let res_key = rid.into();
-        let publ = session.declare_publisher(&res_key).await.unwrap();
+        let publ = session.declare_publisher(rid.into()).await.unwrap();
         
         println!("Writing Data ('{}': '{}')...\n", rid, value);
-        session.write(&res_key, value.as_bytes().to_vec()).await.unwrap();
+        session.write(rid.into(), value.as_bytes().into()).await.unwrap();
 
         session.undeclare_publisher(publ).await.unwrap();
         session.close().await.unwrap();

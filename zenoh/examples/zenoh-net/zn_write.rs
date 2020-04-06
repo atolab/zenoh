@@ -16,7 +16,7 @@ fn main() {
         let session = open(&locator, None).await.unwrap();
 
         println!("Writing Data ('{}': '{}')...\n", uri, value);
-        session.write(&RName(uri), value.as_bytes().to_vec()).await.unwrap();
+        session.write(RName(uri), value.as_bytes().into()).await.unwrap();
 
         session.close().await.unwrap();
     })

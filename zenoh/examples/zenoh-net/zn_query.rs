@@ -21,7 +21,7 @@ fn main() {
 
         println!("Sending Query '{}'...", uri);
         let _eval = session.query(
-            &RName(uri), "",
+            RName(uri), "".to_string(),
             replies_handler,
             QueryTarget::default(),
             QueryConsolidation::default()

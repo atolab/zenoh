@@ -16,16 +16,16 @@ fn main() {
         let len     = options.next().unwrap().parse::<usize>().unwrap();
         let locator = options.next().unwrap_or("".to_string());
 
-        let data = (0usize..len).map(|i| (i%10) as u8).collect::<Vec<u8>>();
+        let data: RBuf = (0usize..len).map(|i| (i%10) as u8).collect::<Vec<u8>>().into();
 
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
 
-        let reskey = RId(session.declare_resource(&RName("/test/thr".to_string())).await.unwrap());
-        let _publ = session.declare_publisher(&reskey).await.unwrap();
+        let rid = session.declare_resource(RName("/test/thr".to_string())).await.unwrap();
+        let _publ = session.declare_publisher(rid.into()).await.unwrap();
 
         loop {
-            session.write(&reskey, data.clone()).await.unwrap();
+            session.write(rid.into(), data.clone()).await.unwrap();
         }
     })
 }
