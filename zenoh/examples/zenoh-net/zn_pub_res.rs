@@ -21,7 +21,7 @@ fn main() {
         let publ = session.declare_publisher(rid.into()).await.unwrap();
         
         println!("Writing Data ('{}': '{}')...\n", rid, value);
-        session.write(rid.into(), value.as_bytes().to_vec()).await.unwrap();
+        session.write(rid.into(), value.as_bytes().into()).await.unwrap();
 
         session.undeclare_publisher(publ).await.unwrap();
         session.close().await.unwrap();

@@ -16,7 +16,7 @@ fn main() {
         let len     = options.next().unwrap().parse::<usize>().unwrap();
         let locator = options.next().unwrap_or("".to_string());
 
-        let data = (0usize..len).map(|i| (i%10) as u8).collect::<Vec<u8>>();
+        let data: RBuf = (0usize..len).map(|i| (i%10) as u8).collect::<Vec<u8>>().into();
 
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();

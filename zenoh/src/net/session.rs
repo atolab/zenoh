@@ -257,10 +257,10 @@ impl Session {
         Ok(())
     }
 
-    pub async fn write(&self, resource: ResKey, payload: Vec<u8>) -> ZResult<()> {
+    pub async fn write(&self, resource: ResKey, payload: RBuf) -> ZResult<()> {
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
-        primitives.data(resource, true, None, payload.into()).await;
+        primitives.data(resource, true, None, payload).await;
         Ok(())
     }
 
