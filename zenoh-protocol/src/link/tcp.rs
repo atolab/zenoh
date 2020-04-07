@@ -15,6 +15,9 @@ use async_std::task;
 use std::collections::HashMap;
 use std::net::Shutdown;
 
+#[cfg(write_vectored)]
+use std::io::IoSlice;
+
 use crate::{
     zerror,
     to_zerror,
@@ -116,9 +119,31 @@ impl LinkTcp {
         Ok(())
     }
     
-    pub async fn send(&self, buffer: Vec<u8>) -> ZResult<()> {
-        (&self.socket).write_all(&buffer).await
-            .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
+    pub async fn send(&self, buffer: RBuf) -> ZResult<()> {
+        #[cfg(write_vectored)]
+        {
+            let mut ioslices = &mut buffer.as_ioslices()[..];
+            while ! ioslices.is_empty() {
+                match (&self.socket).write_vectored(ioslices).await {
+                    Ok(size) => {
+                        ioslices = IoSlice::advance(ioslices, size);
+                    },
+                    err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
+                }
+            }
+        }
+        
+        #[cfg(not(write_vectored))]
+        {
+            let mut sendbuff = Vec::with_capacity(buffer.readable());
+            for s in buffer.get_slices() {
+                std::io::Write::write_all(&mut sendbuff, s.as_slice())
+                    .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
+            }
+            (&self.socket).write_all(&sendbuff).await
+                .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
+        }
+
         Ok(())
     }
 

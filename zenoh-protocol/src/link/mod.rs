@@ -15,6 +15,7 @@ use crate::core::{
     ZErrorKind,
     ZResult
 };
+use crate::io::RBuf;
 use crate::session::{
     SessionManagerInner,
     Transport
@@ -151,7 +152,7 @@ impl Link {
         }
     }
 
-    pub async fn send(&self, buffer: Vec<u8>) -> ZResult<()> {
+    pub async fn send(&self, buffer: RBuf) -> ZResult<()> {
         match self {
             Self::Tcp(link) => link.send(buffer).await
         }

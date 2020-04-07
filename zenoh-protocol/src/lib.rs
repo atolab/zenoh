@@ -1,3 +1,5 @@
+#![feature(io_slice_advance)]
+
 extern crate async_std;
 extern crate byteorder;
 extern crate crossbeam;

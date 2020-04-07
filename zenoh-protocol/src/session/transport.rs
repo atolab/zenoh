@@ -1,4 +1,3 @@
-use async_std::prelude::*;
 use async_std::sync::{
     Arc,
     channel,
@@ -24,7 +23,10 @@ use crate::core::{
     ZInt,
     ZResult
 };
-use crate::io::WBuf;
+use crate::io::{
+    WBuf, 
+    RBuf
+};
 use crate::proto::{
     Body,
     Message,
@@ -114,37 +116,27 @@ async fn consume_loop(transport: Arc<Transport>) {
 
         // Serialize on the buffer
         buff.write_message(&message.inner);
-        // Create the send buffer
-        let mut sendbuff = Vec::with_capacity(buff.readable());
-
-        for s in buff.get_slices() {
-            let _ = sendbuff.write_all(s.as_slice()).await;
-        }
 
         // If the buffer is smaller than the batch size, try to read 
-        // more messages and add them to the sendbuff
+        // more messages and add them to the buffer
         let batchsize = transport.batchsize.load(Ordering::Acquire);
         let mut guard = transport.queue_tx.lock().await;
-        while sendbuff.len() < batchsize {
+        while buff.readable() < batchsize {
             if let Some(mut message) = guard.try_pull() {
-                let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
                 update_sn(&transport, &mut message.inner).await;
                 // Serialize on the buffer
                 buff.write_message(&message.inner);
-                // @TODO: If the new message does not fit in the batchsize, we need to 
-                //        we need to put it apart and send it in the next iteration.
+                // @TODO: If the new message does not fit in the batchsize, we need 
+                //        to put it apart and send it in the next iteration.
                 //        Currently we stop the loop when the new message exceeds the
                 //        maximum batch size
-                for s in buff.get_slices() {
-                    let _ = sendbuff.write_all(s.as_slice()).await;
-                }
             } else {
                 break
             }
         }
         guard.unlock().await;
 
-        transport.transmit(sendbuff, message.link, message.notify).await;
+        transport.transmit(buff.as_rbuf(), message.link, message.notify).await;
     }
 }
 
@@ -474,7 +466,7 @@ impl Transport {
         }
     }
     
-    async fn transmit(&self, buffer: Vec<u8>, link: Option<(Locator, Locator)>, notify: Option<Sender<ZResult<()>>>) {
+    async fn transmit(&self, buffer: RBuf, link: Option<(Locator, Locator)>, notify: Option<Sender<ZResult<()>>>) {
         // Send the message on the link(s)
         let guard = zasynclock!(self.links);
         let res = match link {
