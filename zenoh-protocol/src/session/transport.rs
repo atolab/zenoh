@@ -74,7 +74,7 @@ const WRITE_BUFFER_CAPACITY: usize = 128;
 
 async fn consume_loop(transport: Arc<Transport>) {
     // Update the sequence number
-    async fn update_sn(transport: &Arc<Transport>, message: &mut Message) -> bool {
+    async fn update_sn(tx: &mut MutexGuard<'_, TransportInnerTx>, message: &mut Message) -> bool {
         let is_reliable = message.is_reliable();
         match message.body {
             Body::Data{ref mut sn, ..} |
@@ -83,8 +83,7 @@ async fn consume_loop(transport: Arc<Transport>) {
             Body::Pull{ref mut sn, ..} |
             Body::Query{ref mut sn, ..} => {
                 // Update the sequence number
-                let mut l_sn = zasynclock!(transport.conduit_tx_sn);
-                let sn_gen = match l_sn.get_mut(&message.cid) {
+                let sn_gen = match tx.sn.get_mut(&message.cid) {
                     Some(sn_gen) => sn_gen,
                     // This CID does not exist, return
                     // @TODO: Perform the mapping of the CID?
@@ -111,8 +110,11 @@ async fn consume_loop(transport: Arc<Transport>) {
 
         // Pull one message from the queue
         let mut message = transport.queue_tx.pull().await;
+
+        // Acquire the tx lock
+        let mut tx = zasynclock!(transport.tx);
         // Update the message sequence number
-        update_sn(&transport, &mut message.inner).await;
+        update_sn(&mut tx, &mut message.inner).await;
 
         // Serialize on the buffer
         buff.write_message(&message.inner);
@@ -123,7 +125,7 @@ async fn consume_loop(transport: Arc<Transport>) {
         let mut guard = transport.queue_tx.lock().await;
         while buff.readable() < batchsize {
             if let Some(mut message) = guard.try_pull() {
-                update_sn(&transport, &mut message.inner).await;
+                update_sn(&mut tx, &mut message.inner).await;
                 // Serialize on the buffer
                 buff.write_message(&message.inner);
                 // @TODO: If the new message does not fit in the batchsize, we need 
@@ -136,7 +138,7 @@ async fn consume_loop(transport: Arc<Transport>) {
         }
         guard.unlock().await;
 
-        transport.transmit(buff.as_rbuf(), message.link, message.notify).await;
+        transport.transmit(&tx.links, buff.as_rbuf(), message.link, message.notify).await;
     }
 }
 
@@ -184,35 +186,89 @@ impl ConduitRxSeqNum {
 }
 
 
+// Define two different structs for Transmission and Reception
+struct TransportInnerTx {
+    // The conduits sequence number generators
+    sn: HashMap<ZInt, ConduitTxSeqNum>,
+    // The list of transport links associated to this session
+    links: Vec<Link>
+}
+
+impl TransportInnerTx {
+    fn new(resolution: ZInt) -> TransportInnerTx {
+        let mut tx = TransportInnerTx {
+            sn: HashMap::new(),
+            links: Vec::new()
+        };
+
+        // Build the conduit zero sequence number manager
+        let zero: ZInt = 0;
+        tx.add_conduit(zero, resolution);
+
+        tx
+    }
+
+    #[inline]
+    fn add_conduit(&mut self, id: ZInt, resolution: ZInt) {
+        // @TODO: randomly create the initial sequence numbers
+        let zero: ZInt = 0;
+        self.sn.insert(id, ConduitTxSeqNum::new(zero, zero, resolution));
+    }
+}
+
+
+struct TransportInnerRx {
+    // The conduits sequence numbers
+    sn: HashMap<ZInt, ConduitRxSeqNum>
+}
+
+impl TransportInnerRx {
+    fn new(resolution: ZInt) -> TransportInnerRx {
+        let mut rx = TransportInnerRx {
+            sn: HashMap::new()
+        };
+
+        // Build the conduit zero sequence number manager
+        let zero: ZInt = 0;
+        rx.add_conduit(zero, resolution);
+
+        rx
+    }
+
+    #[inline]
+    fn add_conduit(&mut self, id: ZInt, resolution: ZInt) {
+        self.sn.insert(id, ConduitRxSeqNum::new(resolution - 1, resolution - 1, resolution));
+    }
+}
+
+
 // Struct implementing the transport
 pub struct Transport {
     // The reference to the session
     session: RwLock<Option<Arc<SessionInner>>>,
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
+    // Determines if this transport is associated to the initial session
+    is_initial: bool,
     // Session is active or not
     active: AtomicBool,
-    // The timeout after which the session is closed if no messages are received
+    // The default timeout after which the session is closed if no messages are received
     lease: AtomicZInt,
-    // The resolution to be used for the SN
+    // The default resolution to be used for the SN
     resolution: AtomicZInt,
-    // The MTU (it is the minimum MTU among all the links)
+    // The default mtu
     mtu: AtomicUsize,
-    // The default batchsize (it must be less or equal than the MTU)
-    default_batchsize: AtomicUsize,
-    // The active batchsize (it must be less or equal than the MTU)
+    // The default batchsize
     batchsize: AtomicUsize,
-    // The list of transport links associated to this session
-    links: Mutex<Vec<Link>>,
     // The queue of messages to be transmitted
     queue_tx: CreditQueue<MessageTx>,
-    // The conduits sequence number generators
-    conduit_tx_sn: Mutex<HashMap<ZInt, ConduitTxSeqNum>>,
-    conduit_rx_sn: Mutex<HashMap<ZInt, ConduitRxSeqNum>>,
+    // The transport and reception inner data structures
+    tx: Mutex<TransportInnerTx>,
+    rx: Mutex<TransportInnerRx>,
 }
 
 impl Transport {
-    pub(crate) fn new(lease: ZInt, resolution: ZInt, batchsize: usize) -> Transport {
+    pub(crate) fn new(lease: ZInt, resolution: ZInt, batchsize: usize, is_initial: bool) -> Transport {
         // Build the transmission queue
         let queue_tx = vec![
             (SIZE_CTRL, CRED_CTRL),
@@ -221,19 +277,11 @@ impl Transport {
             (SIZE_DATA, CRED_DATA)
         ];
 
-        // Build the conduit zero sequence number manager
-        let zero: ZInt = 0;
-        // @TODO: randomly create the initial sequence numbers
-        let mut conduit_tx_sn = HashMap::new();
-        conduit_tx_sn.insert(zero, ConduitTxSeqNum::new(zero, zero, resolution));
-
-        let mut conduit_rx_sn = HashMap::new();
-        conduit_rx_sn.insert(zero, ConduitRxSeqNum::new(resolution-1, resolution-1, resolution));
-
         Transport {
             // Session manager and Callback
             session: RwLock::new(None), 
             callback: RwLock::new(None), 
+            is_initial,
             // Session is active or not
             active: AtomicBool::new(false),
             // Session lease
@@ -243,16 +291,12 @@ impl Transport {
             // The MTU is initialized to 0
             mtu: AtomicUsize::new(0),
             // The default batchsize
-            default_batchsize: AtomicUsize::new(batchsize),
-            // The active batchsize, it is initialized to 0 as the MTU
-            batchsize: AtomicUsize::new(0),
-            // The links
-            links: Mutex::new(Vec::new()),
+            batchsize: AtomicUsize::new(batchsize),
             // The transmission queue
             queue_tx: CreditQueue::new(queue_tx, CONCURRENCY),
             // The sequence number generator
-            conduit_tx_sn: Mutex::new(conduit_tx_sn),
-            conduit_rx_sn: Mutex::new(conduit_rx_sn),
+            tx: Mutex::new(TransportInnerTx::new(resolution)),
+            rx: Mutex::new(TransportInnerRx::new(resolution)),
         }
     }
 
@@ -262,17 +306,17 @@ impl Transport {
     }
 
     pub(crate) fn start(transport: Arc<Transport>) {
-        transport.active.store(true, Ordering::Release);
+        transport.active.store(true, Ordering::Relaxed);
         task::spawn(consume_loop(transport));
     }
 
     pub(crate) async fn stop(&self) {
-        self.active.store(false, Ordering::Release);
+        self.active.store(false, Ordering::Relaxed);
     }
 
     #[inline]
     pub(crate) fn is_active(&self) -> bool {
-        self.active.load(Ordering::Acquire)
+        self.active.load(Ordering::Relaxed)
     }
 
     pub(crate) async fn set_lease(&self, lease: ZInt) {
@@ -289,23 +333,23 @@ impl Transport {
         // Acquire the lock on the links, this is necessary to ensure
         // that the right batch size is activated based on the available
         // MTUs of the various links 
-        let guard = zasynclock!(self.links);
-        self.default_batchsize.store(size, Ordering::Release);
-        self.update_mtu_and_batchsize(&guard);
+        let guard = zasynclock!(self.tx);
+        self.batchsize.store(size, Ordering::Release);
+        self.update_mtu_and_batchsize(&guard.links);
     }
 
     #[allow(dead_code)]
     pub(crate) async fn set_resolution(&self, resolution: ZInt) {
-        let mut c_tx = zasynclock!(self.conduit_tx_sn);
-        let mut c_rx = zasynclock!(self.conduit_rx_sn);
-        for (_, v) in c_tx.iter_mut() {
+        let mut g_tx = zasynclock!(self.tx);
+        let mut g_rx = zasynclock!(self.rx);
+        for (_, v) in g_tx.sn.iter_mut() {
             *v = ConduitTxSeqNum::new(
                 v.reliable.get() % resolution, 
                 v.unreliable.get() % resolution, 
                 resolution
             );
         }
-        for (_, v) in c_rx.iter_mut() {
+        for (_, v) in g_rx.sn.iter_mut() {
             *v = ConduitRxSeqNum::new(
                 v.reliable.get() % resolution, 
                 v.unreliable.get() % resolution, 
@@ -322,7 +366,7 @@ impl Transport {
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
         let mut vec = Vec::new();
-        for l in self.links.lock().await.iter() {
+        for l in self.tx.lock().await.links.iter() {
             vec.push(l.clone());
         }
         vec
@@ -332,36 +376,27 @@ impl Transport {
     /*************************************/
     /*               LINK                */
     /*************************************/
-    fn find_link(&self, guard: &MutexGuard<'_, Vec<Link>>, src: &Locator, dst: &Locator) -> Option<usize> {
-        let mut found = false;
-        let mut index: usize = 0;
-
-        for i in 0..guard.len() {
-            if guard[i].get_src() == *src && guard[i].get_dst() == *dst {
-                found = true;
-                index = i;
-                break
+    fn find_link(&self, links: &[Link], src: &Locator, dst: &Locator) -> Option<usize> {
+        for (i, l) in links.iter().enumerate() {
+            if l.get_src() == *src && l.get_dst() == *dst {
+                return Some(i);
             }
         }
 
-        if found {
-            Some(index)
-        } else {
-            None
-        }
+        None
     }
 
-    fn update_mtu_and_batchsize(&self, guard: &MutexGuard<'_, Vec<Link>>) {
+    fn update_mtu_and_batchsize(&self, links: &[Link]) {
         // Find the minimum MTU
         let mut min_mtu: Option<usize> = None;
-        for i in 0..guard.len() {
+        for l in links {
             if let Some(mtu) = min_mtu {
-                let l_mtu = guard[i].get_mtu();
+                let l_mtu = l.get_mtu();
                 if l_mtu < mtu {
                     min_mtu = Some(l_mtu);
                 }
             } else {
-                min_mtu = Some(guard[i].get_mtu());
+                min_mtu = Some(l.get_mtu());
             }
         }
         // If the minimum MTU is found, update the batchsize accordingly.
@@ -370,11 +405,11 @@ impl Transport {
             // Update the minimum MTU
             self.mtu.store(min, Ordering::Release);
             // Update the batchsize
-            let default_batchsize: usize = self.default_batchsize.load(Ordering::Acquire);
-            if min < default_batchsize {
+            let batchsize: usize = self.batchsize.load(Ordering::Acquire);
+            if min < batchsize {
                 self.batchsize.store(min, Ordering::Release);
             } else {
-                self.batchsize.store(default_batchsize, Ordering::Release);
+                self.batchsize.store(batchsize, Ordering::Release);
             }
         } else {
             // Update the minimum MTU
@@ -386,48 +421,51 @@ impl Transport {
 
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
         // Acquire the lock on the links
-        let mut guard = zasynclock!(self.links);
+        let mut guard = zasynclock!(self.tx);
         // Check if this link is not already present
-        if self.find_link(&guard, &link.get_src(), &link.get_dst()).is_some() {
+        if self.find_link(&guard.links, &link.get_src(), &link.get_dst()).is_some() {
             return Err(zerror!(ZErrorKind::Other{
                 descr: "Trying to add a link that already exists!".to_string()
             }))
         }
 
         // Add the link to the transport
-        guard.push(link);
+        guard.links.push(link);
 
         // Upadate the active MTU and batch size according to the capabilities of the links
-        self.update_mtu_and_batchsize(&guard);
+        self.update_mtu_and_batchsize(&guard.links);
         Ok(())
     }
 
     pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {    
         // Acquire the lock on the links
-        let mut guard = zasynclock!(self.links);
+        let mut guard = zasynclock!(self.tx);
         // Check if the link is present in the transport
-        let index = self.find_link(&guard, src, dst);
+        let index = self.find_link(&guard.links, src, dst);
         // The link is not present, return an error
         let link = if let Some(i) = index {
-                // Remove the link 
-                guard.remove(i)
-            } else {
-                return Err(zerror!(ZErrorKind::Other{
-                    descr: "Trying to delete a link that does not exist!".to_string()
-                }))
-            };
+            // Remove the link 
+            guard.links.remove(i)
+        } else {
+            return Err(zerror!(ZErrorKind::Other{
+                descr: "Trying to delete a link that does not exist!".to_string()
+            }))
+        };
         
         // Check if there are links left
-        if guard.is_empty() {
+        if guard.links.is_empty() {
             // Drop the guard to allow the cleanup
             drop(guard);
-            // Remove the session from the manager
-            // If this transport is associated to the initial session,
-            // this operation will silently fail.
-            let _ = zrwopt!(self.session).delete().await;
+            // If this transport is not associated to the initial session then
+            // close the session, notify the manager, and notify the callback
+            if !self.is_initial {
+                // Remove the session from the manager
+                let _ = zrwopt!(self.session).delete().await;
+                let _ = self.close().await;
+            }
         } else {
             // Update the active MTU and batch size according to the capabilities of the links
-            self.update_mtu_and_batchsize(&guard);
+            self.update_mtu_and_batchsize(&guard.links);
         }
 
         Ok(link)
@@ -466,14 +504,13 @@ impl Transport {
         }
     }
     
-    async fn transmit(&self, buffer: RBuf, link: Option<(Locator, Locator)>, notify: Option<Sender<ZResult<()>>>) {
+    async fn transmit(&self, links: &[Link], buffer: RBuf, link: Option<(Locator, Locator)>, notify: Option<Sender<ZResult<()>>>) {
         // Send the message on the link(s)
-        let guard = zasynclock!(self.links);
         let res = match link {
             // Send the message to the indicated link
             Some((src, dst)) => {
-                match self.find_link(&guard, &src, &dst) {
-                    Some(index) => guard[index].send(buffer).await,
+                match self.find_link(links, &src, &dst) {
+                    Some(index) => links[index].send(buffer).await,
                     None => Err(zerror!(ZErrorKind::Other{
                         descr: format!("Message dropped because link ({} => {}) was not found!", &src, &dst)
                     }))
@@ -482,7 +519,7 @@ impl Transport {
             None => {
                 // Send the message on the first link
                 // @TODO: Adopt an intelligent selection of the links to use
-                match guard.get(0) {
+                match links.get(0) {
                     Some(link) => link.send(buffer).await,
                     None =>  Err(zerror!(ZErrorKind::Other{
                         descr: "Message dropped because transport has no links!".to_string()
@@ -501,9 +538,9 @@ impl Transport {
     /*************************************/
     async fn process_reliable_message(&self, message: Message, sn: ZInt) {
         // @TODO: implement the reordering and wait for missing messages
-        let mut l_guard = zasynclock!(self.conduit_rx_sn);
+        let mut l_guard = zasynclock!(self.rx);
         // Messages with invalid CID or invalid SN are automatically dropped
-        if let Some(rx_sn) = l_guard.get_mut(&message.cid) {
+        if let Some(rx_sn) = l_guard.sn.get_mut(&message.cid) {
             if rx_sn.reliable.precedes(sn) && rx_sn.reliable.set(sn).is_ok() {
                 let _ = zrwopt!(self.callback).handle_message(message).await;
             }
@@ -511,9 +548,9 @@ impl Transport {
     }
 
     async fn process_unreliable_message(&self, message: Message, sn: ZInt) {
-        let mut l_guard = zasynclock!(self.conduit_rx_sn);
+        let mut l_guard = zasynclock!(self.rx);
         // Messages with invalid CID or invalid SN are automatically dropped
-        if let Some(rx_sn) = l_guard.get_mut(&message.cid) {
+        if let Some(rx_sn) = l_guard.sn.get_mut(&message.cid) {
             if rx_sn.unreliable.precedes(sn) && rx_sn.unreliable.set(sn).is_ok() {
                 let _ = zrwopt!(self.callback).handle_message(message).await;
             }
@@ -608,7 +645,7 @@ impl Transport {
     }
 
     /*************************************/
-    /*         CLOSE THE SESSION         */
+    /*        CLOSE THE TRANSPORT        */
     /*************************************/
     pub async fn close(&self) -> ZResult<()> {
         // Notify the callback
@@ -618,7 +655,7 @@ impl Transport {
         self.stop().await;
 
         // Remove and close all the links
-        for l in self.links.lock().await.drain(..) {
+        for l in self.tx.lock().await.links.drain(..) {
             let _ = l.close().await;
         }
 
@@ -639,7 +676,7 @@ impl fmt::Debug for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let links = task::block_on(async {
             let mut s = String::new();
-            for l in self.links.lock().await.iter() {
+            for l in self.tx.lock().await.links.iter() {
                 s.push_str(&format!("\n\t[({:?}) => ({:?})]", l.get_src(), l.get_dst()));
             }
             s

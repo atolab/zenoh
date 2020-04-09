@@ -63,14 +63,21 @@ impl MsgHandler for InitialHandler {
         Ok(())
     }
 
-    async fn close(&self) {}
+    async fn close(&self) {
+        println!("!!! WARNING: InitialHandler::close()");
+    }
 }
+
 
 #[derive(Clone)]
 pub struct SessionManager(Arc<SessionManagerInner>);
 
 impl SessionManager {
-    pub fn new(version: u8, whatami: WhatAmI, id: PeerId, lease: ZInt, 
+    pub fn new(
+        version: u8, 
+        whatami: WhatAmI, 
+        id: PeerId, 
+        lease: ZInt, 
         handler: Arc<dyn SessionHandler + Send + Sync>,
     ) -> Self {
         // @TODO: accept a sequence number resolution
@@ -81,7 +88,7 @@ impl SessionManager {
         // Create a session used to establish new connections
         // This session wrapper does not require to contact the upper layer
         let callback = Arc::new(InitialHandler::new());
-        let session_inner = Arc::new(SessionInner::new(manager_inner.clone(), 0, id, lease));
+        let session_inner = Arc::new(SessionInner::new(manager_inner.clone(), 0, id, lease, true));
         // Start the session
         session_inner.start();
         session_inner.initialize(&session_inner.clone(), callback);
@@ -302,7 +309,7 @@ impl SessionManagerInner {
         // Dynamically create a new session ID
         let id = self.id_mgmt.write().await.new_id();
         // Create the session object
-        let session_inner = Arc::new(SessionInner::new(a_self.clone(), id, peer.clone(), self.lease));
+        let session_inner = Arc::new(SessionInner::new(a_self.clone(), id, peer.clone(), self.lease, false));
         // Add the session to the list of active sessions
         self.sessions.write().await.insert(peer.clone(), session_inner.clone());
         // Start the session 
@@ -396,12 +403,12 @@ impl MsgHandler for SessionInner {
 }
 
 impl SessionInner {
-    fn new(manager: Arc<SessionManagerInner>, id: usize, peer: PeerId, lease: ZInt ) -> Self {
+    fn new(manager: Arc<SessionManagerInner>, id: usize, peer: PeerId, lease: ZInt, is_initial: bool) -> Self {
         Self {
             id,
             peer,
             // @TODO: make the sequence number resolution configurable
-            transport: Arc::new(Transport::new(lease, SEQ_NUM_RESOLUTION, BATCH_SIZE)),
+            transport: Arc::new(Transport::new(lease, SEQ_NUM_RESOLUTION, BATCH_SIZE, is_initial)),
             manager,
             channels: RwLock::new(HashMap::new())
         }
@@ -415,7 +422,9 @@ impl SessionInner {
         self.transport.initialize(a_self.clone(), callback);
     }
 
-    async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, 
+    async fn open(&self, 
+        manager: Arc<LinkManager>, 
+        locator: &Locator, 
         sender: Sender<ZResult<Arc<SessionInner>>>
     ) -> ZResult<()> {
         // Create a new link associated by calling the Link Manager
@@ -482,7 +491,7 @@ impl SessionInner {
         // Close the transport
         self.transport.close().await?;
 
-        // Remove the sessino from the manager
+        // Remove the session from the manager
         self.delete().await?;
 
         Ok(())
@@ -498,8 +507,13 @@ impl SessionInner {
     /*************************************/
     /*          PROCESS MESSAGES         */
     /*************************************/
-    pub(crate) async fn process_accept(&self, src: &Locator, dst: &Locator, 
-        whatami: &WhatAmI, opid: &PeerId, apid: &PeerId, lease: ZInt
+    pub(crate) async fn process_accept(&self, 
+        src: &Locator, 
+        dst: &Locator, 
+        whatami: &WhatAmI, 
+        opid: &PeerId, 
+        apid: &PeerId, 
+        lease: ZInt
     ) -> ZResult<Arc<Transport>> {
 
         // Check if the opener peer of this accept was me
@@ -546,10 +560,16 @@ impl SessionInner {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn process_open(&self, src: &Locator, dst: &Locator, 
-        version: u8, whatami: &WhatAmI, pid: &PeerId, lease: ZInt, _locators: &Option<Vec<Locator>> 
+    pub(crate) async fn process_open(&self, 
+        src: &Locator, 
+        dst: &Locator, 
+        version: u8, 
+        whatami: &WhatAmI, 
+        pid: &PeerId, 
+        lease: ZInt, 
+        _locators: &Option<Vec<Locator>> 
     ) -> ZResult<Arc<Transport>> { 
-        // Ignore whatami and locators for the time being
+        // @TODO: Manage locators
 
         // Check if the version is supported
         if version > self.manager.version {
