@@ -46,7 +46,10 @@ use zenoh_util::{
     zasynclock,
     zrwopt
 };
-use zenoh_util::collections::CreditQueue;
+use zenoh_util::collections::{
+    CreditBuffer,
+    CreditQueue
+};
 
 
 // Constants for transmission queue
@@ -58,18 +61,14 @@ pub(crate) const _PRIO_RETX: usize = 1;
 const SIZE_RETX: usize = 256;
 const CRED_RETX: isize = 1;
 
-pub(crate) const _PRIO_FRAG: usize = 2;
-const SIZE_FRAG: usize = 256;
-const CRED_FRAG: isize = 1;
-
-pub(crate) const PRIO_DATA: usize = 3;
+pub(crate) const PRIO_DATA: usize = 2;
 const SIZE_DATA: usize = 256;
 const CRED_DATA: isize = 100;
 
+const QUEUE_SIZE: usize = SIZE_CTRL + SIZE_RETX + SIZE_DATA;
 const CONCURRENCY: usize = 16;
 
-// Initial capacity of WBuf to encode a Message to write
-const WRITE_BUFFER_CAPACITY: usize = 128;
+
 
 
 async fn consume_loop(transport: Arc<Transport>) {
@@ -101,44 +100,50 @@ async fn consume_loop(transport: Arc<Transport>) {
     }
     
     // The loop to consume the messages in the queue
+    let batchsize = transport.batchsize.load(Ordering::Relaxed);
+    let mut messages: Vec<MessageTx> = Vec::with_capacity(QUEUE_SIZE);
+    let mut buff = WBuf::new(batchsize);
     while transport.is_active() {
         // @TODO: Implement the reliability queue
         // @TODO: Implement the fragmentation
+        // @TODO: Make sure to not create batches larger than the batch size
 
-        // Initialize the buffer for the message serialization
-        let mut buff = WBuf::new(WRITE_BUFFER_CAPACITY);
-
-        // Pull one message from the queue
-        let mut message = transport.queue_tx.pull().await;
+        // Drain all the messages from the queue
+        transport.queue_tx.drain_into(&mut messages).await;
 
         // Acquire the tx lock
         let mut tx = zasynclock!(transport.tx);
-        // Update the message sequence number
-        update_sn(&mut tx, &mut message.inner).await;
 
-        // Serialize on the buffer
-        buff.write_message(&message.inner);
+        // Keep track of how many messages are left to send
+        let mut left =  messages.len();
+        for mut msg in messages.drain(..) {
+            // Decrement the left counter
+            left -= 1;
 
-        // If the buffer is smaller than the batch size, try to read 
-        // more messages and add them to the buffer
-        let batchsize = transport.batchsize.load(Ordering::Acquire);
-        let mut guard = transport.queue_tx.lock().await;
-        while buff.readable() < batchsize {
-            if let Some(mut message) = guard.try_pull() {
-                update_sn(&mut tx, &mut message.inner).await;
+            // Update the sequence number
+            update_sn(&mut tx, &mut msg.inner).await;
+
+            // We are in a special case: a specific link has been indicated for the message
+            // or the message is sent in a synchronous way using the send()
+            // Transmit now the message
+            if msg.link.is_some() || msg.notify.is_some() {
+                // Create a new temporary buffer
+                let mut tmp = WBuf::new(batchsize);
                 // Serialize on the buffer
-                buff.write_message(&message.inner);
-                // @TODO: If the new message does not fit in the batchsize, we need 
-                //        to put it apart and send it in the next iteration.
-                //        Currently we stop the loop when the new message exceeds the
-                //        maximum batch size
+                tmp.write_message(&msg.inner);
+                // Transmit the message
+                transport.transmit(&tx.links, tmp.as_rbuf(), msg.link, msg.notify).await;
             } else {
-                break
+                // Serialize on the buffer
+                buff.write_message(&msg.inner);
             }
-        }
-        guard.unlock().await;
 
-        transport.transmit(&tx.links, buff.as_rbuf(), message.link, message.notify).await;
+            // Transmit the messages if the batchsize is full or there are no other messages left
+            if buff.readable() >= batchsize || left == 0 {
+                transport.transmit(&tx.links, buff.as_rbuf(), None, None).await;
+                buff.clear();
+            } 
+        }
     }
 }
 
@@ -270,12 +275,17 @@ pub struct Transport {
 impl Transport {
     pub(crate) fn new(lease: ZInt, resolution: ZInt, batchsize: usize, is_initial: bool) -> Transport {
         // Build the transmission queue
-        let queue_tx = vec![
-            (SIZE_CTRL, CRED_CTRL),
-            (SIZE_RETX, CRED_RETX),
-            (SIZE_FRAG, CRED_FRAG),
-            (SIZE_DATA, CRED_DATA)
-        ];
+        // @TODO: implement the spending procedure for the data queue
+        let ctrl = CreditBuffer::new(
+            SIZE_CTRL, CRED_CTRL, CreditBuffer::spending_policy(|_msg| 0isize)
+        );
+        let retx = CreditBuffer::new(
+            SIZE_RETX, CRED_RETX, CreditBuffer::spending_policy(|_msg| 0isize)
+        );
+        let data = CreditBuffer::new(
+            SIZE_DATA, CRED_DATA, CreditBuffer::spending_policy(|_msg| 0isize)
+        );
+        let queue_tx = vec![ctrl, retx, data];
 
         Transport {
             // Session manager and Callback
@@ -325,7 +335,7 @@ impl Transport {
 
     #[allow(dead_code)]
     pub(crate) async fn get_lease(&self) -> ZInt {
-        self.lease.load(Ordering::Acquire)
+        self.lease.load(Ordering::Relaxed)
     }
 
     #[allow(dead_code)]
@@ -334,7 +344,7 @@ impl Transport {
         // that the right batch size is activated based on the available
         // MTUs of the various links 
         let guard = zasynclock!(self.tx);
-        self.batchsize.store(size, Ordering::Release);
+        self.batchsize.store(size, Ordering::Relaxed);
         self.update_mtu_and_batchsize(&guard.links);
     }
 
@@ -356,7 +366,7 @@ impl Transport {
                 resolution
             );
         }
-        self.resolution.store(resolution, Ordering::Release);
+        self.resolution.store(resolution, Ordering::Relaxed);
     }
 
     #[allow(dead_code)]

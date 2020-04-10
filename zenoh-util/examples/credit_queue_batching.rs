@@ -1,14 +1,29 @@
-use zenoh_util::collections::CreditQueue;
+use zenoh_util::collections::{
+    CreditBuffer,
+    CreditQueue
+};
 use futures::*;
 use async_std::task;
 use async_std::sync::Arc;
 use std::time::Instant;
 
+const SIZE: usize = 256;
 const CREDIT: isize = 100;
 
 fn main() {    
-    task::block_on(async {        
-        let acb = Arc::new(CreditQueue::<usize>::new(vec![(256, 1), (256, 1), (256, CREDIT)], 16));
+    task::block_on(async {  
+        let first = CreditBuffer::new(
+            SIZE, 1isize, CreditBuffer::spending_policy(|_e| 0isize)
+        );
+        let second = CreditBuffer::new(
+            SIZE, 1isize, CreditBuffer::spending_policy(|_e| 0isize)
+        );
+        let third = CreditBuffer::new(
+            SIZE, 1isize, CreditBuffer::spending_policy(|_e| 1isize)
+        );
+        let queues = vec![first, second, third];
+
+        let acb = Arc::new(CreditQueue::<usize>::new(queues, 16));
         let cq1 = acb.clone();
         let cq2 = acb.clone();
         let cq3 = acb.clone();
@@ -42,31 +57,17 @@ fn main() {
         });        
 
         let c1 = task::spawn(async move {
+            let mut v = Vec::with_capacity(SIZE);
             let mut count: usize = 0;
             while count < 4*n {
-                // We operate on the queue asynchronously
-                let j = cq5.pull().await;
-                count += 1;
-                if j == 2 {
-                    cq5.spend(j, 1isize).await;
-                    if cq5.get_credit(j).await <= 0 {
+                cq5.drain_into(&mut v).await;
+
+                for j in v.drain(..) {
+                    count += 1;
+                    if cq5.get_credit(j) <= 0 {
                         cq5.recharge(j, CREDIT).await;
                     }
                 }
-
-                // Let's acquire the lock and operate on the
-                // queue in a syncrhonous manner
-                let mut guard = cq5.lock().await;
-                while let Some(j) = guard.try_pull() {
-                    count += 1;
-                    if j == 2 {
-                        guard.spend(j, 1isize);
-                        if guard.get_credit(j) <= 0 {
-                            guard.recharge(j, CREDIT);
-                        }
-                    }
-                }
-                guard.unlock().await;
             }
         });
 
