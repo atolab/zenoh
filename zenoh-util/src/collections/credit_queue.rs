@@ -135,7 +135,7 @@ impl<T> CreditQueue<T> {
 
     pub async fn drain(&self) -> Vec<T> {
         // The vector to return
-        let mut v = Vec::new();
+        let mut v = Vec::<T>::new();
 
         loop {
             let mut q = zasynclock!(self.state);
@@ -172,6 +172,40 @@ impl<T> CreditQueue<T> {
         }
     }
 
+    pub async fn try_drain(&self) -> Vec<T> {
+        // The vector to return
+        let mut v = Vec::<T>::new();
+
+        let mut q = zasynclock!(self.state);
+
+        // Compute the total number of messages in the queue
+        let mut len = 0;
+        for queue in q.iter() {
+            len += queue.len();
+        }
+
+        // Reserve enough space on the vector
+        v.reserve(len);
+
+        for priority in 0usize..q.len() {
+            // Drain a single priority queue while there is enough credit
+            while self.get_credit(priority) > 0 {
+                if let Some(e) = q[priority].pull() {
+                    self.spend(priority, (self.spending[priority])(&e));
+                    v.push(e);
+                } else {
+                    break
+                }
+            }
+        }
+
+        if !v.is_empty() && self.not_full.has_waiting_list() {
+            self.not_full.notify(q).await;
+        }
+        
+        v
+    }
+
     pub async fn drain_into(&self, v: &mut Vec<T>) {
         loop {
             let mut q = zasynclock!(self.state);
@@ -195,6 +229,26 @@ impl<T> CreditQueue<T> {
             }
 
             self.not_empty.wait(q).await;
+        }
+    }
+
+    pub async fn try_drain_into(&self, v: &mut Vec<T>) {
+        let mut q = zasynclock!(self.state);
+
+        for priority in 0usize..q.len() {
+            // Drain a single priority queue while there is enough credit
+            while self.get_credit(priority) > 0 {
+                if let Some(e) = q[priority].pull() {
+                    self.spend(priority, (self.spending[priority])(&e));
+                    v.push(e);
+                } else {
+                    break
+                }
+            }
+        }
+
+        if !v.is_empty() && self.not_full.has_waiting_list() {
+            self.not_full.notify(q).await;
         }
     }
 }
