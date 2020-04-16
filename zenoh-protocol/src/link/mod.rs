@@ -7,6 +7,7 @@ pub use tcp::{
 // mod udp;
 // pub(in super) use udp::ManagerUdp;
 
+use async_std::net::SocketAddr;
 use async_std::sync::Arc;
 
 use crate::zerror;
@@ -21,7 +22,7 @@ use crate::session::{
     Transport
 };
 
-use async_std::net::SocketAddr;
+use std::cmp::PartialEq;
 use std::fmt;
 use std::hash::Hash;
 use std::str::FromStr;
@@ -176,6 +177,12 @@ impl Clone for Link {
         match self {
             Self::Tcp(link) => Link::Tcp(link.clone())
         }
+    }
+}
+
+impl PartialEq for Link {
+    fn eq(&self, other: &Self) -> bool {
+        self.get_src() ==  other.get_src() && self.get_dst() == self.get_dst()
     }
 }
 

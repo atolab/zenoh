@@ -16,7 +16,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///   use zenoh_protocol::core::PeerId;
 ///   use zenoh_protocol::io::RBuf;
 ///   use zenoh_protocol::proto::WhatAmI::Peer;
-///   use zenoh_protocol::session::SessionManager;
+///   use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 ///   use zenoh_router::routing::tables::TablesHdl;
 /// 
 ///   async{
@@ -29,7 +29,17 @@ use crate::routing::face::{Face, FaceHdl};
 ///     let tables = Arc::new(TablesHdl::new());
 /// 
 ///     // Instanciate SessionManager and plug it to the routing tables
-///     let manager = SessionManager::new(0, Peer, PeerId{id: vec![1, 2]}, 0, tables.clone());
+///     let config = SessionManagerConfig {
+///         version: 0,
+///         whatami: Peer,
+///         id: PeerId{id: vec![1, 2]},
+///         handler: tables.clone(),
+///         lease: None,        // Use the default lease
+///         resolution: None,   // Use the default sequence number resolution
+///         batchsize: None,    // Use the default batch size
+///         timeout: None       // Use the default timeout when opening a session
+///     };
+///     let manager = SessionManager::new(config);
 /// 
 ///     // Declare new primitives
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;

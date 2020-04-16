@@ -4,7 +4,7 @@ use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{WhatAmI, Mux};
-use zenoh_protocol::session::{SessionManager, DummyHandler};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, DummyHandler};
 use zenoh_router::routing::tables::TablesHdl;
 
 
@@ -20,9 +20,27 @@ fn main() {
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
 
-        let pl_size = match args.next() { Some(size) => {size.parse().unwrap()} None => {8}};
+        let pl_size = match args.next() { 
+            Some(size) => size.parse().unwrap(),
+            None => 8
+        };
+
+        let batch_size: Option<usize> = match args.next() { 
+            Some(size) => Some(size.parse().unwrap()),
+            None => None
+        };
     
-        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid}, 0, tables.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: PeerId{id: pid},
+            handler: tables.clone(),
+            lease: None,
+            resolution: None,
+            batchsize: batch_size,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {

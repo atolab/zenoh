@@ -1,15 +1,17 @@
+mod conduit;
+mod defaults;
 mod manager;
 mod transport;
 
+pub(crate) use conduit::*;
 pub use manager::*;
-pub use transport::*;
+pub(crate) use transport::*;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
 use crate::proto::{Message, WhatAmI};
-
 
 /*********************************************************/
 /* Session Callback to be implemented by the Upper Layer */
@@ -22,7 +24,11 @@ pub trait MsgHandler {
 
 #[async_trait]
 pub trait SessionHandler {
-    async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync>;
+    async fn new_session(
+        &self,
+        whatami: WhatAmI,
+        session: Arc<dyn MsgHandler + Send + Sync>,
+    ) -> Arc<dyn MsgHandler + Send + Sync>;
 }
 
 // Define an empty SessionCallback for the listener session
@@ -37,6 +43,8 @@ impl DummyHandler {
 
 #[async_trait]
 impl MsgHandler for DummyHandler {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {Ok(())}
+    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+        Ok(())
+    }
     async fn close(&self) {}
 }

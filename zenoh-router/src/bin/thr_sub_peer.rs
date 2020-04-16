@@ -7,7 +7,7 @@ use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
-use zenoh_protocol::session::SessionManager;
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 use zenoh_router::routing::tables::TablesHdl;
 
 const N: usize = 100_000;
@@ -102,7 +102,17 @@ fn main() {
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
     
-        let manager = SessionManager::new(0, WhatAmI::Peer, PeerId{id: pid}, 0, tables.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Peer,
+            id: PeerId{id: pid},
+            handler: tables.clone(),
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
         let port = match args.next() { Some(port) => {port} None => {"7447".to_string()}};
         let locator = ["tcp/127.0.0.1:", &port].concat().parse().unwrap();
         if let Err(_err) = manager.add_locator(&locator, None).await {

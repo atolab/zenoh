@@ -9,7 +9,7 @@ use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
     proto::{ DataInfo, Primitives, QueryTarget, QueryConsolidation, Reply, WhatAmI },
-    session::SessionManager,
+    session::{SessionManager, SessionManagerConfig},
     zerror
 };
 use zenoh_router::routing::tables::TablesHdl;
@@ -34,7 +34,17 @@ impl Session {
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
 
-        let session_manager = SessionManager::new(0, WhatAmI::Peer, PeerId{id: pid}, 0, tables.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Peer,
+            id: PeerId{id: pid},
+            handler: tables.clone(),
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let session_manager = SessionManager::new(config);
 
         // @TODO: scout if locator = "". For now, replace by "tcp/127.0.0.1:7447"
         let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };

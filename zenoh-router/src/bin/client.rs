@@ -6,7 +6,7 @@ use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
-use zenoh_protocol::session::SessionManager;
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 use zenoh_router::routing::tables::TablesHdl;
 
 pub struct PrintPrimitives {
@@ -80,7 +80,17 @@ fn main() {
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
     
-        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, tables.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: PeerId{id: pid.clone()},
+            handler: tables.clone(),
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {

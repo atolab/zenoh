@@ -26,8 +26,8 @@ use zenoh_protocol::proto::{
 use zenoh_protocol::session::{
     MsgHandler,
     SessionHandler,
-    SessionManager, 
-    SEQ_NUM_RESOLUTION
+    SessionManager,
+    SessionManagerConfig
 };
 use zenoh_util::zasynclock;
 
@@ -147,6 +147,9 @@ async fn transport_base_inner() {
     // Define the locator
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
 
+    // Default SN resolution
+    let resolution = 16_384;
+
     // Define client and router IDs
     let client_id = PeerId{id: vec![0u8]};
     let router_id = PeerId{id: vec![1u8]};
@@ -161,14 +164,20 @@ async fn transport_base_inner() {
     let c_router_id = router_id.clone();
     task::spawn(async move {
         // Create the router session handler
-        let routing = Arc::new(SHRouter::new(SEQ_NUM_RESOLUTION));
+        let routing = Arc::new(SHRouter::new(resolution));
 
         // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Router;
-        let id = c_router_id;
-        let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, routing.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Router,
+            id: c_router_id,
+            handler: routing,
+            lease: None,
+            resolution: Some(resolution),
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         // Limit the number of connections to 1 for each listener
         // Not implemented at the moment
@@ -194,11 +203,17 @@ async fn transport_base_inner() {
         let client = Arc::new(SHClient::new());
 
         // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Client;
-        let id = c_client_id;
-        let lease = 60;
-        let manager = SessionManager::new(version, whatami, id, lease, client);
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: c_client_id,
+            handler: client,
+            lease: None,
+            resolution: Some(resolution),
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         // Wait for the router
         c_tbr.wait().await;

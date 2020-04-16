@@ -13,7 +13,8 @@ use zenoh_protocol::session::{
     DummyHandler,
     MsgHandler,
     SessionHandler,
-    SessionManager
+    SessionManager,
+    SessionManagerConfig
 };
 
 
@@ -71,11 +72,17 @@ async fn run(locator: Locator) {
         let routing = Arc::new(SHRouter::new());
 
         // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Router;
-        let id = c_rid;
-        let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, routing);
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Router,
+            id: c_rid,
+            handler: routing,
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         // Limit the number of connections to 1 for each listener
         // Not implemented at the moment
@@ -115,7 +122,6 @@ async fn run(locator: Locator) {
         // sent by client to arrive at the router and close
         // the actual session
         task::sleep(Duration::from_millis(10)).await;
-        
         let sessions = manager.get_sessions().await;
         assert_eq!(sessions.len(), 0);
 
@@ -139,11 +145,17 @@ async fn run(locator: Locator) {
         let client = Arc::new(SHClient::new());
 
         // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Client;
-        let id = c_cid;
-        let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, client);
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: c_cid,
+            handler: client,
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&c_loc).await;

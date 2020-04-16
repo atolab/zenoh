@@ -5,7 +5,7 @@ use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, WhatAmI, Mux};
-use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler, DummyHandler};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler, DummyHandler};
 
 struct LightSessionHandler {
     pub handler: Mutex<Option<Arc<dyn MsgHandler + Send + Sync>>>,
@@ -36,7 +36,17 @@ fn main() {
         let pl_size = match args.next() { Some(size) => {size.parse().unwrap()} None => {8}};
 
         let session_handler = Arc::new(LightSessionHandler::new());
-        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, session_handler.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: PeerId{id: pid.clone()},
+            handler: session_handler.clone(),
+            lease: None,
+            resolution: None,
+            batchsize: None,
+            timeout: None
+        };
+        let manager = SessionManager::new(config);
 
         if let Some(locator) = args.next() {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
