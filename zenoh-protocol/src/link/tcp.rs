@@ -178,7 +178,7 @@ impl LinkTcp {
 }
 
 async fn receive_loop(link: Arc<LinkTcp>) {
-    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, src: &Locator, dst: &Locator) -> Option<Command> {
+    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, link_obj: &Link) -> Option<Command> {
         let mut rbuf = vec![0u8; link.buff_size];
         match (&link.socket).read(&mut rbuf).await {
             Ok(n) => { 
@@ -200,7 +200,7 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             match buff.read_message() {
                 Ok(message) => {
                     let mut guard = zasynclock!(link.transport);
-                    if let Some(transport) = guard.receive_message(&dst, &src, message).await {
+                    if let Some(transport) = guard.receive_message(link_obj, message).await {
                         *guard = transport;
                     }
                     buff.clean_read_slices();
@@ -219,12 +219,11 @@ async fn receive_loop(link: Arc<LinkTcp>) {
     }
 
     let mut signal = false;
-    let src = link.get_src();
-    let dst = link.get_dst();
+    let link_obj = Link::Tcp(link.clone());
     let mut buff = RBuf::new();
     let _err = loop {
         let stop = link.ch_recv.recv();
-        let read = read(&link, &mut buff, &src, &dst);
+        let read = read(&link, &mut buff, &link_obj);
         match read.race(stop).await {
             Some(command) => match command {
                 Command::Ok => continue,
@@ -247,8 +246,8 @@ async fn receive_loop(link: Arc<LinkTcp>) {
 
     // Remove the link in case of IO error
     if !signal {
-        let _ = link.manager.del_link(&src, &dst).await;
-        let _ = link.transport.lock().await.del_link(&src, &dst).await;
+        let _ = link.manager.del_link(&link.get_src(), &link.get_dst()).await;
+        let _ = link.transport.lock().await.del_link(&link_obj).await;
     }
 }
 

@@ -1,11 +1,11 @@
 use async_std::sync::{channel, Arc, RwLock, Sender};
 use async_std::task;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::core::{AtomicZInt, ZError, ZErrorKind, ZInt, ZResult};
-use crate::link::{Link, Locator};
+use crate::link::Link;
 use crate::proto::Message;
 use crate::session::{ConduitRx, ConduitTx, MsgHandler, SessionInner};
 use crate::zerror;
@@ -20,7 +20,7 @@ pub(crate) struct MessageTx {
     // The inner message to transmit
     pub(crate) inner: Message,
     // The preferred link to transmit the Message on
-    pub(crate) link: Option<(Locator, Locator)>,
+    pub(crate) link: Option<Link>,
     pub(crate) notify: Option<Sender<ZResult<()>>>,
 }
 
@@ -39,7 +39,7 @@ pub struct Transport {
     // The default batchsize
     batchsize: AtomicUsize,
     // The links associated to this transport
-    links: RwLock<Vec<Link>>,
+    links: RwLock<HashSet<Link>>,
     // Conduits
     tx: RwLock<HashMap<ZInt, Arc<ConduitTx>>>,
     rx: RwLock<HashMap<ZInt, Arc<ConduitRx>>>,
@@ -66,7 +66,7 @@ impl Transport {
             // The default batchsize
             batchsize: AtomicUsize::new(batchsize),
             // The links associated to this transport
-            links: RwLock::new(Vec::new()),
+            links: RwLock::new(HashSet::new()),
             // The sequence number generator
             tx: RwLock::new(HashMap::new()),
             rx: RwLock::new(HashMap::new()),
@@ -130,20 +130,18 @@ impl Transport {
         let batchsize = self.get_batchsize();
 
         // Add the Tx conduit
-        let conduit = Arc::new(ConduitTx::new(resolution, batchsize));
+        let conduit = Arc::new(ConduitTx::new(id, resolution, batchsize));
 
         // Add all the available links to the conduit
         // @TODO: perform an intelligent assocation of links to conduits
         let links = zasyncread!(self.links);
         for l in links.iter() {
             let _ = conduit.add_link(l.clone()).await;
+            ConduitTx::start(&conduit).await;
         }
 
         // Add the conduit to the HashMap
         guard.insert(id, conduit.clone());
-
-        // Start the newly created conduit
-        ConduitTx::start(conduit.clone()).await;
 
         conduit
     }
@@ -158,7 +156,7 @@ impl Transport {
         let callback = zrwopt!(self.callback).clone();
 
         // Add the Rx conduit
-        let conduit = Arc::new(ConduitRx::new(resolution, session, callback));
+        let conduit = Arc::new(ConduitRx::new(id, resolution, session, callback));
         guard.insert(id, conduit.clone());
 
         conduit
@@ -193,16 +191,6 @@ impl Transport {
     /*************************************/
     /*               LINK                */
     /*************************************/
-    fn find_link(&self, links: &[Link], src: &Locator, dst: &Locator) -> Option<usize> {
-        for (i, l) in links.iter().enumerate() {
-            if l.get_src() == *src && l.get_dst() == *dst {
-                return Some(i);
-            }
-        }
-
-        None
-    }
-
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
         // Acquire the lock on the links
         let mut l_guard = zasyncwrite!(self.links);
@@ -210,54 +198,46 @@ impl Transport {
         let c_guard = zasyncwrite!(self.tx);
 
         // Check if this link is not already present
-        if self
-            .find_link(&l_guard, &link.get_src(), &link.get_dst())
-            .is_some()
-        {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: "Trying to add a link that already exists!".to_string()
+        if l_guard.contains(&link) {
+            return Err(zerror!(ZErrorKind::InvalidLink {
+                descr: format!("{}", link)
             }));
         }
-
-        // Add the link to the transport
-        l_guard.push(link.clone());
 
         // Add the link to the conduits
         // @TODO: Enable a smart allocation of links across the various conduits
         //        The link is added to all the conduits for the time being
         for (_, conduit) in c_guard.iter() {
             let _ = conduit.add_link(link.clone()).await;
+            ConduitTx::start(&conduit).await;
         }
+
+        // Add the link to the transport
+        l_guard.insert(link);
 
         Ok(())
     }
 
-    pub(crate) async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
-        let (is_empty, link) = {
+    pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
+        let is_empty = {
             // Acquire the lock on the links
             let mut l_guard = zasyncwrite!(self.links);
             // Acquire the lock on the conduits
             let c_guard = zasyncread!(self.tx);
 
-            // Check if the link is present in the transport
-            let index = self.find_link(&l_guard, src, dst);
-            // The link is not present, return an error
-            let link = if let Some(i) = index {
-                // Remove the link
-                l_guard.remove(i)
-            } else {
-                return Err(zerror!(ZErrorKind::Other {
-                    descr: "Trying to delete a link that does not exist!".to_string()
-                }));
-            };
-
-            // @TODO: Enable a smart allocation of links across the various conduits
-            //        The link is deleted from all the conduits for the time being
+            // Delete the link from all the conduits
             for (_, conduit) in c_guard.iter() {
-                let _ = conduit.del_link(link.clone()).await;
+                let _ = conduit.del_link(&link).await;
             }
 
-            (l_guard.is_empty(), link)
+            // Delete the link from the transport
+            if !l_guard.remove(link) {
+                return Err(zerror!(ZErrorKind::InvalidLink {
+                    descr: format!("{}", link)
+                }));
+            } 
+            
+            l_guard.is_empty()
         };
         // Check if there are links left and this is not the initial session
         if is_empty && !self.is_initial {
@@ -267,7 +247,7 @@ impl Transport {
             let _ = self.close().await;
         }
 
-        Ok(link)
+        Ok(())
     }
 
     /*************************************/
@@ -277,7 +257,7 @@ impl Transport {
     pub(crate) async fn schedule(
         &self,
         message: Message,
-        link: Option<(Locator, Locator)>,
+        link: Option<Link>,
         priority: usize,
     ) {
         let message = MessageTx {
@@ -293,7 +273,7 @@ impl Transport {
     pub(crate) async fn send(
         &self,
         message: Message,
-        link: Option<(Locator, Locator)>,
+        link: Option<Link>,
         priority: usize,
     ) -> ZResult<()> {
         let (sender, receiver) = channel::<ZResult<()>>(1);
@@ -333,22 +313,21 @@ impl Transport {
     /*************************************/
     pub async fn receive_message(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         message: Message,
     ) -> Option<Arc<Transport>> {
         // Acquire a read lock on the conduits
         let guard = zasyncread!(self.rx);
         // If the conduit does not exists, automatically create it
         match guard.get(&message.cid) {
-            Some(conduit) => conduit.receive_message(src, dst, message).await,
+            Some(conduit) => conduit.receive_message(link, message).await,
             None => {
                 // Drop the read guard to allow to add the new conduit
                 drop(guard);
                 // Dynamically add a new conduit
                 let rx = self.add_conduit_rx(message.cid).await;
                 // Process the message
-                rx.receive_message(src, dst, message).await
+                rx.receive_message(link, message).await
             }
         }
     }
@@ -366,7 +345,7 @@ impl Transport {
         }
 
         // Remove and close all the links
-        for l in zasyncwrite!(self.links).drain(..) {
+        for l in zasyncwrite!(self.links).drain() {
             let _ = l.close().await;
         }
 

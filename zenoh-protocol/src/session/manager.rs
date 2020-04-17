@@ -397,11 +397,11 @@ impl Session {
         self.0.transport.add_link(link).await
     }
 
-    pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
-        self.0.transport.del_link(src, dst).await
+    pub async fn del_link(&self, link: &Link) -> ZResult<()> {
+        self.0.transport.del_link(link).await
     }
 
-    pub async fn schedule(&self, message: Message, link: Option<(Locator, Locator)>) {
+    pub async fn schedule(&self, message: Message, link: Option<Link>) {
         self.0
             .transport
             .schedule(message, link, QUEUE_PRIO_DATA)
@@ -502,8 +502,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let link = Some((link.get_src(), link.get_dst())); // The link to reply on
-        self.transport.send(message, link, QUEUE_PRIO_CTRL).await?;
+        self.transport.send(message, Some(link), QUEUE_PRIO_CTRL).await?;
 
         Ok(())
     }
@@ -524,11 +523,8 @@ impl SessionInner {
         // Get the transport links
         let links = self.transport.get_links().await;
         for l in links.iter() {
-            // Send the message for transmission
-            let link = Some((l.get_src(), l.get_dst())); // The preferred link to reply on
-                                                         // TODO: If error in send, retry
             self.transport
-                .send(message.clone(), link, QUEUE_PRIO_DATA)
+                .send(message.clone(), Some(l.clone()), QUEUE_PRIO_DATA)
                 .await?;
         }
 
@@ -553,8 +549,7 @@ impl SessionInner {
     /*************************************/
     pub(crate) async fn process_accept(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         whatami: &WhatAmI,
         opid: &PeerId,
         apid: &PeerId,
@@ -568,11 +563,11 @@ impl SessionInner {
         }
 
         // Check if had previously triggered the opening of a new connection
-        let key = (dst.clone(), src.clone());
+        let key = (link.get_src(), link.get_dst());
         match self.channels.write().await.remove(&key) {
             Some(sender) => {
                 // Remove the link from self
-                let link = self.transport.del_link(dst, src).await?;
+                self.transport.del_link(link).await?;
                 // Get a new or an existing session
                 let session_inner = self
                     .manager
@@ -581,7 +576,7 @@ impl SessionInner {
                 // Configure the lease time on the transport
                 session_inner.transport.set_lease(lease);
                 // Add the link on the transport
-                session_inner.transport.add_link(link).await?;
+                session_inner.transport.add_link(link.clone()).await?;
                 // Notify the opener
                 sender.send(Ok(session_inner.clone())).await;
                 Ok(session_inner.transport.clone())
@@ -595,8 +590,7 @@ impl SessionInner {
 
     pub(crate) async fn process_close(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         pid: &Option<PeerId>,
         _reason: u8,
     ) {
@@ -606,14 +600,13 @@ impl SessionInner {
         }
 
         // Delete the link
-        let _ = self.transport.del_link(dst, src).await;
+        let _ = self.transport.del_link(link).await;
     }
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn process_open(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         version: u8,
         whatami: &WhatAmI,
         pid: &PeerId,
@@ -639,9 +632,9 @@ impl SessionInner {
         target.transport.set_lease(lease);
 
         // Remove the link from self
-        let link = self.transport.del_link(dst, src).await?;
+        self.transport.del_link(&link).await?;
         // Add the link to the target
-        target.transport.add_link(link).await?;
+        target.transport.add_link(link.clone()).await?;
 
         // Build Accept message
         let conduit_id = None; // Conduit ID always None
@@ -656,8 +649,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let link = Some((dst.clone(), src.clone())); // The link to reply on
-        let _ = target.transport.send(message, link, QUEUE_PRIO_CTRL).await;
+        let _ = target.transport.send(message, Some(link.clone()), QUEUE_PRIO_CTRL).await;
 
         Ok(target.transport.clone())
     }

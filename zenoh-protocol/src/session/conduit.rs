@@ -1,10 +1,11 @@
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, Mutex, Receiver, Sender};
 use async_std::task;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
-use crate::io::{RBuf, WBuf};
-use crate::link::{Link, Locator};
+use crate::io::WBuf;
+use crate::link::Link;
 use crate::proto::{Body, Message, MessageKind, SeqNum, SeqNumGenerator};
 use crate::session::{MessageTx, MsgHandler, SessionInner, Transport};
 use crate::session::defaults::{
@@ -31,13 +32,35 @@ use zenoh_util::zasynclock;
 /*         CONDUIT TX TASK           */
 /*************************************/
 
+const DESCHEDULE_AFTER_ITERATION_NUM: usize = 32;
+
 // Command to operate on the transmission loop
 enum Command {
     Stop,
     Continue,
 }
 
+struct LinkContext {
+    // The list of messages to transmit
+    messages: Vec<MessageTx>,
+    // The buffer to perform the batching on
+    batch: WBuf,
+    // The buffer to serialize each message on
+    buffer: WBuf
+}
+
+impl LinkContext {
+    fn new(batchsize: usize) -> LinkContext {
+        LinkContext {
+            messages: Vec::with_capacity(QUEUE_SIZE_TOT),
+            batch: WBuf::new(batchsize),
+            buffer: WBuf::new(WRITE_MSG_SLICE_SIZE)
+        }
+    }
+}
+
 // Update the sequence number
+#[inline]
 async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut Message) {
     let is_reliable = message.is_reliable();
     match message.body {
@@ -57,12 +80,96 @@ async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut Message) {
     }
 }
 
+// Mapping
+async fn map_messages_on_links(
+    inner: &mut ConduitInnerTx,
+    messages: &mut Vec<MessageTx>,
+    context: &mut Vec<LinkContext>
+) {
+    if let Some(main_idx) = inner.main_idx {
+        // If there is a main link, it meanse that there is at least one link
+        // associated to the conduit. Drain the messages and perform the mapping
+        for mut msg in messages.drain(..) {
+            // Update the sequence number while draining
+            update_sn(&mut inner.sn, &mut msg.inner).await;
+    
+            // @TODO: implement the reliability queue
+    
+            // Find the right index for the link
+            let index = if let Some(link) = &msg.link {
+                // Check if the target link exists, otherwise fallback on the main link
+                if let Some(index) = inner.find_link_index(&link) {
+                    index
+                } else {
+                    main_idx
+                }
+            } else {
+                main_idx
+            };
+            // Add the message to the right link
+            context[index].messages.push(msg);
+        }
+    } else {
+        // There are no links associated to the conduits. Drain the messages, keep the 
+        // reliable messages and drop the unreliable ones
+        for mut msg in messages.drain(..) {
+            if msg.inner.is_reliable() {
+                // Update the sequence number while draining
+                update_sn(&mut inner.sn, &mut msg.inner).await;
+                // @TODO: implement the reliability queue
+            }
+        }
+    }
+}
+
+async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) {
+    // Process all the messages just drained
+    for msg in context.messages.drain(..) {        
+        // Clear the message buffer
+        context.buffer.clear();
+        // Serialize the message on the buffer
+        context.buffer.write_message(&msg.inner);
+
+        // Create the RBuf out of batch and buff WBuff for transmission
+        let batch_read = context.batch.as_rbuf();
+        let buff_read = context.buffer.as_rbuf();
+
+        if let Some(notify) = msg.notify {
+            // Transmit now the message
+            let res = link.send(buff_read).await;
+            // Notify now the result 
+            notify.send(res).await;
+            // We are done with this message, continue with the following one
+            continue;
+        } else if batch_read.len() + buff_read.len() > batchsize {
+            // The message does not fit in the batch, first transmit the current batch
+            let _ = link.send(batch_read).await;
+            // Clear the batch buffer
+            context.batch.clear();
+        }
+        // Add the message to the batch
+        let slices = buff_read.get_slices();
+        for s in slices.iter() {
+            context.batch.add_slice(s.clone());
+        }
+    }
+
+    // Transmit all the messages left in the batch if any
+    // Create a RBuf out of the batch
+    let batch_read = context.batch.as_rbuf();
+    if !batch_read.is_empty() {
+        // Transmit the batch on the link
+        let _ = link.send(batch_read).await;
+    }
+    // Clear the batch buffer
+    context.batch.clear();
+}
+
 // Consuming function
 async fn consume(
     conduit: &Arc<ConduitTx>,
     mut messages: &mut Vec<MessageTx>,
-    batch: &mut WBuf,
-    buff: &mut WBuf,
+    mut context: &mut Vec<LinkContext>
 ) -> Option<Command> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
@@ -71,62 +178,18 @@ async fn consume(
     // drain_into() waits for the queue to be non-empty
     conduit.queue.drain_into(&mut messages).await;
 
-    // Keep draining
-    while !messages.is_empty() {
-        // Process all the messages just drained
-        for mut msg in messages.drain(..) {
-            // Acquire the tx lock for updating the SN and transmission
-            let mut inner = zasynclock!(conduit.inner);
-
-            // Update the sequence number
-            update_sn(&mut inner.sn, &mut msg.inner).await;
-
-            // Clear the message buffer
-            buff.clear();
-            // Serialize the message on the buffer
-            buff.write_message(&msg.inner);
-
-            // Create the RBuf out of batch and buff WBuff for transmission
-            let batch_read = batch.as_rbuf();
-            let buff_read = buff.as_rbuf();
-
-            if msg.link.is_some() || msg.notify.is_some() {
-                // We are in a special case: a specific link has been indicated for the message
-                // or the message is sent in a synchronous way using the send()
-                // Transmit now the message
-                conduit
-                    .transmit(&inner.links, buff_read, msg.link, msg.notify)
-                    .await;
-                // We are done with this message, continue with the following one
-                continue;
-            } else if batch_read.len() + buff_read.len() > inner.batchsize {
-                // The message does not fit in the batch, first transmit the current batch
-                conduit.transmit(&inner.links, batch_read, None, None).await;
-                // Clear the batch buffer
-                batch.clear();
-            }
-            // Add the message to the batch
-            let slices = buff_read.get_slices();
-            for s in slices.iter() {
-                batch.add_slice(s.clone());
-            }
-        }
-        // Try to drain more messages from the queue
-        // The try_drain_into() does not wait for the queue to have messages as opposed to drain_into()
-        conduit.queue.try_drain_into(&mut messages).await;
+    // Acquire the lock on the inner conduit data structure
+    let mut inner = zasynclock!(conduit.inner);
+    // Create or remove link context if needed
+    if context.len() != inner.links.len() {
+        context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
     }
-    // The last try_drain_into() operation returned no messages
-    // Transmit all the messages left in the batch
-    let batch_read = batch.as_rbuf();
-    if !batch_read.is_empty() {
-        // Acquire the tx lock for transmission
-        let tx = zasynclock!(conduit.inner);
-        // Transmit the last chunk of the batch
-        conduit
-            .transmit(&tx.links, batch.as_rbuf(), None, None)
-            .await;
-        // Clear the batch buffer
-        batch.clear();
+
+    // Map the messages on the links. This operation drains `messages`
+    map_messages_on_links(&mut inner, &mut messages, &mut context).await;
+    // Batch/Fragmenet and transmit the messages
+    for (i, mut c) in context.iter_mut().enumerate() {
+        batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
     }
 
     Some(Command::Continue)
@@ -136,22 +199,23 @@ async fn transmission_loop(conduit: Arc<ConduitTx>, receiver: Receiver<Command>)
     // The loop to consume the messages in the queue
     let mut messages: Vec<MessageTx> = Vec::with_capacity(QUEUE_SIZE_TOT);
     // Create a buffer for the batching
-    let mut batch = WBuf::new(WRITE_MSG_SLICE_SIZE);
-    // Create a buffer to serialize each message on
-    let mut buff = WBuf::new(WRITE_MSG_SLICE_SIZE);
-    loop {
-        // Create the consume future
-        let consume = consume(&conduit, &mut messages, &mut batch, &mut buff);
-        // Create the signal future
-        let signal = receiver.recv();
+    let mut context: Vec<LinkContext> = Vec::new();
+    while conduit.is_active() {
+        for _ in 0..DESCHEDULE_AFTER_ITERATION_NUM {
+            // Create the consume future
+            let consume = consume(&conduit, &mut messages, &mut context);
+            // Create the signal future
+            let signal = receiver.recv();
 
-        match consume.race(signal).await {
-            Some(cmd) => match cmd {
-                Command::Stop => break,
-                Command::Continue => continue,
-            },
-            None => break,
+            match consume.race(signal).await {
+                Some(cmd) => match cmd {
+                    Command::Stop => break,
+                    Command::Continue => continue,
+                },
+                None => break,
+            }
         }
+        task::yield_now().await;
     }
 }
 
@@ -179,6 +243,7 @@ struct ConduitInnerTx {
     sn: SeqNumTx,
     batchsize: usize,
     links: Vec<Link>,
+    main_idx: Option<usize>
 }
 
 impl ConduitInnerTx {
@@ -190,18 +255,72 @@ impl ConduitInnerTx {
             sn: SeqNumTx::new(zero, zero, resolution),
             batchsize,
             links: Vec::new(),
+            main_idx: None
         }
+    }
+
+    /*************************************/
+    /*               LINK                */
+    /*************************************/
+    #[inline]
+    fn find_link_index(&self, link: &Link) -> Option<usize> {
+        self.links.iter().position(|x| x == link)
+    }
+
+    pub(crate) async fn add_link(&mut self, link: Link) -> ZResult<()> {
+        // Check if this link is not already present
+        if self.links.contains(&link) {
+            return Err(zerror!(ZErrorKind::InvalidLink {
+                descr: "Trying to add a link that already exists!".to_string()
+            }));
+        }
+
+        // Add the link to the conduit
+        self.links.push(link);
+        // Select the main link for this conduit
+        if self.main_idx.is_none() {
+            // @TODO: Adopt a more intelligent link selection
+            //        Selecting the first link on the list
+            self.main_idx = Some(0);
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn del_link(&mut self, link: &Link) -> ZResult<()> {
+        // Find the index of the link
+        let mut index = self.find_link_index(&link);
+
+        // Return error if the link was not found
+        if index.is_none() {
+            return Err(zerror!(ZErrorKind::InvalidLink {
+                descr: format!("{}", link)
+            }));
+        }
+
+        // Remove the link
+        let index = index.take().unwrap();
+        self.links.remove(index);
+
+        // Reset the main link if no links left
+        if self.links.is_empty() {
+            self.main_idx = None;
+        }
+
+        Ok(())
     }
 }
 
 pub(crate) struct ConduitTx {
+    pub(crate) id: ZInt,
     pub(crate) queue: CreditQueue<MessageTx>,
+    active: AtomicBool,
     inner: Mutex<ConduitInnerTx>,
     signal: Mutex<Option<Sender<Command>>>,
 }
 
 impl ConduitTx {
-    pub(crate) fn new(resolution: ZInt, batchsize: usize) -> ConduitTx {
+    pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize) -> ConduitTx {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
             QUEUE_SIZE_CTRL,
@@ -227,62 +346,37 @@ impl ConduitTx {
         let queue_tx = vec![ctrl, retx, data];
 
         ConduitTx {
+            id,
             queue: CreditQueue::new(queue_tx, QUEUE_CONCURRENCY),
+            active: AtomicBool::new(false),
             inner: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
             signal: Mutex::new(None),
         }
     }
 
+    #[inline]
+    fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
     /*************************************/
     /*               LINK                */
     /*************************************/
-    fn find_link(&self, links: &[Link], src: &Locator, dst: &Locator) -> Option<usize> {
-        for (i, l) in links.iter().enumerate() {
-            if l.get_src() == *src && l.get_dst() == *dst {
-                return Some(i);
-            }
-        }
-
-        None
-    }
-
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        // Acquire the lock on the links
+        zasynclock!(self.inner).add_link(link).await
+    }
+
+    pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
         let mut guard = zasynclock!(self.inner);
-        // Check if this link is not already present
-        if self
-            .find_link(&guard.links, &link.get_src(), &link.get_dst())
-            .is_some()
-        {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: "Trying to add a link that already exists!".to_string()
-            }));
+        let res = guard.del_link(link).await;
+        // Stop the conduit if it has no links left
+        if guard.links.is_empty() {
+            self.stop().await;
         }
-
-        // Add the link to the transport
-        guard.links.push(link.clone());
-
-        Ok(())
-    }
-    pub(crate) async fn del_link(&self, link: Link) -> ZResult<Link> {
-        // If the conduit is active, add it to the transmission_loop
-        let mut guard = zasynclock!(self.inner);
-        // Check if the link is present in the transport
-        let index = self.find_link(&guard.links, &link.get_src(), &link.get_dst());
-        // The link is not present, return an error
-        let link = if let Some(i) = index {
-            // Remove the link
-            guard.links.remove(i)
-        } else {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: "Trying to delete a link that does not exist!".to_string()
-            }));
-        };
-
-        Ok(link)
+        res
     }
 
-    pub(crate) async fn start(conduit: Arc<ConduitTx>) {
+    pub(crate) async fn start(conduit: &Arc<Self>) {
         let mut guard = zasynclock!(conduit.signal);
         // If not already active, start the transmission loop
         if guard.is_none() {
@@ -292,8 +386,10 @@ impl ConduitTx {
             *guard = Some(sender);
             // Drop the guard that borrows the conduit
             drop(guard);
+            // Declare the conduit as active
+            conduit.active.store(true, Ordering::Relaxed);
             // Spawn the transmission loop
-            task::spawn(transmission_loop(conduit, receiver));
+            task::spawn(transmission_loop(conduit.clone(), receiver));
         }
     }
 
@@ -302,46 +398,23 @@ impl ConduitTx {
         let signal = zasynclock!(self.signal).take();
         // If the transmission loop is active, send the stop signal
         if let Some(sender) = signal {
+            // Declare the conduit as no longer active
+            self.active.store(false, Ordering::Relaxed);
+            // Send the stop command in case the transmission loop
+            // was waiting for messages
             sender.send(Command::Stop).await;
         }
     }
+}
 
-    async fn transmit(
-        &self,
-        links: &[Link],
-        buffer: RBuf,
-        link: Option<(Locator, Locator)>,
-        notify: Option<Sender<ZResult<()>>>,
-    ) {
-        // Send the message on the link(s)
-        let res = match link {
-            // Send the message to the indicated link
-            Some((src, dst)) => match self.find_link(links, &src, &dst) {
-                Some(index) => links[index].send(buffer).await,
-                None => Err(zerror!(ZErrorKind::Other {
-                    descr: format!(
-                        "Message dropped because link ({} => {}) was not found!",
-                        &src, &dst
-                    )
-                })),
-            },
-            None => {
-                // Send the message on the first link
-                // @TODO: Adopt an intelligent selection of the links to use
-                match links.get(0) {
-                    Some(link) => link.send(buffer).await,
-                    None => Err(zerror!(ZErrorKind::Other {
-                        descr: "Message dropped because transport has no links!".to_string()
-                    })),
-                }
-            }
-        };
+impl Eq for ConduitTx {}
 
-        if let Some(notify) = notify {
-            notify.send(res).await;
-        }
+impl PartialEq for ConduitTx {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }
+
 
 /*************************************/
 /*         CONDUIT RX STRUCT         */
@@ -379,17 +452,20 @@ impl ConduitInnerRx {
 }
 
 pub struct ConduitRx {
+    pub(crate) id: ZInt,
     session: Arc<SessionInner>,
     inner: Mutex<ConduitInnerRx>,
 }
 
 impl ConduitRx {
     pub(crate) fn new(
+        id: ZInt,
         resolution: ZInt,
         session: Arc<SessionInner>,
         callback: Arc<dyn MsgHandler + Send + Sync>,
     ) -> ConduitRx {
         ConduitRx {
+            id,
             session,
             inner: Mutex::new(ConduitInnerRx::new(resolution, callback)),
         }
@@ -417,8 +493,7 @@ impl ConduitRx {
 
     async fn receive_full_message(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         message: Message,
     ) -> Option<Arc<Transport>> {
         match &message.body {
@@ -431,7 +506,7 @@ impl ConduitRx {
                 let c_lease = *lease;
                 match self
                     .session
-                    .process_accept(src, dst, whatami, opid, apid, c_lease)
+                    .process_accept(link, whatami, opid, apid, c_lease)
                     .await
                 {
                     Ok(transport) => Some(transport),
@@ -443,7 +518,7 @@ impl ConduitRx {
             }
             Body::Close { pid, reason } => {
                 let c_reason = *reason;
-                self.session.process_close(src, dst, pid, c_reason).await;
+                self.session.process_close(link, pid, c_reason).await;
                 None
             }
             Body::Hello { .. } => {
@@ -463,7 +538,7 @@ impl ConduitRx {
                 let c_lease = *lease;
                 match self
                     .session
-                    .process_open(src, dst, c_version, whatami, pid, c_lease, locators)
+                    .process_open(link, c_version, whatami, pid, c_lease, locators)
                     .await
                 {
                     Ok(transport) => Some(transport),
@@ -500,8 +575,7 @@ impl ConduitRx {
 
     async fn receive_first_fragement(
         &self,
-        _src: &Locator,
-        _dst: &Locator,
+        _link: &Link,
         _message: Message,
         _number: Option<ZInt>,
     ) -> Option<Arc<Transport>> {
@@ -510,8 +584,7 @@ impl ConduitRx {
 
     async fn receive_middle_fragement(
         &self,
-        _src: &Locator,
-        _dst: &Locator,
+        _link: &Link,
         _message: Message,
     ) -> Option<Arc<Transport>> {
         unimplemented!("Defragementation not implemented yet!");
@@ -519,8 +592,7 @@ impl ConduitRx {
 
     async fn receive_last_fragement(
         &self,
-        _src: &Locator,
-        _dst: &Locator,
+        _link: &Link,
         _message: Message,
     ) -> Option<Arc<Transport>> {
         unimplemented!("Defragementation not implemented yet!");
@@ -528,19 +600,26 @@ impl ConduitRx {
 
     pub async fn receive_message(
         &self,
-        src: &Locator,
-        dst: &Locator,
+        link: &Link,
         message: Message,
     ) -> Option<Arc<Transport>> {
         match message.kind {
-            MessageKind::FullMessage => self.receive_full_message(src, dst, message).await,
+            MessageKind::FullMessage => self.receive_full_message(link, message).await,
             MessageKind::FirstFragment { n } => {
-                self.receive_first_fragement(src, dst, message, n).await
+                self.receive_first_fragement(link, message, n).await
             }
             MessageKind::InbetweenFragment => {
-                self.receive_middle_fragement(src, dst, message).await
+                self.receive_middle_fragement(link, message).await
             }
-            MessageKind::LastFragment => self.receive_last_fragement(src, dst, message).await,
+            MessageKind::LastFragment => self.receive_last_fragement(link, message).await,
         }
+    }
+}
+
+impl Eq for ConduitRx {}
+
+impl PartialEq for ConduitRx {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }

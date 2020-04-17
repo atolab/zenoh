@@ -7,6 +7,7 @@ pub enum ZErrorKind {
     BufferUnderflow { missing: usize },
     InvalidMessage { descr: String },
     InvalidLocator { descr: String },
+    InvalidLink { descr: String },
     UnkownResourceId { rid: ResourceId },
     IOError { descr: String },
     InvalidResolution { descr: String},
@@ -25,6 +26,8 @@ impl fmt::Display for ZErrorKind {
                 write!(f, "Invalid message ({})", descr),
             ZErrorKind::InvalidLocator { descr } =>
                 write!(f, "Invalid locator ({})", descr),
+            ZErrorKind::InvalidLink { descr } =>
+                write!(f, "Invalid link ({})", descr),
             ZErrorKind::UnkownResourceId { rid } =>
                 write!(f, "Unkown ResourceId ({})", rid),
             ZErrorKind::IOError { descr } =>
