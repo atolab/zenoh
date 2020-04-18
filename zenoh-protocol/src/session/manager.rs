@@ -404,7 +404,14 @@ impl Session {
     pub async fn schedule(&self, message: Message, link: Option<Link>) {
         self.0
             .transport
-            .schedule(message, link, QUEUE_PRIO_DATA)
+            .schedule(message, QUEUE_PRIO_DATA, link)
+            .await;
+    }
+
+    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) {
+        self.0
+            .transport
+            .schedule_batch(messages, QUEUE_PRIO_DATA, link, cid)
             .await;
     }
 }
@@ -435,7 +442,7 @@ pub(crate) struct SessionInner {
 impl MsgHandler for SessionInner {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
         self.transport
-            .schedule(message, None, QUEUE_PRIO_DATA)
+            .schedule(message, QUEUE_PRIO_DATA, None)
             .await;
         Ok(())
     }
@@ -502,7 +509,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        self.transport.send(message, Some(link), QUEUE_PRIO_CTRL).await?;
+        self.transport.send(message, QUEUE_PRIO_CTRL, Some(link)).await?;
 
         Ok(())
     }
@@ -524,7 +531,7 @@ impl SessionInner {
         let links = self.transport.get_links().await;
         for l in links.iter() {
             self.transport
-                .send(message.clone(), Some(l.clone()), QUEUE_PRIO_DATA)
+                .send(message.clone(), QUEUE_PRIO_DATA, Some(l.clone()))
                 .await?;
         }
 
@@ -649,7 +656,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let _ = target.transport.send(message, Some(link.clone()), QUEUE_PRIO_CTRL).await;
+        let _ = target.transport.send(message, QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
         Ok(target.transport.clone())
     }

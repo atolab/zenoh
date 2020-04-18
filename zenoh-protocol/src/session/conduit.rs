@@ -32,8 +32,6 @@ use zenoh_util::zasynclock;
 /*         CONDUIT TX TASK           */
 /*************************************/
 
-const DESCHEDULE_AFTER_ITERATION_NUM: usize = 32;
-
 // Command to operate on the transmission loop
 enum Command {
     Stop,
@@ -87,7 +85,7 @@ async fn map_messages_on_links(
     context: &mut Vec<LinkContext>
 ) {
     if let Some(main_idx) = inner.main_idx {
-        // If there is a main link, it meanse that there is at least one link
+        // If there is a main link, it means that there is at least one link
         // associated to the conduit. Drain the messages and perform the mapping
         for mut msg in messages.drain(..) {
             // Update the sequence number while draining
@@ -153,9 +151,9 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
             context.batch.add_slice(s.clone());
         }
     }
+}
 
-    // Transmit all the messages left in the batch if any
-    // Create a RBuf out of the batch
+async fn flush_batch(link: &Link, context: &mut LinkContext) {
     let batch_read = context.batch.as_rbuf();
     if !batch_read.is_empty() {
         // Transmit the batch on the link
@@ -185,11 +183,23 @@ async fn consume(
         context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
     }
 
-    // Map the messages on the links. This operation drains `messages`
-    map_messages_on_links(&mut inner, &mut messages, &mut context).await;
-    // Batch/Fragmenet and transmit the messages
+    while !messages.is_empty() {  
+        // Map the messages on the links. This operation drains `messages`
+        map_messages_on_links(&mut inner, &mut messages, &mut context).await;
+        // Batch/Fragmenet and transmit the messages
+        for (i, mut c) in context.iter_mut().enumerate() {
+            batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+        }
+        // Deschedule the task to allow other tasks to be scheduled and
+        // eventually to push on the queue
+        task::yield_now().await;
+        // Try to drain messages from the queue
+        conduit.queue.try_drain_into(&mut messages).await;
+    }
+
+    // Transmit all the messages left in the batch if any
     for (i, mut c) in context.iter_mut().enumerate() {
-        batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+        flush_batch(&inner.links[i], &mut c).await;
     }
 
     Some(Command::Continue)
@@ -201,21 +211,18 @@ async fn transmission_loop(conduit: Arc<ConduitTx>, receiver: Receiver<Command>)
     // Create a buffer for the batching
     let mut context: Vec<LinkContext> = Vec::new();
     while conduit.is_active() {
-        for _ in 0..DESCHEDULE_AFTER_ITERATION_NUM {
-            // Create the consume future
-            let consume = consume(&conduit, &mut messages, &mut context);
-            // Create the signal future
-            let signal = receiver.recv();
+        // Create the consume future
+        let consume = consume(&conduit, &mut messages, &mut context);
+        // Create the signal future
+        let signal = receiver.recv();
 
-            match consume.race(signal).await {
-                Some(cmd) => match cmd {
-                    Command::Stop => break,
-                    Command::Continue => continue,
-                },
-                None => break,
-            }
+        match consume.race(signal).await {
+            Some(cmd) => match cmd {
+                Command::Stop => break,
+                Command::Continue => continue,
+            },
+            None => break,
         }
-        task::yield_now().await;
     }
 }
 

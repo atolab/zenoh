@@ -257,24 +257,45 @@ impl Transport {
     pub(crate) async fn schedule(
         &self,
         message: Message,
-        link: Option<Link>,
         priority: usize,
+        link: Option<Link>
     ) {
         let message = MessageTx {
             inner: message,
-            link,
             notify: None,
+            link
         };
         // Wait for the queue to have space for the message
         self.push_on_conduit_queue(message, priority).await;
+    }
+
+    // Schedule a batch of messages to be sent asynchronsly
+    pub(crate) async fn schedule_batch(
+        &self,
+        mut messages: Vec<Message>,
+        priority: usize,
+        link: Option<Link>,
+        cid: Option<ZInt>
+    ) {
+        let cid: ZInt = cid.unwrap_or(0);
+        let messages = messages.drain(..).map(|mut x| {
+            x.cid = cid;
+            MessageTx {
+                inner: x,
+                link: link.clone(),
+                notify: None,
+            }
+        }).collect();
+        // Wait for the queue to have space for the message
+        self.push_batch_on_conduit_queue(messages, priority, cid).await;
     }
 
     // Schedule the message to be sent asynchronsly and notify once sent
     pub(crate) async fn send(
         &self,
         message: Message,
-        link: Option<Link>,
         priority: usize,
+        link: Option<Link>
     ) -> ZResult<()> {
         let (sender, receiver) = channel::<ZResult<()>>(1);
         let message = MessageTx {
@@ -305,6 +326,21 @@ impl Transport {
             // Add the new conduit
             let conduit = self.add_conduit_tx(message.inner.cid).await;
             conduit.queue.push(message, priority).await
+        }
+    }
+
+    async fn push_batch_on_conduit_queue(&self, messages: Vec<MessageTx>, priority: usize, cid: ZInt) {
+        // Push the message on the conduit queue
+        // If the conduit does not exist, create it on demand
+        let guard = zasyncread!(self.tx);
+        if let Some(conduit) = guard.get(&cid) {
+            conduit.queue.push_batch(messages, priority).await;
+        } else {
+            // Drop the guard to dynamically add the new conduit
+            drop(guard);
+            // Add the new conduit
+            let conduit = self.add_conduit_tx(cid).await;
+            conduit.queue.push_batch(messages, priority).await;
         }
     }
 

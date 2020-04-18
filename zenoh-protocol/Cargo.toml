@@ -41,3 +41,13 @@ harness = false
 [[bench]]
 name = "data_creation"
 harness = false
+
+[[bin]]
+name = "base_sub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "base_pub_peer"
+test = false
+bench = false

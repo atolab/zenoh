@@ -381,7 +381,7 @@ impl ManagerTcpInner {
         // Create the channel necessary to break the accept loop
         let (sender, receiver) = channel::<bool>(1);
         // Update the list of active listeners on the manager
-        self.listener.write().await.insert(addr.clone(), (socket.clone(), sender));
+        self.listener.write().await.insert(*addr, (socket.clone(), sender));
 
         // Spawn the accept loop for the listener
         let c_self = a_self.clone();

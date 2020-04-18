@@ -37,7 +37,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         }
                         Declaration::Subscriber {key, info} => {
                             trace!("DECLARE SUBSCRIBER key({:?}) info({:?})", key, info);
-                            self.primitives.subscriber(key.clone(), info.clone()).await;
+                            self.primitives.subscriber(key.clone(), *info).await;
                         }
                         Declaration::Storage {key} => {
                             trace!("DECLARE STORAGE key({:?})", key);

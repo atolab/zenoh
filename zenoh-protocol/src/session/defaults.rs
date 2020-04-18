@@ -19,7 +19,7 @@ pub(crate) const QUEUE_SIZE_CTRL: usize = 16;
 pub(crate) const QUEUE_CRED_CTRL: isize = 1;
 
 pub(crate) const _QUEUE_PRIO_RETX: usize = 1;
-pub(crate) const QUEUE_SIZE_RETX: usize = 256;
+pub(crate) const QUEUE_SIZE_RETX: usize = 64;
 pub(crate) const QUEUE_CRED_RETX: isize = 1;
 
 pub(crate) const QUEUE_PRIO_DATA: usize = 2;

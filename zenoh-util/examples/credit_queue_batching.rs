@@ -9,6 +9,7 @@ use std::time::Instant;
 
 const SIZE: usize = 256;
 const CREDIT: isize = 100;
+const BATCH: usize = 16;
 
 fn main() {    
     task::block_on(async {  
@@ -33,26 +34,30 @@ fn main() {
         let n = 1_000_000usize;
 
         let p1 = task::spawn(async move  {
-            for _ in 0..n {                
-                cq1.push(0, 0).await;
+            for _ in 0..n/BATCH {
+                let v = vec![0; BATCH];  
+                cq1.push_batch(v, 0).await;
             }
         });
 
         let p2 = task::spawn(async move  {
-            for _ in 0..n {                
-                cq2.push(1, 1).await;
+            for _ in 0..n/BATCH {  
+                let v = vec![1; BATCH];  
+                cq2.push_batch(v, 1).await;
             }
         });
 
         let p3 = task::spawn(async move  {
-            for _ in 0..n {                
-                cq3.push(2, 2).await;
+            for _ in 0..n/BATCH {   
+                let v = vec![2; BATCH];  
+                cq3.push_batch(v, 2).await;
             }
         });
 
         let p4 = task::spawn(async move  {
-            for _ in 0..n {                
-                cq4.push(2, 2).await;
+            for _ in 0..n/BATCH {   
+                let v = vec![2; BATCH];  
+                cq4.push_batch(v, 2).await;
             }
         });        
 

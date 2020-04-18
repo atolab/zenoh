@@ -115,6 +115,28 @@ impl<T> CreditQueue<T> {
         }            
     }
 
+    pub async fn push_batch(&self, mut v: Vec<T>, priority: usize) {
+        while !v.is_empty() {
+            loop {
+                let mut q = zasynclock!(self.state);
+                let tot = (q[priority].capacity() - q[priority].len()).min(v.len());
+                // Start draining the elements
+                for t in v.drain(0..tot) {
+                    q[priority].push(t);
+                }
+                // If some element has been pushed and there is a waiting list,
+                // notify the pullers and return the messages not pushed on the queue
+                if tot > 0 {
+                    if self.not_empty.has_waiting_list() {
+                        self.not_empty.notify(q).await;
+                    }
+                    break;
+                }
+                self.not_full.wait(q).await;  
+            }
+        }         
+    }
+
     pub async fn pull(&self) -> T {
         loop {
             let mut q = zasynclock!(self.state);

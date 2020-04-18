@@ -50,14 +50,17 @@ impl<T> CircularBuffer<T> {
     }
 
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn is_full(&self) -> bool{
         self.n == self.capacity
     }
 
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.n
+    }
+
+    #[inline]
+    pub(crate) fn capacity(&self) -> usize {
+        self.capacity
     }
 }
