@@ -1,6 +1,6 @@
 use async_trait::async_trait;
+use async_std::sync::RwLock;
 use std::sync::Arc;
-use spin::RwLock;
 use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::RBuf;

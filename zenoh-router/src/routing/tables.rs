@@ -1,6 +1,6 @@
 use async_trait::async_trait;
+use async_std::sync::RwLock;
 use std::sync::{Arc, Weak};
-use spin::RwLock;
 use std::collections::{HashMap};
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::{ResKey, ZInt};
@@ -110,13 +110,13 @@ impl Tables {
         &self.root_res
     }
 
-    pub fn print(tables: &Arc<RwLock<Tables>>) {
-        Resource::print_tree(&tables.read().root_res)
+    pub async fn print(tables: &Arc<RwLock<Tables>>) {
+        Resource::print_tree(&tables.read().await.root_res)
     }
 
     pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
         let (face, subs, stos) = unsafe {
-            let mut t = tables.write();
+            let mut t = tables.write().await;
             let sid = t.sex_counter;
             t.sex_counter += 1;
             let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
@@ -253,7 +253,7 @@ impl Tables {
     }
 
     pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>) {
-        let mut t = tables.write();
+        let mut t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => unsafe {
                 let sex = Arc::get_mut_unchecked(&mut sex);
@@ -323,7 +323,7 @@ impl Tables {
 
     pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, prefixid: u64, suffix: &str) {
         let remap = {
-            let t = tables.write();
+            let t = tables.write().await;
             match sex.upgrade() {
                 Some(mut sex) => {
                     match sex.remote_mappings.get(&rid) {
@@ -383,7 +383,7 @@ impl Tables {
     }
 
     pub async fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64) {
-        let _t = tables.write();
+        let _t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => unsafe {
                 match Arc::get_mut_unchecked(&mut sex).remote_mappings.remove(&rid) {
@@ -397,7 +397,7 @@ impl Tables {
 
     pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str, sub_info: SubInfo) {
         let route = {
-            let mut t = tables.write();
+            let mut t = tables.write().await;
             match sex.upgrade() {
                 Some(mut sex) => {
                     let prefix = {
@@ -487,7 +487,7 @@ impl Tables {
     }
 
     pub async fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
-        let t = tables.write();
+        let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
                 let prefix = {
@@ -518,7 +518,7 @@ impl Tables {
 
     pub async fn declare_storage(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
         let route = {
-            let mut t = tables.write();
+            let mut t = tables.write().await;
             match sex.upgrade() {
                 Some(mut sex) => {
                     let prefix = {
@@ -607,7 +607,7 @@ impl Tables {
     }
 
     pub async fn undeclare_storage(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
-        let t = tables.write();
+        let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
                 let prefix = {
@@ -684,8 +684,8 @@ impl Tables {
         matches
     }
 
-    pub fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Weak<Resource>> {
-        let t = tables.read();
+    pub async fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Weak<Resource>> {
+        let t = tables.read().await;
         Tables::get_matches_from(rname, &t.root_res)
     }
 
@@ -713,10 +713,10 @@ impl Tables {
         get_best_key_(prefix, suffix, sid, true)
     }
 
-    pub fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) 
+    pub async fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) 
     -> Option<Route> {
 
-        let t = tables.read();
+        let t = tables.read().await;
 
         let build_route = |prefix: &Arc<Resource>, suffix: &str| {
             Some(match Resource::get_resource(prefix, suffix) {
@@ -766,7 +766,7 @@ impl Tables {
     pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str, reliable:bool, info: Option<RBuf>, payload: RBuf) {
         match sex.upgrade() {
             Some(strongsex) => {
-                if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix) {
+                if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix).await {
                     for (_id, (face, rid, suffix)) in outfaces {
                         if ! Arc::ptr_eq(&strongsex, &face) {
                             // TODO move primitives out of inner mutability
