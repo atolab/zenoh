@@ -23,7 +23,7 @@ fn base_test() {
         };
             Tables::declare_subscription(&tables, &sex, 1, "/four/five", sub_info).await;
 
-        Tables::print(&tables);
+        Tables::print(&tables).await;
     });
 }
 
@@ -51,8 +51,8 @@ fn match_test() {
         }
 
         for rname1 in rnames.iter() {
-            let res_matches = Tables::get_matches(&tables, rname1);
-            let matches:Vec<String> = res_matches.iter().map(|m| {m.upgrade().unwrap().read().name()}).collect();
+            let res_matches = Tables::get_matches(&tables, rname1).await;
+            let matches:Vec<String> = res_matches.iter().map(|m| {m.upgrade().unwrap().name()}).collect();
             for rname2 in rnames.iter() {
                 if matches.contains(&String::from(*rname2)) {
                     assert!(   intersect(rname1, rname2));
@@ -75,19 +75,19 @@ fn clean_test() {
 
         // --------------
         Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1").await;
-        let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+        let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
         assert!(res1.upgrade().is_some());
 
         Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop1/todrop11").await;
-        let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+        let optres2 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1/todrop11").map(|res| {Arc::downgrade(&res)});
         assert!(optres2.is_some());
         let res2 = optres2.unwrap();
         assert!(res2.upgrade().is_some());
 
         Tables::declare_resource(&tables, &sex0, 3, 0, "/**").await;
-        let optres3 = Resource::get_resource(&tables.read()._get_root(), "/**");
+        let optres3 = Resource::get_resource(&tables.read().await._get_root(), "/**").map(|res| {Arc::downgrade(&res)});
         assert!(optres3.is_some());
         let res3 = optres3.unwrap();
         assert!(res3.upgrade().is_some());
@@ -109,7 +109,7 @@ fn clean_test() {
 
         // --------------
         Tables::declare_resource(&tables, &sex0, 1, 0, "/todrop1").await;
-        let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop1");
+        let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
         assert!(res1.upgrade().is_some());
@@ -121,13 +121,13 @@ fn clean_test() {
         };
     
         Tables::declare_subscription(&tables, &sex0, 0, "/todrop1/todrop11", sub_info).await;
-        let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop11");
+        let optres2 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1/todrop11").map(|res| {Arc::downgrade(&res)});
         assert!(optres2.is_some());
         let res2 = optres2.unwrap();
         assert!(res2.upgrade().is_some());
 
         Tables::declare_subscription(&tables, &sex0, 1, "/todrop12", sub_info).await;
-        let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop1/todrop12");
+        let optres3 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1/todrop12").map(|res| {Arc::downgrade(&res)});
         assert!(optres3.is_some());
         let res3 = optres3.unwrap();
         assert!(res3.upgrade().is_some());
@@ -150,7 +150,7 @@ fn clean_test() {
         // --------------
         Tables::declare_resource(&tables, &sex0, 2, 0, "/todrop3").await;
         Tables::declare_subscription(&tables, &sex0, 0, "/todrop3", sub_info).await;
-        let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop3");
+        let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop3").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
         assert!(res1.upgrade().is_some());
@@ -167,13 +167,13 @@ fn clean_test() {
         Tables::declare_subscription(&tables, &sex0, 0, "/todrop5", sub_info).await;
         Tables::declare_subscription(&tables, &sex0, 0, "/todrop6", sub_info).await;
 
-        let optres1 = Resource::get_resource(&tables.read()._get_root(), "/todrop4");
+        let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop4").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
-        let optres2 = Resource::get_resource(&tables.read()._get_root(), "/todrop5");
+        let optres2 = Resource::get_resource(&tables.read().await._get_root(), "/todrop5").map(|res| {Arc::downgrade(&res)});
         assert!(optres2.is_some());
         let res2 = optres2.unwrap();
-        let optres3 = Resource::get_resource(&tables.read()._get_root(), "/todrop6");
+        let optres3 = Resource::get_resource(&tables.read().await._get_root(), "/todrop6").map(|res| {Arc::downgrade(&res)});
         assert!(optres3.is_some());
         let res3 = optres3.unwrap();
 
@@ -215,7 +215,7 @@ fn client_test() {
         Tables::declare_subscription(&tables, &sex2, 31, "/**", sub_info).await;
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1").await; 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -238,7 +238,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_wr1");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 11, "/z1_wr2"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 11, "/z1_wr2").await; 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -261,7 +261,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_wr2");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 0, "/test/client/**"); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex1, 0, "/test/client/**").await; 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -284,7 +284,7 @@ fn client_test() {
         assert_eq!(suffix, "/**");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 12, ""); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex0, 12, "").await; 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
@@ -307,7 +307,7 @@ fn client_test() {
         assert_eq!(suffix, "/z1_pub1");
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 22, ""); 
+        let result_opt = Tables::route_data_to_map(&tables, &sex1, 22, "").await; 
         assert!(result_opt.is_some());
         let result = result_opt.unwrap();
 
