@@ -73,14 +73,19 @@ impl Transport {
         }
     }
 
-    pub(crate) fn initialize(
-        &self,
-        session: Arc<SessionInner>,
-        callback: Arc<dyn MsgHandler + Send + Sync>,
-    ) {
-        // Set session and callback handler
-        *self.session.try_write().unwrap() = Some(session);
+    /*************************************/
+    /*          INITIALIZATION           */
+    /*************************************/
+    pub(crate) fn set_session(&self, session: Arc<SessionInner>) {
+        *self.session.try_write().unwrap() =  Some(session);
+    }
+
+    pub(crate) fn set_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {
         *self.callback.try_write().unwrap() = Some(callback);
+    }
+
+    pub(crate) fn get_callback(&self) -> Option<Arc<dyn MsgHandler + Send + Sync>> {
+        self.callback.try_read().unwrap().clone()
     }
 
     /*************************************/
@@ -373,7 +378,9 @@ impl Transport {
     /*************************************/
     pub async fn close(&self) -> ZResult<()> {
         // Notify the callback
-        zrwopt!(self.callback).close().await;
+        if self.get_callback().is_some() {
+            zrwopt!(self.callback).close().await;
+        }
 
         // Stop the Tx conduits
         for (_, conduit) in zasyncwrite!(self.tx).drain().take(1) {

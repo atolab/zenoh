@@ -108,7 +108,7 @@ impl SessionManager {
         // Create the inner session manager
         let manager_inner = Arc::new(SessionManagerInner::new(
             config.version,
-            config.whatami,
+            config.whatami.clone(),
             config.id.clone(),
             config.handler,
             lease,
@@ -122,16 +122,19 @@ impl SessionManager {
         let session_inner = Arc::new(SessionInner::new(
             manager_inner.clone(),
             config.id,
+            config.whatami,
             lease,
             resolution,
             batchsize,
             true,
         ));
 
-        // Initiliaze the session
-        session_inner.initialize(&session_inner.clone(), callback);
+        // Initiliaze the transport
+        session_inner.transport.set_session(session_inner.clone());
+        // Initiliaze the callback
+        session_inner.transport.set_callback(callback);
         // Add the session to the inner session manager
-        manager_inner.initialize(session_inner);
+        manager_inner.set_intial_session(session_inner);
 
         SessionManager {
             inner: manager_inner,
@@ -250,7 +253,10 @@ impl SessionManagerInner {
         }
     }
 
-    fn initialize(&self, session: Arc<SessionInner>) {
+    /*************************************/
+    /*          INITIALIZATION           */
+    /*************************************/
+    fn set_intial_session(&self, session: Arc<SessionInner>) {
         *self.initial.try_write().unwrap() = Some(session);
     }
 
@@ -345,6 +351,7 @@ impl SessionManagerInner {
         let session_inner = Arc::new(SessionInner::new(
             a_self.clone(),
             peer.clone(),
+            whatami.clone(),
             self.lease,
             self.resolution,
             self.batchsize,
@@ -352,13 +359,8 @@ impl SessionManagerInner {
         ));
         // Add the session to the list of active sessions
         zasyncwrite!(self.sessions).insert(peer.clone(), session_inner.clone());
-        // Notify the upper layer that a new session has been created
-        let callback = self
-            .handler
-            .new_session(whatami.clone(), session_inner.clone())
-            .await;
-        // Initialize the session
-        session_inner.initialize(&session_inner, callback);
+        // Set the session on the transport
+        session_inner.transport.set_session(session_inner.clone());
 
         Ok(session_inner)
     }
@@ -433,6 +435,7 @@ impl fmt::Debug for Session {
 #[allow(clippy::type_complexity)]
 pub(crate) struct SessionInner {
     pub(crate) peer: PeerId,
+    pub(crate) whatami: WhatAmI,
     pub(crate) transport: Arc<Transport>,
     pub(crate) manager: Arc<SessionManagerInner>,
     channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Arc<SessionInner>>>>>,
@@ -454,6 +457,7 @@ impl SessionInner {
     fn new(
         manager: Arc<SessionManagerInner>,
         peer: PeerId,
+        whatami: WhatAmI,
         lease: ZInt,
         resolution: ZInt,
         batchsize: usize,
@@ -461,15 +465,12 @@ impl SessionInner {
     ) -> SessionInner {
         SessionInner {
             peer,
+            whatami,
             // @TODO: make the sequence number resolution configurable
             transport: Arc::new(Transport::new(lease, resolution, batchsize, is_initial)),
             manager,
             channels: RwLock::new(HashMap::new()),
         }
-    }
-
-    fn initialize(&self, a_self: &Arc<Self>, callback: Arc<dyn MsgHandler + Send + Sync>) {
-        self.transport.initialize(a_self.clone(), callback);
     }
 
     async fn open(
@@ -584,8 +585,16 @@ impl SessionInner {
                 session_inner.transport.set_lease(lease);
                 // Add the link on the transport
                 session_inner.transport.add_link(link.clone()).await?;
+                // Set the callback to the transport if needed
+                if session_inner.transport.get_callback().is_none() {
+                    // Notify the session handler that there is a new session and get back a callback
+                    let callback = self.manager.handler.new_session(self.whatami.clone(), session_inner.clone()).await;
+                    // Set the callback on the transport
+                    session_inner.transport.set_callback(callback);
+                }
                 // Notify the opener
                 sender.send(Ok(session_inner.clone())).await;
+                // Return the target transport to use in the link
                 Ok(session_inner.transport.clone())
             }
             None => Err(zerror!(ZErrorKind::Other {
@@ -656,7 +665,14 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let _ = target.transport.send(message, QUEUE_PRIO_CTRL, Some(link.clone())).await;
+        let res = target.transport.send(message, QUEUE_PRIO_CTRL, Some(link.clone())).await;
+
+        if res.is_ok() && target.transport.get_callback().is_none() {
+            // Notify the session handler that there is a new session and get back a callback
+            let callback = self.manager.handler.new_session(whatami.clone(), target.clone()).await;
+            // Set the callback on the transport
+            target.transport.set_callback(callback);
+        }
 
         Ok(target.transport.clone())
     }
