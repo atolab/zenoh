@@ -337,7 +337,7 @@ impl Tables {
                             let prefix = {
                                 match prefixid {
                                     0 => {Some(t.root_res.clone())}
-                                    prefixid => {sex.get_mapping(&prefixid).map(|res| {res.clone()})}
+                                    prefixid => {sex.get_mapping(&prefixid).cloned()}
                                 }
                             };
                             match prefix {
@@ -403,7 +403,7 @@ impl Tables {
                     let prefix = {
                         match prefixid {
                             0 => {Some(t.root_res.clone())}
-                            prefixid => {sex.get_mapping(&prefixid).map(|res| {res.clone()})}
+                            prefixid => {sex.get_mapping(&prefixid).cloned()}
                         }
                     };
                     match prefix {
@@ -433,35 +433,33 @@ impl Tables {
                             let mut route = HashMap::new();
 
                             for (id, face) in &mut t.faces {
-                                if sex.id != *id {
-                                    if sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
-                                            if let Some(rid) = ctx.local_rid {
-                                                route.insert(*id, (face.primitives.clone(), false, rid, suffix));
-                                            } else if let Some(rid) = ctx.remote_rid {
-                                                route.insert(*id, (face.primitives.clone(), false, rid, suffix));
-                                            } else {
-                                                let rid = face.get_next_local_id();
-                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
-    
-                                                route.insert(*id, (face.primitives.clone(), true, rid, suffix));
-                                            }
+                                if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
+                                    if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
+                                        if let Some(rid) = ctx.local_rid {
+                                            route.insert(*id, (face.primitives.clone(), false, rid, suffix));
+                                        } else if let Some(rid) = ctx.remote_rid {
+                                            route.insert(*id, (face.primitives.clone(), false, rid, suffix));
                                         } else {
                                             let rid = face.get_next_local_id();
-                                            Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
-                                                Arc::new(Context {
-                                                    face: face.clone(),
-                                                    local_rid: Some(rid),
-                                                    remote_rid: None,
-                                                    subs: None,
-                                                    stor: false,
-                                                    eval: false,
-                                            }));
+                                            Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
                                             Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
 
                                             route.insert(*id, (face.primitives.clone(), true, rid, suffix));
                                         }
+                                    } else {
+                                        let rid = face.get_next_local_id();
+                                        Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
+                                            Arc::new(Context {
+                                                face: face.clone(),
+                                                local_rid: Some(rid),
+                                                remote_rid: None,
+                                                subs: None,
+                                                stor: false,
+                                                eval: false,
+                                        }));
+                                        Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
+
+                                        route.insert(*id, (face.primitives.clone(), true, rid, suffix));
                                     }
                                 }
                             }
@@ -524,7 +522,7 @@ impl Tables {
                     let prefix = {
                         match prefixid {
                             0 => {Some(t.root_res.clone())}
-                            prefixid => {sex.get_mapping(&prefixid).map(|res| {res.clone()})}
+                            prefixid => {sex.get_mapping(&prefixid).cloned()}
                         }
                     };
                     match prefix {
@@ -553,35 +551,33 @@ impl Tables {
                             let mut route = HashMap::new();
 
                             for (id, face) in &mut t.faces {
-                                if sex.id != *id {
-                                    if sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
-                                            if let Some(rid) = ctx.local_rid {
-                                                route.insert(*id, (face.primitives.clone(), false, rid, suffix));
-                                            } else if let Some(rid) = ctx.remote_rid {
-                                                route.insert(*id, (face.primitives.clone(), false, rid, suffix));
-                                            } else {
-                                                let rid = face.get_next_local_id();
-                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
-    
-                                                route.insert(*id, (face.primitives.clone(), true, rid, suffix));
-                                            }
+                                if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
+                                    if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
+                                        if let Some(rid) = ctx.local_rid {
+                                            route.insert(*id, (face.primitives.clone(), false, rid, suffix));
+                                        } else if let Some(rid) = ctx.remote_rid {
+                                            route.insert(*id, (face.primitives.clone(), false, rid, suffix));
                                         } else {
                                             let rid = face.get_next_local_id();
-                                            Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
-                                                Arc::new(Context {
-                                                    face: face.clone(),
-                                                    local_rid: Some(rid),
-                                                    remote_rid: None,
-                                                    subs: None,
-                                                    stor: false,
-                                                    eval: false,
-                                            }));
+                                            Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
                                             Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
 
                                             route.insert(*id, (face.primitives.clone(), true, rid, suffix));
                                         }
+                                    } else {
+                                        let rid = face.get_next_local_id();
+                                        Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
+                                            Arc::new(Context {
+                                                face: face.clone(),
+                                                local_rid: Some(rid),
+                                                remote_rid: None,
+                                                subs: None,
+                                                stor: false,
+                                                eval: false,
+                                        }));
+                                        Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
+
+                                        route.insert(*id, (face.primitives.clone(), true, rid, suffix));
                                     }
                                 }
                             }

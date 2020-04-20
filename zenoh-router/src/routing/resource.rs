@@ -61,22 +61,24 @@ impl Resource {
         })
     }
 
-    pub unsafe fn clean(res: &mut Arc<Resource>) {
-        let mut resclone = res.clone();
-        let mutres = Arc::get_mut_unchecked(&mut resclone);
-        if let Some(ref mut parent) = mutres.parent {
-            if Arc::strong_count(res) <= 3 && res.childs.is_empty() {
-                    for match_ in &mut mutres.matches {
-                        let mut match_ = match_.upgrade().unwrap();
-                        if ! Arc::ptr_eq(&match_, res) {
-                            Arc::get_mut_unchecked(&mut match_).matches.retain(
-                                |x| ! Arc::ptr_eq(&x.upgrade().unwrap(), res));
+    pub fn clean(res: &mut Arc<Resource>) {
+        unsafe {
+            let mut resclone = res.clone();
+            let mutres = Arc::get_mut_unchecked(&mut resclone);
+            if let Some(ref mut parent) = mutres.parent {
+                if Arc::strong_count(res) <= 3 && res.childs.is_empty() {
+                        for match_ in &mut mutres.matches {
+                            let mut match_ = match_.upgrade().unwrap();
+                            if ! Arc::ptr_eq(&match_, res) {
+                                Arc::get_mut_unchecked(&mut match_).matches.retain(
+                                    |x| ! Arc::ptr_eq(&x.upgrade().unwrap(), res));
+                            }
                         }
-                    }
-                    {
-                        Arc::get_mut_unchecked(parent).childs.remove(&res.suffix);
-                    }
-                    Resource::clean(parent);
+                        {
+                            Arc::get_mut_unchecked(parent).childs.remove(&res.suffix);
+                        }
+                        Resource::clean(parent);
+                }
             }
         }
     }
@@ -92,40 +94,42 @@ impl Resource {
     }
 
 
-    pub unsafe fn make_resource(from: &mut Arc<Resource>, suffix: &str) -> Arc<Resource> {
-        if suffix.is_empty() {
-            from.clone()
-        } else if suffix.starts_with('/') {
-            let (chunk, rest) = match suffix[1..].find('/') {
-                Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                None => (suffix, "")
-            };
-    
-            match Arc::get_mut_unchecked(from).childs.get_mut(chunk) {
-                Some(mut res) => {Resource::make_resource(&mut res, rest)}
-                None => {
-                    let mut new = Arc::new(Resource::new(from, chunk));
-                    let res = Resource::make_resource(&mut new, rest);
-                    Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
-                    res
+    pub fn make_resource(from: &mut Arc<Resource>, suffix: &str) -> Arc<Resource> {
+        unsafe {
+            if suffix.is_empty() {
+                from.clone()
+            } else if suffix.starts_with('/') {
+                let (chunk, rest) = match suffix[1..].find('/') {
+                    Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                    None => (suffix, "")
+                };
+        
+                match Arc::get_mut_unchecked(from).childs.get_mut(chunk) {
+                    Some(mut res) => {Resource::make_resource(&mut res, rest)}
+                    None => {
+                        let mut new = Arc::new(Resource::new(from, chunk));
+                        let res = Resource::make_resource(&mut new, rest);
+                        Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
+                        res
+                    }
                 }
-            }
-        } else {
-            match from.parent.clone() {
-                Some(mut parent) => {Resource::make_resource(&mut parent, &[&from.suffix, suffix].concat())}
-                None => {
-                    let (chunk, rest) = match suffix[1..].find('/') {
-                        Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
-                        None => (suffix, "")
-                    };
+            } else {
+                match from.parent.clone() {
+                    Some(mut parent) => {Resource::make_resource(&mut parent, &[&from.suffix, suffix].concat())}
+                    None => {
+                        let (chunk, rest) = match suffix[1..].find('/') {
+                            Some(idx) => {(&suffix[0..(idx+1)], &suffix[(idx+1)..])}
+                            None => (suffix, "")
+                        };
 
-                    match Arc::get_mut_unchecked(from).childs.get_mut(chunk) {
-                        Some(mut res) => {Resource::make_resource(&mut res, rest)}
-                        None => {
-                            let mut new = Arc::new(Resource::new(from, chunk));
-                            let res = Resource::make_resource(&mut new, rest);
-                            Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
-                            res
+                        match Arc::get_mut_unchecked(from).childs.get_mut(chunk) {
+                            Some(mut res) => {Resource::make_resource(&mut res, rest)}
+                            None => {
+                                let mut new = Arc::new(Resource::new(from, chunk));
+                                let res = Resource::make_resource(&mut new, rest);
+                                Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
+                                res
+                            }
                         }
                     }
                 }
