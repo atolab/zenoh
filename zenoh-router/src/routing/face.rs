@@ -12,15 +12,15 @@ pub struct Face {
     pub(super) id: usize,
     pub(super) whatami: WhatAmI,
     pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
-    pub(super) local_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
-    pub(super) remote_mappings: HashMap<u64, Arc<RwLock<Resource>>>,
-    pub(super) subs: Vec<Arc<RwLock<Resource>>>,
-    pub(super) stos: Vec<Arc<RwLock<Resource>>>,
+    pub(super) local_mappings: HashMap<u64, Arc<Resource>>,
+    pub(super) remote_mappings: HashMap<u64, Arc<Resource>>,
+    pub(super) subs: Vec<Arc<Resource>>,
+    pub(super) stos: Vec<Arc<Resource>>,
 }
 
 impl Face {
-    pub(super) fn new(id: usize, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<RwLock<Face>> {
-        Arc::new(RwLock::new(Face {
+    pub(super) fn new(id: usize, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<Face> {
+        Arc::new(Face {
             id,
             whatami,
             primitives,
@@ -28,11 +28,11 @@ impl Face {
             remote_mappings: HashMap::new(),
             subs: Vec::new(),
             stos: Vec::new(),
-        }))
+        })
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub(super) fn get_mapping(&self, prefixid: &ZInt) -> Option<&std::sync::Arc<RwLock<Resource>>> {
+    pub(super) fn get_mapping(&self, prefixid: &ZInt) -> Option<&std::sync::Arc<Resource>> {
         match self.remote_mappings.get(prefixid) {
             Some(prefix) => {Some(prefix)}
             None => {
@@ -56,7 +56,7 @@ impl Face {
 
 pub struct FaceHdl {
     pub(super) tables: Arc<RwLock<Tables>>,
-    pub(super) face: Arc<RwLock<Face>>,
+    pub(super) face: Arc<Face>,
 }
 
 #[async_trait]
