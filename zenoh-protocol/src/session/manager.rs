@@ -669,6 +669,10 @@ impl SessionInner {
 
         if res.is_ok() && target.transport.get_callback().is_none() {
             // Notify the session handler that there is a new session and get back a callback
+            // NOTE: the read loop of the link the open message was sent on reamins blocked
+            //       until the new_session() returns. The read_loop in the various links
+            //       waits for any eventual transport to associate to. This is transport is
+            //       returned only by the process_ope() -- this function.
             let callback = self.manager.handler.new_session(whatami.clone(), target.clone()).await;
             // Set the callback on the transport
             target.transport.set_callback(callback);
