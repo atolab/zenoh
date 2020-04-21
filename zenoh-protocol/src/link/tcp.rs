@@ -10,7 +10,8 @@ use async_std::sync::{
     Mutex,
     Sender,
     RwLock,
-    Receiver};
+    Receiver
+};
 use async_std::task;
 use std::collections::HashMap;
 use std::net::Shutdown;
@@ -31,6 +32,7 @@ use crate::io::{
     ArcSlice,
     RBuf
 };
+use crate::proto::Message;
 use crate::session::{
     SessionManagerInner,
     Transport
@@ -41,11 +43,14 @@ use crate::link::{
 };
 use zenoh_util::zasynclock;
 
+// Default MTU
+const DEFAULT_MTU: usize = 65_535;
+
 configurable!{
     // Size of buffer used to read from socket
     static ref READ_BUFFER_SIZE: usize = 128 * 1_024;
-    // Default MTU
-    static ref DEFAULT_MTU: usize = 65_535;
+    // Size of buffer used to read from socket
+    static ref MESSAGES_TO_READ: usize = 1_024;
 }
 
 
@@ -166,7 +171,7 @@ impl LinkTcp {
     }
 
     pub fn get_mtu(&self) -> usize {
-        *DEFAULT_MTU
+        DEFAULT_MTU
     }
 
     pub fn is_ordered(&self) -> bool {
@@ -179,7 +184,7 @@ impl LinkTcp {
 }
 
 async fn receive_loop(link: Arc<LinkTcp>) {
-    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, link_obj: &Link) -> Option<Command> {
+    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, messages: &mut Vec<Message>, link_obj: &Link) -> Option<Command> {
         let mut rbuf = vec![0u8; link.buff_size];
         match (&link.socket).read(&mut rbuf).await {
             Ok(n) => { 
@@ -200,12 +205,8 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             let pos = buff.get_pos();
             match buff.read_message() {
                 Ok(message) => {
-                    let mut guard = zasynclock!(link.transport);
-                    if let Some(transport) = guard.receive_message(link_obj, message).await {
-                        *guard = transport;
-                    }
+                    messages.push(message);
                     buff.clean_read_slices();
-                    continue
                 },
                 Err(_) => {
                     if buff.set_pos(pos).is_err() {
@@ -216,15 +217,24 @@ async fn receive_loop(link: Arc<LinkTcp>) {
             }
         }
 
+        // Propagate the messages to the upper logic
+        let mut guard = zasynclock!(link.transport);
+        for msg in messages.drain(..) {
+            if let Some(transport) = guard.receive_message(link_obj, msg).await {
+                *guard = transport;
+            }
+        }
+
         Some(Command::Ok)
     }
 
     let mut signal = false;
     let link_obj = Link::Tcp(link.clone());
     let mut buff = RBuf::new();
+    let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
     let _err = loop {
         let stop = link.ch_recv.recv();
-        let read = read(&link, &mut buff, &link_obj);
+        let read = read(&link, &mut buff, &mut messages, &link_obj);
         match read.race(stop).await {
             Some(command) => match command {
                 Command::Ok => continue,

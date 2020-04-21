@@ -24,7 +24,7 @@ configurable! {
     pub(crate) static ref QUEUE_CRED_RETX: isize = 1;
 
     pub(crate) static ref QUEUE_PRIO_DATA: usize = 2;
-    pub(crate) static ref QUEUE_SIZE_DATA: usize = 256;
+    pub(crate) static ref QUEUE_SIZE_DATA: usize = 1_024;
     pub(crate) static ref QUEUE_CRED_DATA: isize = 100;
 
     pub(crate) static ref QUEUE_SIZE_TOT: usize = *QUEUE_SIZE_CTRL + *QUEUE_SIZE_RETX + *QUEUE_SIZE_DATA;

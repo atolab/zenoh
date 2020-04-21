@@ -93,6 +93,8 @@ async fn run(locator: Locator) {
         assert_eq!(res.is_ok(), true);
         assert_eq!(manager.get_locators().await.len(), 1);
 
+        // Notify the client
+        c_rbr.wait().await;
         // Wait for the client
         c_cbr.wait().await;
 
@@ -156,6 +158,9 @@ async fn run(locator: Locator) {
             timeout: None
         };
         let manager = SessionManager::new(config);
+
+        // Wait for the router
+        c_rbr.wait().await;
 
         // Open session -> This should be accepted
         let res1 = manager.open_session(&c_loc).await;

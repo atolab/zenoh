@@ -53,6 +53,15 @@ impl MsgHandler for MyMH {
     async fn close(&self) {}
 }
 
+fn print_usage(bin: String) {
+    println!(
+"Usage:
+    cargo run --release --bin {} [<locator to listen on>]
+Example: 
+    cargo run --release --bin {} tcp/127.0.0.1:7447",
+        bin, bin
+    );
+}
 
 fn main() {
     let mut pid = vec![0, 0, 0, 0];
@@ -73,12 +82,11 @@ fn main() {
     let manager = SessionManager::new(config);
 
     let mut args = std::env::args();
-    // Skip exe name
-    args.next();
-
+    // Get exe name
+    let bin = args.next().unwrap();
+    
     if args.len() == 0 {
-        println!("Provide a locator for the base_pub_peer to connect on!");
-        return
+        return print_usage(bin);
     }
 
     task::spawn(async move {
@@ -94,7 +102,11 @@ fn main() {
         // Listen on each locator
         let args: Vec<String> = args.collect();
         for l in args.iter() {
-            let locator: Locator = l.parse().unwrap();
+            let locator: Locator = if let Ok(v) = l.parse() {
+                v
+            } else {
+                return print_usage(bin);
+            };
             manager.add_locator(&locator, None).await.unwrap();
             println!("Listening on {}", locator);
         }

@@ -243,13 +243,12 @@ impl<'a, T> Iterator for Drain<'_, T> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let min = self.guard.iter().enumerate().fold(0, |acc, (i, x)| 
-                if !x.is_empty() && self.queue.get_credit(i) > 0 {
-                    acc + 1
-                } else {
-                    acc
-                });
-        let max = self.guard.iter().fold(0, |acc, x| acc + x.len());
+        let (min, max) = self.guard.iter().enumerate().fold((0, 0), |(min, max), (i, x)| 
+            if !x.is_empty() && self.queue.get_credit(i) > 0 {
+                (min + 1, max + x.len())
+            } else {
+                (min, max)
+            });
         (min, Some(max))
     }
 }

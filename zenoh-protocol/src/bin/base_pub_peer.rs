@@ -10,7 +10,7 @@ use zenoh_protocol::proto::{Message, MessageKind, WhatAmI};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
 
-// Session Handler for the peer
+
 struct MySH {}
 
 impl MySH {
@@ -29,18 +29,59 @@ impl SessionHandler for MySH {
     }
 }
 
+fn print_usage(bin: String) {
+    println!(
+"Usage:
+    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <messages to push on the queue at the same time> [<locator to connect to>]
+Example: 
+    cargo run --release --bin {} 8000 16384 16 tcp/127.0.0.1:7447",
+        bin, bin
+    );
+}
 
 fn main() {
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 
     let mut args = std::env::args();
-    // Skip exe name
-    args.next();
+    // Get exe name
+    let bin = args.next().unwrap();
 
-    let payload: usize = args.next().unwrap().parse().unwrap();
-    let batchsize: usize = args.next().unwrap().parse().unwrap(); 
-    let msg_batch: usize = args.next().unwrap().parse().unwrap(); 
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let payload: usize = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
+
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let batchsize: usize = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
+    
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let msg_batch: usize = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
 
     let config = SessionManagerConfig {
         version: 0,
@@ -59,9 +100,18 @@ fn main() {
         let args: Vec<String> = args.collect();
         for locator in args.iter() {
             // Connect to each locator
-            let l: Locator = locator.parse().unwrap();
-            let session = manager.open_session(&l).await.unwrap();
-            println!("Opened session on {}", l);
+            let l: Locator = if let Ok(v) = locator.parse() {
+                v
+            } else {
+                return print_usage(bin);
+            };
+            let session = if let Ok(s) = manager.open_session(&l).await {
+                println!("Opened session on {}", l);
+                s
+            } else {
+                println!("Failed to open session on {}", l);
+                return;
+            };
 
             // Start sending data
             task::spawn(async move  {
