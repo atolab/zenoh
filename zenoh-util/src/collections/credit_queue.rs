@@ -1,4 +1,4 @@
-use async_std::sync::Mutex;
+use async_std::sync::{Mutex, MutexGuard};
 use std::sync::atomic::{
     AtomicIsize,
     Ordering
@@ -88,7 +88,13 @@ impl<T> CreditQueue<T> {
     }
 
     #[inline]
-    pub async fn recharge(&self, priority: usize, amount: isize) {
+    pub fn recharge(&self, priority: usize, amount: isize) {
+        // Recharge the credit for a given priority queue
+        self.credit[priority].fetch_add(amount, Ordering::AcqRel);
+    }
+
+    #[inline]
+    pub async fn recharge_and_wake_up(&self, priority: usize, amount: isize) {
         // Recharge the credit for a given priority queue
         let old = self.credit[priority].fetch_add(amount, Ordering::AcqRel);
         // We had a negative credit, now it is recharged and it might be above zero
@@ -155,79 +161,6 @@ impl<T> CreditQueue<T> {
         }
     }
 
-    pub async fn drain(&self) -> Vec<T> {
-        // The vector to return
-        let mut v = Vec::<T>::new();
-
-        loop {
-            let mut q = zasynclock!(self.state);
-
-            // Compute the total number of messages in the queue
-            let mut len = 0;
-            for queue in q.iter() {
-                len += queue.len();
-            }
-
-            // Reserve enough space on the vector
-            v.reserve(len);
-
-            for priority in 0usize..q.len() {
-                // Drain a single priority queue while there is enough credit
-                while self.get_credit(priority) > 0 {
-                    if let Some(e) = q[priority].pull() {
-                        self.spend(priority, (self.spending[priority])(&e));
-                        v.push(e);
-                    } else {
-                        break
-                    }
-                }
-            }
-
-            if !v.is_empty() {
-                if self.not_full.has_waiting_list() {
-                    self.not_full.notify(q).await;
-                }
-                return v
-            }
-
-            self.not_empty.wait(q).await;
-        }
-    }
-
-    pub async fn try_drain(&self) -> Vec<T> {
-        // The vector to return
-        let mut v = Vec::<T>::new();
-
-        let mut q = zasynclock!(self.state);
-
-        // Compute the total number of messages in the queue
-        let mut len = 0;
-        for queue in q.iter() {
-            len += queue.len();
-        }
-
-        // Reserve enough space on the vector
-        v.reserve(len);
-
-        for priority in 0usize..q.len() {
-            // Drain a single priority queue while there is enough credit
-            while self.get_credit(priority) > 0 {
-                if let Some(e) = q[priority].pull() {
-                    self.spend(priority, (self.spending[priority])(&e));
-                    v.push(e);
-                } else {
-                    break
-                }
-            }
-        }
-
-        if !v.is_empty() && self.not_full.has_waiting_list() {
-            self.not_full.notify(q).await;
-        }
-        
-        v
-    }
-
     pub async fn drain_into(&self, v: &mut Vec<T>) {
         loop {
             let mut q = zasynclock!(self.state);
@@ -272,5 +205,97 @@ impl<T> CreditQueue<T> {
         if !v.is_empty() && self.not_full.has_waiting_list() {
             self.not_full.notify(q).await;
         }
+    }
+
+    pub async fn drain(&self) -> Drain<'_, T> {
+        // Acquire the guard and wait until the queue is not empty
+        let guard = loop {
+            // Acquire the lock
+            let guard = zasynclock!(self.state);
+            // Compute the total number of buffers we can drain from 
+            let can_drain = guard.iter().enumerate().fold(0, |acc, (i, x)| 
+                if x.len() > 0 && self.get_credit(i) > 0 {
+                    acc + 1
+                } else {
+                    acc
+                });
+            // If there are no buffers available, we wait
+            if can_drain == 0 {
+                self.not_empty.wait(guard).await;
+            } else {
+                break guard;
+            }
+        };
+        // Return a Drain iterator
+        Drain {
+            queue: self,
+            drained: 0,
+            guard,
+            priority: 0
+        }
+    }
+
+    pub async fn try_drain(&self) -> Drain<'_, T> {
+        // Return a Drain iterator
+        Drain {
+            queue: self,
+            drained: 0,
+            guard: zasynclock!(self.state),
+            priority: 0
+        }
+    }
+}
+
+pub struct Drain<'a, T> {
+    queue: &'a CreditQueue<T>,
+    drained: usize,
+    guard: MutexGuard<'a, Vec<CircularBuffer<T>>>,
+    priority: usize
+}
+
+impl<'a, T> Drain<'a, T> {
+    // The drop() on Drain object needs to be manually called since an async
+    // destructor is not yet supported in Rust. More information available at:
+    // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
+    pub async fn drop(self) {
+        if self.drained > 0 && self.queue.not_full.has_waiting_list() {
+            self.queue.not_full.notify(self.guard).await;
+        } else {
+            drop(self.guard);
+        }
+    }
+}
+
+impl<'a, T> Iterator for Drain<'_, T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        loop {
+            if self.queue.get_credit(self.priority) > 0 {
+                if let Some(e) = self.guard[self.priority].pull() {
+                    self.drained += 1;
+                    self.queue.spend(self.priority, (self.queue.spending[self.priority])(&e));
+                    return Some(e)
+                }
+            }
+
+            self.priority += 1;
+            if self.priority == self.guard.len() {
+                return None
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let min = self.guard.iter().enumerate().fold(0, |acc, (i, x)| 
+                if x.len() > 0 && self.queue.get_credit(i) > 0 {
+                    acc + 1
+                } else {
+                    acc
+                });
+        let max = self.guard.iter().fold(0, |acc, x| acc + x.len());
+        (min, Some(max))
     }
 }

@@ -36,12 +36,6 @@ impl<T> CircularBuffer<T> {
         }
         x
     }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub(crate) fn peek(&self) -> Option<&T> {
-        self.buffer.get(0)
-    }
     
     #[inline]
     #[allow(dead_code)]

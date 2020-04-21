@@ -427,7 +427,7 @@ async fn accept_loop(a_self: &Arc<ManagerTcpInner>, socket: &Arc<TcpListener>, r
         };
 
         // Retrieve the initial temporary session 
-        let transport = a_self.inner.get_initial_session().transport.clone();
+        let transport = a_self.inner.get_initial_session().await.transport.clone();
         // Create the new link object
         let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
 

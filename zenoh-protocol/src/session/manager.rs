@@ -14,7 +14,7 @@ use crate::session::defaults::{
 };
 use crate::session::{MsgHandler, SessionHandler, Transport};
 use crate::zerror;
-use zenoh_util::{zasyncread, zasyncwrite, zrwopt};
+use zenoh_util::{zasyncread, zasyncwrite};
 
 // Define an empty SessionCallback for the initial session
 struct InitialHandler;
@@ -113,7 +113,7 @@ impl SessionManager {
             config.handler,
             lease,
             resolution,
-            batchsize,
+            batchsize
         ));
 
         // Create a session used to establish new connections
@@ -130,11 +130,11 @@ impl SessionManager {
         ));
 
         // Initiliaze the transport
-        session_inner.transport.set_session(session_inner.clone());
+        session_inner.transport.init_session(session_inner.clone());
         // Initiliaze the callback
-        session_inner.transport.set_callback(callback);
+        session_inner.transport.init_callback(callback);
         // Add the session to the inner session manager
-        manager_inner.set_intial_session(session_inner);
+        manager_inner.init_initial_session(session_inner);
 
         SessionManager {
             inner: manager_inner,
@@ -149,22 +149,21 @@ impl SessionManager {
         // Automatically create a new link manager for the protocol if it does not exist
         let manager = self
             .inner
-            .new_link_manager(&self.inner, &locator.get_proto())
-            .await?;
+            .get_or_new_link_manager(&self.inner, &locator.get_proto())
+            .await;
 
         // Create a channel for knowing when a session is open
         let (sender, receiver) = channel::<ZResult<Arc<SessionInner>>>(1);
 
         // Trigger the open session
-        zrwopt!(self.inner.initial)
-            .open(manager, locator, sender)
-            .await?;
+        let initial = self.inner.get_initial_session().await;
+        initial.open(manager, locator, sender).await?;
 
         // Wait the accept message to finalize the session
         let res = future::timeout(Duration::from_millis(self.timeout), receiver.recv()).await;
         if res.is_err() {
             return Err(zerror!(ZErrorKind::Other {
-                descr: "Open session has timedout!".to_string()
+                descr: "Open session has timed-out!".to_string()
             }));
         }
 
@@ -197,8 +196,8 @@ impl SessionManager {
     pub async fn add_locator(&self, locator: &Locator, _limit: Option<usize>) -> ZResult<()> {
         let manager = self
             .inner
-            .new_link_manager(&self.inner, &locator.get_proto())
-            .await?;
+            .get_or_new_link_manager(&self.inner, &locator.get_proto())
+            .await;
         manager.new_listener(locator).await
     }
 
@@ -256,30 +255,42 @@ impl SessionManagerInner {
     /*************************************/
     /*          INITIALIZATION           */
     /*************************************/
-    fn set_intial_session(&self, session: Arc<SessionInner>) {
+    fn init_initial_session(&self, session: Arc<SessionInner>) {
         *self.initial.try_write().unwrap() = Some(session);
     }
 
     /*************************************/
     /*            LINK MANAGER           */
     /*************************************/
+    async fn get_or_new_link_manager(
+        &self,
+        a_self: &Arc<Self>,
+        protocol: &LocatorProtocol,
+    ) -> Arc<LinkManager> {
+        match self.get_link_manager(protocol).await {
+            Ok(manager) => manager,
+            Err(_) => self.new_link_manager(a_self, protocol).await.unwrap(),
+        }
+    }
+
     async fn new_link_manager(
         &self,
         a_self: &Arc<Self>,
         protocol: &LocatorProtocol,
     ) -> ZResult<Arc<LinkManager>> {
-        match self.get_link_manager(protocol).await {
-            Ok(manager) => Ok(manager),
-            Err(_) => {
-                let lm = Arc::new(LinkManager::new(a_self.clone(), protocol));
-                zasyncwrite!(self.protocols).insert(protocol.clone(), lm.clone());
-                Ok(lm)
-            }
+        if zasyncread!(self.protocols).get(protocol).is_some() {
+            return Err(zerror!(ZErrorKind::Other {
+                descr: format!("Link manager for protocol ({}) already exists.", protocol)
+            }));
         }
+
+        let lm = Arc::new(LinkManager::new(a_self.clone(), protocol));
+        zasyncwrite!(self.protocols).insert(protocol.clone(), lm.clone());
+        Ok(lm)
     }
 
     async fn get_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<Arc<LinkManager>> {
-        match self.protocols.read().await.get(protocol) {
+        match zasyncread!(self.protocols).get(protocol) {
             Some(manager) => Ok(manager.clone()),
             None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("Link Manager not found for protocol ({})", protocol)
@@ -291,14 +302,14 @@ impl SessionManagerInner {
         match zasyncwrite!(self.protocols).remove(protocol) {
             Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other {
-                descr: format!("No available Link Manager for protocol: {}", protocol)
+                descr: format!("No available Link Manager for protocol ({})", protocol)
             })),
         }
     }
 
     async fn get_locators(&self) -> Vec<Locator> {
         let mut vec: Vec<Locator> = Vec::new();
-        for p in self.protocols.read().await.values() {
+        for p in zasyncread!(self.protocols).values() {
             vec.extend_from_slice(&p.get_listeners().await);
         }
         vec
@@ -307,8 +318,8 @@ impl SessionManagerInner {
     /*************************************/
     /*              SESSION              */
     /*************************************/
-    pub(crate) fn get_initial_session(&self) -> Arc<SessionInner> {
-        zrwopt!(self.initial).clone()
+    pub(crate) async fn get_initial_session(&self) -> Arc<SessionInner> {
+        zasyncread!(self.initial).as_ref().unwrap().clone()
     }
 
     async fn get_or_new_session(
@@ -317,21 +328,26 @@ impl SessionManagerInner {
         peer: &PeerId,
         whatami: &WhatAmI,
     ) -> Arc<SessionInner> {
-        let r_guard = self.sessions.read().await;
-        match r_guard.get(peer) {
-            Some(wrapper) => wrapper.clone(),
-            None => {
-                drop(r_guard);
-                self.new_session(a_self, peer, whatami).await.unwrap()
-            }
+        match self.get_session(peer).await {
+            Ok(session) => session,
+            Err(_) => self.new_session(a_self, peer, whatami).await.unwrap()
         }
     }
     async fn del_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
         match zasyncwrite!(self.sessions).remove(peer) {
             Some(session) => Ok(session),
             None => Err(zerror!(ZErrorKind::Other {
-                descr: "Trying to delete a session that does not exist!".to_string()
+                descr: format!("Session not found for peer ({:?})", peer)
             })),
+        }
+    }
+
+    async fn get_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
+        match zasyncread!(self.sessions).get(peer) {
+            Some(session) => Ok(session.clone()),
+            None => Err(zerror!(ZErrorKind::Other {
+                descr: format!("Session not found for peer ({:?})", peer)
+            }))
         }
     }
 
@@ -343,7 +359,7 @@ impl SessionManagerInner {
     ) -> ZResult<Arc<SessionInner>> {
         if zasyncread!(self.sessions).get(peer).is_some() {
             return Err(zerror!(ZErrorKind::Other {
-                descr: format!("Session with peer ({:?}) already exists.", peer)
+                descr: format!("Session with peer ({:?}) already exists", peer)
             }));
         }
 
@@ -360,7 +376,7 @@ impl SessionManagerInner {
         // Add the session to the list of active sessions
         zasyncwrite!(self.sessions).insert(peer.clone(), session_inner.clone());
         // Set the session on the transport
-        session_inner.transport.set_session(session_inner.clone());
+        session_inner.transport.init_session(session_inner.clone());
 
         Ok(session_inner)
     }
@@ -410,7 +426,12 @@ impl Session {
             .await;
     }
 
-    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) {
+    pub async fn schedule_batch(
+        &self,
+        messages: Vec<Message>,
+        link: Option<Link>,
+        cid: Option<ZInt>,
+    ) {
         self.0
             .transport
             .schedule_batch(messages, QUEUE_PRIO_DATA, link, cid)
@@ -510,7 +531,9 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        self.transport.send(message, QUEUE_PRIO_CTRL, Some(link)).await?;
+        self.transport
+            .send(message, QUEUE_PRIO_CTRL, Some(link))
+            .await?;
 
         Ok(())
     }
@@ -586,11 +609,15 @@ impl SessionInner {
                 // Add the link on the transport
                 session_inner.transport.add_link(link.clone()).await?;
                 // Set the callback to the transport if needed
-                if session_inner.transport.get_callback().is_none() {
+                if !session_inner.transport.has_callback().await {
                     // Notify the session handler that there is a new session and get back a callback
-                    let callback = self.manager.handler.new_session(self.whatami.clone(), session_inner.clone()).await;
+                    let callback = self
+                        .manager
+                        .handler
+                        .new_session(self.whatami.clone(), session_inner.clone())
+                        .await;
                     // Set the callback on the transport
-                    session_inner.transport.set_callback(callback);
+                    session_inner.transport.init_callback(callback);
                 }
                 // Notify the opener
                 sender.send(Ok(session_inner.clone())).await;
@@ -604,12 +631,7 @@ impl SessionInner {
         }
     }
 
-    pub(crate) async fn process_close(
-        &self,
-        link: &Link,
-        pid: &Option<PeerId>,
-        _reason: u8,
-    ) {
+    pub(crate) async fn process_close(&self, link: &Link, pid: &Option<PeerId>, _reason: u8) {
         // Check if the close target is me
         if pid != &Some(self.peer.clone()) {
             return;
@@ -665,17 +687,26 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let res = target.transport.send(message, QUEUE_PRIO_CTRL, Some(link.clone())).await;
+        let res = target
+            .transport
+            .send(message, QUEUE_PRIO_CTRL, Some(link.clone()))
+            .await;
 
-        if res.is_ok() && target.transport.get_callback().is_none() {
-            // Notify the session handler that there is a new session and get back a callback
-            // NOTE: the read loop of the link the open message was sent on reamins blocked
-            //       until the new_session() returns. The read_loop in the various links
-            //       waits for any eventual transport to associate to. This is transport is
-            //       returned only by the process_ope() -- this function.
-            let callback = self.manager.handler.new_session(whatami.clone(), target.clone()).await;
-            // Set the callback on the transport
-            target.transport.set_callback(callback);
+        if res.is_ok() {
+            if !target.transport.has_callback().await {
+                // Notify the session handler that there is a new session and get back a callback
+                // NOTE: the read loop of the link the open message was sent on reamins blocked
+                //       until the new_session() returns. The read_loop in the various links
+                //       waits for any eventual transport to associate to. This is transport is
+                //       returned only by the process_ope() -- this function.
+                let callback = self
+                    .manager
+                    .handler
+                    .new_session(whatami.clone(), target.clone())
+                    .await;
+                // Set the callback on the transport
+                target.transport.init_callback(callback);
+            }
         }
 
         Ok(target.transport.clone())

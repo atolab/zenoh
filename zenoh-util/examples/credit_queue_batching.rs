@@ -7,9 +7,9 @@ use async_std::task;
 use async_std::sync::Arc;
 use std::time::Instant;
 
-const SIZE: usize = 256;
+const SIZE: usize = 1_024;
 const CREDIT: isize = 100;
-const BATCH: usize = 16;
+const BATCH: usize = 64;
 
 fn main() {    
     task::block_on(async {  
@@ -62,17 +62,16 @@ fn main() {
         });        
 
         let c1 = task::spawn(async move {
-            let mut v = Vec::with_capacity(SIZE);
             let mut count: usize = 0;
             while count < 4*n {
-                cq5.drain_into(&mut v).await;
-
-                for j in v.drain(..) {
+                let mut drain = cq5.drain().await;
+                for j in &mut drain {
                     count += 1;
                     if cq5.get_credit(j) <= 0 {
-                        cq5.recharge(j, CREDIT).await;
+                        cq5.recharge(j, CREDIT);
                     }
                 }
+                drain.drop().await;
             }
         });
 

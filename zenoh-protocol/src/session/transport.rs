@@ -9,7 +9,7 @@ use crate::link::Link;
 use crate::proto::Message;
 use crate::session::{ConduitRx, ConduitTx, MsgHandler, SessionInner};
 use crate::zerror;
-use zenoh_util::{zasyncread, zasyncwrite, zrwopt};
+use zenoh_util::{zasyncread, zasyncwrite};
 
 /*************************************/
 /*          TRANSPORT                */
@@ -69,23 +69,19 @@ impl Transport {
             links: RwLock::new(HashSet::new()),
             // The sequence number generator
             tx: RwLock::new(HashMap::new()),
-            rx: RwLock::new(HashMap::new()),
+            rx: RwLock::new(HashMap::new())
         }
     }
 
     /*************************************/
     /*          INITIALIZATION           */
     /*************************************/
-    pub(crate) fn set_session(&self, session: Arc<SessionInner>) {
-        *self.session.try_write().unwrap() =  Some(session);
+    pub(crate) fn init_session(&self, session: Arc<SessionInner>) {
+        *self.session.try_write().unwrap() = Some(session);
     }
 
-    pub(crate) fn set_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {
+    pub(crate) fn init_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {
         *self.callback.try_write().unwrap() = Some(callback);
-    }
-
-    pub(crate) fn get_callback(&self) -> Option<Arc<dyn MsgHandler + Send + Sync>> {
-        self.callback.try_read().unwrap().clone()
     }
 
     /*************************************/
@@ -123,6 +119,10 @@ impl Transport {
         zasyncread!(self.links).iter().cloned().collect()
     }
 
+    pub(crate) async fn has_callback(&self) -> bool {
+        zasyncread!(self.callback).is_some()
+    }
+
     /*************************************/
     /*            CONDUIT                */
     /*************************************/
@@ -151,20 +151,28 @@ impl Transport {
         conduit
     }
 
-    pub(crate) async fn add_conduit_rx(&self, id: ZInt) -> Arc<ConduitRx> {
+    pub(crate) async fn add_conduit_rx(&self, id: ZInt) -> Option<Arc<ConduitRx>> {
         // Acquire the lock on the conduits
         let mut guard = zasyncwrite!(self.rx);
 
         // Get the perameters from the transport
         let resolution = self.get_resolution();
-        let session = zrwopt!(self.session).clone();
-        let callback = zrwopt!(self.callback).clone();
+        let session = if let Some(session) = zasyncread!(self.session).as_ref() {
+            session.clone()
+        } else {
+            return None;
+        };
+        let callback = if let Some(callback) = zasyncread!(self.callback).as_ref() {
+            callback.clone()
+        } else {
+            return None;
+        };
 
         // Add the Rx conduit
         let conduit = Arc::new(ConduitRx::new(id, resolution, session, callback));
         guard.insert(id, conduit.clone());
 
-        conduit
+        Some(conduit)
     }
 
     #[allow(dead_code)]
@@ -240,15 +248,16 @@ impl Transport {
                 return Err(zerror!(ZErrorKind::InvalidLink {
                     descr: format!("{}", link)
                 }));
-            } 
-            
+            }
             l_guard.is_empty()
         };
         // Check if there are links left and this is not the initial session
         if is_empty && !self.is_initial {
             // If this transport is not associated to the initial session then
             // close the session, notify the manager, and notify the callback
-            let _ = zrwopt!(self.session).delete().await;
+            if let Some(session) = zasyncread!(self.session).as_ref() {
+                let _ = session.delete().await;
+            }
             let _ = self.close().await;
         }
 
@@ -259,16 +268,11 @@ impl Transport {
     /*        SCHEDULE AND SEND          */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(crate) async fn schedule(
-        &self,
-        message: Message,
-        priority: usize,
-        link: Option<Link>
-    ) {
+    pub(crate) async fn schedule(&self, message: Message, priority: usize, link: Option<Link>) {
         let message = MessageTx {
             inner: message,
             notify: None,
-            link
+            link,
         };
         // Wait for the queue to have space for the message
         self.push_on_conduit_queue(message, priority).await;
@@ -280,19 +284,23 @@ impl Transport {
         mut messages: Vec<Message>,
         priority: usize,
         link: Option<Link>,
-        cid: Option<ZInt>
+        cid: Option<ZInt>,
     ) {
         let cid: ZInt = cid.unwrap_or(0);
-        let messages = messages.drain(..).map(|mut x| {
-            x.cid = cid;
-            MessageTx {
-                inner: x,
-                link: link.clone(),
-                notify: None,
-            }
-        }).collect();
+        let messages = messages
+            .drain(..)
+            .map(|mut x| {
+                x.cid = cid;
+                MessageTx {
+                    inner: x,
+                    link: link.clone(),
+                    notify: None,
+                }
+            })
+            .collect();
         // Wait for the queue to have space for the message
-        self.push_batch_on_conduit_queue(messages, priority, cid).await;
+        self.push_batch_on_conduit_queue(messages, priority, cid)
+            .await;
     }
 
     // Schedule the message to be sent asynchronsly and notify once sent
@@ -300,7 +308,7 @@ impl Transport {
         &self,
         message: Message,
         priority: usize,
-        link: Option<Link>
+        link: Option<Link>,
     ) -> ZResult<()> {
         let (sender, receiver) = channel::<ZResult<()>>(1);
         let message = MessageTx {
@@ -334,7 +342,12 @@ impl Transport {
         }
     }
 
-    async fn push_batch_on_conduit_queue(&self, messages: Vec<MessageTx>, priority: usize, cid: ZInt) {
+    async fn push_batch_on_conduit_queue(
+        &self,
+        messages: Vec<MessageTx>,
+        priority: usize,
+        cid: ZInt,
+    ) {
         // Push the message on the conduit queue
         // If the conduit does not exist, create it on demand
         let guard = zasyncread!(self.tx);
@@ -352,11 +365,7 @@ impl Transport {
     /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    pub async fn receive_message(
-        &self,
-        link: &Link,
-        message: Message,
-    ) -> Option<Arc<Transport>> {
+    pub async fn receive_message(&self, link: &Link, message: Message) -> Option<Arc<Transport>> {
         // Acquire a read lock on the conduits
         let guard = zasyncread!(self.rx);
         // If the conduit does not exists, automatically create it
@@ -365,10 +374,20 @@ impl Transport {
             None => {
                 // Drop the read guard to allow to add the new conduit
                 drop(guard);
-                // Dynamically add a new conduit
-                let rx = self.add_conduit_rx(message.cid).await;
-                // Process the message
-                rx.receive_message(link, message).await
+                // Dynamically add a new conduit. The conduit is added iff the
+                // transport session and callback have been properly initialized.
+                if let Some(rx) = self.add_conduit_rx(message.cid).await {
+                    // Process the message
+                    rx.receive_message(link, message).await
+                } else {
+                    // Drop the incoming message since the
+                    // transport session is not ready yet.
+                    println!(
+                        "!!! Message dropped because conduit {} does not exist: {:?}",
+                        message.cid, message.body
+                    );
+                    None
+                }
             }
         }
     }
@@ -378,8 +397,8 @@ impl Transport {
     /*************************************/
     pub async fn close(&self) -> ZResult<()> {
         // Notify the callback
-        if self.get_callback().is_some() {
-            zrwopt!(self.callback).close().await;
+        if let Some(callback) = zasyncread!(self.callback).as_ref() {
+            callback.close().await;
         }
 
         // Stop the Tx conduits

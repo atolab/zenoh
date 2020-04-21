@@ -42,10 +42,3 @@ macro_rules! zasyncwrite {
         }
     );
 }
-
-// This macro is a shorthand for performing a read access on a RwLock<Option<T>>
-// This macro assumes that no write operations ever occurs on the struct
-#[macro_export]
-macro_rules! zrwopt {
-    ($var:expr) => ($var.try_read().unwrap().as_ref().unwrap());
-}

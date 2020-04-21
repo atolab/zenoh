@@ -60,7 +60,7 @@ fn main() {
             for _ in 0..(4*n) {
                 let j = cq5.pull().await;
                 if cq5.get_credit(j) <= 0 {
-                    cq5.recharge(j, CREDIT).await;
+                    cq5.recharge(j, CREDIT);
                 }
             }
         });
