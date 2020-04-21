@@ -50,9 +50,9 @@ struct LinkContext {
 impl LinkContext {
     fn new(batchsize: usize) -> LinkContext {
         LinkContext {
-            messages: Vec::with_capacity(QUEUE_SIZE_TOT),
+            messages: Vec::with_capacity(*QUEUE_SIZE_TOT),
             batch: WBuf::new(batchsize),
-            buffer: WBuf::new(WRITE_MSG_SLICE_SIZE)
+            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE)
         }
     }
 }
@@ -207,7 +207,7 @@ async fn consume(
 
 async fn transmission_loop(conduit: Arc<ConduitTx>, receiver: Receiver<Command>) {
     // The loop to consume the messages in the queue
-    let mut messages: Vec<MessageTx> = Vec::with_capacity(QUEUE_SIZE_TOT);
+    let mut messages: Vec<MessageTx> = Vec::with_capacity(*QUEUE_SIZE_TOT);
     // Create a buffer for the batching
     let mut context: Vec<LinkContext> = Vec::new();
     while conduit.is_active() {
@@ -330,20 +330,20 @@ impl ConduitTx {
     pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize) -> ConduitTx {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
-            QUEUE_SIZE_CTRL,
-            QUEUE_CRED_CTRL,
+            *QUEUE_SIZE_CTRL,
+            *QUEUE_CRED_CTRL,
             CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the retransmission of messages. Medium priority
         let retx = CreditBuffer::<MessageTx>::new(
-            QUEUE_SIZE_RETX,
-            QUEUE_CRED_RETX,
+            *QUEUE_SIZE_RETX,
+            *QUEUE_CRED_RETX,
             CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the Data messages. Low priority
         let data = CreditBuffer::<MessageTx>::new(
-            QUEUE_SIZE_DATA,
-            QUEUE_CRED_DATA,
+            *QUEUE_SIZE_DATA,
+            *QUEUE_CRED_DATA,
             // @TODO: Once the reliability queue is implemented, update the spending policy
             CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
@@ -354,7 +354,7 @@ impl ConduitTx {
 
         ConduitTx {
             id,
-            queue: CreditQueue::new(queue_tx, QUEUE_CONCURRENCY),
+            queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
             active: AtomicBool::new(false),
             inner: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
             signal: Mutex::new(None),

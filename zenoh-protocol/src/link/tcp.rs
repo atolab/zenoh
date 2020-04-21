@@ -41,11 +41,12 @@ use crate::link::{
 };
 use zenoh_util::zasynclock;
 
-
-// Size of buffer used to read from socket
-const READ_BUFFER_SIZE: usize = 128 * 1_024;
-// Default MTU
-const DEFAULT_MTU: usize = 65_535;
+configurable!{
+    // Size of buffer used to read from socket
+    static ref READ_BUFFER_SIZE: usize = 128 * 1_024;
+    // Default MTU
+    static ref DEFAULT_MTU: usize = 65_535;
+}
 
 
 #[macro_export]
@@ -105,7 +106,7 @@ impl LinkTcp {
             dst_addr,
             src_locator: Locator::Tcp(src_addr),
             dst_locator: Locator::Tcp(dst_addr),
-            buff_size: READ_BUFFER_SIZE,
+            buff_size: *READ_BUFFER_SIZE,
             transport: Mutex::new(transport),
             manager,
             ch_send: sender,
@@ -165,7 +166,7 @@ impl LinkTcp {
     }
 
     pub fn get_mtu(&self) -> usize {
-        DEFAULT_MTU
+        *DEFAULT_MTU
     }
 
     pub fn is_ordered(&self) -> bool {
