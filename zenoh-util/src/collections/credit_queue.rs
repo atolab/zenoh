@@ -214,7 +214,7 @@ impl<T> CreditQueue<T> {
             let guard = zasynclock!(self.state);
             // Compute the total number of buffers we can drain from 
             let can_drain = guard.iter().enumerate().fold(0, |acc, (i, x)| 
-                if x.len() > 0 && self.get_credit(i) > 0 {
+                if !x.is_empty() && self.get_credit(i) > 0 {
                     acc + 1
                 } else {
                     acc
@@ -290,7 +290,7 @@ impl<'a, T> Iterator for Drain<'_, T> {
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let min = self.guard.iter().enumerate().fold(0, |acc, (i, x)| 
-                if x.len() > 0 && self.queue.get_credit(i) > 0 {
+                if !x.is_empty() && self.queue.get_credit(i) > 0 {
                     acc + 1
                 } else {
                     acc

@@ -690,21 +690,19 @@ impl SessionInner {
             .send(message, *QUEUE_PRIO_CTRL, Some(link.clone()))
             .await;
 
-        if res.is_ok() {
-            if !target.transport.has_callback().await {
-                // Notify the session handler that there is a new session and get back a callback
-                // NOTE: the read loop of the link the open message was sent on reamins blocked
-                //       until the new_session() returns. The read_loop in the various links
-                //       waits for any eventual transport to associate to. This is transport is
-                //       returned only by the process_ope() -- this function.
-                let callback = self
-                    .manager
-                    .handler
-                    .new_session(whatami.clone(), target.clone())
-                    .await;
-                // Set the callback on the transport
-                target.transport.init_callback(callback);
-            }
+        if !target.transport.has_callback().await && res.is_ok() {
+            // Notify the session handler that there is a new session and get back a callback
+            // NOTE: the read loop of the link the open message was sent on reamins blocked
+            //       until the new_session() returns. The read_loop in the various links
+            //       waits for any eventual transport to associate to. This is transport is
+            //       returned only by the process_ope() -- this function.
+            let callback = self
+                .manager
+                .handler
+                .new_session(whatami.clone(), target.clone())
+                .await;
+            // Set the callback on the transport
+            target.transport.init_callback(callback);
         }
 
         Ok(target.transport.clone())
