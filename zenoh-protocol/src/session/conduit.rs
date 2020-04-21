@@ -26,6 +26,7 @@ use crate::session::defaults::{
 };
 use crate::zerror;
 use zenoh_util::collections::{CreditBuffer, CreditQueue};
+use zenoh_util::collections::credit_queue::Drain as CreditQueueDrain;
 use zenoh_util::zasynclock;
 
 /*************************************/
@@ -81,13 +82,13 @@ async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut Message) {
 // Mapping
 async fn map_messages_on_links(
     inner: &mut ConduitInnerTx,
-    messages: &mut Vec<MessageTx>,
+    drain: &mut CreditQueueDrain<'_, MessageTx>,
     context: &mut Vec<LinkContext>
 ) {
     if let Some(main_idx) = inner.main_idx {
         // If there is a main link, it means that there is at least one link
         // associated to the conduit. Drain the messages and perform the mapping
-        for mut msg in messages.drain(..) {
+        for mut msg in drain {
             // Update the sequence number while draining
             update_sn(&mut inner.sn, &mut msg.inner).await;
     
@@ -110,7 +111,7 @@ async fn map_messages_on_links(
     } else {
         // There are no links associated to the conduits. Drain the messages, keep the 
         // reliable messages and drop the unreliable ones
-        for mut msg in messages.drain(..) {
+        for mut msg in drain {
             if msg.inner.is_reliable() {
                 // Update the sequence number while draining
                 update_sn(&mut inner.sn, &mut msg.inner).await;
@@ -166,15 +167,14 @@ async fn flush_batch(link: &Link, context: &mut LinkContext) {
 // Consuming function
 async fn consume(
     conduit: &Arc<ConduitTx>,
-    mut messages: &mut Vec<MessageTx>,
     mut context: &mut Vec<LinkContext>
 ) -> Option<Command> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
-    // Drain all the messages from the queue
-    // drain_into() waits for the queue to be non-empty
-    conduit.queue.drain_into(&mut messages).await;
+    // Get a Drain iterator for the queue
+    // drain() waits for the queue to be non-empty
+    let mut drain = conduit.queue.drain().await;
 
     // Acquire the lock on the inner conduit data structure
     let mut inner = zasynclock!(conduit.inner);
@@ -183,18 +183,33 @@ async fn consume(
         context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
     }
 
-    while !messages.is_empty() {  
-        // Map the messages on the links. This operation drains `messages`
-        map_messages_on_links(&mut inner, &mut messages, &mut context).await;
+    loop {  
+        // Map the messages on the links. This operation drains messages from the Drain iterator
+        map_messages_on_links(&mut inner, &mut drain, &mut context).await;
+        // The drop() on Drain object needs to be manually called since an async
+        // destructor is not yet supported in Rust. More information available at:
+        // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
+        drain.drop().await;
+        // Deschedule the task to allow other tasks to be scheduled and
+        // eventually to push on the queue or break this loop because the task
+        // needs to be stopeed
+        task::yield_now().await;
         // Batch/Fragmenet and transmit the messages
         for (i, mut c) in context.iter_mut().enumerate() {
             batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
         }
-        // Deschedule the task to allow other tasks to be scheduled and
-        // eventually to push on the queue
-        task::yield_now().await;
         // Try to drain messages from the queue
-        conduit.queue.try_drain_into(&mut messages).await;
+        // try_drain does not wait for the queue to be non-empty
+        drain = conduit.queue.try_drain().await;
+        // Check if we can drain from the Drain iterator
+        let (min, _) = drain.size_hint();
+        if min == 0 {
+            // The drop() on Drain object needs to be manually called since an async
+            // destructor is not yet supported in Rust. More information available at:
+            // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
+            drain.drop().await;
+            break
+        }
     }
 
     // Transmit all the messages left in the batch if any
@@ -206,13 +221,11 @@ async fn consume(
 }
 
 async fn transmission_loop(conduit: Arc<ConduitTx>, receiver: Receiver<Command>) {
-    // The loop to consume the messages in the queue
-    let mut messages: Vec<MessageTx> = Vec::with_capacity(*QUEUE_SIZE_TOT);
     // Create a buffer for the batching
     let mut context: Vec<LinkContext> = Vec::new();
     while conduit.is_active() {
         // Create the consume future
-        let consume = consume(&conduit, &mut messages, &mut context);
+        let consume = consume(&conduit, &mut context);
         // Create the signal future
         let signal = receiver.recv();
 
