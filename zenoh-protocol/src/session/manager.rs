@@ -100,10 +100,10 @@ pub struct SessionManagerConfig {
 impl SessionManager {
     pub fn new(config: SessionManagerConfig) -> SessionManager {
         // Set default values if not provided
-        let lease = config.lease.unwrap_or(SESSION_LEASE);
-        let resolution = config.resolution.unwrap_or(SESSION_SEQ_NUM_RESOLUTION);
-        let batchsize = config.batchsize.unwrap_or(SESSION_BATCH_SIZE);
-        let timeout = config.timeout.unwrap_or(SESSION_OPEN_TIMEOUT);
+        let lease = config.lease.unwrap_or(*SESSION_LEASE);
+        let resolution = config.resolution.unwrap_or(*SESSION_SEQ_NUM_RESOLUTION);
+        let batchsize = config.batchsize.unwrap_or(*SESSION_BATCH_SIZE);
+        let timeout = config.timeout.unwrap_or(*SESSION_OPEN_TIMEOUT);
 
         // Create the inner session manager
         let manager_inner = Arc::new(SessionManagerInner::new(
@@ -422,7 +422,7 @@ impl Session {
     pub async fn schedule(&self, message: Message, link: Option<Link>) {
         self.0
             .transport
-            .schedule(message, QUEUE_PRIO_DATA, link)
+            .schedule(message, *QUEUE_PRIO_DATA, link)
             .await;
     }
 
@@ -434,7 +434,7 @@ impl Session {
     ) {
         self.0
             .transport
-            .schedule_batch(messages, QUEUE_PRIO_DATA, link, cid)
+            .schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid)
             .await;
     }
 }
@@ -466,7 +466,7 @@ pub(crate) struct SessionInner {
 impl MsgHandler for SessionInner {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
         self.transport
-            .schedule(message, QUEUE_PRIO_DATA, None)
+            .schedule(message, *QUEUE_PRIO_DATA, None)
             .await;
         Ok(())
     }
@@ -531,9 +531,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        self.transport
-            .send(message, QUEUE_PRIO_CTRL, Some(link))
-            .await?;
+        self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
 
         Ok(())
     }
@@ -555,7 +553,7 @@ impl SessionInner {
         let links = self.transport.get_links().await;
         for l in links.iter() {
             self.transport
-                .send(message.clone(), QUEUE_PRIO_DATA, Some(l.clone()))
+                .send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone()))
                 .await?;
         }
 
@@ -689,7 +687,7 @@ impl SessionInner {
         // Schedule the message for transmission
         let res = target
             .transport
-            .send(message, QUEUE_PRIO_CTRL, Some(link.clone()))
+            .send(message, *QUEUE_PRIO_CTRL, Some(link.clone()))
             .await;
 
         if res.is_ok() {

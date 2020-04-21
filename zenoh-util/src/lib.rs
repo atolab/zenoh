@@ -1,3 +1,5 @@
+#![feature(const_if_match)]
+
 pub mod sync;
 pub mod collections;
 
@@ -41,4 +43,31 @@ macro_rules! zasyncwrite {
             $var.write().await 
         }
     );
+}
+
+// This macro allows to define some compile time configurable static constants
+#[macro_export]
+macro_rules! configurable {
+    ($(#[$attr:meta])* static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        lazy_static!($(#[$attr])* static ref $N : $T = match option_env!(stringify!($N)) {
+            Some(value) => {value.parse().unwrap()}
+            None => {$e} 
+        };) ; 
+        configurable!($($t)*);
+    };
+    ($(#[$attr:meta])* pub static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        lazy_static!($(#[$attr])* pub static ref $N : $T = match option_env!(stringify!($N)) {
+            Some(value) => {value.parse().unwrap()}
+            None => {$e} 
+        };) ; 
+        configurable!($($t)*);
+    };
+    ($(#[$attr:meta])* pub ($($vis:tt)+) static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        lazy_static!($(#[$attr])* pub ($($vis)+) static ref $N : $T = match option_env!(stringify!($N)) {
+            Some(value) => {value.parse().unwrap()}
+            None => {$e} 
+        };) ; 
+        configurable!($($t)*);
+    };
+    () => ()
 }
