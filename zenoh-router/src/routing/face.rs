@@ -7,11 +7,12 @@ use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
+use crate::routing::ownedprimitives::OwnedPrimitives;
 
 pub struct Face {
     pub(super) id: usize,
     pub(super) whatami: WhatAmI,
-    pub(super) primitives: Arc<dyn Primitives + Send + Sync>,
+    pub(super) primitives: OwnedPrimitives,
     pub(super) local_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) remote_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) subs: Vec<Arc<Resource>>,
@@ -23,7 +24,7 @@ impl Face {
         Arc::new(Face {
             id,
             whatami,
-            primitives,
+            primitives: OwnedPrimitives::new(primitives),
             local_mappings: HashMap::new(),
             remote_mappings: HashMap::new(),
             subs: Vec::new(),
