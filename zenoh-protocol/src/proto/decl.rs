@@ -22,20 +22,20 @@ pub mod id {
 }
 
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Reliability { BestEffort, Reliable }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SubMode { Push, Pull }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Period { 
     pub origin: ZInt,
     pub period: ZInt,
     pub duration: ZInt
 }
 
-#[derive(Debug, Clone, PartialEq, Copy)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SubInfo {
     pub reliability: Reliability,
     pub mode: SubMode,

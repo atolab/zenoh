@@ -45,7 +45,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;
 ///     
 ///     // Use primitives
-///     primitives.data("/demo".to_string().into(), true, None, RBuf::from(vec![1, 2])).await;
+///     primitives.data(&"/demo".to_string().into(), true, &None, RBuf::from(vec![1, 2])).await;
 /// 
 ///     // Close primitives
 ///     primitives.close().await;
@@ -225,11 +225,11 @@ impl Tables {
             for (nonwild_prefix, wildsuffix) in subs {
                 match nonwild_prefix {
                     Some((nonwild_prefix, local_id)) => {
-                        primitives.resource(local_id, ResKey::RName(nonwild_prefix)).await;
-                        primitives.subscriber(ResKey::RIdWithSuffix(local_id, wildsuffix), sub_info).await;
+                        primitives.resource(local_id, &ResKey::RName(nonwild_prefix)).await;
+                        primitives.subscriber(&ResKey::RIdWithSuffix(local_id, wildsuffix), &sub_info).await;
                     }
                     None => {
-                        primitives.subscriber(ResKey::RName(wildsuffix), sub_info).await;
+                        primitives.subscriber(&ResKey::RName(wildsuffix), &sub_info).await;
                     }
                 }
             }
@@ -239,11 +239,11 @@ impl Tables {
             for (nonwild_prefix, wildsuffix) in stos {
                 match nonwild_prefix {
                     Some((nonwild_prefix, local_id)) => {
-                        primitives.resource(local_id, ResKey::RName(nonwild_prefix)).await;
-                        primitives.storage(ResKey::RIdWithSuffix(local_id, wildsuffix)).await;
+                        primitives.resource(local_id, &ResKey::RName(nonwild_prefix)).await;
+                        primitives.storage(&ResKey::RIdWithSuffix(local_id, wildsuffix)).await;
                     }
                     None => {
-                        primitives.storage(ResKey::RName(wildsuffix)).await;
+                        primitives.storage(&ResKey::RName(wildsuffix)).await;
                     }
                 }
             }
@@ -378,7 +378,7 @@ impl Tables {
             }
         };
         if let Some((primitives, rid, rname)) = remap {
-            primitives.resource(rid, rname).await;
+            primitives.resource(rid, &rname).await;
         }
     }
 
@@ -395,7 +395,7 @@ impl Tables {
         }
     }
 
-    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str, sub_info: SubInfo) {
+    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str, sub_info: &SubInfo) {
         let route = {
             let mut t = tables.write().await;
             match sex.upgrade() {
@@ -413,7 +413,7 @@ impl Tables {
                                 let res = Arc::get_mut_unchecked(&mut res);
                                 match res.contexts.get_mut(&sex.id) {
                                     Some(mut ctx) => {
-                                        Arc::get_mut_unchecked(&mut ctx).subs = Some(sub_info);
+                                        Arc::get_mut_unchecked(&mut ctx).subs = Some(sub_info.clone());
                                     }
                                     None => {
                                         res.contexts.insert(sex.id, 
@@ -421,7 +421,7 @@ impl Tables {
                                                 face: sex.clone(),
                                                 local_rid: None,
                                                 remote_rid: None,
-                                                subs: Some(sub_info),
+                                                subs: Some(sub_info.clone()),
                                                 stor: false,
                                                 eval: false,
                                             })
@@ -477,9 +477,9 @@ impl Tables {
         if let Some((prefixname, faces)) = route {
             for (_id, (primitives, declare_res, rid, suffix)) in faces {
                 if declare_res {
-                    primitives.resource(rid, (prefixname.clone()).into()).await
+                    primitives.resource(rid, &(prefixname.clone()).into()).await
                 }
-                primitives.subscriber((rid, suffix).into(), sub_info).await
+                primitives.subscriber(&(rid, suffix).into(), sub_info).await
             }
         }
     }
@@ -595,9 +595,9 @@ impl Tables {
         if let Some((prefixname, faces)) = route {
             for (_id, (primitives, declare_res, rid, suffix)) in faces {
                 if declare_res {
-                    primitives.resource(rid, (prefixname.clone()).into()).await
+                    primitives.resource(rid, &(prefixname.clone()).into()).await
                 }
-                primitives.storage((rid, suffix).into()).await
+                primitives.storage(&(rid, suffix).into()).await
             }
         }
     }
@@ -759,7 +759,7 @@ impl Tables {
         }
     }
 
-    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str, reliable:bool, info: Option<RBuf>, payload: RBuf) {
+    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str, reliable:bool, info: &Option<RBuf>, payload: RBuf) {
         match sex.upgrade() {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix).await {
@@ -774,7 +774,7 @@ impl Tables {
                                 }
                             };
                             if let Some(primitives) = primitives {
-                                primitives.data((rid, suffix).into(), reliable, info.clone(), payload.clone()).await
+                                primitives.data(&(rid, suffix).into(), reliable, info, payload.clone()).await
                             }
                         }
                     }

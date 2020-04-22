@@ -26,7 +26,7 @@ fn main() {
         };
 
         println!("Declaring Eval on {}", uri);
-        let eval = session.declare_eval(RName(uri), query_handler).await.unwrap();
+        let eval = session.declare_eval(&RName(uri), query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];
