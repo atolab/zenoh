@@ -2,19 +2,24 @@ use async_std::sync::Arc;
 use async_std::task;
 use async_trait::async_trait;
 use rand::RngCore;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::Duration;
 
-use zenoh_protocol::core::{PeerId, ResKey};
+use zenoh_protocol::core::{PeerId, ResKey, ZResult};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Message, MessageKind, WhatAmI};
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
 
-
-struct MySH {}
+// Session Handler for the peer
+struct MySH {
+    counter: Arc<AtomicUsize>,
+    active: AtomicBool
+}
 
 impl MySH {
-    fn new() -> Self {
-        Self { }
+    fn new(counter: Arc<AtomicUsize>) -> Self {
+        Self { counter, active: AtomicBool::new(false) }
     }
 }
 
@@ -24,16 +29,47 @@ impl SessionHandler for MySH {
         _whatami: WhatAmI, 
         _session: Arc<dyn MsgHandler + Send + Sync>
     ) -> Arc<dyn MsgHandler + Send + Sync> {
-        Arc::new(DummyHandler::new())
+        if !self.active.swap(true, Ordering::Acquire) {
+            let count = self.counter.clone();
+            task::spawn(async move {
+                loop {
+                    task::sleep(Duration::from_secs(1)).await;
+                    let c = count.swap(0, Ordering::Relaxed);
+                    println!("{} msg/s", c);
+                }
+            });
+        }
+        Arc::new(MyMH::new(self.counter.clone()))
     }
+}
+
+// Message Handler for the peer
+struct MyMH {
+    counter: Arc<AtomicUsize>
+}
+
+impl MyMH {
+    fn new(counter: Arc<AtomicUsize>) -> Self {
+        Self { counter }
+    }
+}
+
+#[async_trait]
+impl MsgHandler for MyMH {
+    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+        self.counter.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    async fn close(&self) {}
 }
 
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <messages to push on the queue at the same time> <locator to connect to>
+    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <messages to push on the queue at the same time> <locator to listen on> <locator to connect to>
 Example: 
-    cargo run --release --bin {} 8000 16384 16 tcp/127.0.0.1:7447",
+    cargo run --release --bin {} 8000 16384 16 tcp/127.0.0.1:7447 tcp/127.0.0.1:7448",
         bin, bin
     );
 }
@@ -41,6 +77,8 @@ Example:
 fn main() {
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
+
+    let count = Arc::new(AtomicUsize::new(0));
 
     let mut args = std::env::args();
     // Get exe name
@@ -88,6 +126,18 @@ fn main() {
     } else {
         return print_usage(bin);
     };
+    let listen_on: Locator = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
+
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
     let connect_to: Locator = if let Ok(v) = value.parse() {
         v
     } else {
@@ -98,7 +148,7 @@ fn main() {
         version: 0,
         whatami: WhatAmI::Peer,
         id: PeerId{id: pid},
-        handler: Arc::new(MySH::new()),
+        handler: Arc::new(MySH::new(count)),
         lease: None,
         resolution: None,
         batchsize: Some(batchsize),
@@ -108,12 +158,20 @@ fn main() {
 
     // Connect to publisher
     task::block_on(async {
-        let session = if let Ok(s) = manager.open_session(&connect_to).await {
-            println!("Opened session on {}", connect_to);
-            s
+        if manager.add_locator(&listen_on, None).await.is_ok() {
+            println!("Listening on {}", listen_on);
         } else {
-            println!("Failed to open session on {}", connect_to);
+            println!("Failed to listen on {}", listen_on);
             return;
+        };
+
+        let session = loop {
+            if let Ok(s) = manager.open_session(&connect_to).await {
+                println!("Opened session with {}", connect_to);
+                break s;
+            } else {
+                task::sleep(Duration::from_secs(1)).await;
+            }
         };
 
         // Send reliable messages

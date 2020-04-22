@@ -52,3 +52,24 @@ bench = false
 name = "base_pub_peer"
 test = false
 bench = false
+
+[[bin]]
+name = "base_pubsub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "base_sub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "base_pub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "base_broker"
+test = false
+bench = false
+

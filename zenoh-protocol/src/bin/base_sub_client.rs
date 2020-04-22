@@ -67,7 +67,7 @@ impl MsgHandler for MyMH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} [<locator to listen on>]
+    cargo run --release --bin {} <locator to connect to>
 Example: 
     cargo run --release --bin {} tcp/127.0.0.1:7447",
         bin, bin
@@ -95,14 +95,14 @@ fn main() {
     let mut args = std::env::args();
     // Get exe name
     let bin = args.next().unwrap();
-    
+
     // Get next arg
     let value = if let Some(value) = args.next() {
         value
     } else {
         return print_usage(bin);
     };
-    let listen_on: Locator = if let Ok(v) = value.parse() {
+    let connect_to: Locator = if let Ok(v) = value.parse() {
         v
     } else {
         return print_usage(bin);
@@ -110,10 +110,10 @@ fn main() {
 
     // Connect to publisher
     task::block_on(async {
-        if manager.add_locator(&listen_on, None).await.is_ok() {
-            println!("Listening on {}", listen_on);
+        if manager.open_session(&connect_to).await.is_ok() {
+            println!("Opened session on {}", connect_to);
         } else {
-            println!("Failed to listen on {}", listen_on);
+            println!("Failed to open session on {}", connect_to);
             return;
         };
         // Stop forever
