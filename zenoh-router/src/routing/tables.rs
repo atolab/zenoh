@@ -168,11 +168,7 @@ impl Tables {
                                 }
                             }
                         }
-                    }
-                }
 
-                for (id, face) in t.faces.iter() {
-                    if *id != sid {
                         for sto in face.stos.iter() {
                             let (nonwild_prefix, wildsuffix) = {
                                 match &sto.nonwild_prefix {
