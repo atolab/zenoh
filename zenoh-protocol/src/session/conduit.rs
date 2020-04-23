@@ -134,6 +134,12 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
         let buff_read = context.buffer.as_rbuf();
 
         if let Some(notify) = msg.notify {
+            // Transmit the current batch if present
+            if !batch_read.is_empty() { 
+                let _ = link.send(batch_read).await;
+                // Clear the batch buffer
+                context.batch.clear();
+            }
             // Transmit now the message
             let res = link.send(buff_read).await;
             // Notify now the result 
