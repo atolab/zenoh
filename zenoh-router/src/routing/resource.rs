@@ -174,7 +174,6 @@ pub(super) struct Context {
     pub(super) local_rid: Option<u64>,
     pub(super) remote_rid: Option<u64>,
     pub(super) subs: Option<SubInfo>,
-    pub(super) stor: bool,
     #[allow(dead_code)]
-    pub(super) eval: bool,
+    pub(super) qabl: bool,
 }

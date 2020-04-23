@@ -153,8 +153,7 @@ impl Tables {
                                             local_rid: Some(local_id),
                                             remote_rid: None,
                                             subs: None,
-                                            stor: false,
-                                            eval: false,
+                                            qabl: false,
                                     }));
                                     Arc::get_mut_unchecked(&mut newface).local_mappings.insert(local_id, nonwild_prefix.clone());
 
@@ -201,7 +200,7 @@ impl Tables {
         let mut dests = HashMap::new();
         for match_ in &res.matches {
             for (sid, context) in &match_.upgrade().unwrap().contexts {
-                if context.subs.is_some() || context.stor {
+                if context.subs.is_some() {
                     let (rid, suffix) = Tables::get_best_key(res, "", *sid);
                     dests.insert(*sid, (context.face.clone(), rid, suffix));
                 }
@@ -270,8 +269,7 @@ impl Tables {
                                         local_rid: None,
                                         remote_rid: Some(rid),
                                         subs: None,
-                                        stor: false,
-                                        eval: false,
+                                        qabl: false,
                                     })
                                 ).clone();
 
@@ -335,8 +333,7 @@ impl Tables {
                                             local_rid: None,
                                             remote_rid: None,
                                             subs: Some(sub_info.clone()),
-                                            stor: false,
-                                            eval: false,
+                                            qabl: false,
                                         })
                                     );
                                 }
@@ -366,8 +363,7 @@ impl Tables {
                                             local_rid: Some(rid),
                                             remote_rid: None,
                                             subs: None,
-                                            stor: false,
-                                            eval: false,
+                                            qabl: false,
                                     }));
                                     Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
 
@@ -506,7 +502,7 @@ impl Tables {
                     for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
                         let res = res.upgrade().unwrap();
                         for (sid, context) in &res.contexts {
-                            if context.subs.is_some() || context.stor {
+                            if context.subs.is_some() {
                                 sexs.entry(*sid).or_insert_with( || {
                                     let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
                                     (context.face.clone(), rid, suffix)
