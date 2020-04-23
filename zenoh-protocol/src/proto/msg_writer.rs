@@ -264,10 +264,8 @@ impl WBuf {
             ForgetSubscriber { key } => write_key_decl!(self, FORGET_SUBSCRIBER, key),
             Publisher { key }        => write_key_decl!(self, PUBLISHER, key),
             ForgetPublisher { key }  => write_key_decl!(self, FORGET_PUBLISHER, key),
-            Storage { key }          => write_key_decl!(self, STORAGE, key),
-            ForgetStorage { key }    => write_key_decl!(self, FORGET_STORAGE, key),
-            Eval { key }             => write_key_decl!(self, EVAL, key),
-            ForgetEval { key }       => write_key_decl!(self, FORGET_EVAL, key),
+            Queryable { key }        => write_key_decl!(self, QUERYABLE, key),
+            ForgetQueryable { key }  => write_key_decl!(self, FORGET_QUERYABLE, key),
         }
     }
 

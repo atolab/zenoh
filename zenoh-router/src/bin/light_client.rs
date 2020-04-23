@@ -34,18 +34,11 @@ impl Primitives for PrintPrimitives {
         println!("  [RECV] FORGET SUBSCRIBER ({:?})", reskey);
     }
     
-    async fn storage(&self, reskey: &ResKey) {
-        println!("  [RECV] STORAGE ({:?})", reskey);
+    async fn queryable(&self, reskey: &ResKey) {
+        println!("  [RECV] QUERYABLE ({:?})", reskey);
     }
-    async fn forget_storage(&self, reskey: &ResKey) {
-        println!("  [RECV] FORGET STORAGE ({:?})", reskey);
-    }
-    
-    async fn eval(&self, reskey: &ResKey) {
-        println!("  [RECV] EVAL ({:?})", reskey);
-    }
-    async fn forget_eval(&self, reskey: &ResKey) {
-        println!("  [RECV] FORGET EVAL ({:?})", reskey);
+    async fn forget_queryable(&self, reskey: &ResKey) {
+        println!("  [RECV] FORGET QUERYABLE ({:?})", reskey);
     }
 
     async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {

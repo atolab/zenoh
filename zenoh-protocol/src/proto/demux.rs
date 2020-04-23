@@ -39,13 +39,9 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                             trace!("DECLARE SUBSCRIBER key({:?}) info({:?})", key, info);
                             self.primitives.subscriber(key, info).await;
                         }
-                        Declaration::Storage {key} => {
-                            trace!("DECLARE STORAGE key({:?})", key);
-                            self.primitives.storage(key).await;
-                        }
-                        Declaration::Eval {key} => {
-                            trace!("DECLARE EVAL key({:?})", key);
-                            self.primitives.eval(key).await;
+                        Declaration::Queryable {key} => {
+                            trace!("DECLARE QUERYABLE key({:?})", key);
+                            self.primitives.queryable(key).await;
                         }
                         Declaration::ForgetResource {rid} => {
                             trace!("FORGET RESOURCE rid({:?})", rid);
@@ -59,13 +55,9 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                             trace!("FORGET SUBSCRIBER key({:?})", key);
                             self.primitives.forget_subscriber(key).await;
                         }
-                        Declaration::ForgetStorage {key} => {
-                            trace!("FORGET STORAGE key({:?})", key);
-                            self.primitives.forget_storage(key).await;
-                        }
-                        Declaration::ForgetEval {key} => {
-                            trace!("FORGET EVAL key({:?})", key);
-                            self.primitives.forget_eval(key).await;
+                        Declaration::ForgetQueryable {key} => {
+                            trace!("FORGET QUERYABLE key({:?})", key);
+                            self.primitives.forget_queryable(key).await;
                         }
                     }
 

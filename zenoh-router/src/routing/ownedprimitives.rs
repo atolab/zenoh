@@ -20,11 +20,8 @@ impl OwnedPrimitives {
     pub async fn subscriber(self, reskey: ResKey, sub_info: SubInfo) {self.primitives.subscriber(&reskey, &sub_info).await}
     pub async fn forget_subscriber(self, reskey: ResKey) {self.primitives.forget_subscriber(&reskey).await}
     
-    pub async fn storage(self, reskey: ResKey) {self.primitives.storage(&reskey).await}
-    pub async fn forget_storage(self, reskey: ResKey) {self.primitives.forget_storage(&reskey).await}
-    
-    pub async fn eval(self, reskey: ResKey) {self.primitives.eval(&reskey).await}
-    pub async fn forget_eval(self, reskey: ResKey) {self.primitives.forget_eval(&reskey).await}
+    pub async fn queryable(self, reskey: ResKey) {self.primitives.queryable(&reskey).await}
+    pub async fn forget_queryable(self, reskey: ResKey) {self.primitives.forget_queryable(&reskey).await}
 
     pub async fn data(self, reskey: ResKey, reliable: bool, info: Option<RBuf>, payload: RBuf) {
         self.primitives.data(&reskey, reliable, &info, payload).await

@@ -64,11 +64,8 @@ impl Primitives for ThrouputPrimitives {
     async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {}
     async fn forget_subscriber(&self, _reskey: &ResKey) {}
     
-    async fn storage(&self, _reskey: &ResKey) {}
-    async fn forget_storage(&self, _reskey: &ResKey) {}
-    
-    async fn eval(&self, _reskey: &ResKey) {}
-    async fn forget_eval(&self, _reskey: &ResKey) {}
+    async fn queryable(&self, _reskey: &ResKey) {}
+    async fn forget_queryable(&self, _reskey: &ResKey) {}
 
     async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         let mut stats = self.stats.lock().await;

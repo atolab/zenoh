@@ -183,52 +183,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn declare_storage<DataHandler, QueryHandler>(&self, resource: &ResKey, data_handler: DataHandler, query_handler: QueryHandler) -> ZResult<Storage>
-        where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static ,
-        QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
-    {
-        let inner = &mut self.inner.write();
-        let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
-        let resname = inner.reskey_to_resname(resource)?;
-        let dhandler = Arc::new(RwLock::new(data_handler));
-        let qhandler = Arc::new(RwLock::new(query_handler));
-        let sto = Storage{ id, reskey: resource.clone(), resname, dhandler, qhandler };
-        inner.storages.insert(id, sto.clone());
-
-        let primitives = inner.primitives.as_ref().unwrap();
-        primitives.storage(resource).await;
-
-        // @TODO: REMOVE; Just to test storage callback:
-        let payload = RBuf::from(vec![1,2,3]);
-        let info = DataInfo::make(None, None, None, None, None, None, None);
-        let sto2 = &mut inner.storages.get(&id).unwrap();
-        let dhandler = &mut *sto2.dhandler.write();
-        dhandler("/A/B", payload, info);
-        let qhandler = &mut *sto2.qhandler.write();
-        qhandler("/A/**", "starttime=now()-1h", 
-            &|handle, replies| {
-                println!("------- STORAGE RepliesSender for {} {:?}", handle, replies);
-            },
-            42
-        );
-
-        Ok(sto)
-    }
-
-    pub async fn undeclare_storage(&self, storage: Storage) -> ZResult<()> {
-        let inner = &mut self.inner.write();
-        inner.storages.remove(&storage.id);
-
-        // Note: there might be several Storages on the same ResKey.
-        // Before calling forget_storage(reskey), check if this was the last one.
-        if !inner.storages.values().any(|s| s.reskey == storage.reskey) {
-            let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_storage(&storage.reskey).await;
-        }
-        Ok(())
-    }
-
-    pub async fn declare_eval<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
+    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
@@ -238,7 +193,7 @@ impl Session {
         inner.evals.insert(id, eva.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
-        primitives.eval(resource).await;
+        primitives.queryable(resource).await;
 
         // @TODO: REMOVE; Just to test eval callback:
         let eva2 = &mut inner.evals.get(&id).unwrap();
@@ -254,7 +209,7 @@ impl Session {
 
     }
 
-    pub async fn undeclare_eval(&self, eval: Eval) -> ZResult<()> {
+    pub async fn undeclare_queryable(&self, eval: Eval) -> ZResult<()> {
         let inner = &mut self.inner.write();
         inner.evals.remove(&eval.id);
 
@@ -262,7 +217,7 @@ impl Session {
         // Before calling forget_eval(reskey), check if this was the last one.
         if !inner.evals.values().any(|e| e.reskey == eval.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_eval(&eval.reskey).await;
+            primitives.forget_queryable(&eval.reskey).await;
         }
         Ok(())
     }
@@ -327,20 +282,12 @@ impl Primitives for Session {
         println!("++++ recv Forget Subscriber {:?} ", reskey);
     }
 
-    async fn storage(&self, reskey: &ResKey) {
-        println!("++++ recv Storage {:?} ", reskey);
+    async fn queryable(&self, reskey: &ResKey) {
+        println!("++++ recv Queryable {:?} ", reskey);
     }
 
-    async fn forget_storage(&self, reskey: &ResKey) {
-        println!("++++ recv Forget Storage {:?} ", reskey);
-    }
-    
-    async fn eval(&self, reskey: &ResKey) {
-        println!("++++ recv Eval {:?} ", reskey);
-    }
-
-    async fn forget_eval(&self, reskey: &ResKey) {
-        println!("++++ recv Forget Eval {:?} ", reskey);
+    async fn forget_queryable(&self, reskey: &ResKey) {
+        println!("++++ recv Forget Queryable {:?} ", reskey);
     }
 
     async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {

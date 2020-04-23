@@ -63,30 +63,16 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
     
-    async fn storage(&self, reskey: &ResKey) {
+    async fn queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Storage{key: reskey.clone()});
+        decls.push(Declaration::Queryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_storage(&self, reskey: &ResKey) {
+    async fn forget_queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetStorage{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-    
-    async fn eval(&self, reskey: &ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::Eval{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-
-    async fn forget_eval(&self, reskey: &ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::ForgetEval{key: reskey.clone()});
+        decls.push(Declaration::ForgetQueryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }

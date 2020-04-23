@@ -16,7 +16,6 @@ pub struct Face {
     pub(super) local_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) remote_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) subs: Vec<Arc<Resource>>,
-    pub(super) stos: Vec<Arc<Resource>>,
 }
 
 impl Face {
@@ -28,7 +27,6 @@ impl Face {
             local_mappings: HashMap::new(),
             remote_mappings: HashMap::new(),
             subs: Vec::new(),
-            stos: Vec::new(),
         })
     }
 
@@ -85,19 +83,15 @@ impl Primitives for FaceHdl {
 
     async fn forget_publisher(&self, _reskey: &ResKey) {}
     
-    async fn storage(&self, reskey: &ResKey) {
-        let (prefixid, suffix) = reskey.into();
-        Tables::declare_storage(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    async fn queryable(&self, _reskey: &ResKey) {
+        // let (prefixid, suffix) = reskey.into();
+        // Tables::declare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
 
-    async fn forget_storage(&self, reskey: &ResKey) {
-        let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_storage(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    async fn forget_queryable(&self, _reskey: &ResKey) {
+        // let (prefixid, suffix) = reskey.into();
+        // Tables::undeclare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
-    
-    async fn eval(&self, _reskey: &ResKey) {}
-
-    async fn forget_eval(&self, _reskey: &ResKey) {}
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         let (prefixid, suffix) = reskey.into();

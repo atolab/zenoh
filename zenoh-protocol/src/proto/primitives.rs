@@ -21,11 +21,8 @@ pub trait Primitives {
     async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo);
     async fn forget_subscriber(&self, reskey: &ResKey);
     
-    async fn storage(&self, reskey: &ResKey);
-    async fn forget_storage(&self, reskey: &ResKey);
-    
-    async fn eval(&self, reskey: &ResKey);
-    async fn forget_eval(&self, reskey: &ResKey);
+    async fn queryable(&self, reskey: &ResKey);
+    async fn forget_queryable(&self, reskey: &ResKey);
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf);
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation);
