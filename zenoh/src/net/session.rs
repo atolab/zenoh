@@ -76,6 +76,9 @@ impl Session {
         let prim = session.tables.new_primitives(Arc::new(session.clone())).await;
         inner2.write().primitives = Some(prim);
 
+        // Workaround for the declare_and_shoot problem
+        async_std::task::sleep(std::time::Duration::from_millis(200)).await;
+
         session
     }
 
