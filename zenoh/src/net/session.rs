@@ -36,7 +36,7 @@ impl Session {
 
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Peer,
+            whatami: WhatAmI::Client,
             id: PeerId{id: pid},
             handler: tables.clone(),
             lease: None,
