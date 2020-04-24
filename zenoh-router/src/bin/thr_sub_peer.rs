@@ -55,22 +55,19 @@ impl Default for ThrouputPrimitives {
 #[async_trait]
 impl Primitives for ThrouputPrimitives {
 
-    async fn resource(&self, _rid: ZInt, _reskey: ResKey) {}
+    async fn resource(&self, _rid: ZInt, _reskey: &ResKey) {}
     async fn forget_resource(&self, _rid: ZInt) {}
     
-    async fn publisher(&self, _reskey: ResKey) {}
-    async fn forget_publisher(&self, _reskey: ResKey) {}
+    async fn publisher(&self, _reskey: &ResKey) {}
+    async fn forget_publisher(&self, _reskey: &ResKey) {}
     
-    async fn subscriber(&self, _reskey: ResKey, _sub_info: SubInfo) {}
-    async fn forget_subscriber(&self, _reskey: ResKey) {}
+    async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {}
+    async fn forget_subscriber(&self, _reskey: &ResKey) {}
     
-    async fn storage(&self, _reskey: ResKey) {}
-    async fn forget_storage(&self, _reskey: ResKey) {}
-    
-    async fn eval(&self, _reskey: ResKey) {}
-    async fn forget_eval(&self, _reskey: ResKey) {}
+    async fn queryable(&self, _reskey: &ResKey) {}
+    async fn forget_queryable(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, _reskey: ResKey, _reliable: bool, _info: Option<RBuf>, _payload: RBuf) {
+    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
             stats.start = SystemTime::now();
@@ -83,9 +80,9 @@ impl Primitives for ThrouputPrimitives {
             stats.count = 0;
         }  
     }
-    async fn query(&self, _reskey: ResKey, _predicate: String, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
-    async fn reply(&self, _qid: ZInt, _reply: Reply) {}
-    async fn pull(&self, _is_final: bool, _reskey: ResKey, _pull_id: ZInt, _max_samples: Option<ZInt>) {}
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
+    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
+    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {}
 }
@@ -131,13 +128,14 @@ fn main() {
     
         let primitives = tables.new_primitives(my_primitives).await;
 
-        primitives.resource(1, "/tp".to_string().into()).await;
+        primitives.resource(1, &"/tp".to_string().into()).await;
+        let rid = ResKey::RId(1);
         let sub_info = SubInfo {
             reliability: Reliability::Reliable,
             mode: SubMode::Push,
             period: None
         };
-        primitives.subscriber(ResKey::RId(1), sub_info).await;
+        primitives.subscriber(&rid, &sub_info).await;
 
         loop {
             std::thread::sleep(std::time::Duration::from_millis(10000));

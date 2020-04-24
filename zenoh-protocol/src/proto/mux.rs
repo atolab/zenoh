@@ -21,9 +21,9 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Mux<T> {
 #[allow(unused_must_use)] // TODO
 #[async_trait]
 impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
-    async fn resource(&self, rid: u64, key: ResKey) {
+    async fn resource(&self, rid: u64, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Resource{rid, key});
+        decls.push(Declaration::Resource{rid, key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
@@ -35,74 +35,60 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
     
-    async fn subscriber(&self, key: ResKey, info: SubInfo) {
+    async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Subscriber{key, info});
+        decls.push(Declaration::Subscriber{key: reskey.clone(), info: sub_info.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_subscriber(&self, key: ResKey) {
+    async fn forget_subscriber(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetSubscriber{key});
+        decls.push(Declaration::ForgetSubscriber{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
     
-    async fn publisher(&self, key: ResKey) {
+    async fn publisher(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Publisher{key});
+        decls.push(Declaration::Publisher{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_publisher(&self, key: ResKey) {
+    async fn forget_publisher(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetPublisher{key});
+        decls.push(Declaration::ForgetPublisher{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
     
-    async fn storage(&self, key: ResKey) {
+    async fn queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Storage{key});
+        decls.push(Declaration::Queryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_storage(&self, key: ResKey) {
+    async fn forget_queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetStorage{key});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-    
-    async fn eval(&self, key: ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::Eval{key});
+        decls.push(Declaration::ForgetQueryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_eval(&self, key: ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::ForgetEval{key});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-
-    async fn data(&self, key: ResKey, reliable: bool, info: Option<RBuf>, payload: RBuf) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, reliable, 0, key, info, payload, None, None, None)).await;
+            MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload, None, None, None)).await;
     }
 
-    async fn query(&self, key: ResKey, predicate: String, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         let target_opt = if target == QueryTarget::default() { None } else { Some(target) };
         self.handler.handle_message(Message::make_query(
-            0, key, predicate, qid, target_opt, consolidation, None, None)).await;
+            0, reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None, None)).await;
     }
 
-    async fn reply(&self, qid: ZInt, reply: Reply) {
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
         match reply {
             Reply::ReplyData {source, replier_id, reskey, info, payload} => {
                 self.handler.handle_message(Message::make_data(
@@ -120,8 +106,8 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
         }
     }
 
-    async fn pull(&self, is_final: bool, key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>) {
-        self.handler.handle_message(Message::make_pull(is_final, 0, key, pull_id, max_samples, None, None)).await;
+    async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
+        self.handler.handle_message(Message::make_pull(is_final, 0, reskey.clone(), pull_id, *max_samples, None, None)).await;
     }
 
     async fn close(&self) {

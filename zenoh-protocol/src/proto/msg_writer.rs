@@ -257,21 +257,19 @@ impl WBuf {
                 self.write(SUBSCRIBER | sflag | rflag | cflag);
                 self.write_reskey(key);
                 if sflag != 0 {
-                    self.write_submode(info.mode, info.period);
+                    self.write_submode(&info.mode, &info.period);
                 }
             }
 
             ForgetSubscriber { key } => write_key_decl!(self, FORGET_SUBSCRIBER, key),
             Publisher { key }        => write_key_decl!(self, PUBLISHER, key),
             ForgetPublisher { key }  => write_key_decl!(self, FORGET_PUBLISHER, key),
-            Storage { key }          => write_key_decl!(self, STORAGE, key),
-            ForgetStorage { key }    => write_key_decl!(self, FORGET_STORAGE, key),
-            Eval { key }             => write_key_decl!(self, EVAL, key),
-            ForgetEval { key }       => write_key_decl!(self, FORGET_EVAL, key),
+            Queryable { key }        => write_key_decl!(self, QUERYABLE, key),
+            ForgetQueryable { key }  => write_key_decl!(self, FORGET_QUERYABLE, key),
         }
     }
 
-    fn write_submode(&mut self, mode: SubMode, period: Option<Period>) {
+    fn write_submode(&mut self, mode: &SubMode, period: &Option<Period>) {
         use super::decl::{SubMode::*, id::*};
         let period_mask: u8 = if period.is_some() { PERIOD } else { 0x00 };
         match mode {

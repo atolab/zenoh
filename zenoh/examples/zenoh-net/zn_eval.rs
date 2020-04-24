@@ -25,8 +25,8 @@ fn main() {
             (*replies_sender)(query_handle, result);
         };
 
-        println!("Declaring Eval on {}", uri);
-        let eval = session.declare_eval(RName(uri), query_handler).await.unwrap();
+        println!("Declaring Queryable on {}", uri);
+        let queryable = session.declare_queryable(&RName(uri), query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];
@@ -34,7 +34,7 @@ fn main() {
             reader.read_exact(&mut input).unwrap();
         }
 
-        session.undeclare_eval(eval).await.unwrap();
+        session.undeclare_queryable(queryable).await.unwrap();
         session.close().await.unwrap();
     })
 }

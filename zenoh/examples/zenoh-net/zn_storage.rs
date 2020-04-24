@@ -45,8 +45,17 @@ fn main() {
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
 
-        println!("Declaring Storage on {}", uri);
-        let storage = session.declare_storage(RName(uri), data_handler, query_handler).await.unwrap();
+        let sub_info = SubInfo {
+            reliability: Reliability::Reliable,
+            mode: SubMode::Push,
+            period: None
+        };
+
+        println!("Declaring Subscriber on {}", uri);
+        let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).await.unwrap();
+
+        println!("Declaring Queryable on {}", uri);
+        let queryable = session.declare_queryable(&RName(uri), query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];
@@ -54,7 +63,8 @@ fn main() {
             reader.read_exact(&mut input).unwrap();
         }
 
-        session.undeclare_storage(storage).await.unwrap();
+        session.undeclare_queryable(queryable).await.unwrap();
+        session.undeclare_subscriber(sub).await.unwrap();
         session.close().await.unwrap();
     })
 }

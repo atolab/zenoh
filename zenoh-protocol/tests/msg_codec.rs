@@ -81,10 +81,8 @@ fn gen_declarations() -> Vec<Declaration> {
       period: Some(Period {origin: gen!(ZInt), period: gen!(ZInt), duration: gen!(ZInt)} ),
     } });
   decls.push(ForgetSubscriber { key: gen_key() });
-  decls.push(Storage          { key: gen_key() });
-  decls.push(ForgetStorage    { key: gen_key() });
-  decls.push(Eval             { key: gen_key() });
-  decls.push(ForgetEval       { key: gen_key() });  
+  decls.push(Queryable        { key: gen_key() });
+  decls.push(ForgetQueryable  { key: gen_key() });
   decls
 }
 

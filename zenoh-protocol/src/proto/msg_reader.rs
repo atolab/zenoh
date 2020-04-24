@@ -307,10 +307,8 @@ impl RBuf {
             FORGET_SUBSCRIBER => read_key_delc!(self, header, ForgetSubscriber),
             PUBLISHER => read_key_delc!(self, header, Publisher),
             FORGET_PUBLISHER => read_key_delc!(self, header, ForgetPublisher),
-            STORAGE => read_key_delc!(self, header, Storage),
-            FORGET_STORAGE => read_key_delc!(self, header, ForgetStorage),
-            EVAL => read_key_delc!(self, header, Eval),
-            FORGET_EVAL => read_key_delc!(self, header, ForgetEval),
+            QUERYABLE => read_key_delc!(self, header, Queryable),
+            FORGET_QUERYABLE => read_key_delc!(self, header, ForgetQueryable),
 
             id => panic!("UNEXPECTED ID FOR Declaration: {}", id)   //@TODO: return error
         }
