@@ -89,42 +89,20 @@ impl fmt::Debug for Subscriber {
 }
 
 #[derive(Clone)]
-pub struct Storage {
-    pub(crate) id: Id,
-    pub(crate) reskey: ResKey,
-    pub(crate) resname: String,
-    pub(crate) dhandler: Arc<RwLock<DataHandler>>,
-    pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
-}
-
-impl PartialEq for Storage {
-    fn eq(&self, other: &Storage) -> bool {
-        self.id == other.id
-    }
-}
-
-impl fmt::Debug for Storage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Storage{{ id:{} }}", self.id)
-    }
-}
-
-
-#[derive(Clone)]
-pub struct Eval {
+pub struct Queryable {
     pub(crate) id: Id,
     pub(crate) reskey: ResKey,
     pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
 }
 
-impl PartialEq for Eval {
-    fn eq(&self, other: &Eval) -> bool {
+impl PartialEq for Queryable {
+    fn eq(&self, other: &Queryable) -> bool {
         self.id == other.id
     }
 }
 
-impl fmt::Debug for Eval {
+impl fmt::Debug for Queryable {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Eval{{ id:{} }}", self.id)
+        write!(f, "Queryable{{ id:{} }}", self.id)
     }
 }

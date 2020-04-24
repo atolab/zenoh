@@ -24,7 +24,7 @@ fn main() {
         let stored_shared = stored.clone();
 
         let data_handler = move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
-            println!(">> [Storage listener] Received ('{}': '{}')", res_name, payload);
+            println!(">> [Subscription listener] Received ('{}': '{}')", res_name, payload);
             stored.write().insert(res_name.into(), payload);
         };
 

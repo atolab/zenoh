@@ -748,6 +748,7 @@ impl Message {
     pub fn is_reliable(&self) -> bool {
         match self.body {
             Body::Data { .. } => self.header & flag::R != 0,
+            Body::Unit { .. } => self.header & flag::R != 0,
             Body::Declare { .. } => true,
             Body::Pull { .. } => true,
             Body::Query { .. } => true,

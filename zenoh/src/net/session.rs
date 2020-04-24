@@ -182,41 +182,31 @@ impl Session {
         Ok(())
     }
 
-    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Eval>
+    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Queryable>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
-        let eva = Eval{ id, reskey: resource.clone(), qhandler };
-        inner.evals.insert(id, eva.clone());
+        let qable = Queryable{ id, reskey: resource.clone(), qhandler };
+        inner.queryables.insert(id, qable.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
         primitives.queryable(resource).await;
 
-        // @TODO: REMOVE; Just to test eval callback:
-        let eva2 = &mut inner.evals.get(&id).unwrap();
-        let qhandler = &mut *eva2.qhandler.write();
-        qhandler("/A/**", "starttime=now()-1h", 
-            &|handle, replies| {
-                println!("------- EVAL RepliesSender for {} {:?}", handle, replies);
-            },
-            42
-        );
-
-        Ok(eva)
+        Ok(qable)
 
     }
 
-    pub async fn undeclare_queryable(&self, eval: Eval) -> ZResult<()> {
+    pub async fn undeclare_queryable(&self, queryable: Queryable) -> ZResult<()> {
         let inner = &mut self.inner.write();
-        inner.evals.remove(&eval.id);
+        inner.queryables.remove(&queryable.id);
 
-        // Note: there might be several Evals on the same ResKey.
+        // Note: there might be several Queryables on the same ResKey.
         // Before calling forget_eval(reskey), check if this was the last one.
-        if !inner.evals.values().any(|e| e.reskey == eval.reskey) {
+        if !inner.queryables.values().any(|e| e.reskey == queryable.reskey) {
             let primitives = inner.primitives.as_ref().unwrap();
-            primitives.forget_queryable(&eval.reskey).await;
+            primitives.forget_queryable(&queryable.reskey).await;
         }
         Ok(())
     }
@@ -243,12 +233,6 @@ impl Session {
 
         let primitives = inner.primitives.as_ref().unwrap();
         primitives.query(resource, predicate, qid, target, consolidation).await;
-
-        // @TODO: REMOVE; Just to test reply_handler callback:
-        let rhandler = &mut *inner.queries.get(&qid).unwrap().write();
-        let payload = RBuf::from(vec![1,2,3]);
-        let info = DataInfo::make(None, None, None, None, None, None, None);
-        rhandler("/A/B", payload, info);
 
         Ok(())
     }
@@ -298,14 +282,6 @@ impl Primitives for Session {
                     if rname::intersect(&sub.resname, &resname) {
                         let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
                         let handler = &mut *sub.dhandler.write();
-                        handler(&resname, payload.clone(), info);
-                    }
-                }
-                // Call matching storages
-                for sto in inner.storages.values() {
-                    if rname::intersect(&sto.resname, &resname) {
-                        let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
-                        let handler = &mut *sto.dhandler.write();
                         handler(&resname, payload.clone(), info);
                     }
                 }
@@ -364,8 +340,7 @@ pub(crate) struct InnerSession {
     resources:       HashMap<ResourceId, String>,
     publishers:      HashMap<Id, Publisher>,
     subscribers:     HashMap<Id, Subscriber>,
-    storages:        HashMap<Id, Storage>,
-    evals:           HashMap<Id, Eval>,
+    queryables:      HashMap<Id, Queryable>,
     queries:         HashMap<ZInt, Arc<RwLock<RepliesHandler>>>,
 }
 
@@ -379,8 +354,7 @@ impl InnerSession {
             resources:       HashMap::new(),
             publishers:      HashMap::new(),
             subscribers:     HashMap::new(),
-            storages:        HashMap::new(),
-            evals:           HashMap::new(),
+            queryables:      HashMap::new(),
             queries:         HashMap::new(),
         }
     }

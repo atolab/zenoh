@@ -1,4 +1,5 @@
 use std::env;
+use std::time::Duration;
 use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
@@ -26,6 +27,8 @@ fn main() {
             QueryTarget::default(),
             QueryConsolidation::default()
         ).await.unwrap();
+
+        task::sleep(Duration::from_secs(1)).await;
 
         session.close().await.unwrap();
     })
