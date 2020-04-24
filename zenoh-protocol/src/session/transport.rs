@@ -451,13 +451,6 @@ impl TransportRx {
     }
 }
 
-// impl Drop for Transport {
-//     fn drop(&mut self) {
-//         println!("Dropped {:?}", self);
-//         // @TODO: stop and close the transport
-//     }
-// }
-
 // impl fmt::Debug for Transport {
 //     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 //         let links = task::block_on(async {

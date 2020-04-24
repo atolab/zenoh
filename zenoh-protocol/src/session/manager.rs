@@ -468,11 +468,6 @@ impl PartialEq for Session {
     }
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        // println!("Dropped Session {:?}", self.0.peer);
-    }
-}
 
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -554,7 +549,7 @@ impl SessionInner {
             // let _ = self.tx.close().await;
             // let _ = self.rx.close().await;
             // Remove the session from the manager
-            self.manager.del_session(&self.peer).await?;
+            let _ = self.manager.del_session(&self.peer).await;
         }
 
         Ok(())
@@ -615,10 +610,10 @@ impl SessionInner {
         }
 
         // Close the transport
-        self.tx.close().await?;
-        self.rx.close().await?;
+        let _ = self.tx.close().await;
+        let _ = self.rx.close().await;
         // Remove the session from the manager
-        self.manager.del_session(&self.peer).await?;
+        let _ = self.manager.del_session(&self.peer).await;
 
         Ok(())
     }
