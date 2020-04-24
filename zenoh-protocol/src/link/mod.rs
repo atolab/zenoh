@@ -9,7 +9,7 @@ use async_std::sync::Arc;
 
 use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::RBuf;
-use crate::session::{SessionManagerInner, Transport};
+use crate::session::{SessionManagerInner, TransportRx};
 use crate::zerror;
 
 use std::cmp::PartialEq;
@@ -206,7 +206,7 @@ impl LinkManager {
         }
     }
 
-    pub async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
+    pub async fn new_link(&self, dst: &Locator, transport: Arc<TransportRx>) -> ZResult<Link> {
         match self {
             Self::Tcp(manager) => manager.new_link(dst, transport).await,
         }

@@ -7,7 +7,7 @@ use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
 use crate::link::Link;
 use crate::proto::{Body, Message, MessageKind, SeqNum, SeqNumGenerator};
-use crate::session::{MessageTx, MsgHandler, SessionInner, Transport};
+use crate::session::{MessageTx, MsgHandler, SessionInner, TransportRx};
 use crate::session::defaults::{
     // Control buffer
     QUEUE_SIZE_CTRL,
@@ -496,7 +496,7 @@ impl ConduitRx {
         id: ZInt,
         resolution: ZInt,
         session: Arc<SessionInner>,
-        callback: Arc<dyn MsgHandler + Send + Sync>,
+        callback: Arc<dyn MsgHandler + Send + Sync>
     ) -> ConduitRx {
         ConduitRx {
             id,
@@ -525,27 +525,11 @@ impl ConduitRx {
         }
     }
 
-    async fn receive_full_message(
-        &self,
-        link: &Link,
-        message: Message,
-    ) -> Option<Arc<Transport>> {
+    async fn receive_full_message(&self, link: &Link, message: Message) -> Option<Arc<TransportRx>> {
         match &message.body {
-            Body::Accept {
-                whatami,
-                opid,
-                apid,
-                lease,
-            } => {
+            Body::Accept { whatami, opid, apid, lease } => {
                 let c_lease = *lease;
-                match self
-                    .session
-                    .process_accept(link, whatami, opid, apid, c_lease)
-                    .await
-                {
-                    Ok(transport) => Some(transport),
-                    Err(_) => None,
-                }
+                self.session.process_accept(link, whatami, opid, apid, c_lease).await.ok()
             }
             Body::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");
@@ -561,23 +545,10 @@ impl ConduitRx {
             Body::KeepAlive { .. } => {
                 unimplemented!("Handling of KeepAlive Messages not yet implemented!");
             }
-            Body::Open {
-                version,
-                whatami,
-                pid,
-                lease,
-                locators,
-            } => {
+            Body::Open { version, whatami, pid, lease, locators } => {
                 let c_version = *version;
                 let c_lease = *lease;
-                match self
-                    .session
-                    .process_open(link, c_version, whatami, pid, c_lease, locators)
-                    .await
-                {
-                    Ok(transport) => Some(transport),
-                    Err(_) => None,
-                }
+                self.session.process_open(link, c_version, whatami, pid, c_lease, locators).await.ok()
             }
             Body::Ping { .. } => {
                 unimplemented!("Handling of Ping Messages not yet implemented!");
@@ -599,7 +570,9 @@ impl ConduitRx {
                 }
                 None
             }
-            Body::Declare { sn, .. } | Body::Pull { sn, .. } | Body::Query { sn, .. } => {
+            Body::Declare { sn, .. } 
+            | Body::Pull { sn, .. } 
+            | Body::Query { sn, .. } => {
                 let c_sn = *sn;
                 self.process_reliable_message(message, c_sn).await;
                 None
@@ -607,36 +580,19 @@ impl ConduitRx {
         }
     }
 
-    async fn receive_first_fragement(
-        &self,
-        _link: &Link,
-        _message: Message,
-        _number: Option<ZInt>,
-    ) -> Option<Arc<Transport>> {
+    async fn receive_first_fragement(&self, _link: &Link, _message: Message, _number: Option<ZInt>) -> Option<Arc<TransportRx>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_middle_fragement(
-        &self,
-        _link: &Link,
-        _message: Message,
-    ) -> Option<Arc<Transport>> {
+    async fn receive_middle_fragement(&self, _link: &Link, _message: Message) -> Option<Arc<TransportRx>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_last_fragement(
-        &self,
-        _link: &Link,
-        _message: Message,
-    ) -> Option<Arc<Transport>> {
+    async fn receive_last_fragement(&self, _link: &Link, _message: Message) -> Option<Arc<TransportRx>> {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    pub async fn receive_message(
-        &self,
-        link: &Link,
-        message: Message,
-    ) -> Option<Arc<Transport>> {
+    pub async fn receive_message(&self, link: &Link, message: Message) -> Option<Arc<TransportRx>> {
         match message.kind {
             MessageKind::FullMessage => self.receive_full_message(link, message).await,
             MessageKind::FirstFragment { n } => {

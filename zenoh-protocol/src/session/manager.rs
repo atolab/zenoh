@@ -1,6 +1,7 @@
 
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, RwLock, Sender};
+use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
@@ -13,7 +14,7 @@ use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
     SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
 };
-use crate::session::{MsgHandler, SessionHandler, Transport};
+use crate::session::{MsgHandler, SessionHandler, TransportTx, TransportRx};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
 
@@ -179,9 +180,9 @@ impl SessionManager {
         ));
 
         // Initiliaze the transport
-        session_inner.transport.init_session(session_inner.clone());
+        session_inner.rx.init_session(session_inner.clone());
         // Initiliaze the callback
-        session_inner.transport.init_callback(callback);
+        session_inner.rx.init_callback(callback);
         // Add the session to the inner session manager
         manager_inner.init_initial_session(session_inner);
 
@@ -419,7 +420,7 @@ impl SessionManagerInner {
         // Add the session to the list of active sessions
         zasyncwrite!(self.sessions).insert(peer.clone(), session_inner.clone());
         // Set the session on the transport
-        session_inner.transport.init_session(session_inner.clone());
+        session_inner.rx.init_session(session_inner.clone());
 
         Ok(session_inner)
     }
@@ -442,43 +443,20 @@ impl Session {
         self.0.peer.clone()
     }
 
-    pub fn get_transport(&self) -> Arc<Transport> {
-        self.0.transport.clone()
-    }
-
     pub async fn close(&self) -> ZResult<()> {
         self.0.close().await
     }
 
     pub async fn get_links(&self) -> Vec<Link> {
-        self.0.transport.get_links().await
-    }
-
-    pub async fn add_link(&self, link: Link) -> ZResult<()> {
-        self.0.transport.add_link(link).await
-    }
-
-    pub async fn del_link(&self, link: &Link) -> ZResult<()> {
-        self.0.transport.del_link(link).await
+        self.0.tx.get_links().await
     }
 
     pub async fn schedule(&self, message: Message, link: Option<Link>) {
-        self.0
-            .transport
-            .schedule(message, *QUEUE_PRIO_DATA, link)
-            .await;
+        self.0.tx.schedule(message, *QUEUE_PRIO_DATA, link).await;
     }
 
-    pub async fn schedule_batch(
-        &self,
-        messages: Vec<Message>,
-        link: Option<Link>,
-        cid: Option<ZInt>,
-    ) {
-        self.0
-            .transport
-            .schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid)
-            .await;
+    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) {
+        self.0.tx.schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid).await;
     }
 }
 
@@ -490,18 +468,26 @@ impl PartialEq for Session {
     }
 }
 
-impl fmt::Debug for Session {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Session ({:?}), {:?})", self.0.peer, self.0.transport)
+impl Drop for Session {
+    fn drop(&mut self) {
+        // println!("Dropped Session {:?}", self.0.peer);
     }
 }
 
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Session ({:?})", self.0.peer)
+    }
+}
+
+
 #[allow(clippy::type_complexity)]
 pub(crate) struct SessionInner {
+    pub(crate) manager: Arc<SessionManagerInner>,
     pub(crate) peer: PeerId,
     pub(crate) whatami: WhatAmI,
-    pub(crate) transport: Arc<Transport>,
-    pub(crate) manager: Arc<SessionManagerInner>,
+    pub(crate) tx: Arc<TransportTx>,
+    pub(crate) rx: Arc<TransportRx>,
     is_initial: bool,
     channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Arc<SessionInner>>>>>,
 }
@@ -509,9 +495,7 @@ pub(crate) struct SessionInner {
 #[async_trait]
 impl MsgHandler for SessionInner {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.transport
-            .schedule(message, *QUEUE_PRIO_DATA, None)
-            .await;
+        self.tx.schedule(message, *QUEUE_PRIO_DATA, None).await;
         Ok(())
     }
 
@@ -529,32 +513,68 @@ impl SessionInner {
         is_initial: bool,
     ) -> SessionInner {
         SessionInner {
+            manager,
             peer,
             whatami,
-            transport: Arc::new(Transport::new(lease, resolution, batchsize)),
-            manager,
+            tx: Arc::new(TransportTx::new(resolution, batchsize)),
+            rx: Arc::new(TransportRx::new(lease, resolution)),
             is_initial,
             channels: RwLock::new(HashMap::new()),
         }
     }
 
-    async fn open(
-        &self,
-        manager: Arc<LinkManager>,
-        locator: &Locator,
-        sender: Sender<ZResult<Arc<SessionInner>>>,
-    ) -> ZResult<()> {
+    /*************************************/
+    /*               LINK                */
+    /*************************************/
+    pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
+        self.tx.add_link(link).await
+    }
+
+    pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
+        // Delete the link from the transport if present
+        self.tx.del_link(link).await?;
+        // Stop the link from reading
+        let _ = link.stop().await;
+        // Close the link (e.g., TCP socket)
+        let _ = link.close().await;
+
+        // If an open was done on this link and not yet complete, notify the error 
+        let key = (link.get_src(), link.get_dst());
+        let res = zasyncwrite!(self.channels).remove(&key);
+        if let Some(sender) = res {
+            let res = Err(zerror!(ZErrorKind::Other{
+                descr: format!("Link ({}) disappeared during an open!", link)
+            }));
+            sender.send(res).await;
+        }
+
+        if !self.is_initial && !self.tx.has_links() {
+            // @TODO: Close the transport. At the moment the following
+            //        instructions sporadically end up in a deadlock
+            // let _ = self.tx.close().await;
+            // let _ = self.rx.close().await;
+            // Remove the session from the manager
+            self.manager.del_session(&self.peer).await?;
+        }
+
+        Ok(())
+    }
+
+    /*************************************/
+    /*            OPEN/CLOSE             */
+    /*************************************/
+    async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, sender: Sender<ZResult<Arc<SessionInner>>>) -> ZResult<()> {
         // Create a new link associated by calling the Link Manager
-        let link = manager.new_link(locator, self.transport.clone()).await?;
+        let link = manager.new_link(locator, self.rx.clone()).await?;
 
         // Add the link to the transport
-        self.transport.add_link(link.clone()).await?;
+        self.tx.add_link(link.clone()).await?;
 
         // Store the sender for the callback to be used in the process_message
         let key = (link.get_src(), link.get_dst());
         zasyncwrite!(self.channels).insert(key, sender);
 
-        // // Build the fields for the Open Message
+        // Build the fields for the Open Message
         let version = self.manager.config.version;
         let whatami = self.manager.config.whatami.clone();
         let peer_id = self.manager.config.id.clone();
@@ -575,7 +595,7 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
+        self.tx.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
 
         Ok(())
     }
@@ -589,34 +609,14 @@ impl SessionInner {
         let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
         // Get the transport links
-        let links = self.transport.get_links().await;
+        let links = self.tx.get_links().await;
         for l in links.iter() {
-            let _ = self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone())).await;
+            let _ = self.tx.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone())).await;
         }
 
-        // Close the transport abd remove the session from the manager
-        self.delete().await
-    }
-
-    pub(crate) async fn link_deleted(&self, link: &Link) -> ZResult<()> {
-        let key = (link.get_src(), link.get_dst());
-        let res = zasyncwrite!(self.channels).remove(&key);
-        if let Some(sender) = res {
-            let res = Err(zerror!(ZErrorKind::Other{
-                descr: format!("Link ({}) disappeared during an open!", link)
-            }));
-            sender.send(res).await;
-        }
-        if !self.is_initial && self.transport.get_links().await.is_empty() {
-            self.delete().await?;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn delete(&self) -> ZResult<()> {
         // Close the transport
-        self.transport.close().await?;
+        self.tx.close().await?;
+        self.rx.close().await?;
         // Remove the session from the manager
         self.manager.del_session(&self.peer).await?;
 
@@ -632,8 +632,8 @@ impl SessionInner {
         whatami: &WhatAmI,
         opid: &PeerId,
         apid: &PeerId,
-        lease: ZInt,
-    ) -> ZResult<Arc<Transport>> {
+        lease: ZInt
+    ) -> ZResult<Arc<TransportRx>> {
         // Check if the opener peer of this accept was me
         if opid != &self.manager.config.id {
             return Err(zerror!(ZErrorKind::Other {
@@ -646,25 +646,25 @@ impl SessionInner {
         let res = zasyncwrite!(self.channels).remove(&key);
         if let Some(sender) = res {
             // Remove the link from self
-            self.transport.del_link(link).await?;
+            self.tx.del_link(link).await?;
             // Get a new or an existing session
             let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
             // Configure the lease time on the transport
-            session_inner.transport.set_lease(lease);
+            session_inner.rx.set_lease(lease);
             // Add the link on the transport
-            session_inner.transport.add_link(link.clone()).await?;
+            session_inner.tx.add_link(link.clone()).await?;
             // Set the callback to the transport if needed
-            if !session_inner.transport.has_callback().await {
+            if !session_inner.rx.has_callback() {
                 // Notify the session handler that there is a new session and get back a callback
                 let callback = self.manager.config.handler
                     .new_session(self.whatami.clone(), session_inner.clone()).await;
                 // Set the callback on the transport
-                session_inner.transport.init_callback(callback);
+                session_inner.rx.init_callback(callback);
             }
             // Notify the opener
             sender.send(Ok(session_inner.clone())).await;
             // Return the target transport to use in the link
-            Ok(session_inner.transport.clone())
+            Ok(session_inner.rx.clone())
         } else { 
             Err(zerror!(ZErrorKind::Other {
                 descr: "Received an unsolicited Accept because no Open message was sent"
@@ -682,9 +682,7 @@ impl SessionInner {
         }
 
         // Remove the link
-        let _  = self.transport.del_link(link).await?;
-        // Close the link
-        link.close().await
+        self.del_link(link).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -696,7 +694,7 @@ impl SessionInner {
         pid: &PeerId,
         lease: ZInt,
         _locators: &Option<Vec<Locator>>,
-    ) -> ZResult<Arc<Transport>> {
+    ) -> ZResult<Arc<TransportRx>> {
         // @TODO: Manage locators
 
         // Check if the version is supported
@@ -724,7 +722,7 @@ impl SessionInner {
                     let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                     // Send the close message for this link
-                    let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                    let _ = self.tx.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
 
                     // Close the link
                     let _ = link.close().await;
@@ -745,7 +743,7 @@ impl SessionInner {
 
         // Check if a limit for the maximum number of links associated to a session is set
         if let Some(limit) = self.manager.config.max_links {
-            let num = target.transport.get_links().await.len();
+            let num = target.tx.get_links().await.len();
             // Check if we have reached the session limit
             if num >= limit {
                 // Send a close message
@@ -756,7 +754,7 @@ impl SessionInner {
                 let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                 // Send the close message for this link
-                let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                let _ = self.tx.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
 
                 // Close the link
                 let _ = link.close().await;
@@ -768,12 +766,12 @@ impl SessionInner {
         }
 
         // Set the lease to the transport
-        target.transport.set_lease(lease);
+        target.rx.set_lease(lease);
 
         // Remove the link from self
-        self.transport.del_link(&link).await?;
+        self.tx.del_link(&link).await?;
         // Add the link to the target
-        target.transport.add_link(link.clone()).await?;
+        target.tx.add_link(link.clone()).await?;
 
         // Build Accept message
         let conduit_id = None; // Conduit ID always None
@@ -788,29 +786,34 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        let res = target
-            .transport
-            .send(message, *QUEUE_PRIO_CTRL, Some(link.clone()))
-            .await;
+        let res = target.tx.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
-        if !target.transport.has_callback().await && res.is_ok() {
+        if res.is_ok() && !target.rx.has_callback() {
             // Notify the session handler that there is a new session and get back a callback
-            // NOTE: the read loop of the link the open message was sent on reamins blocked
+            // NOTE: the read loop of the link the open message was sent on remains blocked
             //       until the new_session() returns. The read_loop in the various links
             //       waits for any eventual transport to associate to. This is transport is
-            //       returned only by the process_ope() -- this function.
-            let callback = self.manager.config.handler
-                .new_session(whatami.clone(), target.clone()).await;
+            //       returned only by the process_open() -- this function.
+            let callback = self.manager.config.handler.new_session(whatami.clone(), target.clone()).await;
             // Set the callback on the transport
-            target.transport.init_callback(callback);
+            target.rx.init_callback(callback);
         }
 
-        Ok(target.transport.clone())
+        // Return the target transport to use in the link
+        Ok(target.rx.clone())
+    }
+}
+
+impl Drop for SessionInner {
+    fn drop(&mut self) {
+        task::block_on(async {
+            println!("Dropped {:?}", self);
+        });
     }
 }
 
 impl fmt::Debug for SessionInner {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SessionInner ({:?}), {:?})", self.peer, self.transport)
+        write!(f, "SessionInner ({:?})", self.peer)
     }
 }

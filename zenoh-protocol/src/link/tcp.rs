@@ -1,17 +1,6 @@
-use async_std::net::{
-    SocketAddr,
-    TcpListener,
-    TcpStream
-};
+use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::sync::{
-    Arc,
-    channel,
-    Mutex,
-    Sender,
-    RwLock,
-    Receiver
-};
+use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver};
 use async_std::task;
 use std::collections::HashMap;
 use std::net::Shutdown;
@@ -19,28 +8,12 @@ use std::net::Shutdown;
 #[cfg(write_vectored)]
 use std::io::IoSlice;
 
-use crate::{
-    zerror,
-    to_zerror,
-};
-use crate::core::{
-    ZError,
-    ZErrorKind,
-    ZResult
-};
-use crate::io::{
-    ArcSlice,
-    RBuf
-};
+use crate::{zerror, to_zerror};
+use crate::core::{ZError, ZErrorKind, ZResult};
+use crate::io::{ArcSlice, RBuf};
 use crate::proto::Message;
-use crate::session::{
-    SessionManagerInner,
-    Transport
-};
-use crate::link::{
-    Link,
-    Locator
-};
+use crate::session::{SessionManagerInner, TransportRx};
+use crate::link::{Link, Locator};
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
 
@@ -83,7 +56,7 @@ pub struct LinkTcp {
     // The buffer size to use in a read operation
     buff_size: usize,
     // The reference to the associated transport
-    transport: Mutex<Arc<Transport>>,
+    transport: Mutex<Arc<TransportRx>>,
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
@@ -92,7 +65,7 @@ pub struct LinkTcp {
 }
 
 impl LinkTcp {
-    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> LinkTcp {
+    fn new(socket: TcpStream, transport: Arc<TransportRx>, manager: Arc<ManagerTcpInner>) -> LinkTcp {
         // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
@@ -149,10 +122,12 @@ impl LinkTcp {
     pub fn start(link: Arc<LinkTcp>) {
         task::spawn(async move {
             let link_obj = Link::Tcp(link.clone());
-            read_task(&link, &link_obj).await;
+            let err = read_task(&link, &link_obj).await;
             // Remove the link in case of IO error
             let _ = link.manager.del_link(&link.get_src(), &link.get_dst()).await;
-            let _ = zasynclock!(link.transport).del_link(&link_obj).await;
+            if err {
+                let _ = zasynclock!(link.transport).link_err(&link_obj).await;
+            }
         });
     }
 
@@ -182,11 +157,12 @@ impl LinkTcp {
     }
 }
 
-async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) {
+async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) -> bool {
     async fn read_loop(link: &Arc<LinkTcp>, link_obj: &Link) -> Option<bool> {
         let mut buff = RBuf::new();
         let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
 
+        let mut guard = zasynclock!(link.transport);
         loop {
             let mut rbuf = vec![0u8; link.buff_size];
             match (&link.socket).read(&mut rbuf).await {
@@ -221,7 +197,6 @@ async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) {
             }
 
             // Propagate the messages to the upper logic
-            let mut guard = zasynclock!(link.transport);
             for msg in messages.drain(..) {
                 if let Some(transport) = guard.receive_message(&link_obj, msg).await {
                     *guard = transport;
@@ -232,7 +207,10 @@ async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) {
 
     let stop = link.ch_recv.recv();
     let read_loop = read_loop(link, link_obj);
-    let _ = read_loop.race(stop).await;
+    match read_loop.race(stop).await {
+        Some(value) => value,
+        None => true
+    }
 }
 
 
@@ -246,7 +224,7 @@ impl ManagerTcp {
         Self(Arc::new(ManagerTcpInner::new(manager)))
     }
 
-    pub async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
+    pub async fn new_link(&self, dst: &Locator, transport: Arc<TransportRx>) -> ZResult<Link> {
         let link = self.0.new_link(&self.0, dst, transport).await?;
         Ok(Link::Tcp(link))
     }
@@ -311,7 +289,7 @@ impl ManagerTcpInner {
 
     // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
     #[allow(clippy::infallible_destructuring_match)]
-    async fn new_link(&self, a_self: &Arc<Self>, dst: &Locator, transport: Arc<Transport>) -> ZResult<Arc<LinkTcp>> {
+    async fn new_link(&self, a_self: &Arc<Self>, dst: &Locator, transport: Arc<TransportRx>) -> ZResult<Arc<LinkTcp>> {
         let dst = get_tcp_addr!(dst);
         
         // Create the TCP connection
@@ -425,15 +403,15 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             };
 
             // Retrieve the initial temporary session 
-            let transport = a_self.inner.get_initial_session().await.transport.clone();
+            let initial = a_self.inner.get_initial_session().await;
             // Create the new link object
-            let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
+            let link = Arc::new(LinkTcp::new(stream, initial.rx.clone(), a_self.clone()));
 
             // Store a reference to the link into the manger
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
 
             // Store a reference to the link into the session
-            if transport.add_link(Link::Tcp(link.clone())).await.is_err() {
+            if initial.add_link(Link::Tcp(link.clone())).await.is_err() {
                 continue
             }
 
