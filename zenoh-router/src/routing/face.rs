@@ -8,6 +8,7 @@ use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 use crate::routing::ownedprimitives::OwnedPrimitives;
+use crate::routing::query::Query;
 
 pub struct Face {
     pub(super) id: usize,
@@ -16,6 +17,9 @@ pub struct Face {
     pub(super) local_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) remote_mappings: HashMap<u64, Arc<Resource>>,
     pub(super) subs: Vec<Arc<Resource>>,
+    pub(super) qabl: Vec<Arc<Resource>>,
+    pub(super) next_qid: ZInt,
+    pub(super) pending_queries: HashMap<u64, Arc<Query>>,
 }
 
 impl Face {
@@ -27,6 +31,9 @@ impl Face {
             local_mappings: HashMap::new(),
             remote_mappings: HashMap::new(),
             subs: Vec::new(),
+            qabl: Vec::new(),
+            next_qid: 0,
+            pending_queries: HashMap::new(),
         })
     }
 
@@ -83,14 +90,14 @@ impl Primitives for FaceHdl {
 
     async fn forget_publisher(&self, _reskey: &ResKey) {}
     
-    async fn queryable(&self, _reskey: &ResKey) {
-        // let (prefixid, suffix) = reskey.into();
-        // Tables::declare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    async fn queryable(&self, reskey: &ResKey) {
+        let (prefixid, suffix) = reskey.into();
+        Tables::declare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
 
-    async fn forget_queryable(&self, _reskey: &ResKey) {
-        // let (prefixid, suffix) = reskey.into();
-        // Tables::undeclare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+    async fn forget_queryable(&self, reskey: &ResKey) {
+        let (prefixid, suffix) = reskey.into();
+        Tables::undeclare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
     }
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
@@ -98,9 +105,14 @@ impl Primitives for FaceHdl {
         Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, reliable, info, payload).await;
     }
 
-    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
+        let (prefixid, suffix) = reskey.into();
+        Tables::route_query(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, predicate, qid, target, consolidation).await;
+    }
 
-    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        Tables::route_reply(&self.tables, &Arc::downgrade(&self.face), qid, reply).await;
+    }
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
