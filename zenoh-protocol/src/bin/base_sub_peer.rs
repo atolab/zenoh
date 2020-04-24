@@ -67,7 +67,7 @@ impl MsgHandler for MyMH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} [<locator to listen on>]
+    cargo run --release --bin {} <locator to listen on>
 Example: 
     cargo run --release --bin {} tcp/127.0.0.1:7447",
         bin, bin
@@ -88,7 +88,9 @@ fn main() {
         lease: None,
         resolution: None,
         batchsize: None,
-        timeout: None
+        timeout: None,
+        max_sessions: None,
+        max_links: None 
     };
     let manager = SessionManager::new(config);
 
@@ -110,7 +112,7 @@ fn main() {
 
     // Connect to publisher
     task::block_on(async {
-        if manager.add_locator(&listen_on, None).await.is_ok() {
+        if manager.add_locator(&listen_on).await.is_ok() {
             println!("Listening on {}", listen_on);
         } else {
             println!("Failed to listen on {}", listen_on);

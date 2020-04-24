@@ -39,11 +39,13 @@ fn main() {
             lease: None,
             resolution: None,
             batchsize: batch_size,
-            timeout: None
+            timeout: None,
+            max_sessions: None,
+            max_links: None 
         };
         let manager = SessionManager::new(config);
 
-        if let Err(_err) = manager.add_locator(&self_locator, None).await {
+        if let Err(_err) = manager.add_locator(&self_locator).await {
             println!("Unable to open listening {}!", self_locator);
             std::process::exit(-1);
         }

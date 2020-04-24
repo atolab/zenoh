@@ -42,7 +42,9 @@ impl Session {
             lease: None,
             resolution: None,
             batchsize: None,
-            timeout: None
+            timeout: None,
+            max_sessions: None,
+            max_links: None 
         };
         let session_manager = SessionManager::new(config);
 
@@ -53,7 +55,7 @@ impl Session {
 
         // @TODO: manage a tcp.port property (and tcp.interface?)
         // try to open TCP port 7447
-        if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap(), None).await {
+        if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap()).await {
             // if failed, try to connect to peer on locator
             println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
             match session_manager.open_session(&locator.parse().unwrap()).await {

@@ -1,6 +1,5 @@
 use async_std::sync::{
     Arc,
-    Barrier,
     Mutex
 };
 use async_std::task;
@@ -141,9 +140,6 @@ impl MsgHandler for SCClient {
 
 
 async fn transport_base_inner() {
-    let m_barrier = Arc::new(Barrier::new(3));
-    let t_barrier = Arc::new(Barrier::new(2));
-
     // Define the locator
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
 
@@ -157,113 +153,81 @@ async fn transport_base_inner() {
     // Reliable messages to send
     let messages_count: ZInt = 1_000;
 
-    // Router task
-    let c_mbr = m_barrier.clone();
-    let c_tbr = t_barrier.clone();
-    let c_loc = locator.clone();
-    let c_router_id = router_id.clone();
-    task::spawn(async move {
-        // Create the router session handler
-        let routing = Arc::new(SHRouter::new(resolution));
+    // Create the router session manager
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: WhatAmI::Router,
+        id: router_id,
+        handler: Arc::new(SHRouter::new(resolution)),
+        lease: None,
+        resolution: Some(resolution),
+        batchsize: None,
+        timeout: None,
+        max_sessions: None,
+        max_links: None 
+    };
+    let router_manager = SessionManager::new(config);
 
-        // Create the transport session manager
-        let config = SessionManagerConfig {
-            version: 0,
-            whatami: WhatAmI::Router,
-            id: c_router_id,
-            handler: routing,
-            lease: None,
-            resolution: Some(resolution),
-            batchsize: None,
-            timeout: None
-        };
-        let manager = SessionManager::new(config);
+    // Create the client session manager
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: WhatAmI::Client,
+        id: client_id,
+        handler: Arc::new(SHClient::new()),
+        lease: None,
+        resolution: Some(resolution),
+        batchsize: None,
+        timeout: None,
+        max_sessions: None,
+        max_links: None 
+    };
+    let client_manager = SessionManager::new(config);
 
-        // Limit the number of connections to 1 for each listener
-        // Not implemented at the moment
-        let limit = Some(1);
-        // Create the listener
-        let res = manager.add_locator(&c_loc, limit).await; 
-        assert!(res.is_ok());
+    // Create the listener on the router
+    let res = router_manager.add_locator(&locator).await; 
+    assert!(res.is_ok());
 
-        // Notify the client
-        c_tbr.wait().await;
+    // Create an empty session with the client
+    // Open session -> This should be accepted
+    let res = client_manager.open_session(&locator).await;
+    assert_eq!(res.is_ok(), true);
+    let session = res.unwrap();
 
-        // Wait for the end of the client
-        c_mbr.wait().await;
-    });
+    // Send reliable messages
+    let kind = MessageKind::FullMessage;
+    let reliable = true;
+    let sn = 0;
+    let key = ResKey::RName("test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let cid = None;
+    let properties = None;
 
-    // Client task
-    let c_mbr = m_barrier.clone();
-    let c_tbr = t_barrier.clone();
-    let c_loc = locator.clone();
-    let c_client_id = client_id.clone();
-    task::spawn(async move {
-        // Create the client session handler
-        let client = Arc::new(SHClient::new());
+    let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
 
-        // Create the transport session manager
-        let config = SessionManagerConfig {
-            version: 0,
-            whatami: WhatAmI::Client,
-            id: c_client_id,
-            handler: client,
-            lease: None,
-            resolution: Some(resolution),
-            batchsize: None,
-            timeout: None
-        };
-        let manager = SessionManager::new(config);
+    // Send the messages, no dropping or reordering in place
+    for _ in 0..messages_count { 
+        session.schedule(message.clone(), None).await;
+    }
 
-        // Wait for the router
-        c_tbr.wait().await;
+    // Send unreliable messages
+    let kind = MessageKind::FullMessage;
+    let reliable = false; 
+    let sn = 0;
+    let key = ResKey::RName("test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let cid = None;
+    let properties = None;
 
-        // Create an empty session with the client
-        // Open session -> This should be accepted
-        let res = manager.open_session(&c_loc).await;
-        assert_eq!(res.is_ok(), true);
-        let session = res.unwrap();
+    let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
 
-        // Send reliable messages
-        let kind = MessageKind::FullMessage;
-        let reliable = true;
-        let sn = 0;
-        let key = ResKey::RName("test".to_string());
-        let info = None;
-        let payload = RBuf::from(vec![0u8; 1]);
-        let reply_context = None;
-        let cid = None;
-        let properties = None;
-
-        let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
-
-        // Send the messages, no dropping or reordering in place
-        for _ in 0..messages_count { 
-            session.schedule(message.clone(), None).await;
-        }
-
-        // Send unreliable messages
-        let kind = MessageKind::FullMessage;
-        let reliable = false; 
-        let sn = 0;
-        let key = ResKey::RName("test".to_string());
-        let info = None;
-        let payload = RBuf::from(vec![0u8; 1]);
-        let reply_context = None;
-        let cid = None;
-        let properties = None;
-
-        let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
-
-        // Send again the messages, this time they will randomly dropped
-        for _ in 0..messages_count { 
-            session.schedule(message.clone(), None).await;
-        }
-
-        c_mbr.wait().await;
-    });
-
-    m_barrier.wait().await;
+    // Send again the messages, this time they will randomly dropped
+    for _ in 0..messages_count { 
+        session.schedule(message.clone(), None).await;
+    }
 }
 
 #[test]

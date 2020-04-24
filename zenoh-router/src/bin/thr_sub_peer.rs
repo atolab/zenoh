@@ -110,12 +110,14 @@ fn main() {
             lease: None,
             resolution: None,
             batchsize: None,
-            timeout: None
+            timeout: None,
+            max_sessions: None,
+            max_links: None 
         };
         let manager = SessionManager::new(config);
         let port = match args.next() { Some(port) => {port} None => {"7447".to_string()}};
         let locator = ["tcp/127.0.0.1:", &port].concat().parse().unwrap();
-        if let Err(_err) = manager.add_locator(&locator, None).await {
+        if let Err(_err) = manager.add_locator(&locator).await {
             println!("Unable to open listening port {}!", port);
             std::process::exit(-1);
         }

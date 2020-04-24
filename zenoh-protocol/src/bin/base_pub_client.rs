@@ -102,7 +102,9 @@ fn main() {
         lease: None,
         resolution: None,
         batchsize: Some(batchsize),
-        timeout: None
+        timeout: None,
+        max_sessions: None,
+        max_links: None 
     };
     let manager = SessionManager::new(config);
 

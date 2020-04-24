@@ -100,8 +100,16 @@ async fn map_messages_on_links(
                 if let Some(index) = inner.find_link_index(&link) {
                     index
                 } else {
-                    main_idx
-                }
+                    if let Some(notify) = &msg.notify {
+                        // Notify now the result 
+                        let res = Err(zerror!(ZErrorKind::InvalidLink {
+                            descr: format!("Can not schedule message on unexsiting link ({})!", link)
+                        }));
+                        notify.send(res).await;
+                    }
+                    // Drop this message, continue with the following one
+                    continue;
+                } 
             } else {
                 main_idx
             };
@@ -538,7 +546,7 @@ impl ConduitRx {
             }
             Body::Close { pid, reason } => {
                 let c_reason = *reason;
-                self.session.process_close(link, pid, c_reason).await;
+                let _ = self.session.process_close(link, pid, c_reason).await;
                 None
             }
             Body::Hello { .. } => {

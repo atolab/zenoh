@@ -30,8 +30,6 @@ pub struct Transport {
     session: RwLock<Option<Arc<SessionInner>>>,
     // The callback for Data messages
     callback: RwLock<Option<Arc<dyn MsgHandler + Send + Sync>>>,
-    // Mark if this transport is associated to the initial session
-    is_initial: bool,
     // The default timeout after which the session is closed if no messages are received
     lease: AtomicZInt,
     // The default resolution to be used for the SN
@@ -49,16 +47,13 @@ impl Transport {
     pub(crate) fn new(
         lease: ZInt,
         resolution: ZInt,
-        batchsize: usize,
-        is_initial: bool,
+        batchsize: usize
     ) -> Transport {
         Transport {
             // Session manager and Callback
             session: RwLock::new(None),
             // The callback for Data messages
             callback: RwLock::new(None),
-            // Mark if this transport is associated to the initial session
-            is_initial,
             // Session lease
             lease: AtomicZInt::new(lease),
             // Session sequence number resolution
@@ -116,11 +111,13 @@ impl Transport {
     }
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
-        zasyncread!(self.links).iter().cloned().collect()
+        let links = zasyncread!(self.links).iter().cloned().collect();
+        links
     }
 
     pub(crate) async fn has_callback(&self) -> bool {
-        zasyncread!(self.callback).is_some()
+        let res = zasyncread!(self.callback).is_some();
+        res
     }
 
     /*************************************/
@@ -205,34 +202,39 @@ impl Transport {
     /*               LINK                */
     /*************************************/
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        // Acquire the lock on the links
-        let mut l_guard = zasyncwrite!(self.links);
-        // Acquire the lock on the conduits
-        let c_guard = zasyncwrite!(self.tx);
+        // Links
+        {
+            // Acquire the lock on the links
+            let mut l_guard = zasyncwrite!(self.links);
 
-        // Check if this link is not already present
-        if l_guard.contains(&link) {
-            return Err(zerror!(ZErrorKind::InvalidLink {
-                descr: format!("{}", link)
-            }));
+            // Check if this link is not already present
+            if l_guard.contains(&link) {
+                return Err(zerror!(ZErrorKind::InvalidLink {
+                    descr: format!("{}", link)
+                }));
+            }
+
+            // Add the link to the transport
+            l_guard.insert(link.clone());
         }
-
-        // Add the link to the conduits
-        // @TODO: Enable a smart allocation of links across the various conduits
-        //        The link is added to all the conduits for the time being
-        for (_, conduit) in c_guard.iter() {
-            let _ = conduit.add_link(link.clone()).await;
-            ConduitTx::start(&conduit).await;
+        // Conduits
+        {
+            // Acquire the lock on the conduits
+            let c_guard = zasyncwrite!(self.tx);
+            // Add the link to the conduits
+            // @TODO: Enable a smart allocation of links across the various conduits
+            //        The link is added to all the conduits for the time being
+            for (_, conduit) in c_guard.iter() {
+                let _ = conduit.add_link(link.clone()).await;
+                ConduitTx::start(&conduit).await;
+            }
         }
-
-        // Add the link to the transport
-        l_guard.insert(link);
 
         Ok(())
     }
 
     pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
-        let is_empty = {
+        {
             // Acquire the lock on the links
             let mut l_guard = zasyncwrite!(self.links);
             // Acquire the lock on the conduits
@@ -249,16 +251,11 @@ impl Transport {
                     descr: format!("{}", link)
                 }));
             }
-            l_guard.is_empty()
-        };
-        // Check if there are links left and this is not the initial session
-        if is_empty && !self.is_initial {
-            // If this transport is not associated to the initial session then
-            // close the session, notify the manager, and notify the callback
-            if let Some(session) = zasyncread!(self.session).as_ref() {
-                let _ = session.delete().await;
-            }
-            let _ = self.close().await;
+        }
+
+        // Notify the session
+        if let Some(session) = zasyncread!(self.session).as_ref() {
+            let _ = session.link_deleted(link).await;
         }
 
         Ok(())
@@ -402,22 +399,14 @@ impl Transport {
         }
 
         // Stop the Tx conduits
-        for (_, conduit) in zasyncwrite!(self.tx).drain().take(1) {
+        for (_, conduit) in zasyncread!(self.tx).iter() {
             conduit.stop().await;
         }
 
-        // Remove and close all the links
-        for l in zasyncwrite!(self.links).drain() {
+        // Close all the links
+        for l in zasyncread!(self.links).iter() {
             let _ = l.close().await;
         }
-
-        // Clear the Rx conduits
-        zasyncwrite!(self.rx).clear();
-
-        // Remove the reference to the callback
-        *zasyncwrite!(self.callback) = None;
-        // Remove the reference to the session
-        *zasyncwrite!(self.session) = None;
 
         Ok(())
     }

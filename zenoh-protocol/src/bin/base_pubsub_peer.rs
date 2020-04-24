@@ -152,13 +152,15 @@ fn main() {
         lease: None,
         resolution: None,
         batchsize: Some(batchsize),
-        timeout: None
+        timeout: None,
+        max_sessions: None,
+        max_links: None 
     };
     let manager = SessionManager::new(config);
 
     // Connect to publisher
     task::block_on(async {
-        if manager.add_locator(&listen_on, None).await.is_ok() {
+        if manager.add_locator(&listen_on).await.is_ok() {
             println!("Listening on {}", listen_on);
         } else {
             println!("Failed to listen on {}", listen_on);

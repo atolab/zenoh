@@ -41,7 +41,8 @@ use crate::link::{
     Link,
     Locator
 };
-use zenoh_util::zasynclock;
+use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
+
 
 // Default MTU
 const DEFAULT_MTU: usize = 65_535;
@@ -65,13 +66,6 @@ macro_rules! get_tcp_addr {
     });
 }
 
-// Command
-enum Command {
-    Err(ZError),
-    Ok,
-    Signal
-}
-
 /*************************************/
 /*              LINK                 */
 /*************************************/
@@ -93,8 +87,8 @@ pub struct LinkTcp {
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
-    ch_send: Sender<Command>,
-    ch_recv: Receiver<Command>
+    ch_send: Sender<bool>,
+    ch_recv: Receiver<bool>
 }
 
 impl LinkTcp {
@@ -103,7 +97,7 @@ impl LinkTcp {
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
         // The channel for stopping the read task
-        let (sender, receiver) = channel::<Command>(1);
+        let (sender, receiver) = channel::<bool>(1);
         // Build the LinkTcp
         LinkTcp {
             socket,
@@ -121,7 +115,6 @@ impl LinkTcp {
 
     pub async fn close(&self) -> ZResult<()> {
         let _ = self.socket.shutdown(Shutdown::Both);
-        self.manager.del_link(&self.get_src(), &self.get_dst()).await?;
         Ok(())
     }
     
@@ -154,11 +147,17 @@ impl LinkTcp {
     }
 
     pub fn start(link: Arc<LinkTcp>) {
-        task::spawn(receive_loop(link));
+        task::spawn(async move {
+            let link_obj = Link::Tcp(link.clone());
+            read_task(&link, &link_obj).await;
+            // Remove the link in case of IO error
+            let _ = link.manager.del_link(&link.get_src(), &link.get_dst()).await;
+            let _ = zasynclock!(link.transport).del_link(&link_obj).await;
+        });
     }
 
     pub async fn stop(&self) -> ZResult<()> {
-        self.ch_send.send(Command::Signal).await;
+        self.ch_send.send(false).await;
         Ok(())
     }
 
@@ -183,90 +182,59 @@ impl LinkTcp {
     }
 }
 
-async fn receive_loop(link: Arc<LinkTcp>) {
-    async fn read(link: &Arc<LinkTcp>, buff: &mut RBuf, messages: &mut Vec<Message>, link_obj: &Link) -> Option<Command> {
-        let mut rbuf = vec![0u8; link.buff_size];
-        match (&link.socket).read(&mut rbuf).await {
-            Ok(n) => { 
-                // Reading zero bytes means error
-                if n == 0 {
-                    return Some(Command::Err(zerror!(ZErrorKind::IOError {
-                        descr: "Failed to read from the TCP socket".to_string()
-                    })))
-                }
-                buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
-            },
-            Err(e) => return Some(Command::Err(zerror!(ZErrorKind::IOError {
-                descr: format!("{}", e)
-            })))
-        }
-        // Read all the messages
+async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) {
+    async fn read_loop(link: &Arc<LinkTcp>, link_obj: &Link) -> Option<bool> {
+        let mut buff = RBuf::new();
+        let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
+
         loop {
-            let pos = buff.get_pos();
-            match buff.read_message() {
-                Ok(message) => {
-                    messages.push(message);
-                    buff.clean_read_slices();
+            let mut rbuf = vec![0u8; link.buff_size];
+            match (&link.socket).read(&mut rbuf).await {
+                Ok(n) => { 
+                    // Reading zero bytes means error
+                    if n == 0 {
+                        // Failed to read from the TCP socket
+                        return Some(true)
+                    }
+                    buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
                 },
                 Err(_) => {
-                    if buff.set_pos(pos).is_err() {
-                        panic!("Unrecoverable error in TCP read loop!")
+                    // Error reading from the TCP socket
+                    return Some(true)
+                }
+            }
+            // Read all the messages
+            loop {
+                let pos = buff.get_pos();
+                match buff.read_message() {
+                    Ok(message) => {
+                        messages.push(message);
+                        buff.clean_read_slices();
+                    },
+                    Err(_) => {
+                        if buff.set_pos(pos).is_err() {
+                            panic!("Unrecoverable error in TCP read loop!")
+                        }
+                        break
                     }
-                    break
+                }
+            }
+
+            // Propagate the messages to the upper logic
+            let mut guard = zasynclock!(link.transport);
+            for msg in messages.drain(..) {
+                if let Some(transport) = guard.receive_message(&link_obj, msg).await {
+                    *guard = transport;
                 }
             }
         }
-
-        // Propagate the messages to the upper logic
-        let mut guard = zasynclock!(link.transport);
-        for msg in messages.drain(..) {
-            if let Some(transport) = guard.receive_message(link_obj, msg).await {
-                *guard = transport;
-            }
-        }
-
-        Some(Command::Ok)
     }
 
-    let mut signal = false;
-    let link_obj = Link::Tcp(link.clone());
-    let mut buff = RBuf::new();
-    let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
-    let _err = loop {
-        let stop = link.ch_recv.recv();
-        let read = read(&link, &mut buff, &mut messages, &link_obj);
-        match read.race(stop).await {
-            Some(command) => match command {
-                Command::Ok => continue,
-                Command::Err(e) => break e,
-                Command::Signal => {
-                    signal = true;
-                    break zerror!(ZErrorKind::Other {
-                        descr: "Stopped by a signal!".to_string()
-                    })
-                }
-            },
-            None => {
-                signal = true;
-                break zerror!(ZErrorKind::Other {
-                    descr: "Error in the signal channel!".to_string()
-                })
-            }
-        }
-    };
-
-    // Remove the link in case of IO error
-    if !signal {
-        let _ = link.manager.del_link(&link.get_src(), &link.get_dst()).await;
-        let _ = link.transport.lock().await.del_link(&link_obj).await;
-    }
+    let stop = link.ch_recv.recv();
+    let read_loop = read_loop(link, link_obj);
+    let _ = read_loop.race(stop).await;
 }
 
-// impl Drop for LinkTcp {
-//     fn drop(&mut self) {
-//         println!("> Dropping Link ({:?}) => ({:?})", self.get_src(), self.get_dst());
-//     }
-// }
 
 /*************************************/
 /*          LISTENER                 */
@@ -306,11 +274,30 @@ impl ManagerTcp {
     }
 }
 
-#[allow(clippy::type_complexity)]
+
+struct ListenerTcpInner {
+    socket: Arc<TcpListener>,
+    sender: Sender<bool>,
+    receiver: Receiver<bool>
+}
+
+impl ListenerTcpInner {
+    fn new(socket: Arc<TcpListener>) -> ListenerTcpInner {
+        // Create the channel necessary to break the accept loop
+        let (sender, receiver) = channel::<bool>(1);
+        // Update the list of active listeners on the manager
+        ListenerTcpInner {
+            socket,
+            sender,
+            receiver
+        }
+    }
+}
+
 struct ManagerTcpInner {
     inner: Arc<SessionManagerInner>,
-    listener: RwLock<HashMap<SocketAddr, (Arc<TcpListener>, Sender<bool>)>>,
-    link: RwLock<HashMap<(SocketAddr, SocketAddr), Arc<LinkTcp>>>,
+    listener: RwLock<HashMap<SocketAddr, Arc<ListenerTcpInner>>>,
+    link: RwLock<HashMap<(SocketAddr, SocketAddr), Arc<LinkTcp>>>
 }
 
 impl ManagerTcpInner {
@@ -331,9 +318,9 @@ impl ManagerTcpInner {
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
             Err(e) => return Err(zerror!(ZErrorKind::Other{
-                descr: format!("{}", e)
-            }))
-        };
+                    descr: format!("{}", e)
+                }))
+            };
         
         // Create a new link object
         let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
@@ -353,11 +340,11 @@ impl ManagerTcpInner {
         let dst = get_tcp_addr!(dst);
 
         // Remove the link from the manager list
-        match self.link.write().await.remove(&(*src, *dst)) {
+        match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
             None => Err(zerror!(ZErrorKind::Other{
-                descr: format!("No active TCP link ({} => {})", src, dst)
-            }))
+                    descr: format!("No active TCP link ({} => {})", src, dst)
+                }))
         }
     }
 
@@ -368,7 +355,7 @@ impl ManagerTcpInner {
         let dst = get_tcp_addr!(dst);
 
         // Remove the link from the manager list
-        match self.link.write().await.get(&(*src, *dst)) {
+        match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
             None => Err(zerror!(ZErrorKind::Other{
                 descr: format!("No active TCP link ({} => {})", src, dst)
@@ -389,19 +376,18 @@ impl ManagerTcpInner {
             }))
         };
 
-        // Create the channel necessary to break the accept loop
-        let (sender, receiver) = channel::<bool>(1);
         // Update the list of active listeners on the manager
-        self.listener.write().await.insert(*addr, (socket.clone(), sender));
+        let listener = Arc::new(ListenerTcpInner::new(socket.clone()));
+        zasyncwrite!(self.listener).insert(*addr, listener.clone());
 
         // Spawn the accept loop for the listener
         let c_self = a_self.clone();
         let c_addr = *addr;
         task::spawn(async move {
             // Wait for the accept loop to terminate
-            accept_loop(&c_self, &socket, receiver).await; 
+            accept_task(&c_self, listener).await; 
             // Delete the listener from the manager
-            c_self.listener.write().await.remove(&c_addr);
+            zasyncwrite!(c_self.listener).remove(&c_addr);
         });
         Ok(())
     }
@@ -412,9 +398,9 @@ impl ManagerTcpInner {
         let addr = get_tcp_addr!(locator);
 
         // Stop the listener
-        match self.listener.write().await.remove(&addr) {
-            Some((_socket, sender)) => {
-                sender.send(false).await;
+        match zasyncwrite!(self.listener).remove(&addr) {
+            Some(listener) => {
+                listener.sender.send(false).await;
                 Ok(())
             },
             None => Err(zerror!(ZErrorKind::Other{
@@ -424,45 +410,39 @@ impl ManagerTcpInner {
     }
   
     async fn get_listeners(&self) -> Vec<Locator> {
-        self.listener.read().await.keys().map(|x| Locator::Tcp(*x)).collect()
+        zasyncread!(self.listener).keys().map(|x| Locator::Tcp(*x)).collect()
     }
 }
 
-async fn accept_loop(a_self: &Arc<ManagerTcpInner>, socket: &Arc<TcpListener>, receiver: Receiver<bool>) {
+async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInner>) {
     // The accept future
-    async fn accept(a_self: &Arc<ManagerTcpInner>, socket: &TcpListener) -> Option<bool> {
-        // Wait for incoming connections
-        let stream = match socket.accept().await {
-            Ok((stream, _)) => stream,
-            Err(_) => return Some(true)
-        };
+    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Option<bool> {
+        loop {
+            // Wait for incoming connections
+            let stream = match listener.socket.accept().await {
+                Ok((stream, _)) => stream,
+                Err(_) => return Some(true)
+            };
 
-        // Retrieve the initial temporary session 
-        let transport = a_self.inner.get_initial_session().await.transport.clone();
-        // Create the new link object
-        let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
+            // Retrieve the initial temporary session 
+            let transport = a_self.inner.get_initial_session().await.transport.clone();
+            // Create the new link object
+            let link = Arc::new(LinkTcp::new(stream, transport.clone(), a_self.clone()));
 
-        // Store a reference to the link into the manger
-        a_self.link.write().await.insert((link.src_addr, link.dst_addr), link.clone());
+            // Store a reference to the link into the manger
+            zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
 
-        // Store a reference to the link into the session
-        if transport.add_link(Link::Tcp(link.clone())).await.is_err() {
-            return Some(false)
-        }
+            // Store a reference to the link into the session
+            if transport.add_link(Link::Tcp(link.clone())).await.is_err() {
+                continue
+            }
 
-        // Spawn the receive loop for the new link
-        LinkTcp::start(link.clone());
-
-        Some(true)
-    }
-
-    loop {
-        let stop = receiver.recv();
-        let accept = accept(&a_self, &socket);
-        match accept.race(stop).await {
-            Some(true) => continue,
-            Some(false) => break,
-            None => break
+            // Spawn the receive loop for the new link
+            LinkTcp::start(link.clone());
         }
     }
+
+    let stop = listener.receiver.recv();
+    let accept_loop = accept_loop(&a_self, &listener);
+    let _ = accept_loop.race(stop).await;
 }
