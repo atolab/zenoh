@@ -14,6 +14,9 @@ configurable! {
     // Default timeout when opening a session in milliseconds
     pub(crate) static ref SESSION_OPEN_TIMEOUT: u64 = 10_000;
 
+    // Default retries when opening a session
+    pub(crate) static ref SESSION_OPEN_RETRIES: usize = 3;
+
     // Parameters of the conduit transmission queue
     pub(crate) static ref QUEUE_PRIO_CTRL: usize = 0;
     pub(crate) static ref QUEUE_SIZE_CTRL: usize = 16;

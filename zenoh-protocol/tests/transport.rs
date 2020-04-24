@@ -26,7 +26,8 @@ use zenoh_protocol::session::{
     MsgHandler,
     SessionHandler,
     SessionManager,
-    SessionManagerConfig
+    SessionManagerConfig,
+    SessionManagerOptionalConfig
 };
 use zenoh_util::zasynclock;
 
@@ -158,30 +159,36 @@ async fn transport_base_inner() {
         version: 0,
         whatami: WhatAmI::Router,
         id: router_id,
-        handler: Arc::new(SHRouter::new(resolution)),
+        handler: Arc::new(SHRouter::new(resolution))
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: Some(resolution),
         batchsize: None,
         timeout: None,
+        retries: None,
         max_sessions: None,
         max_links: None 
     };
-    let router_manager = SessionManager::new(config);
+    let router_manager = SessionManager::new(config, Some(opt_config));
 
     // Create the client session manager
     let config = SessionManagerConfig {
         version: 0,
         whatami: WhatAmI::Client,
         id: client_id,
-        handler: Arc::new(SHClient::new()),
+        handler: Arc::new(SHClient::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: Some(resolution),
         batchsize: None,
         timeout: None,
+        retries: None,
         max_sessions: None,
         max_links: None 
     };
-    let client_manager = SessionManager::new(config);
+    let client_manager = SessionManager::new(config, Some(opt_config));
 
     // Create the listener on the router
     let res = router_manager.add_locator(&locator).await; 

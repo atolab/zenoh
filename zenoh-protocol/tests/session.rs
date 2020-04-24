@@ -11,7 +11,8 @@ use zenoh_protocol::session::{
     MsgHandler,
     SessionHandler,
     SessionManager,
-    SessionManagerConfig
+    SessionManagerConfig,
+    SessionManagerOptionalConfig
 };
 
 
@@ -50,58 +51,72 @@ impl SessionHandler for SHClient {
 
 
 async fn run(locator: Locator) {
+    /* [ROUTER] */
     let router_id = PeerId{id: vec![0u8]};
-    let client01_id = PeerId{id: vec![1u8]};
-    let client02_id = PeerId{id: vec![2u8]};
-
-    // The timeout when opening a session
-    // Set it to 10 ms for testing purposes
-    let timeout = 10;
 
     // Create the router session manager
     let config = SessionManagerConfig {
         version: 0,
         whatami: WhatAmI::Router,
         id: router_id.clone(),
-        handler: Arc::new(SHRouter::new()),
+        handler: Arc::new(SHRouter::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: None,
         batchsize: None,
         timeout: None,
+        retries: None,
         max_sessions: Some(1),
         max_links: Some(2) 
     };
-    let router_manager = SessionManager::new(config);
+    let router_manager = SessionManager::new(config, Some(opt_config));
+
+
+    /* [CLIENT] */
+    let client01_id = PeerId{id: vec![1u8]};
+    let client02_id = PeerId{id: vec![2u8]};
+
+    // The timeout when opening a session
+    // Set it to 10 ms for testing purposes
+    let timeout = 10;
+    let retries = 1;
 
     // Create the transport session manager for the first client
     let config = SessionManagerConfig {
         version: 0,
         whatami: WhatAmI::Client,
         id: client01_id.clone(),
-        handler: Arc::new(SHClient::new()),
+        handler: Arc::new(SHClient::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: None,
         batchsize: None,
         timeout: Some(timeout),
+        retries: Some(retries),
         max_sessions: None,
         max_links: None 
     };
-    let client01_manager = SessionManager::new(config);
+    let client01_manager = SessionManager::new(config, Some(opt_config));
 
     // Create the transport session manager for the second client
     let config = SessionManagerConfig {
         version: 0,
         whatami: WhatAmI::Client,
         id: client02_id.clone(),
-        handler: Arc::new(SHClient::new()),
+        handler: Arc::new(SHClient::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: None,
         batchsize: None,
         timeout: Some(timeout),
+        retries: Some(retries),
         max_sessions: None,
         max_links: None 
     };
-    let client02_manager = SessionManager::new(config);
+    let client02_manager = SessionManager::new(config, Some(opt_config));
 
 
     /* [1] */

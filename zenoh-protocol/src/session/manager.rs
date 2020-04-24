@@ -1,6 +1,5 @@
 
 use async_std::prelude::*;
-use async_std::future;
 use async_std::sync::{channel, Arc, RwLock, Sender};
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -11,8 +10,8 @@ use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::link::{Link, LinkManager, Locator, LocatorProtocol};
 use crate::proto::{Message, WhatAmI};
 use crate::session::defaults::{
-    QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, SESSION_OPEN_TIMEOUT,
-    SESSION_SEQ_NUM_RESOLUTION,
+    QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
+    SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
 };
 use crate::session::{MsgHandler, SessionHandler, Transport};
 use crate::zerror;
@@ -48,7 +47,7 @@ impl MsgHandler for InitialHandler {
 /// use async_trait::async_trait;
 /// use zenoh_protocol::core::PeerId;
 /// use zenoh_protocol::proto::WhatAmI;
-/// use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+/// use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 ///
 /// // Create my session handler to be notified when a new session is initiated with me
 /// struct MySH;
@@ -74,43 +73,81 @@ impl MsgHandler for InitialHandler {
 ///     version: 0,
 ///     whatami: WhatAmI::Peer,
 ///     id: PeerId{id: vec![1, 2]},
-///     handler: Arc::new(MySH::new()),
-///     lease: None,            // Use the default lease
+///     handler: Arc::new(MySH::new())
+/// };
+/// let manager = SessionManager::new(config, None);
+/// 
+/// // Create the SessionManager with optional configuration
+/// let config = SessionManagerConfig {
+///     version: 0,
+///     whatami: WhatAmI::Peer,
+///     id: PeerId{id: vec![3, 4]},
+///     handler: Arc::new(MySH::new())
+/// };
+/// // Setting a value to None indicates to use the default value
+/// let opt_config = SessionManagerOptionalConfig {
+///     lease: Some(1_000),     // Set the default lease to 1s
 ///     resolution: None,       // Use the default sequence number resolution
 ///     batchsize: None,        // Use the default batch size
-///     timeout: None,          // Use the default timeout when opening a session
-///     max_sessions: None,   // Accept any number of sessions
-///     max_links: None   // Allow any number of links in a session
+///     timeout: Some(10_0000), // Timeout of 10s when opening a session
+///     retries: Some(3),       // Tries to open a session 3 times before failure
+///     max_sessions: Some(5),  // Accept any number of sessions
+///     max_links: None         // Allow any number of links in a single session
 /// };
-/// let manager = SessionManager::new(config);
+/// let manager_opt = SessionManager::new(config, Some(opt_config));
 /// ```
 
 #[derive(Clone)]
-pub struct SessionManager {
-    inner: Arc<SessionManagerInner>,
-    timeout: u64
-}
+pub struct SessionManager(Arc<SessionManagerInner>);
 
 pub struct SessionManagerConfig {
     pub version: u8,
     pub whatami: WhatAmI,
     pub id: PeerId,
-    pub handler: Arc<dyn SessionHandler + Send + Sync>,
+    pub handler: Arc<dyn SessionHandler + Send + Sync>
+}
+
+pub struct SessionManagerOptionalConfig {
     pub lease: Option<ZInt>,
     pub resolution: Option<ZInt>,
     pub batchsize: Option<usize>,
     pub timeout: Option<u64>,
+    pub retries: Option<usize>,
     pub max_sessions: Option<usize>,
     pub max_links: Option<usize>
 }
 
 impl SessionManager {
-    pub fn new(config: SessionManagerConfig) -> SessionManager {
-        // Set default values if not provided
-        let lease = config.lease.unwrap_or(*SESSION_LEASE);
-        let resolution = config.resolution.unwrap_or(*SESSION_SEQ_NUM_RESOLUTION);
-        let batchsize = config.batchsize.unwrap_or(*SESSION_BATCH_SIZE);
-        let timeout = config.timeout.unwrap_or(*SESSION_OPEN_TIMEOUT);
+    pub fn new(config: SessionManagerConfig, opt_config: Option<SessionManagerOptionalConfig>) -> SessionManager {
+        // Set default optional values
+        let mut lease = *SESSION_LEASE;
+        let mut resolution = *SESSION_SEQ_NUM_RESOLUTION;
+        let mut batchsize = *SESSION_BATCH_SIZE;
+        let mut timeout = *SESSION_OPEN_TIMEOUT;
+        let mut retries = *SESSION_OPEN_RETRIES;
+        let mut max_sessions = None;
+        let mut max_links = None;
+
+        // Override default values if provided
+        if let Some(opt) = opt_config {
+            if let Some(v) = opt.lease {
+                lease = v;
+            }
+            if let Some(v) = opt.resolution {
+                resolution = v;
+            }
+            if let Some(v) = opt.batchsize {
+                batchsize = v;
+            }
+            if let Some(v) = opt.timeout {
+                timeout = v;
+            }
+            if let Some(v) = opt.retries {
+                retries = v;
+            }
+            max_sessions = opt.max_sessions;
+            max_links = opt.max_links;
+        }
 
         let inner_config = SessionManagerInnerConfig {
             version: config.version,
@@ -121,8 +158,9 @@ impl SessionManager {
             resolution,
             batchsize,
             timeout,
-            max_sessions: config.max_sessions,
-            max_links: config.max_links
+            retries, 
+            max_sessions,
+            max_links
         };
         // Create the inner session manager
         let manager_inner = Arc::new(SessionManagerInner::new(inner_config));
@@ -147,90 +185,77 @@ impl SessionManager {
         // Add the session to the inner session manager
         manager_inner.init_initial_session(session_inner);
 
-        SessionManager {
-            inner: manager_inner,
-            timeout
-        }
+        SessionManager(manager_inner)
     }
 
     /*************************************/
     /*              SESSION              */
     /*************************************/
     pub async fn open_session(&self, locator: &Locator) -> ZResult<Session> {
-        // Automatically create a new link manager for the protocol if it does not exist
-        let manager = self
-            .inner
-            .get_or_new_link_manager(&self.inner, &locator.get_proto())
-            .await;
-
-        // Create a channel for knowing when a session is open
-        let (sender, receiver) = channel::<ZResult<Arc<SessionInner>>>(1);
-
         // Retrieve the initial session
-        let initial = self.inner.get_initial_session().await;
+        let initial = self.0.get_initial_session().await;
+        // Create the timeout duration
+        let to = Duration::from_millis(self.0.config.timeout);
 
-        // Wait the accept message to finalize the session
-        let open_fut = future::timeout(
-            Duration::from_millis(self.timeout), 
-            initial.open(manager, locator, sender)
-        );
-        let channel_fut = future::timeout(
-            Duration::from_millis(self.timeout), 
-            receiver.recv()
-        );
-        let try_join_res = open_fut.try_join(channel_fut).await;
+        // Try a maximum number of times to open a session
+        for _ in 0..self.0.config.retries {
+            // Automatically create a new link manager for the protocol if it does not exist
+            let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
+            // Create a channel for knowing when a session is open
+            let (sender, receiver) = channel::<ZResult<Arc<SessionInner>>>(1);
 
-        let session_inner = match try_join_res {
-            // Future timeout result
-            Ok((_, channel_res)) => match channel_res {
-                // Channel result
-                Some(res) => match res {
-                    Ok(session_inner) => session_inner,
-                    Err(e) => return Err(zerror!(ZErrorKind::Other {
-                        descr: format!("Open session error: {}", e)
+            // Create the open future
+            let open_fut = initial.open(manager, locator, sender).timeout(to);
+            let channel_fut = receiver.recv().timeout(to);
+
+            // Check the future resul
+            match open_fut.try_join(channel_fut).await {
+                // Future timeout result
+                Ok((_, channel_res)) => match channel_res {
+                    // Channel result
+                    Some(res) => match res {
+                        Ok(session_inner) => return Ok(Session::new(session_inner)),
+                        Err(e) => return Err(zerror!(ZErrorKind::Other {
+                            descr: format!("Open session error: {}", e)
+                        }))
+                    },
+                    None => return Err(zerror!(ZErrorKind::Other {
+                        descr: "Open session failed unexpectedly!".to_string()
                     }))
                 },
-                None => return Err(zerror!(ZErrorKind::Other {
-                    descr: "Open session failed unexpectedly!".to_string()
-                }))
-            },
-            Err(_) => {
-                return Err(zerror!(ZErrorKind::Other {
-                    descr: "Open session has timed out".to_string()
-                }));
+                Err(_) => continue
             }
-        };
+        }
 
-        Ok(Session::new(session_inner))
+        Err(zerror!(ZErrorKind::Other {
+            descr: "Open session: maximum number of retries reached".to_string()
+        }))
     }
 
     pub async fn get_sessions(&self) -> Vec<Session> {
-        self.inner.get_sessions().await
-            .drain(..).map(|x| Session::new(x)).collect()
+        self.0.get_sessions().await
+            .drain(..).map(Session::new).collect()
     }
 
     /*************************************/
     /*              LISTENER             */
     /*************************************/
     pub async fn add_locator(&self, locator: &Locator) -> ZResult<()> {
-        let manager = self
-            .inner
-            .get_or_new_link_manager(&self.inner, &locator.get_proto())
-            .await;
+        let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
         manager.new_listener(locator).await
     }
 
     pub async fn del_locator(&self, locator: &Locator) -> ZResult<()> {
-        let manager = self.inner.get_link_manager(&locator.get_proto()).await?;
+        let manager = self.0.get_link_manager(&locator.get_proto()).await?;
         manager.del_listener(locator).await?;
         if manager.get_listeners().await.is_empty() {
-            self.inner.del_link_manager(&locator.get_proto()).await?;
+            self.0.del_link_manager(&locator.get_proto()).await?;
         }
         Ok(())
     }
 
     pub async fn get_locators(&self) -> Vec<Locator> {
-        self.inner.get_locators().await
+        self.0.get_locators().await
     }
 }
 
@@ -244,6 +269,7 @@ struct SessionManagerInnerConfig {
     resolution: ZInt,
     batchsize: usize,
     timeout: u64,
+    retries: usize,
     max_sessions: Option<usize>,
     max_links: Option<usize>
 }
@@ -365,8 +391,7 @@ impl SessionManagerInner {
     }
 
     async fn get_sessions(&self) -> Vec<Arc<SessionInner>> {
-        let vec = zasyncread!(self.sessions).values().cloned().collect();
-        vec
+        zasyncread!(self.sessions).values().cloned().collect()
     }
 
     async fn new_session(

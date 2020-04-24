@@ -40,15 +40,9 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Client,
             id: PeerId{id: pid.clone()},
-            handler: session_handler.clone(),
-            lease: None,
-            resolution: None,
-            batchsize: None,
-            timeout: None,
-            max_sessions: None,
-            max_links: None 
+            handler: session_handler.clone()
         };
-        let manager = SessionManager::new(config);
+        let manager = SessionManager::new(config, None);
 
         if let Some(locator) = args.next() {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {

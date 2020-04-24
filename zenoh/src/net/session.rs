@@ -38,15 +38,9 @@ impl Session {
             version: 0,
             whatami: WhatAmI::Client,
             id: PeerId{id: pid},
-            handler: tables.clone(),
-            lease: None,
-            resolution: None,
-            batchsize: None,
-            timeout: None,
-            max_sessions: None,
-            max_links: None 
+            handler: tables.clone()
         };
-        let session_manager = SessionManager::new(config);
+        let session_manager = SessionManager::new(config, None);
 
         // @TODO: scout if locator = "". For now, replace by "tcp/127.0.0.1:7447"
         let locator = if locator.is_empty() { "tcp/127.0.0.1:7447" } else { &locator };

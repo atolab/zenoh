@@ -33,15 +33,9 @@ use crate::routing::face::{Face, FaceHdl};
 ///         version: 0,
 ///         whatami: Peer,
 ///         id: PeerId{id: vec![1, 2]},
-///         handler: tables.clone(),
-///         lease: None,        // Use the default lease
-///         resolution: None,   // Use the default sequence number resolution
-///         batchsize: None,    // Use the default batch size
-///         timeout: None,      // Use the default timeout when opening a session
-///         max_sessions: None,   // Accept any number of sessions
-///         max_links: None   // Allow any number of links in a session
+///         handler: tables.clone()
 ///     };
-///     let manager = SessionManager::new(config);
+///     let manager = SessionManager::new(config, None);
 /// 
 ///     // Declare new primitives
 ///     let primitives = tables.new_primitives(dummyPrimitives).await;

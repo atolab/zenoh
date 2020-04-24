@@ -103,15 +103,9 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Peer,
             id: PeerId{id: pid},
-            handler: tables.clone(),
-            lease: None,
-            resolution: None,
-            batchsize: None,
-            timeout: None,
-            max_sessions: None,
-            max_links: None 
+            handler: tables.clone()
         };
-        let manager = SessionManager::new(config);
+        let manager = SessionManager::new(config, None);
         let port = match args.next() { Some(port) => {port} None => {"7447".to_string()}};
         let locator = ["tcp/127.0.0.1:", &port].concat().parse().unwrap();
         if let Err(_err) = manager.add_locator(&locator).await {

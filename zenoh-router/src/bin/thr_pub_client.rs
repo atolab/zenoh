@@ -4,7 +4,7 @@ use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{WhatAmI, Mux};
-use zenoh_protocol::session::{SessionManager, SessionManagerConfig, DummyHandler};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionManagerOptionalConfig, DummyHandler};
 use zenoh_router::routing::tables::TablesHdl;
 
 
@@ -34,15 +34,18 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Client,
             id: PeerId{id: pid},
-            handler: tables.clone(),
+            handler: tables.clone()
+        };
+        let opt_config = SessionManagerOptionalConfig {
             lease: None,
             resolution: None,
             batchsize: batch_size,
             timeout: None,
+            retries: None,
             max_sessions: None,
             max_links: None 
         };
-        let manager = SessionManager::new(config);
+        let manager = SessionManager::new(config, Some(opt_config));
 
         for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {

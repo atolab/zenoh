@@ -84,15 +84,9 @@ fn main() {
         version: 0,
         whatami: WhatAmI::Peer,
         id: PeerId{id: pid},
-        handler: Arc::new(MySH::new(count)),
-        lease: None,
-        resolution: None,
-        batchsize: None,
-        timeout: None,
-        max_sessions: None,
-        max_links: None 
+        handler: Arc::new(MySH::new(count))
     };
-    let manager = SessionManager::new(config);
+    let manager = SessionManager::new(config, None);
 
     let mut args = std::env::args();
     // Get exe name

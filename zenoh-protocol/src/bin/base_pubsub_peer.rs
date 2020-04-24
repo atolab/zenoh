@@ -9,7 +9,7 @@ use zenoh_protocol::core::{PeerId, ResKey, ZResult};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Message, MessageKind, WhatAmI};
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 
 // Session Handler for the peer
 struct MySH {
@@ -148,15 +148,18 @@ fn main() {
         version: 0,
         whatami: WhatAmI::Peer,
         id: PeerId{id: pid},
-        handler: Arc::new(MySH::new(count)),
+        handler: Arc::new(MySH::new(count))
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: None,
         batchsize: Some(batchsize),
         timeout: None,
+        retries: None,
         max_sessions: None,
         max_links: None 
     };
-    let manager = SessionManager::new(config);
+    let manager = SessionManager::new(config, Some(opt_config));
 
     // Connect to publisher
     task::block_on(async {

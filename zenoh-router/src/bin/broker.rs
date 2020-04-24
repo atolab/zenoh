@@ -4,7 +4,7 @@ use rand::RngCore;
 use zenoh_protocol::core::PeerId;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::proto::WhatAmI;
-use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 use zenoh_router::routing::tables::TablesHdl;
 
 fn main() {
@@ -35,15 +35,18 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Broker,
             id: PeerId{id: pid},
-            handler: tables.clone(),
+            handler: tables.clone()
+        };
+        let opt_config = SessionManagerOptionalConfig {
             lease: None,
             resolution: None,
             batchsize: batch_size,
             timeout: None,
+            retries: None,
             max_sessions: None,
             max_links: None 
         };
-        let manager = SessionManager::new(config);
+        let manager = SessionManager::new(config, Some(opt_config));
 
         if let Err(_err) = manager.add_locator(&self_locator).await {
             println!("Unable to open listening {}!", self_locator);

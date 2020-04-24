@@ -8,7 +8,7 @@ use slab::Slab;
 use zenoh_protocol::core::{PeerId, ZResult};
 use zenoh_protocol::proto::{Message, WhatAmI};
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 
 
 type Table = Arc<Mutex<Slab<Arc<dyn MsgHandler + Send + Sync>>>>;
@@ -111,15 +111,18 @@ fn main() {
         version: 0,
         whatami: WhatAmI::Peer,
         id: PeerId{id: pid},
-        handler: Arc::new(MySH::new()),
+        handler: Arc::new(MySH::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
         lease: None,
         resolution: None,
         batchsize,
         timeout: None,
+        retries: None,
         max_sessions: None,
         max_links: None 
     };
-    let manager = SessionManager::new(config);
+    let manager = SessionManager::new(config, Some(opt_config));
 
     // Connect to publisher
     task::block_on(async {

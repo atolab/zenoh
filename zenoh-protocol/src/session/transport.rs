@@ -111,13 +111,11 @@ impl Transport {
     }
 
     pub(crate) async fn get_links(&self) -> Vec<Link> {
-        let links = zasyncread!(self.links).iter().cloned().collect();
-        links
+        zasyncread!(self.links).iter().cloned().collect()
     }
 
     pub(crate) async fn has_callback(&self) -> bool {
-        let res = zasyncread!(self.callback).is_some();
-        res
+        zasyncread!(self.callback).is_some()
     }
 
     /*************************************/
