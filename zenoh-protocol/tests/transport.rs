@@ -215,7 +215,7 @@ async fn transport_base_inner() {
 
     // Send the messages, no dropping or reordering in place
     for _ in 0..messages_count { 
-        session.schedule(message.clone(), None).await;
+        session.schedule(message.clone(), None).await.unwrap();
     }
 
     // Send unreliable messages
@@ -233,8 +233,10 @@ async fn transport_base_inner() {
 
     // Send again the messages, this time they will randomly dropped
     for _ in 0..messages_count { 
-        session.schedule(message.clone(), None).await;
+        session.schedule(message.clone(), None).await.unwrap();
     }
+
+    let _ = session.close().await;
 }
 
 #[test]

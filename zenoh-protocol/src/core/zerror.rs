@@ -11,6 +11,7 @@ pub enum ZErrorKind {
     UnkownResourceId { rid: ResourceId },
     IOError { descr: String },
     InvalidResolution { descr: String},
+    InvalidSession { descr: String },
     Other { descr: String }
 }
 
@@ -34,6 +35,8 @@ impl fmt::Display for ZErrorKind {
                 write!(f, "IO error ({})", descr),
             ZErrorKind::InvalidResolution { descr} =>
                 write!(f, "Invalid Resolution ({})", descr),
+            ZErrorKind::InvalidSession { descr } =>
+                write!(f, "Invalid Session ({})", descr),
             ZErrorKind::Other { descr } =>
                 write!(f, "zenoh error: \"{}\"", descr),
         }

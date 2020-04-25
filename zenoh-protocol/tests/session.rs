@@ -131,16 +131,16 @@ async fn run(locator: Locator) {
     assert!(res.is_ok());
     let c_ses1 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
-    assert_eq!(c_ses1.get_peer(), router_id);
-    assert_eq!(c_ses1.get_links().await.len(), 1);
+    assert_eq!(c_ses1.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses1.get_links().await.unwrap().len(), 1);
 
     // Verify that the session has been open on the router
     task::sleep(Duration::from_millis(timeout)).await;
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client01_id);
-    assert_eq!(r_ses1.get_links().await.len(), 1);
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
 
 
     /* [2] */
@@ -150,8 +150,8 @@ async fn run(locator: Locator) {
     assert!(res.is_ok());
     let c_ses2 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
-    assert_eq!(c_ses2.get_peer(), router_id);
-    assert_eq!(c_ses2.get_links().await.len(), 2);
+    assert_eq!(c_ses2.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses2.get_links().await.unwrap().len(), 2);
     assert_eq!(c_ses2, c_ses1);
 
     // Verify that the session has been open on the router
@@ -159,8 +159,8 @@ async fn run(locator: Locator) {
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client01_id);
-    assert_eq!(r_ses1.get_links().await.len(), 2);
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 2);
 
 
     /* [3] */
@@ -169,16 +169,16 @@ async fn run(locator: Locator) {
     let res = client01_manager.open_session(&locator).await;
     assert!(res.is_err());
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
-    assert_eq!(c_ses1.get_peer(), router_id);
-    assert_eq!(c_ses1.get_links().await.len(), 2);
+    assert_eq!(c_ses1.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses1.get_links().await.unwrap().len(), 2);
 
     // Verify that the session has not been open on the router
     task::sleep(Duration::from_millis(timeout)).await;
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client01_id);
-    assert_eq!(r_ses1.get_links().await.len(), 2);
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 2);
 
 
     /* [4] */
@@ -200,16 +200,16 @@ async fn run(locator: Locator) {
     assert!(res.is_ok());
     let c_ses3 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
-    assert_eq!(c_ses3.get_peer(), router_id);
-    assert_eq!(c_ses3.get_links().await.len(), 1);
+    assert_eq!(c_ses3.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses3.get_links().await.unwrap().len(), 1);
 
     // Verify that the session has not been open on the router
     task::sleep(Duration::from_millis(timeout)).await;
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client01_id);
-    assert_eq!(r_ses1.get_links().await.len(), 1);
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
 
 
     /* [6] */
@@ -224,8 +224,8 @@ async fn run(locator: Locator) {
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client01_id);
-    assert_eq!(r_ses1.get_links().await.len(), 1);
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
 
 
     /* [7] */
@@ -247,15 +247,15 @@ async fn run(locator: Locator) {
     assert!(res.is_ok());
     let c_ses4 = res.unwrap();
     assert_eq!(client02_manager.get_sessions().await.len(), 1);
-    assert_eq!(c_ses4.get_links().await.len(), 1);
+    assert_eq!(c_ses4.get_links().await.unwrap().len(), 1);
 
     // Verify that the session has not been open on the router
     task::sleep(Duration::from_millis(timeout)).await;
     let sessions = router_manager.get_sessions().await;
     assert_eq!(sessions.len(), 1);
     let r_ses1 = &sessions[0];
-    assert_eq!(r_ses1.get_peer(), client02_id);
-    assert_eq!(r_ses1.get_links().await.len(), 1);
+    assert_eq!(r_ses1.get_peer().unwrap(), client02_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
 
 
     /* [9] */

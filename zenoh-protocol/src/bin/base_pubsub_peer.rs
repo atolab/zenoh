@@ -196,7 +196,7 @@ fn main() {
 
         loop {
             let v = vec![message.clone(); msg_batch];
-            session.schedule_batch(v, None, None).await;
+            session.schedule_batch(v, None, None).await.unwrap();
         }
     });
 }

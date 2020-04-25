@@ -1,6 +1,6 @@
 
 use async_std::prelude::*;
-use async_std::sync::{channel, Arc, RwLock, Sender};
+use async_std::sync::{channel, Arc, RwLock, Sender, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -14,9 +14,22 @@ use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
     SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
 };
-use crate::session::{MsgHandler, SessionHandler, TransportTx, TransportRx};
+use crate::session::{MsgHandler, Action, SessionHandler, Transport};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
+
+// Macro to access the session Weak pointer
+macro_rules! zsession {
+    ($var:expr) => (
+        if let Some(inner) = $var.upgrade() { 
+            inner
+        } else { 
+            return Err(zerror!(ZErrorKind::InvalidSession{
+                descr: "Session has been closed".to_string()
+            }))
+        }
+    );
+}
 
 // Define an empty SessionCallback for the initial session
 struct InitialHandler;
@@ -180,9 +193,9 @@ impl SessionManager {
         ));
 
         // Initiliaze the transport
-        session_inner.rx.init_session(session_inner.clone());
+        session_inner.transport.init_session(Arc::downgrade(&session_inner));
         // Initiliaze the callback
-        session_inner.rx.init_callback(callback);
+        session_inner.transport.init_callback(callback);
         // Add the session to the inner session manager
         manager_inner.init_initial_session(session_inner);
 
@@ -203,7 +216,7 @@ impl SessionManager {
             // Automatically create a new link manager for the protocol if it does not exist
             let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
             // Create a channel for knowing when a session is open
-            let (sender, receiver) = channel::<ZResult<Arc<SessionInner>>>(1);
+            let (sender, receiver) = channel::<ZResult<Weak<SessionInner>>>(1);
 
             // Create the open future
             let open_fut = initial.open(manager, locator, sender).timeout(to);
@@ -257,6 +270,17 @@ impl SessionManager {
 
     pub async fn get_locators(&self) -> Vec<Locator> {
         self.0.get_locators().await
+    }
+}
+
+impl Drop for SessionManager {
+    fn drop(&mut self) {
+        task::block_on(async {
+            let mut sessions = self.get_sessions().await;
+            for s in sessions.drain(..) {
+                let _ = s.close().await;
+            }
+        });
     }
 }
 
@@ -367,32 +391,32 @@ impl SessionManagerInner {
         a_self: &Arc<Self>,
         peer: &PeerId,
         whatami: &WhatAmI,
-    ) -> Arc<SessionInner> {
+    ) -> Weak<SessionInner> {
         match self.get_session(peer).await {
             Ok(session) => session,
             Err(_) => self.new_session(a_self, peer, whatami).await.unwrap()
         }
     }
-    async fn del_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
+    async fn del_session(&self, peer: &PeerId) -> ZResult<()> {
         match zasyncwrite!(self.sessions).remove(peer) {
-            Some(session) => Ok(session),
+            Some(_) => Ok(()),
             None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("Session not found for peer ({:?})", peer)
             })),
         }
     }
 
-    async fn get_session(&self, peer: &PeerId) -> ZResult<Arc<SessionInner>> {
+    async fn get_session(&self, peer: &PeerId) -> ZResult<Weak<SessionInner>> {
         match zasyncread!(self.sessions).get(peer) {
-            Some(session) => Ok(session.clone()),
+            Some(session) => Ok(Arc::downgrade(session)),
             None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("Session not found for peer ({:?})", peer)
             }))
         }
     }
 
-    async fn get_sessions(&self) -> Vec<Arc<SessionInner>> {
-        zasyncread!(self.sessions).values().cloned().collect()
+    async fn get_sessions(&self) -> Vec<Weak<SessionInner>> {
+        zasyncread!(self.sessions).values().map(|x| Arc::downgrade(&x)).collect()
     }
 
     async fn new_session(
@@ -400,7 +424,7 @@ impl SessionManagerInner {
         a_self: &Arc<Self>,
         peer: &PeerId,
         whatami: &WhatAmI,
-    ) -> ZResult<Arc<SessionInner>> {
+    ) -> ZResult<Weak<SessionInner>> {
         if zasyncread!(self.sessions).get(peer).is_some() {
             return Err(zerror!(ZErrorKind::Other {
                 descr: format!("Session with peer ({:?}) already exists", peer)
@@ -417,12 +441,15 @@ impl SessionManagerInner {
             self.config.batchsize,
             false
         ));
-        // Add the session to the list of active sessions
-        zasyncwrite!(self.sessions).insert(peer.clone(), session_inner.clone());
-        // Set the session on the transport
-        session_inner.rx.init_session(session_inner.clone());
 
-        Ok(session_inner)
+        // Create a weak reference to the session
+        let weak = Arc::downgrade(&session_inner);
+        // Set the session on the transport
+        session_inner.transport.init_session(weak.clone());
+        // Add the session to the list of active sessions
+        zasyncwrite!(self.sessions).insert(peer.clone(), session_inner);
+
+        Ok(weak)
     }
 }
 
@@ -432,31 +459,44 @@ impl SessionManagerInner {
 
 /// [`Session`] is the session handler returned when opening a new session
 #[derive(Clone)]
-pub struct Session(Arc<SessionInner>);
+pub struct Session(Weak<SessionInner>);
 
 impl Session {
-    fn new(inner: Arc<SessionInner>) -> Self {
+    fn new(inner: Weak<SessionInner>) -> Self {
         Self(inner)
     }
 
-    pub fn get_peer(&self) -> PeerId {
-        self.0.peer.clone()
+    pub fn get_peer(&self) -> ZResult<PeerId> {
+        let session = zsession!(self.0);
+        Ok(session.peer.clone())
     }
 
     pub async fn close(&self) -> ZResult<()> {
-        self.0.close().await
+        let session = zsession!(self.0);
+        let to = Duration::from_millis(session.manager.config.timeout);
+        match session.close().timeout(to).await {
+            Ok(res) => res,
+            Err(_) => Err(zerror!(ZErrorKind::Other {
+                descr: "Close operation has timed out".to_string()
+            }))
+        }
     }
 
-    pub async fn get_links(&self) -> Vec<Link> {
-        self.0.tx.get_links().await
+    pub async fn get_links(&self) -> ZResult<Vec<Link>> {
+        let session = zsession!(self.0);
+        Ok(session.transport.get_links().await)
     }
 
-    pub async fn schedule(&self, message: Message, link: Option<Link>) {
-        self.0.tx.schedule(message, *QUEUE_PRIO_DATA, link).await;
+    pub async fn schedule(&self, message: Message, link: Option<Link>) -> ZResult<()> {
+        let session = zsession!(self.0);
+        session.transport.schedule(message, *QUEUE_PRIO_DATA, link).await;
+        Ok(())
     }
 
-    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) {
-        self.0.tx.schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid).await;
+    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) -> ZResult<()> {
+        let session = zsession!(self.0);
+        session.transport.schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid).await;
+        Ok(())
     }
 }
 
@@ -464,14 +504,18 @@ impl Eq for Session {}
 
 impl PartialEq for Session {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        Weak::ptr_eq(&self.0, &other.0)
     }
 }
 
 
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Session ({:?})", self.0.peer)
+        if let Some(session) = self.0.upgrade() {
+            write!(f, "Session ({:?})", session.peer)
+        } else {
+            write!(f, "Session closed")
+        }
     }
 }
 
@@ -481,16 +525,15 @@ pub(crate) struct SessionInner {
     pub(crate) manager: Arc<SessionManagerInner>,
     pub(crate) peer: PeerId,
     pub(crate) whatami: WhatAmI,
-    pub(crate) tx: Arc<TransportTx>,
-    pub(crate) rx: Arc<TransportRx>,
+    pub(crate) transport: Arc<Transport>,
     is_initial: bool,
-    channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Arc<SessionInner>>>>>,
+    channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Weak<SessionInner>>>>>,
 }
 
 #[async_trait]
 impl MsgHandler for SessionInner {
     async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.tx.schedule(message, *QUEUE_PRIO_DATA, None).await;
+        self.transport.schedule(message, *QUEUE_PRIO_DATA, None).await;
         Ok(())
     }
 
@@ -511,8 +554,7 @@ impl SessionInner {
             manager,
             peer,
             whatami,
-            tx: Arc::new(TransportTx::new(resolution, batchsize)),
-            rx: Arc::new(TransportRx::new(lease, resolution)),
+            transport: Arc::new(Transport::new(lease, resolution, batchsize)),
             is_initial,
             channels: RwLock::new(HashMap::new()),
         }
@@ -522,14 +564,12 @@ impl SessionInner {
     /*               LINK                */
     /*************************************/
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        self.tx.add_link(link).await
+        self.transport.add_link(link).await
     }
 
     pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
         // Delete the link from the transport if present
-        self.tx.del_link(link).await?;
-        // Stop the link from reading
-        let _ = link.stop().await;
+        self.transport.del_link(link).await?;
         // Close the link (e.g., TCP socket)
         let _ = link.close().await;
 
@@ -543,13 +583,10 @@ impl SessionInner {
             sender.send(res).await;
         }
 
-        if !self.is_initial && !self.tx.has_links() {
-            // @TODO: Close the transport. At the moment the following
-            //        instructions sporadically end up in a deadlock
-            // let _ = self.tx.close().await;
-            // let _ = self.rx.close().await;
+        if !self.is_initial && !self.transport.has_links() {
             // Remove the session from the manager
             let _ = self.manager.del_session(&self.peer).await;
+            let _ = self.transport.close().await;
         }
 
         Ok(())
@@ -558,12 +595,12 @@ impl SessionInner {
     /*************************************/
     /*            OPEN/CLOSE             */
     /*************************************/
-    async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, sender: Sender<ZResult<Arc<SessionInner>>>) -> ZResult<()> {
+    async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, sender: Sender<ZResult<Weak<SessionInner>>>) -> ZResult<()> {
         // Create a new link associated by calling the Link Manager
-        let link = manager.new_link(locator, self.rx.clone()).await?;
+        let link = manager.new_link(locator, self.transport.clone()).await?;
 
         // Add the link to the transport
-        self.tx.add_link(link.clone()).await?;
+        self.transport.add_link(link.clone()).await?;
 
         // Store the sender for the callback to be used in the process_message
         let key = (link.get_src(), link.get_dst());
@@ -590,12 +627,19 @@ impl SessionInner {
         );
 
         // Schedule the message for transmission
-        self.tx.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
+        self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
 
         Ok(())
     }
 
     async fn close(&self) -> ZResult<()> {
+        // Close the active transport
+        self.close_inner().await?;
+        // Remove the session from the manager
+        self.manager.del_session(&self.peer).await
+    }
+
+    async fn close_inner(&self) -> ZResult<()> {
         // Send a close message
         let peer_id = Some(self.manager.config.id.clone());
         let reason_id = 0u8;    // @TODO: Provide the good reason                
@@ -604,16 +648,13 @@ impl SessionInner {
         let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
         // Get the transport links
-        let links = self.tx.get_links().await;
+        let links = self.transport.get_links().await;
         for l in links.iter() {
-            let _ = self.tx.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone())).await;
+            let _ = self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone())).await;
         }
 
         // Close the transport
-        let _ = self.tx.close().await;
-        let _ = self.rx.close().await;
-        // Remove the session from the manager
-        let _ = self.manager.del_session(&self.peer).await;
+        let _ = self.transport.close().await;
 
         Ok(())
     }
@@ -628,12 +669,11 @@ impl SessionInner {
         opid: &PeerId,
         apid: &PeerId,
         lease: ZInt
-    ) -> ZResult<Arc<TransportRx>> {
+    ) -> Action {
         // Check if the opener peer of this accept was me
         if opid != &self.manager.config.id {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: "Received an Accept with wrong Opener Peer Id".to_string()
-            }));
+            println!("!!! Received an Accept with wrong Opener Peer Id");
+            return Action::Read
         }
 
         // Check if had previously triggered the opening of a new connection
@@ -641,43 +681,55 @@ impl SessionInner {
         let res = zasyncwrite!(self.channels).remove(&key);
         if let Some(sender) = res {
             // Remove the link from self
-            self.tx.del_link(link).await?;
+            let res = self.transport.del_link(link).await;
+            if res.is_err() {
+                return Action::Read
+            }
             // Get a new or an existing session
-            let session_inner = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
+            let weak_session = self.manager.get_or_new_session(&self.manager, apid, whatami).await;
+            // Upgrade from Weak to Arc
+            let arc_session = if let Some(session) = weak_session.upgrade() {
+                session
+            } else {
+                // The session has been closed
+                return Action::Close
+            };
             // Configure the lease time on the transport
-            session_inner.rx.set_lease(lease);
+            arc_session.transport.set_lease(lease);
             // Add the link on the transport
-            session_inner.tx.add_link(link.clone()).await?;
+            let res = arc_session.transport.add_link(link.clone()).await;
+            if res.is_err() {
+                return Action::Read
+            }
             // Set the callback to the transport if needed
-            if !session_inner.rx.has_callback() {
+            if !arc_session.transport.has_callback() {
                 // Notify the session handler that there is a new session and get back a callback
                 let callback = self.manager.config.handler
-                    .new_session(self.whatami.clone(), session_inner.clone()).await;
+                    .new_session(self.whatami.clone(), arc_session.clone()).await;
                 // Set the callback on the transport
-                session_inner.rx.init_callback(callback);
+                arc_session.transport.set_callback(callback).await;
             }
             // Notify the opener
-            sender.send(Ok(session_inner.clone())).await;
+            sender.send(Ok(weak_session)).await;
             // Return the target transport to use in the link
-            Ok(session_inner.rx.clone())
+            Action::ChangeTransport(arc_session.transport.clone())
         } else { 
-            Err(zerror!(ZErrorKind::Other {
-                descr: "Received an unsolicited Accept because no Open message was sent"
-                    .to_string()
-            }))
+            println!("!!! Received an unsolicited Accept because no Open message was sent");
+            Action::Read
         }
     }
 
-    pub(crate) async fn process_close(&self, link: &Link, pid: &Option<PeerId>, _reason: u8) -> ZResult<()> {
+    pub(crate) async fn process_close(&self, link: &Link, pid: &Option<PeerId>, _reason: u8) -> Action {
         // Check if the close target is me
-        if pid != &Some(self.peer.clone()) {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: "PeerId mismatch on Close message".to_string()
-            }));
+        if !self.is_initial && pid != &Some(self.peer.clone()) {
+            println!("!!! PeerId mismatch on Close message");
+            return Action::Read
         }
 
-        // Remove the link
-        self.del_link(link).await
+        // Delete the link
+        let _ = self.del_link(link).await;
+
+        Action::Close
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -689,14 +741,23 @@ impl SessionInner {
         pid: &PeerId,
         lease: ZInt,
         _locators: &Option<Vec<Locator>>,
-    ) -> ZResult<Arc<TransportRx>> {
+    ) -> Action {
         // @TODO: Manage locators
 
         // Check if the version is supported
         if version > self.manager.config.version {
-            return Err(zerror!(ZErrorKind::Other {
-                descr: format!("Zenoh version not supported ({})", version)
-            }));
+            // Send a close message
+            let peer_id = Some(self.manager.config.id.clone());
+            let reason_id = 0u8;    // @TODO: Provide the good reason                
+            let conduit_id = None;  // This is should always be None for Close Messages                
+            let properties = None;  // Parameter of open_session
+            let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+
+            // Send the close message for this link
+            let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+
+            // Close the link
+            return Action::Close
         }
 
         // Check if an already established session exists with the peer
@@ -717,30 +778,26 @@ impl SessionInner {
                     let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                     // Send the close message for this link
-                    let _ = self.tx.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                    let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
 
                     // Close the link
-                    let _ = link.close().await;
-
-                    return Err(zerror!(ZErrorKind::Other {
-                        descr: "Maximum limit of open session reahced!".to_string()
-                    }));
+                    return Action::Close
                 }
             }
         }
 
         // Get the session associated to the peer
-        let target = if let Ok(session) = target {
+        let target = self.manager.get_or_new_session(&self.manager, pid, whatami).await;
+        let target = if let Some(session) = target.upgrade() {
             session
         } else {
-            self.manager.new_session(&self.manager, pid, whatami).await.unwrap()
+            return Action::Close
         };
 
         // Check if a limit for the maximum number of links associated to a session is set
         if let Some(limit) = self.manager.config.max_links {
-            let num = target.tx.get_links().await.len();
             // Check if we have reached the session limit
-            if num >= limit {
+            if target.transport.num_links() >= limit {
                 // Send a close message
                 let peer_id = Some(self.manager.config.id.clone());
                 let reason_id = 0u8;    // @TODO: Provide the good reason                
@@ -749,24 +806,26 @@ impl SessionInner {
                 let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                 // Send the close message for this link
-                let _ = self.tx.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
 
                 // Close the link
-                let _ = link.close().await;
-
-                return Err(zerror!(ZErrorKind::Other {
-                    descr: "Maximum limit of links per session reahced!".to_string()
-                }));
+                return Action::Close
             }
         }
 
         // Set the lease to the transport
-        target.rx.set_lease(lease);
+        target.transport.set_lease(lease);
 
         // Remove the link from self
-        self.tx.del_link(&link).await?;
+        let res = self.transport.del_link(&link).await;
+        if res.is_err() {
+            return Action::Close
+        }
         // Add the link to the target
-        target.tx.add_link(link.clone()).await?;
+        let res = target.transport.add_link(link.clone()).await;
+        if res.is_err() {
+            return Action::Close
+        }
 
         // Build Accept message
         let conduit_id = None; // Conduit ID always None
@@ -780,29 +839,33 @@ impl SessionInner {
             properties,
         );
 
-        // Schedule the message for transmission
-        let res = target.tx.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
+        // Send the message for transmission
+        let res = target.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
-        if res.is_ok() && !target.rx.has_callback() {
-            // Notify the session handler that there is a new session and get back a callback
-            // NOTE: the read loop of the link the open message was sent on remains blocked
-            //       until the new_session() returns. The read_loop in the various links
-            //       waits for any eventual transport to associate to. This is transport is
-            //       returned only by the process_open() -- this function.
-            let callback = self.manager.config.handler.new_session(whatami.clone(), target.clone()).await;
-            // Set the callback on the transport
-            target.rx.init_callback(callback);
+        if res.is_ok() {
+            if !target.transport.has_callback() {
+                // Notify the session handler that there is a new session and get back a callback
+                // NOTE: the read loop of the link the open message was sent on remains blocked
+                //       until the new_session() returns. The read_loop in the various links
+                //       waits for any eventual transport to associate to. This is transport is
+                //       returned only by the process_open() -- this function.
+                let callback = self.manager.config.handler.new_session(whatami.clone(), target.clone()).await;
+                // Set the callback on the transport
+                target.transport.set_callback(callback).await;
+            }
+        } else {
+            return Action::Close
         }
 
         // Return the target transport to use in the link
-        Ok(target.rx.clone())
+        Action::ChangeTransport(target.transport.clone())
     }
 }
 
 impl Drop for SessionInner {
     fn drop(&mut self) {
         task::block_on(async {
-            println!("Dropped {:?}", self);
+            let _ = self.close_inner().await;
         });
     }
 }

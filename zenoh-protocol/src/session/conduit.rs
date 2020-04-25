@@ -1,13 +1,12 @@
 use async_std::prelude::*;
-use async_std::sync::{channel, Arc, Mutex, Receiver, Sender};
+use async_std::sync::{channel, Arc, Mutex, Receiver, Sender, Weak};
 use async_std::task;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
 use crate::link::Link;
 use crate::proto::{Body, Message, MessageKind, SeqNum, SeqNumGenerator};
-use crate::session::{MessageTx, MsgHandler, SessionInner, TransportRx};
+use crate::session::{Action, MessageTx, MsgHandler, SessionInner};
 use crate::session::defaults::{
     // Control buffer
     QUEUE_SIZE_CTRL,
@@ -29,15 +28,20 @@ use zenoh_util::collections::{CreditBuffer, CreditQueue};
 use zenoh_util::collections::credit_queue::Drain as CreditQueueDrain;
 use zenoh_util::zasynclock;
 
-/*************************************/
-/*         CONDUIT TX TASK           */
-/*************************************/
-
-// Command to operate on the transmission loop
-enum Command {
-    Stop,
-    Continue,
+// Macro to access the session Weak pointer
+macro_rules! zsession {
+    ($var:expr) => (
+        if let Some(inner) = $var.upgrade() { 
+            inner
+        } else { 
+            return Action::Close
+        }
+    );
 }
+
+/*************************************/
+/*           CONDUIT TASK            */
+/*************************************/
 
 struct LinkContext {
     // The list of messages to transmit
@@ -179,82 +183,73 @@ async fn flush_batch(link: &Link, context: &mut LinkContext) {
 }
 
 // Consuming function
-async fn consume(
-    conduit: &Arc<ConduitTx>,
-    mut context: &mut Vec<LinkContext>
-) -> Option<Command> {
+async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
-    // Get a Drain iterator for the queue
-    // drain() waits for the queue to be non-empty
-    let mut drain = conduit.queue.drain().await;
-
-    // Acquire the lock on the inner conduit data structure
-    let mut inner = zasynclock!(conduit.inner);
-    // Create or remove link context if needed
-    if context.len() != inner.links.len() {
-        context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
-    }
-
-    loop {  
-        // Map the messages on the links. This operation drains messages from the Drain iterator
-        map_messages_on_links(&mut inner, &mut drain, &mut context).await;
-        // The drop() on Drain object needs to be manually called since an async
-        // destructor is not yet supported in Rust. More information available at:
-        // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
-        drain.drop().await;
-        // Deschedule the task to allow other tasks to be scheduled and
-        // eventually to push on the queue or break this loop because the task
-        // needs to be stopeed
-        task::yield_now().await;
-        // Batch/Fragmenet and transmit the messages
-        for (i, mut c) in context.iter_mut().enumerate() {
-            batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
-        }
-        // Try to drain messages from the queue
-        // try_drain does not wait for the queue to be non-empty
-        drain = conduit.queue.try_drain().await;
-        // Check if we can drain from the Drain iterator
-        let (min, _) = drain.size_hint();
-        if min == 0 {
-            // The drop() on Drain object needs to be manually called since an async
-            // destructor is not yet supported in Rust. More information available at:
-            // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
-            drain.drop().await;
-            break
-        }
-    }
-
-    // Transmit all the messages left in the batch if any
-    for (i, mut c) in context.iter_mut().enumerate() {
-        flush_batch(&inner.links[i], &mut c).await;
-    }
-
-    Some(Command::Continue)
-}
-
-async fn transmission_loop(conduit: Arc<ConduitTx>, receiver: Receiver<Command>) {
     // Create a buffer for the batching
     let mut context: Vec<LinkContext> = Vec::new();
-    while conduit.is_active() {
-        // Create the consume future
-        let consume = consume(&conduit, &mut context);
-        // Create the signal future
-        let signal = receiver.recv();
+    loop {
+        // Get a Drain iterator for the queue
+        // drain() waits for the queue to be non-empty
+        let mut drain = conduit.queue.drain().await;
 
-        match consume.race(signal).await {
-            Some(cmd) => match cmd {
-                Command::Stop => break,
-                Command::Continue => continue,
-            },
-            None => break,
+        // Acquire the lock on the inner conduit data structure
+        let mut inner = zasynclock!(conduit.tx);
+        // Create or remove link context if needed
+        if context.len() != inner.links.len() {
+            context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
+        }
+
+        // Keep mapping, batching, fragmenting and transmitting until there are
+        // messages in the queue
+        loop {  
+            // Map the messages on the links. This operation drains messages from the Drain iterator
+            map_messages_on_links(&mut inner, &mut drain, &mut context).await;
+            // The drop() on Drain object needs to be manually called since an async
+            // destructor is not yet supported in Rust. More information available at:
+            // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
+            drain.drop().await;
+            // Deschedule the task to allow other tasks to be scheduled and
+            // eventually to push on the queue or break this loop because the task
+            // needs to be stopeed
+            task::yield_now().await;
+            // Batch/Fragmenet and transmit the messages
+            for (i, mut c) in context.iter_mut().enumerate() {
+                batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+            }
+            // Try to drain messages from the queue
+            // try_drain does not wait for the queue to be non-empty
+            drain = conduit.queue.try_drain().await;
+            // Check if we can drain from the Drain iterator
+            let (min, _) = drain.size_hint();
+            if min == 0 {
+                // The drop() on Drain object needs to be manually called since an async
+                // destructor is not yet supported in Rust. More information available at:
+                // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
+                drain.drop().await;
+                break
+            }
+        }
+
+        // Transmit all the messages left in the batch if any
+        for (i, mut c) in context.iter_mut().enumerate() {
+            flush_batch(&inner.links[i], &mut c).await;
         }
     }
+}
+
+async fn consume_task(conduit: Arc<Conduit>, receiver: Receiver<bool>) {
+    // Create the consume future
+    let consume = consume_loop(&conduit);
+    // Create the signal future
+    let signal = receiver.recv();
+    // Wait for the stop signal
+    let _ = consume.race(signal).await;
 }
 
 /*************************************/
-/*         CONDUIT TX STRUCT         */
+/*      CONDUIT INNER TX STRUCT      */
 /*************************************/
 
 // Structs to manage the sequence numbers of channels
@@ -345,16 +340,62 @@ impl ConduitInnerTx {
     }
 }
 
-pub(crate) struct ConduitTx {
-    pub(crate) id: ZInt,
-    pub(crate) queue: CreditQueue<MessageTx>,
-    active: AtomicBool,
-    inner: Mutex<ConduitInnerTx>,
-    signal: Mutex<Option<Sender<Command>>>,
+
+/*************************************/
+/*     CONDUIT INNER RX STRUCT       */
+/*************************************/
+
+// Structs to manage the sequence numbers of channels
+struct SeqNumRx {
+    reliable: SeqNum,
+    unreliable: SeqNum,
 }
 
-impl ConduitTx {
-    pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize) -> ConduitTx {
+impl SeqNumRx {
+    fn new(sn0_reliable: ZInt, sn0_unreliable: ZInt, resolution: ZInt) -> SeqNumRx {
+        SeqNumRx {
+            reliable: SeqNum::make(sn0_reliable, resolution).unwrap(),
+            unreliable: SeqNum::make(sn0_unreliable, resolution).unwrap(),
+        }
+    }
+}
+
+// Store the mutable data that need to be used for transmission
+struct ConduitInnerRx {
+    session: Weak<SessionInner>,
+    callback: Option<Arc<dyn MsgHandler + Send + Sync>>,
+    sn: SeqNumRx,
+}
+
+impl ConduitInnerRx {
+    fn new(
+        session: Weak<SessionInner>,
+        resolution: ZInt
+    ) -> ConduitInnerRx {
+        // @TODO: Randomly initialize the SN generator
+        ConduitInnerRx {
+            session,
+            callback: None,
+            sn: SeqNumRx::new(resolution - 1, resolution - 1, resolution)
+        }
+    }
+}
+
+
+/*************************************/
+/*           CONDUIT STRUCT          */
+/*************************************/
+
+pub(crate) struct Conduit {
+    pub(crate) id: ZInt,
+    pub(crate) queue: CreditQueue<MessageTx>,
+    tx: Mutex<ConduitInnerTx>,
+    rx: Mutex<ConduitInnerRx>,
+    signal: Mutex<Option<Sender<bool>>>
+}
+
+impl Conduit {
+    pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize, session: Weak<SessionInner>) -> Conduit {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_CTRL,
@@ -379,29 +420,32 @@ impl ConduitTx {
         // The buffer with index 0 has the highest priority.
         let queue_tx = vec![ctrl, retx, data];
 
-        ConduitTx {
+        Conduit{
             id,
             queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
-            active: AtomicBool::new(false),
-            inner: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
-            signal: Mutex::new(None),
+            tx: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
+            rx: Mutex::new(ConduitInnerRx::new(session, resolution)),
+            signal: Mutex::new(None)
         }
     }
 
-    #[inline]
-    fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
+    /*************************************/
+    /*            ACCESSORS             */
+    /*************************************/
+    pub(crate) async fn set_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {
+        let mut guard = zasynclock!(self.rx);
+        guard.callback = Some(callback);
     }
 
     /*************************************/
     /*               LINK                */
     /*************************************/
     pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        zasynclock!(self.inner).add_link(link).await
+        zasynclock!(self.tx).add_link(link).await
     }
 
     pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
-        let mut guard = zasynclock!(self.inner);
+        let mut guard = zasynclock!(self.tx);
         let res = guard.del_link(link).await;
         // Stop the conduit if it has no links left
         if guard.links.is_empty() {
@@ -415,15 +459,13 @@ impl ConduitTx {
         // If not already active, start the transmission loop
         if guard.is_none() {
             // Create the signal channel
-            let (sender, receiver) = channel::<Command>(1);
+            let (sender, receiver) = channel::<bool>(1);
             // Store the sender needed to stop the transmission loop
             *guard = Some(sender);
             // Drop the guard that borrows the conduit
             drop(guard);
-            // Declare the conduit as active
-            conduit.active.store(true, Ordering::Relaxed);
             // Spawn the transmission loop
-            task::spawn(transmission_loop(conduit.clone(), receiver));
+            task::spawn(consume_task(conduit.clone(), receiver));
         }
     }
 
@@ -432,112 +474,63 @@ impl ConduitTx {
         let signal = zasynclock!(self.signal).take();
         // If the transmission loop is active, send the stop signal
         if let Some(sender) = signal {
-            // Declare the conduit as no longer active
-            self.active.store(false, Ordering::Relaxed);
             // Send the stop command in case the transmission loop
             // was waiting for messages
-            sender.send(Command::Stop).await;
-        }
-    }
-}
-
-impl Eq for ConduitTx {}
-
-impl PartialEq for ConduitTx {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-
-/*************************************/
-/*         CONDUIT RX STRUCT         */
-/*************************************/
-
-// Structs to manage the sequence numbers of channels
-struct SeqNumRx {
-    reliable: SeqNum,
-    unreliable: SeqNum,
-}
-
-impl SeqNumRx {
-    fn new(sn0_reliable: ZInt, sn0_unreliable: ZInt, resolution: ZInt) -> SeqNumRx {
-        SeqNumRx {
-            reliable: SeqNum::make(sn0_reliable, resolution).unwrap(),
-            unreliable: SeqNum::make(sn0_unreliable, resolution).unwrap(),
-        }
-    }
-}
-
-// Store the mutable data that need to be used for transmission
-struct ConduitInnerRx {
-    callback: Arc<dyn MsgHandler + Send + Sync>,
-    sn: SeqNumRx,
-}
-
-impl ConduitInnerRx {
-    fn new(resolution: ZInt, callback: Arc<dyn MsgHandler + Send + Sync>) -> ConduitInnerRx {
-        // @TODO: Randomly initialize the SN generator
-        ConduitInnerRx {
-            callback,
-            sn: SeqNumRx::new(resolution - 1, resolution - 1, resolution),
-        }
-    }
-}
-
-pub struct ConduitRx {
-    pub(crate) id: ZInt,
-    session: Arc<SessionInner>,
-    inner: Mutex<ConduitInnerRx>,
-}
-
-impl ConduitRx {
-    pub(crate) fn new(
-        id: ZInt,
-        resolution: ZInt,
-        session: Arc<SessionInner>,
-        callback: Arc<dyn MsgHandler + Send + Sync>
-    ) -> ConduitRx {
-        ConduitRx {
-            id,
-            session,
-            inner: Mutex::new(ConduitInnerRx::new(resolution, callback)),
+            sender.send(true).await;
         }
     }
 
-    // /*************************************/
-    // /*   MESSAGE RECEIVED FROM THE LINK  */
-    // /*************************************/
-    async fn process_reliable_message(&self, message: Message, sn: ZInt) {
+
+    /*************************************/
+    /*   MESSAGE RECEIVED FROM THE LINK  */
+    /*************************************/
+    async fn process_reliable_message(&self, message: Message, sn: ZInt) -> Action {
         // @TODO: implement the reordering and wait for missing messages
-        let mut guard = zasynclock!(self.inner);
-        // Messages with invalid CID or invalid SN are automatically dropped
-        if guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok() {
-            let _ = guard.callback.handle_message(message).await;
+        let mut guard = zasynclock!(self.rx);
+        if guard.callback.is_some() {
+            // Messages with invalid SN are automatically dropped
+            if guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok() {
+                let _ = guard.callback.as_ref().unwrap().handle_message(message).await;
+            } else {
+                println!("!!! Message with invalid SN dropped: {:?}", message.body);
+            }
+        } else {
+            println!("!!! Message dropped because callback is unitialized: {:?}", message.body);
         }
+        Action::Read
     }
 
-    async fn process_unreliable_message(&self, message: Message, sn: ZInt) {
-        let mut guard = zasynclock!(self.inner);
-        // Messages with invalid CID or invalid SN are automatically dropped
-        if guard.sn.unreliable.precedes(sn) && guard.sn.unreliable.set(sn).is_ok() {
-            let _ = guard.callback.handle_message(message).await;
+    async fn process_unreliable_message(&self, message: Message, sn: ZInt) -> Action {
+        let mut guard = zasynclock!(self.rx);
+        if guard.callback.is_some() {
+            // Messages with invalid SN are automatically dropped
+            if guard.sn.unreliable.precedes(sn) && guard.sn.unreliable.set(sn).is_ok() {
+                let _ = guard.callback.as_ref().unwrap().handle_message(message).await;
+            } else {
+                println!("!!! Message with invalid SN dropped: {:?}", message.body);
+            }
+        } else {
+            println!("!!! Message dropped because callback is unitialized: {:?}", message.body);
         }
+        Action::Read
     }
 
-    async fn receive_full_message(&self, link: &Link, message: Message) -> Option<Arc<TransportRx>> {
+    async fn receive_full_message(&self, link: &Link, message: Message) -> Action {
         match &message.body {
             Body::Accept { whatami, opid, apid, lease } => {
+                let guard = zasynclock!(self.rx);
+                let session = zsession!(guard.session);
                 let c_lease = *lease;
-                self.session.process_accept(link, whatami, opid, apid, c_lease).await.ok()
+                session.process_accept(link, whatami, opid, apid, c_lease).await
             }
             Body::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");
             }
             Body::Close { pid, reason } => {
+                let guard = zasynclock!(self.rx);
+                let session = zsession!(guard.session);
                 let c_reason = *reason;
-                let _ = self.session.process_close(link, pid, c_reason).await;
-                None
+                session.process_close(link, pid, c_reason).await
             }
             Body::Hello { .. } => {
                 unimplemented!("Handling of Hello Messages not yet implemented!");
@@ -546,9 +539,11 @@ impl ConduitRx {
                 unimplemented!("Handling of KeepAlive Messages not yet implemented!");
             }
             Body::Open { version, whatami, pid, lease, locators } => {
+                let guard = zasynclock!(self.rx);
+                let session = zsession!(guard.session);
                 let c_version = *version;
                 let c_lease = *lease;
-                self.session.process_open(link, c_version, whatami, pid, c_lease, locators).await.ok()
+                session.process_open(link, c_version, whatami, pid, c_lease, locators).await
             }
             Body::Ping { .. } => {
                 unimplemented!("Handling of Ping Messages not yet implemented!");
@@ -568,31 +563,29 @@ impl ConduitRx {
                     true => self.process_reliable_message(message, c_sn).await,
                     false => self.process_unreliable_message(message, c_sn).await,
                 }
-                None
             }
             Body::Declare { sn, .. } 
             | Body::Pull { sn, .. } 
             | Body::Query { sn, .. } => {
                 let c_sn = *sn;
-                self.process_reliable_message(message, c_sn).await;
-                None
+                self.process_reliable_message(message, c_sn).await
             }
         }
     }
 
-    async fn receive_first_fragement(&self, _link: &Link, _message: Message, _number: Option<ZInt>) -> Option<Arc<TransportRx>> {
+    async fn receive_first_fragement(&self, _link: &Link, _message: Message, _number: Option<ZInt>) -> Action {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_middle_fragement(&self, _link: &Link, _message: Message) -> Option<Arc<TransportRx>> {
+    async fn receive_middle_fragement(&self, _link: &Link, _message: Message) -> Action {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    async fn receive_last_fragement(&self, _link: &Link, _message: Message) -> Option<Arc<TransportRx>> {
+    async fn receive_last_fragement(&self, _link: &Link, _message: Message) -> Action {
         unimplemented!("Defragementation not implemented yet!");
     }
 
-    pub async fn receive_message(&self, link: &Link, message: Message) -> Option<Arc<TransportRx>> {
+    pub async fn receive_message(&self, link: &Link, message: Message) -> Action {
         match message.kind {
             MessageKind::FullMessage => self.receive_full_message(link, message).await,
             MessageKind::FirstFragment { n } => {
@@ -606,9 +599,9 @@ impl ConduitRx {
     }
 }
 
-impl Eq for ConduitRx {}
+impl Eq for Conduit {}
 
-impl PartialEq for ConduitRx {
+impl PartialEq for Conduit {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }

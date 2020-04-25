@@ -12,7 +12,7 @@ use crate::{zerror, to_zerror};
 use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::{ArcSlice, RBuf};
 use crate::proto::Message;
-use crate::session::{SessionManagerInner, TransportRx};
+use crate::session::{SessionManagerInner, Action, Transport};
 use crate::link::{Link, Locator};
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
@@ -56,7 +56,7 @@ pub struct LinkTcp {
     // The buffer size to use in a read operation
     buff_size: usize,
     // The reference to the associated transport
-    transport: Mutex<Arc<TransportRx>>,
+    transport: Mutex<Arc<Transport>>,
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
@@ -65,7 +65,7 @@ pub struct LinkTcp {
 }
 
 impl LinkTcp {
-    fn new(socket: TcpStream, transport: Arc<TransportRx>, manager: Arc<ManagerTcpInner>) -> LinkTcp {
+    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> LinkTcp {
         // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
@@ -87,7 +87,12 @@ impl LinkTcp {
     }
 
     pub async fn close(&self) -> ZResult<()> {
+        // Stop the read loop
+        self.stop().await?;
+        // Close the underlying TCP socket
         let _ = self.socket.shutdown(Shutdown::Both);
+        // Delete the link from the manager
+        let _ = self.manager.del_link(&self.src_addr, &self.dst_addr).await;
         Ok(())
     }
     
@@ -120,15 +125,7 @@ impl LinkTcp {
     }
 
     pub fn start(link: Arc<LinkTcp>) {
-        task::spawn(async move {
-            let link_obj = Link::Tcp(link.clone());
-            let err = read_task(&link, &link_obj).await;
-            // Remove the link in case of IO error
-            let _ = link.manager.del_link(&link.get_src(), &link.get_dst()).await;
-            if err {
-                let _ = zasynclock!(link.transport).link_err(&link_obj).await;
-            }
-        });
+        task::spawn(read_task(link));
     }
 
     pub async fn stop(&self) -> ZResult<()> {
@@ -157,29 +154,42 @@ impl LinkTcp {
     }
 }
 
-async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) -> bool {
-    async fn read_loop(link: &Arc<LinkTcp>, link_obj: &Link) -> Option<bool> {
+async fn read_task(link: Arc<LinkTcp>) {
+    async fn read_loop(link: &Arc<LinkTcp>) -> Option<bool> {
         let mut buff = RBuf::new();
         let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
+        let link_obj = Link::Tcp(link.clone());
 
         let mut guard = zasynclock!(link.transport);
         loop {
+            // Async read from the TCP socket
             let mut rbuf = vec![0u8; link.buff_size];
             match (&link.socket).read(&mut rbuf).await {
                 Ok(n) => { 
                     // Reading zero bytes means error
                     if n == 0 {
-                        // Failed to read from the TCP socket
-                        return Some(true)
+                        // Close the underlying TCP socket
+                        let _ = link.socket.shutdown(Shutdown::Both);
+                        // Delete the link from the manager
+                        let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                        // Notify the transport
+                        let _ = zasynclock!(link.transport).link_err(&link_obj).await;
+                        return Some(false)
                     }
                     buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
                 },
                 Err(_) => {
-                    // Error reading from the TCP socket
-                    return Some(true)
+                    // Close the underlying TCP socket
+                    let _ = link.socket.shutdown(Shutdown::Both);
+                    // Delete the link from the manager
+                    let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                    // Notify the transport
+                    let _ = zasynclock!(link.transport).link_err(&link_obj).await;
+                    return Some(false)
                 }
             }
-            // Read all the messages
+
+            // Read and serialize all the messages from the buffer
             loop {
                 let pos = buff.get_pos();
                 match buff.read_message() {
@@ -198,18 +208,33 @@ async fn read_task(link: &Arc<LinkTcp>, link_obj: &Link) -> bool {
 
             // Propagate the messages to the upper logic
             for msg in messages.drain(..) {
-                if let Some(transport) = guard.receive_message(&link_obj, msg).await {
-                    *guard = transport;
+                let action = guard.receive_message(&link_obj, msg).await;
+                match action {
+                    Action::Read => continue,
+                    Action::ChangeTransport(transport) => *guard = transport,
+                    Action::Close => {
+                        // Close the underlying TCP socket
+                        let _ = link.socket.shutdown(Shutdown::Both);
+                        // Delete the link from the manager
+                        let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                        return Some(false)
+                    }
                 }
             }
         }
     }
 
+    // Execute the read loop 
     let stop = link.ch_recv.recv();
-    let read_loop = read_loop(link, link_obj);
-    match read_loop.race(stop).await {
-        Some(value) => value,
-        None => true
+    let read_loop = read_loop(&link);
+    let _ = read_loop.race(stop).await;
+}
+
+
+impl Drop for LinkTcp {
+    fn drop(&mut self) {
+        // Close the underlying TCP socket
+        let _ = self.socket.shutdown(Shutdown::Both);
     }
 }
 
@@ -224,27 +249,44 @@ impl ManagerTcp {
         Self(Arc::new(ManagerTcpInner::new(manager)))
     }
 
-    pub async fn new_link(&self, dst: &Locator, transport: Arc<TransportRx>) -> ZResult<Link> {
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
+    pub async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
+        let dst = get_tcp_addr!(dst);
         let link = self.0.new_link(&self.0, dst, transport).await?;
         Ok(Link::Tcp(link))
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     pub async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        let src = get_tcp_addr!(src);
+        let dst = get_tcp_addr!(dst);
         let link = self.0.del_link(src, dst).await?;
         Ok(Link::Tcp(link))
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     pub async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link> {
+        let src = get_tcp_addr!(src);
+        let dst = get_tcp_addr!(dst);
         let link = self.0.get_link(src, dst).await?;
         Ok(Link::Tcp(link))
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     pub  async fn new_listener(&self, locator: &Locator) -> ZResult<()> {
-        self.0.new_listener(&self.0, locator).await
+        let addr = get_tcp_addr!(locator);
+        self.0.new_listener(&self.0, addr).await
     }
 
+    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
+    #[allow(clippy::infallible_destructuring_match)]
     pub async fn del_listener(&self, locator: &Locator) -> ZResult<()> {
-        self.0.del_listener(&self.0, locator).await
+        let addr = get_tcp_addr!(locator);
+        self.0.del_listener(&self.0, addr).await
     }
   
     pub async fn get_listeners(&self) -> Vec<Locator> {
@@ -287,11 +329,7 @@ impl ManagerTcpInner {
         }
     }
 
-    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
-    #[allow(clippy::infallible_destructuring_match)]
-    async fn new_link(&self, a_self: &Arc<Self>, dst: &Locator, transport: Arc<TransportRx>) -> ZResult<Arc<LinkTcp>> {
-        let dst = get_tcp_addr!(dst);
-        
+    async fn new_link(&self, a_self: &Arc<Self>, dst: &SocketAddr, transport: Arc<Transport>) -> ZResult<Arc<LinkTcp>> {
         // Create the TCP connection
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
@@ -311,12 +349,7 @@ impl ManagerTcpInner {
         Ok(link)
     }
 
-    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
-    #[allow(clippy::infallible_destructuring_match)]
-    async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
-        let src = get_tcp_addr!(src);
-        let dst = get_tcp_addr!(dst);
-
+    async fn del_link(&self, src: &SocketAddr, dst: &SocketAddr) -> ZResult<Arc<LinkTcp>> {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
@@ -326,12 +359,7 @@ impl ManagerTcpInner {
         }
     }
 
-    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
-    #[allow(clippy::infallible_destructuring_match)]
-    async fn get_link(&self, src: &Locator, dst: &Locator) -> ZResult<Arc<LinkTcp>> {
-        let src = get_tcp_addr!(src);
-        let dst = get_tcp_addr!(dst);
-
+    async fn get_link(&self, src: &SocketAddr, dst: &SocketAddr) -> ZResult<Arc<LinkTcp>> {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
@@ -341,11 +369,7 @@ impl ManagerTcpInner {
         }
     }
 
-    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
-    #[allow(clippy::infallible_destructuring_match)]
-    async fn new_listener(&self, a_self: &Arc<Self>, locator: &Locator) -> ZResult<()> {
-        let addr = get_tcp_addr!(locator);
-  
+    async fn new_listener(&self, a_self: &Arc<Self>, addr: &SocketAddr) -> ZResult<()> {
         // Bind the TCP socket
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
@@ -370,11 +394,7 @@ impl ManagerTcpInner {
         Ok(())
     }
 
-    // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
-    #[allow(clippy::infallible_destructuring_match)]
-    async fn del_listener(&self, _a_self: &Arc<Self>, locator: &Locator) -> ZResult<()> {
-        let addr = get_tcp_addr!(locator);
-
+    async fn del_listener(&self, _a_self: &Arc<Self>, addr: &SocketAddr) -> ZResult<()> {
         // Stop the listener
         match zasyncwrite!(self.listener).remove(&addr) {
             Some(listener) => {
@@ -382,7 +402,7 @@ impl ManagerTcpInner {
                 Ok(())
             },
             None => Err(zerror!(ZErrorKind::Other{
-                descr: format!("No TCP listener on locator: {}", locator)
+                descr: format!("No TCP listener on address: {}", addr)
             }))
         }
     }
@@ -405,7 +425,7 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             // Retrieve the initial temporary session 
             let initial = a_self.inner.get_initial_session().await;
             // Create the new link object
-            let link = Arc::new(LinkTcp::new(stream, initial.rx.clone(), a_self.clone()));
+            let link = Arc::new(LinkTcp::new(stream, initial.transport.clone(), a_self.clone()));
 
             // Store a reference to the link into the manger
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
