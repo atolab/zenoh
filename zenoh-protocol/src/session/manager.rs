@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::link::{Link, LinkManager, Locator, LocatorProtocol};
-use crate::proto::{Message, WhatAmI};
+use crate::proto::{Message, WhatAmI, close_reason};
 use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
     SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
@@ -656,7 +656,7 @@ impl SessionInner {
     async fn close_inner(&self) -> ZResult<()> {
         // Send a close message
         let peer_id = Some(self.manager.config.id.clone());
-        let reason_id = 0u8;    // @TODO: Provide the good reason                
+        let reason_id = close_reason::GENERIC;              
         let conduit_id = None;  // This is should always be None for Close Messages                
         let properties = None;  // Parameter of open_session
         let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
@@ -765,7 +765,7 @@ impl SessionInner {
         if version > self.manager.config.version {
             // Send a close message
             let peer_id = Some(self.manager.config.id.clone());
-            let reason_id = 0u8;    // @TODO: Provide the good reason                
+            let reason_id = close_reason::UNSUPPORTED;              
             let conduit_id = None;  // This is should always be None for Close Messages                
             let properties = None;  // Parameter of open_session
             let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
@@ -789,7 +789,7 @@ impl SessionInner {
                 if num >= limit {
                     // Send a close message
                     let peer_id = Some(self.manager.config.id.clone());
-                    let reason_id = 0u8;    // @TODO: Provide the good reason                
+                    let reason_id = close_reason::MAX_SESSIONS;                
                     let conduit_id = None;  // This is should always be None for Close Messages                
                     let properties = None;  // Parameter of open_session
                     let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
@@ -817,7 +817,7 @@ impl SessionInner {
             if target.transport.num_links() >= limit {
                 // Send a close message
                 let peer_id = Some(self.manager.config.id.clone());
-                let reason_id = 0u8;    // @TODO: Provide the good reason                
+                let reason_id = close_reason::MAX_LINKS;               
                 let conduit_id = None;  // This is should always be None for Close Messages                
                 let properties = None;  // Parameter of open_session
                 let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
@@ -879,14 +879,6 @@ impl SessionInner {
 
         // Return the target transport to use in the link
         Action::ChangeTransport(target.transport.clone())
-    }
-}
-
-impl Drop for SessionInner {
-    fn drop(&mut self) {
-        task::block_on(async {
-            let _ = self.close_inner().await;
-        });
     }
 }
 

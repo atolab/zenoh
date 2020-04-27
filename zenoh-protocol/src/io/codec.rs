@@ -1,6 +1,6 @@
 
 use super::{ArcSlice, RBuf, WBuf};
-use crate::core::{ZError, ZErrorKind, ZInt, ZINT_MAX_BYTES};
+use crate::core::{ZError, ZErrorKind, ZInt, ZResult, ZINT_MAX_BYTES};
 use crate::zerror;
 
 pub fn encoded_size_of(v: ZInt) -> usize {
@@ -13,7 +13,7 @@ pub fn encoded_size_of(v: ZInt) -> usize {
 
 impl RBuf {
 
-  pub fn read_zint(&mut self) -> Result<ZInt, ZError> {
+  pub fn read_zint(&mut self) -> ZResult<ZInt> {
     let mut v : ZInt = 0;
     let mut b = self.read()?;
     let mut i = 0;
@@ -33,14 +33,14 @@ impl RBuf {
   }
 
   // Same as read_bytes but with array length before the bytes.
-  pub fn read_bytes_array(&mut self) -> Result<Vec<u8>, ZError> {
+  pub fn read_bytes_array(&mut self) -> ZResult<Vec<u8>> {
     let len = self.read_zint()?;
     let mut buf = vec![0; len as usize];
     self.read_bytes(buf.as_mut_slice())?;
     Ok(buf)
   }
   
-  pub fn read_string(&mut self) -> Result<String, ZError> { 
+  pub fn read_string(&mut self) -> ZResult<String> { 
     let bytes = self.read_bytes_array()?;
     Ok(String::from(String::from_utf8_lossy(&bytes)))
   }

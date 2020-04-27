@@ -1,7 +1,7 @@
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, Mutex, Receiver, Sender, Weak};
 use async_std::task;
-// use futures::stream::{FuturesUnordered, StreamExt};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
@@ -135,6 +135,8 @@ async fn map_messages_on_links(
 }
 
 async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
+    let batchsize = batchsize.min(link.get_mtu());
+    let mut batchlen = 0;
     // Process all the messages just drained
     for msg in context.messages.drain(..) {        
         // Clear the message buffer
@@ -143,17 +145,21 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
         context.buffer.write_message(&msg.inner);
 
         // Create the RBuf out of batch and buff WBuff for transmission
-        let batch_read = context.batch.as_rbuf();
         let buff_read = context.buffer.as_rbuf();
 
         if let Some(notify) = msg.notify {
             // Transmit the current batch if present
-            if !batch_read.is_empty() { 
+            if batchlen > 0 { 
+                let batch_read = context.batch.as_rbuf();
                 if let Err(e) = link.send(batch_read).await {
+                    // Clear the batch buffer
+                    context.batch.clear();
                     return Err(e)
                 }
                 // Clear the batch buffer
                 context.batch.clear();
+                // Reset the batchlen
+                batchlen = 0;
             }
             // Transmit now the message
             let res = link.send(buff_read).await;
@@ -161,19 +167,26 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
             notify.send(res).await;
             // We are done with this message, continue with the following one
             continue
-        } else if batch_read.len() + buff_read.len() > batchsize {
+        } else if batchlen + buff_read.len() > batchsize {
             // The message does not fit in the batch, first transmit the current batch
+            let batch_read = context.batch.as_rbuf();
             if let Err(e) = link.send(batch_read).await {
+                // Clear the batch buffer
+                context.batch.clear();
                 return Err(e)
             }
             // Clear the batch buffer
             context.batch.clear();
+            // Reset the batchlen
+            batchlen = 0;
         }
+
         // Add the message to the batch
         let slices = buff_read.get_slices();
         for s in slices.iter() {
             context.batch.add_slice(s.clone());
         }
+        batchlen += buff_read.len();
     }
 
     Ok(())
@@ -184,6 +197,8 @@ async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
     if !batch_read.is_empty() {
         // Transmit the batch on the link
         if let Err(e) = link.send(batch_read).await {
+            // Clear the batch buffer
+            context.batch.clear();
             return Err(e)
         }
     }
@@ -200,7 +215,7 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
 
     // Create a buffer for the batching
     let mut context: Vec<LinkContext> = Vec::new();
-    loop {
+    while conduit.is_active() {
         // Get a Drain iterator for the queue
         // drain() waits for the queue to be non-empty
         let mut drain = conduit.queue.drain().await;
@@ -214,26 +229,22 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
 
         // Keep mapping, batching, fragmenting and transmitting until there are
         // messages in the queue
-        loop {  
+        while conduit.is_active() {  
             // Map the messages on the links. This operation drains messages from the Drain iterator
             map_messages_on_links(&mut inner, &mut drain, &mut context).await;
             // The drop() on Drain object needs to be manually called since an async
             // destructor is not yet supported in Rust. More information available at:
             // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
             drain.drop().await;
-            // Deschedule the task to allow other tasks to be scheduled and
-            // eventually to push on the queue or break this loop because the task
-            // needs to be stopeed
-            task::yield_now().await;
             // Batch/Fragmenet and transmit the messages
-            let mut err = false;
             for (i, mut c) in context.iter_mut().enumerate() {
                 let res = batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
-                err = err || res.is_err();
-            }
-            if err {
-                // There was an error while transmitting, break and flush the remaining batches
-                break
+                if res.is_err() {
+                    // There was an error while transmitting. Deschedule the task to allow other tasks 
+                    // to be scheduled and eventually break this loop because the task needs to be stopeed
+                    task::yield_now().await;
+                    break
+                }
             }
             // Try to drain messages from the queue
             // try_drain does not wait for the queue to be non-empty
@@ -253,7 +264,12 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
         for (i, mut c) in context.iter_mut().enumerate() {
             let _ = flush_batch(&inner.links[i], &mut c).await;
         }
+
+        // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
+        task::yield_now().await;
     }
+
+    None
 }
 
 async fn consume_task(conduit: Arc<Conduit>, receiver: Receiver<bool>) {
@@ -406,6 +422,7 @@ impl ConduitInnerRx {
 pub(crate) struct Conduit {
     pub(crate) id: ZInt,
     pub(crate) queue: CreditQueue<MessageTx>,
+    active: AtomicBool,
     tx: Mutex<ConduitInnerTx>,
     rx: Mutex<ConduitInnerRx>,
     signal: Mutex<Option<Sender<bool>>>
@@ -440,6 +457,7 @@ impl Conduit {
         Conduit{
             id,
             queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
+            active: AtomicBool::new(false),
             tx: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
             rx: Mutex::new(ConduitInnerRx::new(session, resolution)),
             signal: Mutex::new(None)
@@ -471,12 +489,21 @@ impl Conduit {
         res
     }
 
+    /*************************************/
+    /*               TASK                */
+    /*************************************/
+    #[inline]
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.load(Ordering::Relaxed)
+    }
+
     pub(crate) async fn start(conduit: &Arc<Self>) {
-        let mut guard = zasynclock!(conduit.signal);
         // If not already active, start the transmission loop
-        if guard.is_none() {
+        if !conduit.active.swap(true, Ordering::Relaxed) {
             // Create the signal channel
             let (sender, receiver) = channel::<bool>(1);
+            // Store the sender
+            let mut guard = zasynclock!(conduit.signal);
             // Store the sender needed to stop the transmission loop
             *guard = Some(sender);
             // Drop the guard that borrows the conduit
@@ -487,13 +514,15 @@ impl Conduit {
     }
 
     pub(crate) async fn stop(&self) {
-        // Take the sender for the signal channel
-        let signal = zasynclock!(self.signal).take();
-        // If the transmission loop is active, send the stop signal
-        if let Some(sender) = signal {
-            // Send the stop command in case the transmission loop
-            // was waiting for messages
-            sender.send(true).await;
+        if self.active.swap(false, Ordering::Relaxed) {
+            // Take the sender for the signal channel
+            let signal = zasynclock!(self.signal).take();
+            // If the transmission loop is active, send the stop signal
+            if let Some(sender) = signal {
+                // Send the stop command in case the transmission loop
+                // was waiting for messages
+                sender.send(true).await;
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::zerror;
-use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
+use crate::core::{ZError, ZErrorKind, ZInt, ZResult, PeerId, Property, ResKey, TimeStamp};
 use crate::io::RBuf;
 use crate::link::Locator;
 use super::decl::Declaration;
@@ -91,6 +91,14 @@ pub mod info_flag {
     pub const ENC   : u8 = 0x40;
 }
 
+// Reason for the Close message 
+pub mod close_reason {
+    pub const GENERIC       :   u8 = 0x00;
+    pub const UNSUPPORTED   :   u8 = 0x01;
+    pub const MAX_SESSIONS  :   u8 = 0x02;
+    pub const MAX_LINKS     :   u8 = 0x03;
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum WhatAmI {
@@ -101,7 +109,7 @@ pub enum WhatAmI {
 }
 
 impl WhatAmI {
-    pub fn from_zint(value: ZInt) -> Result<WhatAmI, ZError> {
+    pub fn from_zint(value: ZInt) -> ZResult<WhatAmI> {
         if value == WhatAmI::to_zint(&WhatAmI::Broker) { 
             Ok(WhatAmI::Broker)
         } else if value == WhatAmI::to_zint(&WhatAmI::Router) {

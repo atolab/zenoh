@@ -2,7 +2,7 @@ use std::fmt;
 use async_std::sync::Arc;
 use std::io::IoSlice;
 use super::ArcSlice;
-use crate::core::{ZError, ZErrorKind};
+use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::zerror;
 
 
@@ -65,7 +65,7 @@ impl RBuf {
         }
     }
 
-    pub fn move_pos(&mut self, n: usize) -> Result<(), ZError> {
+    pub fn move_pos(&mut self, n: usize) -> ZResult<()> {
         let remaining = self.readable();
         if n <= remaining {
             self.move_pos_no_check(n);
@@ -76,7 +76,7 @@ impl RBuf {
     }
 
     #[inline]
-    pub fn set_pos(&mut self, index: usize) -> Result<(), ZError> {
+    pub fn set_pos(&mut self, index: usize) -> ZResult<()> {
         self.reset_pos();
         self.move_pos(index)
     }
@@ -121,7 +121,7 @@ impl RBuf {
         }
     }
 
-    pub fn read(&mut self) -> Result<u8, ZError> {
+    pub fn read(&mut self) -> ZResult<u8> {
         if self.can_read() {
             let b = self.current_slice()[self.pos.1];
             self.move_pos_no_check(1);
@@ -131,14 +131,14 @@ impl RBuf {
         }
     }
 
-    pub fn read_bytes(&mut self,  bs: &mut [u8]) -> Result<(), ZError> {
+    pub fn read_bytes(&mut self,  bs: &mut [u8]) -> ZResult<()> {
         self.copy_into(bs)?;
         self.move_pos_no_check(bs.len());
         Ok(())
     }
 
     // same than read_bytes() but not moving read position (allow not mutable self)
-    pub fn copy_into(&self,  bs: &mut [u8]) -> Result<(), ZError> {
+    pub fn copy_into(&self,  bs: &mut [u8]) -> ZResult<()> {
         let mut len = bs.len();
         let remaining = self.readable();
         if len > remaining {

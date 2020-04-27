@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use crate::zerror; 
-use crate::core::{ZError, ZErrorKind};
+use crate::core::{ZResult, ZError, ZErrorKind};
 use crate::proto::{Message, Body, Declaration, Primitives, Reply, flag};
 use crate::session::MsgHandler;
 
@@ -22,7 +22,7 @@ impl<P: Primitives + Send + Sync> DeMux<P> {
 #[async_trait]
 impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
-    async fn handle_message(&self, msg: Message) -> Result<(), ZError> {
+    async fn handle_message(&self, msg: Message) -> ZResult<()> {
         match msg.get_body() {
             Body::Declare{declarations, ..} => {
                 for declaration in declarations {

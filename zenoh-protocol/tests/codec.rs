@@ -1,9 +1,9 @@
 
-use zenoh_protocol::core::{ZInt, ZError};
+use zenoh_protocol::core::{ZInt, ZResult};
 use zenoh_protocol::io::WBuf;
 
 
-fn test_zint(v: ZInt) -> Result<(), ZError> {
+fn test_zint(v: ZInt) -> ZResult<()> {
   let mut buf = WBuf::new(32);
   buf.write_zint(v);
   assert_eq!(v, buf.as_rbuf().read_zint()?);
@@ -12,7 +12,7 @@ fn test_zint(v: ZInt) -> Result<(), ZError> {
 
 
 #[test]
-fn test_zint_codec_limits() -> Result<(), ZError> {
+fn test_zint_codec_limits() -> ZResult<()> {
   test_zint(0)?;
   for i in 1 .. 10 {
     let v: ZInt =  1 << (7*i);

@@ -2,7 +2,7 @@ use std::fmt;
 use async_std::sync::Arc;
 use std::io::IoSlice;
 use super::{ArcSlice, RBuf};
-use crate::core::{ZError, ZErrorKind};
+use crate::core::{ZError, ZResult, ZErrorKind};
 use crate::zerror;
 
 
@@ -94,7 +94,7 @@ impl WBuf {
         }
     }
 
-    pub fn set_rpos(&mut self, index: usize) -> Result<(), ZError>  {
+    pub fn set_rpos(&mut self, index: usize) -> ZResult<()>  {
         let rlen = self.rbuf.len();
         if index < rlen {
             self.rpos = None;
@@ -110,7 +110,7 @@ impl WBuf {
         }
     }
 
-    pub fn move_rpos(&mut self, n: usize) -> Result<(), ZError> {
+    pub fn move_rpos(&mut self, n: usize) -> ZResult<()> {
         if n == 0 { return Ok(()) };
         match self.rpos {
             None => {
@@ -150,7 +150,7 @@ impl WBuf {
         }
     }
 
-    pub fn read(&mut self) -> Result<u8, ZError> {
+    pub fn read(&mut self) -> ZResult<u8> {
         match self.rpos {
             None => {
                 let b = self.rbuf.read()?;
@@ -171,7 +171,7 @@ impl WBuf {
         }
     }
 
-    pub fn read_bytes(&mut self,  bs: &mut [u8]) -> Result<(), ZError> {
+    pub fn read_bytes(&mut self,  bs: &mut [u8]) -> ZResult<()> {
         let to_read = bs.len();
         match self.rpos {
             None => {
