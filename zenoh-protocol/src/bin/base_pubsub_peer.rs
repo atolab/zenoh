@@ -196,7 +196,10 @@ fn main() {
 
         loop {
             let v = vec![message.clone(); msg_batch];
-            session.schedule_batch(v, None, None).await.unwrap();
+            let res = session.schedule_batch(v, None, None).await;
+            if res.is_err() {
+                break
+            }
         }
     });
 }

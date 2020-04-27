@@ -7,6 +7,7 @@ extern crate lazy_static;
 extern crate async_std;
 extern crate byteorder;
 extern crate crossbeam;
+extern crate futures;
 extern crate uuid;
 
 pub mod core;

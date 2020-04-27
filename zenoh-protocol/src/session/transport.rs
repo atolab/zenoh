@@ -148,7 +148,28 @@ impl Transport {
     /*************************************/
     /*            CONDUITS               */
     /*************************************/
-    pub(crate) async fn add_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
+    pub(crate) async fn get_or_new_conduit(&self, id: ZInt) -> Arc<Conduit> {
+        loop {
+            match self.get_conduit(id).await {
+                Ok(conduit) => return conduit,
+                Err(_) => match self.new_conduit(id).await {
+                    Ok(conduit) => return conduit,
+                    Err(_) => continue
+                }
+            }
+        }
+    }
+
+    pub(crate) async fn get_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
+        match zasyncread!(self.conduits).get(&id) {
+            Some(conduit) => Ok(conduit.clone()),
+            None => Err(zerror!(ZErrorKind::Other {
+                descr: format!("Conduit {} not found", id)
+            }))
+        }
+    }
+
+    pub(crate) async fn new_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
         let session = if let Some(session) = zasyncread!(self.session).as_ref() {
             session.clone()
         } else {
@@ -161,11 +182,16 @@ impl Transport {
 
         let conduit = {
             // Acquire the lock on the conduits
-            let mut guard = zasyncwrite!(self.conduits);
+            let mut w_guard = zasyncwrite!(self.conduits);
+            if w_guard.contains_key(&id) {
+                return Err(zerror!(ZErrorKind::Other {
+                    descr: format!("Conduit {} already exists", id)
+                }));
+            }
             // Add the Tx conduit
             let conduit = Arc::new(Conduit::new(id, resolution, batchsize, session));
             // Add the conduit to the HashMap
-            guard.insert(id, conduit.clone());
+            w_guard.insert(id, conduit.clone());
 
             conduit
         };
@@ -326,7 +352,7 @@ impl Transport {
             // Drop the guard to dynamically add the new conduit
             drop(guard);
             // Add the new conduit
-            if let Ok(conduit) = self.add_conduit(message.inner.cid).await {
+            if let Ok(conduit) = self.new_conduit(message.inner.cid).await {
                 conduit.queue.push(message, priority).await
             }
         }
@@ -342,7 +368,7 @@ impl Transport {
             // Drop the guard to dynamically add the new conduit
             drop(guard);
             // Add the new conduit
-            if let Ok(conduit) = self.add_conduit(cid).await {
+            if let Ok(conduit) = self.new_conduit(cid).await {
                 conduit.queue.push_batch(messages, priority).await;
             }
         }
@@ -352,21 +378,7 @@ impl Transport {
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
     pub async fn receive_message(&self, link: &Link, message: Message) -> Action {
-        let conduit = {
-            let guard = zasyncread!(self.conduits);
-            match guard.get(&message.cid) {
-                Some(conduit) => conduit.clone(),
-                None => {
-                    // Drop the read guard to allow to add the new conduit
-                    drop(guard);
-                    // Add a new conduit
-                    match self.add_conduit(message.cid).await {
-                        Ok(conduit) => conduit,
-                        Err(_) => return Action::Close
-                    }
-                }
-            }
-        };
+        let conduit = self.get_or_new_conduit(message.cid).await;
         // Process the message
         conduit.receive_message(link, message).await
 

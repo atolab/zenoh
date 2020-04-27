@@ -1,6 +1,7 @@
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, Mutex, Receiver, Sender, Weak};
 use async_std::task;
+// use futures::stream::{FuturesUnordered, StreamExt};
 
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
@@ -133,7 +134,7 @@ async fn map_messages_on_links(
     }
 }
 
-async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) {
+async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
     // Process all the messages just drained
     for msg in context.messages.drain(..) {        
         // Clear the message buffer
@@ -148,7 +149,9 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
         if let Some(notify) = msg.notify {
             // Transmit the current batch if present
             if !batch_read.is_empty() { 
-                let _ = link.send(batch_read).await;
+                if let Err(e) = link.send(batch_read).await {
+                    return Err(e)
+                }
                 // Clear the batch buffer
                 context.batch.clear();
             }
@@ -157,10 +160,12 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
             // Notify now the result 
             notify.send(res).await;
             // We are done with this message, continue with the following one
-            continue;
+            continue
         } else if batch_read.len() + buff_read.len() > batchsize {
             // The message does not fit in the batch, first transmit the current batch
-            let _ = link.send(batch_read).await;
+            if let Err(e) = link.send(batch_read).await {
+                return Err(e)
+            }
             // Clear the batch buffer
             context.batch.clear();
         }
@@ -170,16 +175,22 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
             context.batch.add_slice(s.clone());
         }
     }
+
+    Ok(())
 }
 
-async fn flush_batch(link: &Link, context: &mut LinkContext) {
+async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
     let batch_read = context.batch.as_rbuf();
     if !batch_read.is_empty() {
         // Transmit the batch on the link
-        let _ = link.send(batch_read).await;
+        if let Err(e) = link.send(batch_read).await {
+            return Err(e)
+        }
     }
     // Clear the batch buffer
     context.batch.clear();
+
+    Ok(())
 }
 
 // Consuming function
@@ -215,8 +226,14 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
             // needs to be stopeed
             task::yield_now().await;
             // Batch/Fragmenet and transmit the messages
+            let mut err = false;
             for (i, mut c) in context.iter_mut().enumerate() {
-                batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+                let res = batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+                err = err || res.is_err();
+            }
+            if err {
+                // There was an error while transmitting, break and flush the remaining batches
+                break
             }
             // Try to drain messages from the queue
             // try_drain does not wait for the queue to be non-empty
@@ -234,7 +251,7 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
 
         // Transmit all the messages left in the batch if any
         for (i, mut c) in context.iter_mut().enumerate() {
-            flush_batch(&inner.links[i], &mut c).await;
+            let _ = flush_batch(&inner.links[i], &mut c).await;
         }
     }
 }

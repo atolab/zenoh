@@ -3,6 +3,7 @@ use async_std::prelude::*;
 use async_std::sync::{channel, Arc, RwLock, Sender, Weak};
 use async_std::task;
 use async_trait::async_trait;
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
@@ -331,9 +332,14 @@ impl SessionManagerInner {
         a_self: &Arc<Self>,
         protocol: &LocatorProtocol,
     ) -> Arc<LinkManager> {
-        match self.get_link_manager(protocol).await {
-            Ok(manager) => manager,
-            Err(_) => self.new_link_manager(a_self, protocol).await.unwrap(),
+        loop {
+            match self.get_link_manager(protocol).await {
+                Ok(manager) => return manager,
+                Err(_) => match self.new_link_manager(a_self, protocol).await {
+                    Ok(manager) => return manager,
+                    Err(_) => continue
+                }
+            }
         }
     }
 
@@ -342,14 +348,15 @@ impl SessionManagerInner {
         a_self: &Arc<Self>,
         protocol: &LocatorProtocol,
     ) -> ZResult<Arc<LinkManager>> {
-        if zasyncread!(self.protocols).get(protocol).is_some() {
+        let mut w_guard = zasyncwrite!(self.protocols);
+        if w_guard.contains_key(protocol) {
             return Err(zerror!(ZErrorKind::Other {
                 descr: format!("Link manager for protocol ({}) already exists.", protocol)
             }));
         }
 
         let lm = Arc::new(LinkManager::new(a_self.clone(), protocol));
-        zasyncwrite!(self.protocols).insert(protocol.clone(), lm.clone());
+        w_guard.insert(protocol.clone(), lm.clone());
         Ok(lm)
     }
 
@@ -392,9 +399,14 @@ impl SessionManagerInner {
         peer: &PeerId,
         whatami: &WhatAmI,
     ) -> Weak<SessionInner> {
-        match self.get_session(peer).await {
-            Ok(session) => session,
-            Err(_) => self.new_session(a_self, peer, whatami).await.unwrap()
+        loop {
+            match self.get_session(peer).await {
+                Ok(session) => return session,
+                Err(_) => match self.new_session(a_self, peer, whatami).await {
+                    Ok(session) => return session,
+                    Err(_) => continue
+                }
+            }
         }
     }
     async fn del_session(&self, peer: &PeerId) -> ZResult<()> {
@@ -425,7 +437,8 @@ impl SessionManagerInner {
         peer: &PeerId,
         whatami: &WhatAmI,
     ) -> ZResult<Weak<SessionInner>> {
-        if zasyncread!(self.sessions).get(peer).is_some() {
+        let mut w_guard = zasyncwrite!(self.sessions);
+        if w_guard.contains_key(peer) {
             return Err(zerror!(ZErrorKind::Other {
                 descr: format!("Session with peer ({:?}) already exists", peer)
             }));
@@ -447,7 +460,7 @@ impl SessionManagerInner {
         // Set the session on the transport
         session_inner.transport.init_session(weak.clone());
         // Add the session to the list of active sessions
-        zasyncwrite!(self.sessions).insert(peer.clone(), session_inner);
+        w_guard.insert(peer.clone(), session_inner);
 
         Ok(weak)
     }
@@ -496,8 +509,19 @@ impl Session {
     pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) -> ZResult<()> {
         let session = zsession!(self.0);
         session.transport.schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid).await;
+        task::yield_now().await;
         Ok(())
     }
+}
+
+#[async_trait]
+impl MsgHandler for Session {
+    #[inline]
+    async fn handle_message(&self, message: Message) -> ZResult<()> {
+        self.schedule(message, None).await
+    }
+
+    async fn close(&self) {}
 }
 
 impl Eq for Session {}
@@ -528,16 +552,6 @@ pub(crate) struct SessionInner {
     pub(crate) transport: Arc<Transport>,
     is_initial: bool,
     channels: RwLock<HashMap<(Locator, Locator), Sender<ZResult<Weak<SessionInner>>>>>,
-}
-
-#[async_trait]
-impl MsgHandler for SessionInner {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
-        self.transport.schedule(message, *QUEUE_PRIO_DATA, None).await;
-        Ok(())
-    }
-
-    async fn close(&self) {}
 }
 
 impl SessionInner {
@@ -649,9 +663,10 @@ impl SessionInner {
 
         // Get the transport links
         let links = self.transport.get_links().await;
-        for l in links.iter() {
-            let _ = self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone())).await;
-        }
+        let futs: FuturesUnordered<_> = links.iter().map(|l| 
+            self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone()))
+        ).collect();
+        let _ = futs.into_future().await;
 
         // Close the transport
         let _ = self.transport.close().await;
@@ -705,7 +720,9 @@ impl SessionInner {
             if !arc_session.transport.has_callback() {
                 // Notify the session handler that there is a new session and get back a callback
                 let callback = self.manager.config.handler
-                    .new_session(self.whatami.clone(), arc_session.clone()).await;
+                    .new_session(self.whatami.clone(), 
+                    Arc::new(Session::new(Arc::downgrade(&arc_session)))
+                ).await;
                 // Set the callback on the transport
                 arc_session.transport.set_callback(callback).await;
             }
@@ -849,7 +866,10 @@ impl SessionInner {
                 //       until the new_session() returns. The read_loop in the various links
                 //       waits for any eventual transport to associate to. This is transport is
                 //       returned only by the process_open() -- this function.
-                let callback = self.manager.config.handler.new_session(whatami.clone(), target.clone()).await;
+                let callback = self.manager.config.handler.new_session(
+                    whatami.clone(), 
+                    Arc::new(Session::new(Arc::downgrade(&target)))
+                ).await;
                 // Set the callback on the transport
                 target.transport.set_callback(callback).await;
             }
