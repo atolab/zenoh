@@ -1,5 +1,5 @@
 use std::fmt;
-use std::sync::atomic::{AtomicUsize, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
 use async_std::sync::Arc;
 use async_trait::async_trait;
@@ -8,7 +8,7 @@ use rand::prelude::*;
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
-    proto::{ DataInfo, Primitives, QueryTarget, QueryConsolidation, Reply, WhatAmI },
+    proto::{ DataInfo, Primitives, QueryTarget, Target, QueryConsolidation, Reply, ReplySource, WhatAmI },
     session::{SessionManager, SessionManagerConfig},
     zerror
 };
@@ -33,11 +33,12 @@ impl Session {
         
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
+        let peerid = PeerId{id: pid};
 
         let config = SessionManagerConfig {
             version: 0,
             whatami: WhatAmI::Client,
-            id: PeerId{id: pid},
+            id: peerid.clone(),
             handler: tables.clone()
         };
         let session_manager = SessionManager::new(config, None);
@@ -64,7 +65,7 @@ impl Session {
         }
 
         let inner = Arc::new(RwLock::new(
-            InnerSession::new()
+            InnerSession::new(peerid)
         ));
         let inner2 = inner.clone();
         let session = Session{ session_manager, tx_session, tables, inner };
@@ -182,13 +183,13 @@ impl Session {
         Ok(())
     }
 
-    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, query_handler: QueryHandler) -> ZResult<Queryable>
+    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, kind: ReplySource, query_handler: QueryHandler) -> ZResult<Queryable>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
-        let qable = Queryable{ id, reskey: resource.clone(), qhandler };
+        let qable = Queryable{ id, reskey: resource.clone(), kind, qhandler };
         inner.queryables.insert(id, qable.clone());
 
         let primitives = inner.primitives.as_ref().unwrap();
@@ -225,7 +226,7 @@ impl Session {
         target:          QueryTarget,
         consolidation:   QueryConsolidation
     ) -> ZResult<()>
-        where RepliesHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
+        where RepliesHandler: FnMut(&Reply) + Send + Sync + 'static
     {
         let inner = &mut self.inner.write();
         let qid = inner.qid_counter.fetch_add(1, Ordering::SeqCst);
@@ -290,12 +291,67 @@ impl Primitives for Session {
         }
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {
-        println!("++++ recv Query {:?} ? {} ", reskey, predicate);
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, _consolidation: QueryConsolidation) {
+        let inner = self.inner.read();
+        match inner.reskey_to_resname(reskey) {
+            Ok(resname) => {
+                let queryables = inner.queryables.values().filter(|queryable| {
+                    match inner.reskey_to_resname(&queryable.reskey) {
+                        Ok(qablname) => {
+                            rname::intersect(&qablname, &resname) 
+                            && ((queryable.kind == ReplySource::Storage && target.storage != Target::None) 
+                                || (queryable.kind == ReplySource::Eval && target.eval != Target::None))
+                        },
+                        Err(err) => {println!("{}. Internal error (queryable reskey to resname failed).", err); false}
+                    }
+                });
+
+                let nb_qhandlers = Arc::new(AtomicUsize::new(queryables.size_hint().1.unwrap()));
+                let sent_final = Arc::new(AtomicBool::new(false));
+                for queryable in queryables {
+                    let handler = &mut *queryable.qhandler.write();
+
+                    fn replies_sender(query_handle: QueryHandle, replies: Vec<(String, RBuf)>) {
+                        async_std::task::spawn(
+                            async move {
+                                for (reskey, payload) in replies {
+                                    query_handle.primitives.reply(query_handle.qid, &Reply::ReplyData {
+                                        source: query_handle.kind.clone(), 
+                                        replier_id: query_handle.pid.clone(), 
+                                        reskey: ResKey::RName(reskey.to_string()), 
+                                        info: None,   // @TODO
+                                        payload,
+                                    }).await;
+                                }
+                                query_handle.primitives.reply(query_handle.qid, &Reply::SourceFinal {
+                                    source: query_handle.kind.clone(), 
+                                    replier_id: query_handle.pid.clone(),
+                                }).await;
+
+                                query_handle.nb_qhandlers.fetch_sub(1, Ordering::Relaxed);
+                                if query_handle.nb_qhandlers.load(Ordering::Relaxed) == 0 && !query_handle.sent_final.swap(true, Ordering::Relaxed) {
+                                    query_handle.primitives.reply(query_handle.qid, &Reply::ReplyFinal).await;
+                                }
+                            }
+                        );
+                    }
+                    let qhandle = QueryHandle {
+                        pid: inner.pid.clone(), // @TODO build/use prebuilt specific pid
+                        kind: queryable.kind.clone(),
+                        primitives: inner.primitives.clone().unwrap(),
+                        qid,
+                        nb_qhandlers: nb_qhandlers.clone(),
+                        sent_final: sent_final.clone(),
+                    };
+                    handler(&resname, predicate, &replies_sender, qhandle);
+
+                }
+            },
+            Err(err) => println!("{}. Dropping received query", err)
+        }
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
-        println!("++++ recv Reply {} : {:?} ", qid, reply);
         let inner = &mut self.inner.write();
         let rhandler = &mut * match inner.queries.get(&qid) {
             Some(arc) => arc.write(),
@@ -305,7 +361,7 @@ impl Primitives for Session {
             }
         };
         match reply {
-            Reply::ReplyData {reskey, payload, ..} => {
+            Reply::ReplyData {source, replier_id, reskey, info, payload} => {
                 let resname = match inner.reskey_to_resname(&reskey) {
                     Ok(name) => name,
                     Err(e) => {
@@ -313,11 +369,15 @@ impl Primitives for Session {
                         return
                     }
                 };
-                let info = DataInfo::make(None, None, None, None, None, None, None);   // @TODO
-                rhandler(&resname, payload.clone(), info);
+                rhandler(&Reply::ReplyData {
+                    source: source.clone(), 
+                    replier_id: replier_id.clone(), 
+                    reskey: ResKey::RName(resname), 
+                    info: info.clone(), 
+                    payload: payload.clone()} ); // @TODO find something more efficient than cloning everything
             }
-            Reply::SourceFinal {..} => {} // @ TODO
-            Reply::ReplyFinal {..} => {} // @ TODO remove query
+            Reply::SourceFinal {..} => {rhandler(reply);} 
+            Reply::ReplyFinal {..} => {rhandler(reply);} // @TODO remove query
         }
     }
 
@@ -333,6 +393,7 @@ impl Primitives for Session {
 
 
 pub(crate) struct InnerSession {
+    pid:             PeerId,
     primitives:      Option<Arc<dyn Primitives + Send + Sync>>, // @TODO replace with MaybeUninit ??
     rid_counter:     AtomicUsize,  // @TODO: manage rollover and uniqueness
     qid_counter:     AtomicU64,
@@ -345,8 +406,9 @@ pub(crate) struct InnerSession {
 }
 
 impl InnerSession {
-    pub(crate) fn new() -> InnerSession {
+    pub(crate) fn new(pid: PeerId) -> InnerSession {
         InnerSession  { 
+            pid, 
             primitives:      None,
             rid_counter:     AtomicUsize::new(1),  // Note: start at 1 because 0 is reserved for NO_RESOURCE
             qid_counter:     AtomicU64::new(0),

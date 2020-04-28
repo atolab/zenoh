@@ -6,7 +6,7 @@ use async_std::sync::Arc;
 use spin::RwLock;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
-
+use zenoh_protocol::proto::ReplySource;
 
 fn main() {
     task::block_on( async {
@@ -30,11 +30,11 @@ fn main() {
 
         let query_handler = move |res_name: &str, predicate: &str, replies_sender: &RepliesSender, query_handle: QueryHandle| {
             println!(">> [Query handler   ] Handling '{}?{}'", res_name, predicate);
-            let mut result: Vec<(&str, RBuf)> = Vec::new();
+            let mut result: Vec<(String, RBuf)> = Vec::new();
             let ref st = stored_shared.read();
             for (rname, data) in st.iter() {
                 if rname_intersect(res_name, rname) {
-                    result.push((rname, data.clone()));
+                    result.push((rname.to_string(), data.clone()));
                 }
             }
             println!(">> Returning: {:?}", result);
@@ -55,7 +55,7 @@ fn main() {
         let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).await.unwrap();
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&RName(uri), ReplySource::Storage, query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];

@@ -3,6 +3,7 @@ use std::io::Read;
 use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
+use zenoh_protocol::proto::ReplySource;
 
 fn main() {
     task::block_on( async {
@@ -21,12 +22,12 @@ fn main() {
         let query_handler = move |res_name: &str, predicate: &str, replies_sender: &RepliesSender, query_handle: QueryHandle| {
             println!(">> [Query handler] Handling '{}?{}'", res_name, predicate);
             let data: RBuf = "Eval from Rust!".as_bytes().into();
-            let result: Vec<(&str, RBuf)> = [(&rname[..], data)].to_vec();
+            let result: Vec<(String, RBuf)> = [(rname.clone(), data)].to_vec();
             (*replies_sender)(query_handle, result);
         };
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&RName(uri), ReplySource::Eval, query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];
