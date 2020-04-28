@@ -108,8 +108,8 @@ impl Session {
     pub async fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
         let inner = &mut self.inner.write();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
-        let rname = inner.reskey_to_resname(resource)?;
-        inner.resources.insert(rid, rname);
+        let rname = inner.localkey_to_resname(resource)?;
+        inner.local_resources.insert(rid, rname);
 
         let primitives = inner.primitives.as_ref().unwrap();
         primitives.resource(rid, resource).await;
@@ -123,7 +123,7 @@ impl Session {
         let primitives = inner.primitives.as_ref().unwrap();
         primitives.forget_resource(rid).await;
 
-        inner.resources.remove(&rid);
+        inner.local_resources.remove(&rid);
         Ok(())
     }
 
@@ -158,7 +158,7 @@ impl Session {
     {
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
-        let resname = inner.reskey_to_resname(resource)?;
+        let resname = inner.localkey_to_resname(resource)?;
         let dhandler = Arc::new(RwLock::new(data_handler));
         let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
@@ -244,6 +244,11 @@ impl Primitives for Session {
 
     async fn resource(&self, rid: ZInt, reskey: &ResKey) {
         println!("++++ recv Resource {} {:?} ", rid, reskey);
+        let inner = &mut self.inner.write();
+        match inner.reskey_to_resname(reskey) {
+            Ok(name) => {inner.remote_resources.insert(rid, name);}
+            Err(_) => println!("ERROR: received res_decl with unknown key.")
+        }
     }
 
     async fn forget_resource(&self, rid: ZInt) {
@@ -393,31 +398,33 @@ impl Primitives for Session {
 
 
 pub(crate) struct InnerSession {
-    pid:             PeerId,
-    primitives:      Option<Arc<dyn Primitives + Send + Sync>>, // @TODO replace with MaybeUninit ??
-    rid_counter:     AtomicUsize,  // @TODO: manage rollover and uniqueness
-    qid_counter:     AtomicU64,
-    decl_id_counter: AtomicUsize,
-    resources:       HashMap<ResourceId, String>,
-    publishers:      HashMap<Id, Publisher>,
-    subscribers:     HashMap<Id, Subscriber>,
-    queryables:      HashMap<Id, Queryable>,
-    queries:         HashMap<ZInt, Arc<RwLock<RepliesHandler>>>,
+    pid:              PeerId,
+    primitives:       Option<Arc<dyn Primitives + Send + Sync>>, // @TODO replace with MaybeUninit ??
+    rid_counter:      AtomicUsize,  // @TODO: manage rollover and uniqueness
+    qid_counter:      AtomicU64,
+    decl_id_counter:  AtomicUsize,
+    local_resources:  HashMap<ResourceId, String>,
+    remote_resources: HashMap<ResourceId, String>,
+    publishers:       HashMap<Id, Publisher>,
+    subscribers:      HashMap<Id, Subscriber>,
+    queryables:       HashMap<Id, Queryable>,
+    queries:          HashMap<ZInt, Arc<RwLock<RepliesHandler>>>,
 }
 
 impl InnerSession {
     pub(crate) fn new(pid: PeerId) -> InnerSession {
         InnerSession  { 
             pid, 
-            primitives:      None,
-            rid_counter:     AtomicUsize::new(1),  // Note: start at 1 because 0 is reserved for NO_RESOURCE
-            qid_counter:     AtomicU64::new(0),
-            decl_id_counter: AtomicUsize::new(0),
-            resources:       HashMap::new(),
-            publishers:      HashMap::new(),
-            subscribers:     HashMap::new(),
-            queryables:      HashMap::new(),
-            queries:         HashMap::new(),
+            primitives:       None,
+            rid_counter:      AtomicUsize::new(1),  // Note: start at 1 because 0 is reserved for NO_RESOURCE
+            qid_counter:      AtomicU64::new(0),
+            decl_id_counter:  AtomicUsize::new(0),
+            local_resources:  HashMap::new(),
+            remote_resources: HashMap::new(),
+            publishers:       HashMap::new(),
+            subscribers:      HashMap::new(),
+            queryables:       HashMap::new(),
+            queries:          HashMap::new(),
         }
     }
 }
@@ -428,13 +435,42 @@ impl InnerSession {
         match reskey {
             RName(name) => Ok(name.clone()),
             RId(rid) => {
-                match self.resources.get(&rid) {
+                match self.remote_resources.get(&rid) {
+                    Some(name) => Ok(name.clone()),
+                    None => {
+                        match self.local_resources.get(&rid) {
+                            Some(name) => Ok(name.clone()),
+                            None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                        }
+                    }
+                }
+            },
+            RIdWithSuffix(rid, suffix) => {
+                match self.remote_resources.get(&rid) {
+                    Some(name) => Ok(name.clone() + suffix),
+                    None => {
+                        match self.local_resources.get(&rid) {
+                            Some(name) => Ok(name.clone() + suffix),
+                            None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn localkey_to_resname(&self, reskey: &ResKey) -> ZResult<String> {
+        use super::ResKey::*;
+        match reskey {
+            RName(name) => Ok(name.clone()),
+            RId(rid) => {
+                match self.local_resources.get(&rid) {
                     Some(name) => Ok(name.clone()),
                     None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
             },
             RIdWithSuffix(rid, suffix) => {
-                match self.resources.get(&rid) {
+                match self.local_resources.get(&rid) {
                     Some(name) => Ok(name.clone() + suffix),
                     None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
                 }
