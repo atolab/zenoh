@@ -173,7 +173,7 @@ async fn read_task(link: Arc<LinkTcp>) {
                         // Delete the link from the manager
                         let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                         // Notify the transport
-                        let _ = guard.link_err(&link_obj).await;
+                        guard.link_err(&link_obj).await;
                         return Some(false)
                     }
                     buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
@@ -184,7 +184,7 @@ async fn read_task(link: Arc<LinkTcp>) {
                     // Delete the link from the manager
                     let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                     // Notify the transport
-                    let _ = guard.link_err(&link_obj).await;
+                    guard.link_err(&link_obj).await;
                     return Some(false)
                 }
             }
