@@ -727,7 +727,7 @@ impl Tables {
                             unsafe {
                                 let mut res = res.upgrade().unwrap();
                                 for (sid, context) in &mut Arc::get_mut_unchecked(&mut res).contexts {
-                                    if context.qabl
+                                    if context.qabl && ! Arc::ptr_eq(&sex, &context.face)
                                     {
                                         sexs.entry(*sid).or_insert_with( || {
                                             let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
@@ -756,17 +756,15 @@ impl Tables {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_query_to_map(tables, sex, qid, rid, suffix).await {
                     for (_id, (face, rid, suffix, qid)) in outfaces {
-                        if ! Arc::ptr_eq(&strongsex, &face) {
-                            let primitives = {
-                                if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                    Some(face.primitives.clone())
-                                } else {
-                                    None
-                                }
-                            };
-                            if let Some(primitives) = primitives {
-                                primitives.query((rid, suffix).into(), predicate.to_string(), qid, target.clone(), consolidation.clone()).await
+                        let primitives = {
+                            if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
+                                Some(face.primitives.clone())
+                            } else {
+                                None
                             }
+                        };
+                        if let Some(primitives) = primitives {
+                            primitives.query((rid, suffix).into(), predicate.to_string(), qid, target.clone(), consolidation.clone()).await
                         }
                     }
                 }
