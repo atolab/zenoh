@@ -112,6 +112,14 @@ impl Tables {
         Resource::print_tree(&tables.read().await.root_res)
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn get_mapping<'a>(&'a self, face: &'a Face, rid: &ZInt) -> Option<&'a Arc<Resource>> {
+        match rid {
+            0 => {Some(&self.root_res)}
+            rid => {face.get_mapping(rid)}
+        }
+    }
+
     pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
         unsafe {
             let mut t = tables.write().await;
@@ -261,13 +269,7 @@ impl Tables {
                         // }
                     }
                     None => {
-                        let prefix = {
-                            match prefixid {
-                                0 => {Some(t.root_res.clone())}
-                                prefixid => {sex.get_mapping(&prefixid).cloned()}
-                            }
-                        };
-                        match prefix {
+                        match t.get_mapping(&sex, &prefixid).cloned() {
                             Some(mut prefix) => unsafe {
                                 let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
                                 let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(sex.id).or_insert_with( ||
@@ -318,13 +320,7 @@ impl Tables {
         let mut t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(t.root_res.clone())}
-                        prefixid => {sex.get_mapping(&prefixid).cloned()}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid).cloned() {
                     Some(mut prefix) => unsafe {
                         let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
                         {
@@ -401,13 +397,7 @@ impl Tables {
         let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(&t.root_res)}
-                        prefixid => {sex.get_mapping(&prefixid)}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid) {
                     Some(prefix) => {
                         match Resource::get_resource(prefix, suffix) {
                             Some(mut res) => unsafe {
@@ -513,13 +503,7 @@ impl Tables {
         let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(&t.root_res)}
-                        prefixid => {sex.get_mapping(&prefixid)}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid) {
                     Some(prefix) => {
                         match Resource::get_resource(prefix, suffix) {
                             Some(mut res) => unsafe {
@@ -619,45 +603,33 @@ impl Tables {
     pub async fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) -> Option<DataRoute> {
         let t = tables.read().await;
 
-        let build_route = |prefix: &Arc<Resource>, suffix: &str| {
-            Some(match Resource::get_resource(prefix, suffix) {
-                Some(res) => {res.route.clone()}
-                None => {
-                    let mut sexs = HashMap::new();
-                    for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
-                        let res = res.upgrade().unwrap();
-                        for (sid, context) in &res.contexts {
-                            if context.subs.is_some() {
-                                sexs.entry(*sid).or_insert_with( || {
-                                    let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
-                                    (context.face.clone(), rid, suffix)
-                                });
-                            }
-                        }
-                    };
-                    sexs
-                }
-            })
-        };
-
         match sex.upgrade() {
             Some(sex) => {
-                match sex.get_mapping(&rid) {
-                    Some(res) => {
-                        match suffix {
-                            "" => {Some(res.route.clone())}
-                            suffix => {
-                                build_route(res, suffix)
+                match t.get_mapping(&sex, &rid) {
+                    Some(prefix) => {
+                        match Resource::get_resource(prefix, suffix) {
+                            Some(res) => {Some(res.route.clone())}
+                            None => {
+                                let mut sexs = HashMap::new();
+                                for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
+                                    let res = res.upgrade().unwrap();
+                                    for (sid, context) in &res.contexts {
+                                        if context.subs.is_some() {
+                                            sexs.entry(*sid).or_insert_with( || {
+                                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
+                                                (context.face.clone(), rid, suffix)
+                                            });
+                                        }
+                                    }
+                                };
+                                Some(sexs)
                             }
                         }
                     }
                     None => {
-                        if rid == 0 {
-                            build_route(&t.root_res, suffix)
-                        } else {
-                            println!("Route data with unknown rid {}!", rid); None
-                        }
+                        println!("Route data with unknown rid {}!", rid); None
                     }
+
                 }
             }
             None => {println!("Route data for closed session!"); None}
@@ -694,18 +666,7 @@ impl Tables {
 
         match sex.upgrade() {
             Some(sex) => {
-                let prefix = match sex.get_mapping(&rid) {
-                    None => {
-                        if rid == 0 {
-                            Some(&t.root_res)
-                        } else {
-                            println!("Route query with unknown rid {}!", rid); None
-                        }
-                    }
-                    res => res
-                };
-                match prefix {
-                    None => {None}
+                match t.get_mapping(&sex, &rid) {
                     Some(prefix) => {
                         let query = Arc::new(Query {src_face: sex.clone(), src_qid: qid});
                         let mut sexs = HashMap::new();
@@ -729,6 +690,7 @@ impl Tables {
                         };
                         Some(sexs)
                     }
+                    None => {println!("Route query with unknown rid {}!", rid); None}
                 }
             }
             None => {println!("Route query for closed session!"); None}
