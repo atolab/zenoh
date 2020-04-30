@@ -126,25 +126,11 @@ impl Tables {
                 for (id, face) in t.faces.iter() {
                     if *id != sid {
                         for sub in face.subs.iter() {
-                            let (nonwild_prefix, wildsuffix) = {
-                                match &sub.nonwild_prefix {
-                                    None => {
-                                        local_id += 1;
-                                        (Some((sub.clone(), local_id)), "".to_string())
-                                    }
-                                    Some((nonwild_prefix, wildsuffix)) => {
-                                        if ! nonwild_prefix.name().is_empty() {
-                                            local_id += 1;
-                                            (Some((nonwild_prefix.clone(), local_id)), wildsuffix.clone())
-                                        }else {
-                                            (None, sub.name())
-                                        }
-                                    }
-                                }
-                            };
+                            let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(sub);
 
                             match nonwild_prefix {
-                                Some((mut nonwild_prefix, local_id)) => {
+                                Some(mut nonwild_prefix) => {
+                                    local_id += 1;
                                     Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
                                         Arc::new(Context {
                                             face: newface.clone(),
@@ -167,25 +153,11 @@ impl Tables {
                         }
 
                         for qabl in face.qabl.iter() {
-                            let (nonwild_prefix, wildsuffix) = {
-                                match &qabl.nonwild_prefix {
-                                    None => {
-                                        local_id += 1;
-                                        (Some((qabl.clone(), local_id)), "".to_string())
-                                    }
-                                    Some((nonwild_prefix, wildsuffix)) => {
-                                        if ! nonwild_prefix.name().is_empty() {
-                                            local_id += 1;
-                                            (Some((nonwild_prefix.clone(), local_id)), wildsuffix.clone())
-                                        }else {
-                                            (None, qabl.name())
-                                        }
-                                    }
-                                }
-                            };
+                            let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(qabl);
 
                             match nonwild_prefix {
-                                Some((mut nonwild_prefix, local_id)) => {
+                                Some(mut nonwild_prefix) => {
+                                    local_id += 1;
                                     Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
                                         Arc::new(Context {
                                             face: newface.clone(),

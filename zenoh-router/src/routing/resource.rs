@@ -45,6 +45,21 @@ impl Resource {
         }
     }
 
+    pub fn nonwild_prefix(res: &Arc<Resource>) -> (Option<Arc<Resource>>, String) {
+        match &res.nonwild_prefix {
+            None => {
+                (Some(res.clone()), "".to_string())
+            }
+            Some((nonwild_prefix, wildsuffix)) => {
+                if ! nonwild_prefix.name().is_empty() {
+                    (Some(nonwild_prefix.clone()), wildsuffix.clone())
+                }else {
+                    (None, res.name())
+                }
+            }
+        }
+    }
+
     pub fn is_key(&self) -> bool {
         !self.contexts.is_empty()
     }
