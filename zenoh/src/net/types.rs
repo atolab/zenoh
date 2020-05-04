@@ -1,5 +1,6 @@
 use std::fmt;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use async_std::sync::Arc;
 use spin::RwLock;
 use super::InnerSession;
@@ -12,6 +13,7 @@ pub use zenoh_protocol::core::{
     ZResult,
     ResourceId,
     ResKey,
+    PeerId,
 };
 pub use zenoh_protocol::proto::{
     Reliability,
@@ -21,21 +23,31 @@ pub use zenoh_protocol::proto::{
     Target,
     QueryTarget,
     QueryConsolidation,
+    Reply,
+    ReplySource,
     DataInfo
 };
+pub use zenoh_protocol::proto::Primitives;
 
 
 pub type Properties = HashMap<ZInt, Vec<u8>>;
 
-pub type QueryHandle = ZInt;
+pub struct QueryHandle {
+    pub(crate) pid: PeerId,
+    pub(crate) kind: ReplySource,
+    pub(crate) primitives: Arc<dyn Primitives + Send + Sync>,
+    pub(crate) qid: ZInt,
+    pub(crate) nb_qhandlers: Arc<AtomicUsize>,
+    pub(crate) sent_final: Arc<AtomicBool>,
+}
 
 pub type DataHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static;
 
 pub type QueryHandler = dyn FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static;
 
-pub type RepliesSender = dyn Fn(/*query_handle:*/ QueryHandle, /*replies:*/ Vec<(&str, RBuf)>) + Send + Sync + 'static;
+pub type RepliesSender = dyn Fn(/*query_handle:*/ QueryHandle, /*replies:*/ Vec<(String, RBuf)>) + Send + Sync + 'static;
 
-pub type RepliesHandler = dyn FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static;
+pub type RepliesHandler = dyn FnMut(&Reply) + Send + Sync + 'static;
 
 
 pub(crate) type Id = usize;
@@ -92,6 +104,7 @@ impl fmt::Debug for Subscriber {
 pub struct Queryable {
     pub(crate) id: Id,
     pub(crate) reskey: ResKey,
+    pub(crate) kind: ReplySource,
     pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
 }
 

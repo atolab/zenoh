@@ -112,6 +112,14 @@ impl Tables {
         Resource::print_tree(&tables.read().await.root_res)
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn get_mapping<'a>(&'a self, face: &'a Face, rid: &ZInt) -> Option<&'a Arc<Resource>> {
+        match rid {
+            0 => {Some(&self.root_res)}
+            rid => {face.get_mapping(rid)}
+        }
+    }
+
     pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
         unsafe {
             let mut t = tables.write().await;
@@ -126,25 +134,10 @@ impl Tables {
                 for (id, face) in t.faces.iter() {
                     if *id != sid {
                         for sub in face.subs.iter() {
-                            let (nonwild_prefix, wildsuffix) = {
-                                match &sub.nonwild_prefix {
-                                    None => {
-                                        local_id += 1;
-                                        (Some((sub.clone(), local_id)), "".to_string())
-                                    }
-                                    Some((nonwild_prefix, wildsuffix)) => {
-                                        if ! nonwild_prefix.name().is_empty() {
-                                            local_id += 1;
-                                            (Some((nonwild_prefix.clone(), local_id)), wildsuffix.clone())
-                                        }else {
-                                            (None, sub.name())
-                                        }
-                                    }
-                                }
-                            };
-
+                            let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(sub);
                             match nonwild_prefix {
-                                Some((mut nonwild_prefix, local_id)) => {
+                                Some(mut nonwild_prefix) => {
+                                    local_id += 1;
                                     Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
                                         Arc::new(Context {
                                             face: newface.clone(),
@@ -167,25 +160,10 @@ impl Tables {
                         }
 
                         for qabl in face.qabl.iter() {
-                            let (nonwild_prefix, wildsuffix) = {
-                                match &qabl.nonwild_prefix {
-                                    None => {
-                                        local_id += 1;
-                                        (Some((qabl.clone(), local_id)), "".to_string())
-                                    }
-                                    Some((nonwild_prefix, wildsuffix)) => {
-                                        if ! nonwild_prefix.name().is_empty() {
-                                            local_id += 1;
-                                            (Some((nonwild_prefix.clone(), local_id)), wildsuffix.clone())
-                                        }else {
-                                            (None, qabl.name())
-                                        }
-                                    }
-                                }
-                            };
-
+                            let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(qabl);
                             match nonwild_prefix {
-                                Some((mut nonwild_prefix, local_id)) => {
+                                Some(mut nonwild_prefix) => {
+                                    local_id += 1;
                                     Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
                                         Arc::new(Context {
                                             face: newface.clone(),
@@ -291,13 +269,7 @@ impl Tables {
                         // }
                     }
                     None => {
-                        let prefix = {
-                            match prefixid {
-                                0 => {Some(t.root_res.clone())}
-                                prefixid => {sex.get_mapping(&prefixid).cloned()}
-                            }
-                        };
-                        match prefix {
+                        match t.get_mapping(&sex, &prefixid).cloned() {
                             Some(mut prefix) => unsafe {
                                 let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
                                 let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(sex.id).or_insert_with( ||
@@ -348,13 +320,7 @@ impl Tables {
         let mut t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(t.root_res.clone())}
-                        prefixid => {sex.get_mapping(&prefixid).cloned()}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid).cloned() {
                     Some(mut prefix) => unsafe {
                         let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
                         {
@@ -379,33 +345,41 @@ impl Tables {
 
                         for (id, face) in &mut t.faces {
                             if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
-                                if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
-                                    if let Some(rid) = ctx.local_rid {
-                                        face.primitives.clone().subscriber((rid, suffix).into(), sub_info.clone()).await;
-                                    } else if let Some(rid) = ctx.remote_rid {
-                                        face.primitives.clone().subscriber((rid, suffix).into(), sub_info.clone()).await;
-                                    } else {
-                                        let rid = face.get_next_local_id();
-                                        Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                        Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
+                                let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
+                                match nonwild_prefix {
+                                    Some(mut nonwild_prefix) => {
+                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.get_mut(id) {
+                                            if let Some(rid) = ctx.local_rid {
+                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
+                                            } else if let Some(rid) = ctx.remote_rid {
+                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
+                                            } else {
+                                                let rid = face.get_next_local_id();
+                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
+                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
 
-                                        face.primitives.clone().resource(rid, prefix.name().into()).await;
-                                        face.primitives.clone().subscriber((rid, suffix).into(), sub_info.clone()).await;
+                                                face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
+                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
+                                            }
+                                        } else {
+                                            let rid = face.get_next_local_id();
+                                            Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(*id, 
+                                                Arc::new(Context {
+                                                    face: face.clone(),
+                                                    local_rid: Some(rid),
+                                                    remote_rid: None,
+                                                    subs: None,
+                                                    qabl: false,
+                                            }));
+                                            Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
+
+                                            face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
+                                            face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
+                                        }
                                     }
-                                } else {
-                                    let rid = face.get_next_local_id();
-                                    Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
-                                        Arc::new(Context {
-                                            face: face.clone(),
-                                            local_rid: Some(rid),
-                                            remote_rid: None,
-                                            subs: None,
-                                            qabl: false,
-                                    }));
-                                    Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
-
-                                    face.primitives.clone().resource(rid, prefix.name().into()).await;
-                                    face.primitives.clone().subscriber((rid, suffix).into(), sub_info.clone()).await;
+                                    None => {
+                                        face.primitives.clone().subscriber(ResKey::RName(wildsuffix), sub_info.clone()).await;
+                                    }
                                 }
                             }
                         }
@@ -423,13 +397,7 @@ impl Tables {
         let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(&t.root_res)}
-                        prefixid => {sex.get_mapping(&prefixid)}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid) {
                     Some(prefix) => {
                         match Resource::get_resource(prefix, suffix) {
                             Some(mut res) => unsafe {
@@ -483,33 +451,41 @@ impl Tables {
 
                         for (id, face) in &mut t.faces {
                             if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
-                                if let Some(mut ctx) = Arc::get_mut_unchecked(&mut prefix).contexts.get_mut(id) {
-                                    if let Some(rid) = ctx.local_rid {
-                                        face.primitives.clone().queryable((rid, suffix).into()).await;
-                                    } else if let Some(rid) = ctx.remote_rid {
-                                        face.primitives.clone().queryable((rid, suffix).into()).await;
-                                    } else {
-                                        let rid = face.get_next_local_id();
-                                        Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                        Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
+                                let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
+                                match nonwild_prefix {
+                                    Some(mut nonwild_prefix) => {
+                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.get_mut(id) {
+                                            if let Some(rid) = ctx.local_rid {
+                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
+                                            } else if let Some(rid) = ctx.remote_rid {
+                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
+                                            } else {
+                                                let rid = face.get_next_local_id();
+                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
+                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
 
-                                        face.primitives.clone().resource(rid, prefix.name().into()).await;
-                                        face.primitives.clone().queryable((rid, suffix).into()).await;
+                                                face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
+                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
+                                            }
+                                        } else {
+                                            let rid = face.get_next_local_id();
+                                            Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(*id, 
+                                                Arc::new(Context {
+                                                    face: face.clone(),
+                                                    local_rid: Some(rid),
+                                                    remote_rid: None,
+                                                    subs: None,
+                                                    qabl: false,
+                                            }));
+                                            Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
+
+                                            face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
+                                            face.primitives.clone().queryable((rid, wildsuffix).into()).await;
+                                        }
                                     }
-                                } else {
-                                    let rid = face.get_next_local_id();
-                                    Arc::get_mut_unchecked(&mut prefix).contexts.insert(*id, 
-                                        Arc::new(Context {
-                                            face: face.clone(),
-                                            local_rid: Some(rid),
-                                            remote_rid: None,
-                                            subs: None,
-                                            qabl: false,
-                                    }));
-                                    Arc::get_mut_unchecked(face).local_mappings.insert(rid, prefix.clone());
-
-                                    face.primitives.clone().resource(rid, prefix.name().into()).await;
-                                    face.primitives.clone().queryable((rid, suffix).into()).await;
+                                    None => {
+                                        face.primitives.clone().queryable(ResKey::RName(wildsuffix)).await;
+                                    }
                                 }
                             }
                         }
@@ -527,13 +503,7 @@ impl Tables {
         let t = tables.write().await;
         match sex.upgrade() {
             Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(&t.root_res)}
-                        prefixid => {sex.get_mapping(&prefixid)}
-                    }
-                };
-                match prefix {
+                match t.get_mapping(&sex, &prefixid) {
                     Some(prefix) => {
                         match Resource::get_resource(prefix, suffix) {
                             Some(mut res) => unsafe {
@@ -633,45 +603,33 @@ impl Tables {
     pub async fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) -> Option<DataRoute> {
         let t = tables.read().await;
 
-        let build_route = |prefix: &Arc<Resource>, suffix: &str| {
-            Some(match Resource::get_resource(prefix, suffix) {
-                Some(res) => {res.route.clone()}
-                None => {
-                    let mut sexs = HashMap::new();
-                    for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
-                        let res = res.upgrade().unwrap();
-                        for (sid, context) in &res.contexts {
-                            if context.subs.is_some() {
-                                sexs.entry(*sid).or_insert_with( || {
-                                    let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
-                                    (context.face.clone(), rid, suffix)
-                                });
-                            }
-                        }
-                    };
-                    sexs
-                }
-            })
-        };
-
         match sex.upgrade() {
             Some(sex) => {
-                match sex.get_mapping(&rid) {
-                    Some(res) => {
-                        match suffix {
-                            "" => {Some(res.route.clone())}
-                            suffix => {
-                                build_route(res, suffix)
+                match t.get_mapping(&sex, &rid) {
+                    Some(prefix) => {
+                        match Resource::get_resource(prefix, suffix) {
+                            Some(res) => {Some(res.route.clone())}
+                            None => {
+                                let mut sexs = HashMap::new();
+                                for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
+                                    let res = res.upgrade().unwrap();
+                                    for (sid, context) in &res.contexts {
+                                        if context.subs.is_some() {
+                                            sexs.entry(*sid).or_insert_with( || {
+                                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
+                                                (context.face.clone(), rid, suffix)
+                                            });
+                                        }
+                                    }
+                                };
+                                Some(sexs)
                             }
                         }
                     }
                     None => {
-                        if rid == 0 {
-                            build_route(&t.root_res, suffix)
-                        } else {
-                            println!("Route data with unknown rid {}!", rid); None
-                        }
+                        println!("Route data with unknown rid {}!", rid); None
                     }
+
                 }
             }
             None => {println!("Route data for closed session!"); None}
@@ -708,18 +666,7 @@ impl Tables {
 
         match sex.upgrade() {
             Some(sex) => {
-                let prefix = match sex.get_mapping(&rid) {
-                    None => {
-                        if rid == 0 {
-                            Some(&t.root_res)
-                        } else {
-                            println!("Route query with unknown rid {}!", rid); None
-                        }
-                    }
-                    res => res
-                };
-                match prefix {
-                    None => {None}
+                match t.get_mapping(&sex, &rid) {
                     Some(prefix) => {
                         let query = Arc::new(Query {src_face: sex.clone(), src_qid: qid});
                         let mut sexs = HashMap::new();
@@ -727,7 +674,7 @@ impl Tables {
                             unsafe {
                                 let mut res = res.upgrade().unwrap();
                                 for (sid, context) in &mut Arc::get_mut_unchecked(&mut res).contexts {
-                                    if context.qabl
+                                    if context.qabl && ! Arc::ptr_eq(&sex, &context.face)
                                     {
                                         sexs.entry(*sid).or_insert_with( || {
                                             let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
@@ -743,6 +690,7 @@ impl Tables {
                         };
                         Some(sexs)
                     }
+                    None => {println!("Route query with unknown rid {}!", rid); None}
                 }
             }
             None => {println!("Route query for closed session!"); None}
@@ -756,17 +704,15 @@ impl Tables {
             Some(strongsex) => {
                 if let Some(outfaces) = Tables::route_query_to_map(tables, sex, qid, rid, suffix).await {
                     for (_id, (face, rid, suffix, qid)) in outfaces {
-                        if ! Arc::ptr_eq(&strongsex, &face) {
-                            let primitives = {
-                                if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                    Some(face.primitives.clone())
-                                } else {
-                                    None
-                                }
-                            };
-                            if let Some(primitives) = primitives {
-                                primitives.query((rid, suffix).into(), predicate.to_string(), qid, target.clone(), consolidation.clone()).await
+                        let primitives = {
+                            if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
+                                Some(face.primitives.clone())
+                            } else {
+                                None
                             }
+                        };
+                        if let Some(primitives) = primitives {
+                            primitives.query((rid, suffix).into(), predicate.to_string(), qid, target.clone(), consolidation.clone()).await
                         }
                     }
                 }
