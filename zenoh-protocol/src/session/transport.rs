@@ -173,7 +173,7 @@ impl Transport {
         let session = if let Some(session) = zasyncread!(self.session).as_ref() {
             session.clone()
         } else {
-            panic!("Session is unitialized");
+            panic!("Session is uninitialized");
         };
 
         // Get the perameters from the transport

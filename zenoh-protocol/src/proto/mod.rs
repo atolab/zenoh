@@ -19,8 +19,5 @@ pub use msg_writer::*;
 mod msg_reader;
 pub use msg_reader::*;
 
-mod locator;
-pub use locator::*;
-
 mod seq_num;
 pub use seq_num::*;

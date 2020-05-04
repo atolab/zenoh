@@ -122,7 +122,7 @@ async fn run(locator: Locator) {
     /* [1] */
     // Add the locator on the router
     let res = router_manager.add_locator(&locator).await; 
-    assert_eq!(res.is_ok(), true);
+    assert!(res.is_ok());
     assert_eq!(router_manager.get_locators().await.len(), 1);
 
     // Open a first session from the client to the router 
