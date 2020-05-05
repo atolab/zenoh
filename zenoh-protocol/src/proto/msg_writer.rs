@@ -79,10 +79,14 @@ impl WBuf {
             Body::Data { sn, key, info, payload, .. } => {
                 self.write_zint(*sn);
                 self.write_reskey(&key);
-                if let Some(i) = info {
-                    self.write_bytes_slice(&i);
+                if let Some(rbuf) = info {
+                    self.write_rbuf(&rbuf);
                 }
-                self.write_bytes_slice(&payload);
+                self.write_rbuf(&payload);
+            }
+
+            Body::Unit { sn, .. } => {
+                self.write_zint(*sn);
             }
 
             Body::Pull { sn, key, pull_id, max_samples } => {
@@ -260,10 +264,8 @@ impl WBuf {
             ForgetSubscriber { key } => write_key_decl!(self, FORGET_SUBSCRIBER, key),
             Publisher { key }        => write_key_decl!(self, PUBLISHER, key),
             ForgetPublisher { key }  => write_key_decl!(self, FORGET_PUBLISHER, key),
-            Storage { key }          => write_key_decl!(self, STORAGE, key),
-            ForgetStorage { key }    => write_key_decl!(self, FORGET_STORAGE, key),
-            Eval { key }             => write_key_decl!(self, EVAL, key),
-            ForgetEval { key }       => write_key_decl!(self, FORGET_EVAL, key),
+            Queryable { key }        => write_key_decl!(self, QUERYABLE, key),
+            ForgetQueryable { key }  => write_key_decl!(self, FORGET_QUERYABLE, key),
         }
     }
 

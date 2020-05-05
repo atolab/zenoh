@@ -3,9 +3,9 @@ use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
-use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
-use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
+use zenoh_protocol::io::RBuf;
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler};
 
 pub struct PrintPrimitives {
 }
@@ -34,28 +34,21 @@ impl Primitives for PrintPrimitives {
         println!("  [RECV] FORGET SUBSCRIBER ({:?})", reskey);
     }
     
-    async fn storage(&self, reskey: &ResKey) {
-        println!("  [RECV] STORAGE ({:?})", reskey);
+    async fn queryable(&self, reskey: &ResKey) {
+        println!("  [RECV] QUERYABLE ({:?})", reskey);
     }
-    async fn forget_storage(&self, reskey: &ResKey) {
-        println!("  [RECV] FORGET STORAGE ({:?})", reskey);
-    }
-    
-    async fn eval(&self, reskey: &ResKey) {
-        println!("  [RECV] EVAL ({:?})", reskey);
-    }
-    async fn forget_eval(&self, reskey: &ResKey) {
-        println!("  [RECV] FORGET EVAL ({:?})", reskey);
+    async fn forget_queryable(&self, reskey: &ResKey) {
+        println!("  [RECV] FORGET QUERYABLE ({:?})", reskey);
     }
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         println!("  [RECV] DATA ({:?})", reskey);
     }
-    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         println!("  [RECV] QUERY ({:?}) ({:?}) ({:?}) ({:?}) ({:?})", reskey, predicate, qid, target, consolidation);
     }
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
-        println!("  [RECV] REPLY ({:?}) ({:?}) ({:?}) ({:?})", qid, source, replierid, reskey);
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        println!("  [RECV] REPLY ({:?}) ({:?})", qid, reply);
     }
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
         println!("  [RECV] PULL ({:?}) ({:?}) ({:?}) ({:?})", is_final, reskey, pull_id, max_samples);
@@ -93,7 +86,13 @@ fn main() {
         rand::thread_rng().fill_bytes(&mut pid);
 
         let session_handler = Arc::new(LightSessionHandler::new());
-        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, session_handler.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: PeerId{id: pid.clone()},
+            handler: session_handler.clone()
+        };
+        let manager = SessionManager::new(config, None);
 
         if let Some(locator) = args.next() {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
@@ -115,7 +114,7 @@ fn main() {
             .concat().into();
         loop {
             println!("[SEND] DATA ({:?})", &res);
-            primitives.data(&res, true, &None, &ArcSlice::from(vec![1])).await;
+            primitives.data(&res, true, &None, RBuf::from(vec![1])).await;
             std::thread::sleep(std::time::Duration::from_millis(1000));
         }
     });

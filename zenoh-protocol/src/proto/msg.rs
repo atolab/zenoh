@@ -1,6 +1,6 @@
 use crate::zerror;
-use crate::core::{ZError, ZErrorKind, ZInt, PeerId, Property, ResKey, TimeStamp};
-use crate::io::ArcSlice;
+use crate::core::{ZError, ZErrorKind, ZInt, ZResult, PeerId, Property, ResKey, TimeStamp};
+use crate::io::RBuf;
 use crate::link::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
@@ -34,6 +34,8 @@ pub mod id {
     pub const KEEP_ALIVE    :   u8  = 0x0c;
 
     pub const PING_PONG     :   u8 	= 0x0d;
+
+    pub const UNIT          :   u8 	= 0x0e;
 
     // Decorators
     pub const REPLY         :   u8 =  0x10;
@@ -89,6 +91,14 @@ pub mod info_flag {
     pub const ENC   : u8 = 0x40;
 }
 
+// Reason for the Close message 
+pub mod close_reason {
+    pub const GENERIC       :   u8 = 0x00;
+    pub const UNSUPPORTED   :   u8 = 0x01;
+    pub const MAX_SESSIONS  :   u8 = 0x02;
+    pub const MAX_LINKS     :   u8 = 0x03;
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum WhatAmI {
@@ -99,7 +109,7 @@ pub enum WhatAmI {
 }
 
 impl WhatAmI {
-    pub fn from_zint(value: ZInt) -> Result<WhatAmI, ZError> {
+    pub fn from_zint(value: ZInt) -> ZResult<WhatAmI> {
         if value == WhatAmI::to_zint(&WhatAmI::Broker) { 
             Ok(WhatAmI::Broker)
         } else if value == WhatAmI::to_zint(&WhatAmI::Router) {
@@ -141,6 +151,29 @@ pub struct DataInfo {
     pub(in super) encoding: Option<ZInt>,
 }
 
+impl DataInfo {
+    pub fn make(
+        source_id: Option<PeerId>,
+        source_sn: Option<ZInt>,
+        fist_broker_id: Option<PeerId>,
+        fist_broker_sn: Option<ZInt>,
+        timestamp: Option<TimeStamp>,
+        kind: Option<ZInt>,
+        encoding: Option<ZInt>) -> DataInfo
+    {
+        let mut header = 0u8;
+        if source_id.is_some() { header |= info_flag::SRCID }
+        if source_sn.is_some() { header |= info_flag::SRCSN }
+        if fist_broker_id.is_some() { header |= info_flag::BKRID }
+        if fist_broker_sn.is_some() { header |= info_flag::BKRSN }
+        if timestamp.is_some() { header |= info_flag::TS }
+        if kind.is_some() { header |= info_flag::KIND }
+        if encoding.is_some() { header |= info_flag::ENC }
+        
+        DataInfo { header, source_id, source_sn, fist_broker_id, fist_broker_sn, timestamp, kind, encoding }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReplySource {
     Eval,
@@ -155,6 +188,10 @@ pub enum QueryConsolidation {
     // @TODO: add more if necessary
 }
 
+impl Default for QueryConsolidation {
+    fn default() -> Self { QueryConsolidation::Incremental }
+}
+
 // @TODO: The query target is incomplete
 #[derive(Debug, Clone, PartialEq)]
 pub enum Target {
@@ -164,7 +201,11 @@ pub enum Target {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl Default for Target {
+    fn default() -> Self { Target::BestMatching }
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct QueryTarget {
     pub storage: Target,
     pub eval: Target,
@@ -282,7 +323,17 @@ pub enum Body {
     /// +---------------+
     ///
     /// The message is sent on the reliable channel if R==1 best-effort otherwise.
-    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<ArcSlice>, payload: ArcSlice },
+    Data { reliable: bool, sn: ZInt, key: ResKey, info: Option<RBuf>, payload: RBuf },
+
+    ///  7 6 5 4 3 2 1 0
+    /// +-+-+-+-+-+-+-+-+
+    /// |X|R|X|  UNIT   |
+    /// +-+-+-+-+-+-+-+-+
+    /// ~      sn       ~
+    /// +---------------+
+    ///
+    /// The message is sent on the reliable channel if R==1 best-effort otherwise.
+    Unit { reliable: bool, sn: ZInt },
 
     /// +-+-+-+---------+
     /// |F|N|C|  PULL   |
@@ -397,10 +448,10 @@ pub enum Body {
     /// E -> the message comes from an eval
     /// F -> the message is a REPLY_FINAL 
     ///
-    /// The **Reply** is a message decorator for eithr:
+    /// The **Reply** is a message decorator for either:
     ///   - the **Data** messages that result from a query
-    ///   - or a **KeepAlive** message in case the message is a
-    ///     STORAGE_FINAL, EVAL_FINAL or REPLY_FINAL.
+    ///   - or a **Unit** message in case the message is a
+    ///     SOURCE_FINAL or REPLY_FINAL.
     ///  The **replier-id** (eval or storage id) is represented as a byte-array.
     // Reply { is_final: bool, qid: ZInt, source: ReplySource, replier_id: Option<PeerId> }
 
@@ -530,18 +581,18 @@ impl Message {
             properties: ps    
         }
     }
-    pub fn make_keep_alive(pid: Option<PeerId>, reply_context: Option<ReplyContext>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
+    pub fn make_keep_alive(pid: Option<PeerId>, cid: Option<ZInt>, ps: Option<Arc<Vec<Property>>>) -> Message {
         let header = match pid {
             Some(_) => id::KEEP_ALIVE | flag::P,
             None    => id::KEEP_ALIVE,
         };
         Message {
-            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
+            has_decorators: cid.is_some() || ps.is_some(),
             cid: cid.unwrap_or(0),
             header,
             body: Body::KeepAlive { pid },
             kind: MessageKind::FullMessage,
-            reply_context,
+            reply_context: None,
             properties: ps
         }
     }
@@ -565,8 +616,8 @@ impl Message {
         reliable: bool,
         sn: ZInt,
         key: ResKey,
-        info: Option<ArcSlice>,
-        payload: ArcSlice,
+        info: Option<RBuf>,
+        payload: RBuf,
         reply_context: Option<ReplyContext>,
         cid: Option<ZInt>,
         ps: Option<Arc<Vec<Property>>> ) -> Message
@@ -581,6 +632,26 @@ impl Message {
             header,
             body: Body::Data { reliable, sn, key, info, payload },
             kind,
+            reply_context,
+            properties: ps
+        }
+    }
+
+    pub fn make_unit(
+        reliable: bool,
+        sn: ZInt,
+        reply_context: Option<ReplyContext>,
+        cid: Option<ZInt>,
+        ps: Option<Arc<Vec<Property>>> ) -> Message
+    {
+        let rflag = if reliable { flag::R } else { 0 };
+        let header = id::UNIT | rflag;
+        Message {
+            has_decorators: cid.is_some() || ps.is_some() || reply_context.is_some(),
+            cid: cid.unwrap_or(0),
+            header,
+            body: Body::Unit { reliable, sn },
+            kind: MessageKind::FullMessage,
             reply_context,
             properties: ps
         }
@@ -685,6 +756,7 @@ impl Message {
     pub fn is_reliable(&self) -> bool {
         match self.body {
             Body::Data { .. } => self.header & flag::R != 0,
+            Body::Unit { .. } => self.header & flag::R != 0,
             Body::Declare { .. } => true,
             Body::Pull { .. } => true,
             Body::Query { .. } => true,

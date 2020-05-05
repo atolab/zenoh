@@ -13,7 +13,7 @@ edition = "2018"
 zenoh-protocol = { version = "0.5.0", path = "../zenoh-protocol" }
 zenoh-router = { version = "0.5.0", path = "../zenoh-router" }
 async-std = { version = "1.5.0", features = ["unstable"] }
-async-trait = "0.1.24"
+async-trait = "0.1.29"
 spin = "0.5.2"
 rand = "0.7.3"
 
@@ -30,11 +30,19 @@ path = "examples/zenoh-net/zn_info.rs"
 name = "zn_write"
 path = "examples/zenoh-net/zn_write.rs"
 
+[[example]] 
+name = "zn_pub_res"
+path = "examples/zenoh-net/zn_pub_res.rs"
+
+[[example]] 
+name = "zn_sub_res"
+path = "examples/zenoh-net/zn_sub_res.rs"
+
 [[example]]
 name = "zn_pub"
 path = "examples/zenoh-net/zn_pub.rs"
 
-[[example]]
+[[example]] 
 name = "zn_sub"
 path = "examples/zenoh-net/zn_sub.rs"
 

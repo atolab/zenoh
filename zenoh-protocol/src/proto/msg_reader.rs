@@ -1,5 +1,5 @@
-use crate::io::{ArcSlice, RBuf};
-use crate::core::{ZError, ZInt, PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
+use crate::io::RBuf;
+use crate::core::{ZResult, ZInt, PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
 use super::msg::*;
 use super::decl::{Declaration, SubInfo, SubMode, Reliability, Period};
@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 impl RBuf {
 
-    pub fn read_message(&mut self) -> Result<Message, ZError> {
+    pub fn read_message(&mut self) -> ZResult<Message> {
         use super::msg::id::*;
 
         let mut kind = MessageKind::FullMessage;
@@ -19,22 +19,22 @@ impl RBuf {
             let header = self.read()?;
             match flag::mid(header) {
                 FRAGMENT => {
-                    kind = self.read_decl_frag(header)?;
+                    kind = self.read_deco_frag(header)?;
                     continue;
                 }
 
                 CONDUIT => {
-                    cid = Some(self.read_decl_conduit(header)?);
+                    cid = Some(self.read_deco_conduit(header)?);
                     continue;
                 }
 
                 REPLY => {
-                    reply_context = Some(self.read_decl_reply(header)?);
+                    reply_context = Some(self.read_deco_reply(header)?);
                     continue;
                 }
 
                 PROPERTIES => {
-                    properties = Some(Arc::new(self.read_decl_properties(header)?));
+                    properties = Some(Arc::new(self.read_deco_properties(header)?));
                     continue;
                 }
 
@@ -90,7 +90,7 @@ impl RBuf {
                     let pid = if flag::has_flag(header, flag::P) {
                         Some(self.read_peerid()?)
                     } else { None };
-                    return Ok(Message::make_keep_alive(pid, reply_context, cid, properties));
+                    return Ok(Message::make_keep_alive(pid, cid, properties));
                 }
 
                 DECLARE => {
@@ -104,10 +104,16 @@ impl RBuf {
                     let sn = self.read_zint()?;
                     let key = self.read_reskey(flag::has_flag(header, flag::C))?;
                     let info = if flag::has_flag(header, flag::I) {
-                        Some(ArcSlice::from(self.read_bytes_array()?))
+                        Some(RBuf::from(self.read_bytes_array()?))
                     } else { None };
-                    let payload = ArcSlice::from(self.read_bytes_array()?);
+                    let payload = RBuf::from(self.read_bytes_array()?);
                     return Ok(Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties))
+                }
+
+                UNIT => {
+                    let reliable = flag::has_flag(header, flag::R);
+                    let sn = self.read_zint()?;
+                    return Ok(Message::make_unit(reliable, sn, reply_context, cid, properties))
                 }
 
                 PULL => {
@@ -164,7 +170,34 @@ impl RBuf {
         }
     }
 
-    fn read_decl_frag(&mut self, header: u8) -> Result<MessageKind, ZError> {
+    pub fn read_datainfo(&mut self) -> ZResult<DataInfo>{
+        let header = self.read()?;
+        let source_id = if header & info_flag::SRCID > 0 {
+            Some(self.read_peerid()?)
+        } else { None };
+        let source_sn = if header & info_flag::SRCID > 0 {
+            Some(self.read_zint()?)
+        } else { None };
+        let fist_broker_id = if header & info_flag::SRCID > 0 {
+            Some(self.read_peerid()?)
+        } else { None };
+        let fist_broker_sn = if header & info_flag::SRCID > 0 {
+            Some(self.read_zint()?)
+        } else { None };
+        let timestamp = if header & info_flag::SRCID > 0 {
+            Some(self.read_timestamp()?)
+        } else { None };
+        let kind = if header & info_flag::SRCID > 0 {
+            Some(self.read_zint()?)
+        } else { None };
+        let encoding = if header & info_flag::SRCID > 0 {
+            Some(self.read_zint()?)
+        } else { None };
+
+        Ok(DataInfo { header, source_id, source_sn, fist_broker_id, fist_broker_sn, timestamp, kind, encoding })
+    }
+
+    fn read_deco_frag(&mut self, header: u8) -> ZResult<MessageKind> {
         if flag::has_flag(header, flag::F) {
             if flag::has_flag(header, flag::C) {
                 let n = self.read_zint()?;
@@ -179,7 +212,7 @@ impl RBuf {
         }
     }
 
-    fn read_decl_conduit(&mut self, header: u8) -> Result<ZInt, ZError> {
+    fn read_deco_conduit(&mut self, header: u8) -> ZResult<ZInt> {
         if flag::has_flag(header, flag::Z) {
             let hl = (flag::flags(header) ^ flag::Z) >> 5;
             Ok(hl as ZInt)
@@ -189,7 +222,7 @@ impl RBuf {
         }
     }
 
-    fn read_decl_reply(&mut self, header: u8) -> Result<ReplyContext, ZError> {
+    fn read_deco_reply(&mut self, header: u8) -> ZResult<ReplyContext> {
         let is_final = flag::has_flag(header, flag::F);
         let source = if flag::has_flag(header, flag::E) { ReplySource::Eval } else { ReplySource::Storage };
         let qid = self.read_zint()?;
@@ -199,7 +232,7 @@ impl RBuf {
         Ok(ReplyContext{ is_final, qid, source, replier_id })
     }
 
-    fn read_decl_properties(&mut self, _: u8) -> Result<Vec<Property> , ZError> {
+    fn read_deco_properties(&mut self, _: u8) -> ZResult<Vec<Property>> {
         let len = self.read_zint()?;
         let mut vec: Vec<Property> = Vec::new();
         for _ in 0..len {
@@ -208,13 +241,13 @@ impl RBuf {
         Ok(vec)
     }
 
-    fn read_property(&mut self) -> Result<Property , ZError> {
+    fn read_property(&mut self) -> ZResult<Property> {
         let key = self.read_zint()?;
         let value = self.read_bytes_array()?;
         Ok(Property{ key, value })
     }
 
-    fn read_locators(&mut self) -> Result<Vec<Locator>, ZError> {
+    fn read_locators(&mut self) -> ZResult<Vec<Locator>> {
         let len = self.read_zint()?;
         let mut vec: Vec<Locator> = Vec::new();
         for _ in 0..len {
@@ -223,7 +256,7 @@ impl RBuf {
         Ok(vec)
     }
 
-    fn read_declarations(&mut self) -> Result<Vec<Declaration>, ZError> {
+    fn read_declarations(&mut self) -> ZResult<Vec<Declaration>> {
         let len = self.read_zint()?;
         let mut vec: Vec<Declaration> = Vec::new();
         for _ in 0..len {
@@ -232,7 +265,7 @@ impl RBuf {
         Ok(vec)
     }
 
-    fn read_declaration(&mut self) -> Result<Declaration, ZError> {
+    fn read_declaration(&mut self) -> ZResult<Declaration> {
         use super::decl::{Declaration::*, id::*};
 
         macro_rules! read_key_delc {
@@ -274,16 +307,14 @@ impl RBuf {
             FORGET_SUBSCRIBER => read_key_delc!(self, header, ForgetSubscriber),
             PUBLISHER => read_key_delc!(self, header, Publisher),
             FORGET_PUBLISHER => read_key_delc!(self, header, ForgetPublisher),
-            STORAGE => read_key_delc!(self, header, Storage),
-            FORGET_STORAGE => read_key_delc!(self, header, ForgetStorage),
-            EVAL => read_key_delc!(self, header, Eval),
-            FORGET_EVAL => read_key_delc!(self, header, ForgetEval),
+            QUERYABLE => read_key_delc!(self, header, Queryable),
+            FORGET_QUERYABLE => read_key_delc!(self, header, ForgetQueryable),
 
             id => panic!("UNEXPECTED ID FOR Declaration: {}", id)   //@TODO: return error
         }
     }
 
-    fn read_submode(&mut self) -> Result<(SubMode, Option<Period>), ZError> {
+    fn read_submode(&mut self) -> ZResult<(SubMode, Option<Period>)> {
         use super::decl::{SubMode::*, id::*};
         let mode_flag = self.read()?;
         let mode = match mode_flag & !PERIOD {
@@ -303,7 +334,7 @@ impl RBuf {
         Ok((mode, period))
     }
 
-    fn read_reskey(&mut self, is_numeric: bool) -> Result<ResKey, ZError> {
+    fn read_reskey(&mut self, is_numeric: bool) -> ZResult<ResKey> {
         let id = self.read_zint()?;
         if is_numeric {
             Ok(ResKey::RId(id))
@@ -317,13 +348,13 @@ impl RBuf {
         }
     }
 
-    fn read_query_target(&mut self) -> Result<QueryTarget, ZError> {
+    fn read_query_target(&mut self) -> ZResult<QueryTarget> {
         let storage = self.read_target()?;
         let eval = self.read_target()?;
         Ok(QueryTarget{ storage, eval })
     }
 
-    fn read_target(&mut self) -> Result<Target, ZError> {
+    fn read_target(&mut self) -> ZResult<Target> {
         let t = self.read_zint()?;
         match t {
             0 => Ok(Target::BestMatching),
@@ -337,7 +368,7 @@ impl RBuf {
         }
     }
 
-    fn read_consolidation(&mut self) -> Result<QueryConsolidation, ZError> {
+    fn read_consolidation(&mut self) -> ZResult<QueryConsolidation> {
         match self.read_zint()? {
             0 => Ok(QueryConsolidation::None),
             1 => Ok(QueryConsolidation::LastBroker),
@@ -346,7 +377,7 @@ impl RBuf {
         }
     }
 
-    pub fn read_timestamp(&mut self) -> Result<TimeStamp, ZError> {
+    pub fn read_timestamp(&mut self) -> ZResult<TimeStamp> {
         let time = self.read_zint()?;
         let mut bytes = [0u8; 16];
         self.read_bytes(&mut bytes[..])?;
@@ -354,7 +385,7 @@ impl RBuf {
         Ok(TimeStamp { time, id })
     }
 
-    fn read_peerid(&mut self) -> Result<PeerId, ZError> {
+    fn read_peerid(&mut self) -> ZResult<PeerId> {
         let id = self.read_bytes_array()?;
         Ok(PeerId { id })
     }

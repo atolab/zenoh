@@ -6,14 +6,12 @@ pub mod id {
   pub const RESOURCE            :  u8 =  0x01;
   pub const PUBLISHER           :  u8 =  0x02;
   pub const SUBSCRIBER          :  u8 =  0x03;
-  pub const STORAGE             :  u8 =  0x04;
-  pub const EVAL                :  u8 =  0x05;
+  pub const QUERYABLE           :  u8 =  0x04;
   
   pub const FORGET_RESOURCE     :  u8 =  0x11;
   pub const FORGET_PUBLISHER    :  u8 =  0x12;
   pub const FORGET_SUBSCRIBER   :  u8 =  0x13;
-  pub const FORGET_STORAGE      :  u8 =  0x14;
-  pub const FORGET_EVAL         :  u8 =  0x15;
+  pub const FORGET_QUERYABLE    :  u8 =  0x14;
   
   // SubModes
   pub const MODE_PUSH           : u8 = 0x00;
@@ -120,41 +118,21 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|  STORE  |
+    /// |X|X|C|  QABLE  |
     /// +---------------+
     /// ~     ResKey    ~ if  C==1 then only numerical id
     /// +---------------+
-    Storage {
+    Queryable {
         key: ResKey
     },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C| F_STORE |
+    /// |X|X|C| F_QABLE |
     /// +---------------+
     /// ~    ResKey     ~ if  C==1 then only numerical id
     /// +---------------+
-    ForgetStorage {
+    ForgetQueryable {
         key: ResKey
     },
-
-    ///  7 6 5 4 3 2 1 0
-    /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|  EVAL   |
-    /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
-    /// +---------------+
-    Eval {
-        key: ResKey
-    },
-
-    ///  7 6 5 4 3 2 1 0
-    /// +-+-+-+-+-+-+-+-+
-    /// |X|X|X| F_EVAL  |
-    /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
-    /// +---------------+
-    ForgetEval {
-        key: ResKey
-    }
 }

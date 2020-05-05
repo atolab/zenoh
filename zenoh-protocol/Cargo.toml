@@ -11,19 +11,22 @@ edition = "2018"
 
 [dependencies]
 async-std = { version = "1.5.0", features = ["unstable"] }
-async-trait = "0.1.24"
-byteorder = "1.3.2"
+async-trait = "0.1.29"
+byteorder = "1.3.4"
 crossbeam = "0.7.3"
 env_logger = "0.7.1"
+futures = "0.3.4"
 log = "0.4.8"
 net2 = "0.2.33"
 rand = "0.7.3"
 slab = "0.4.2"
-time = "0.2.2"
+time = "0.2.9"
 uuid = { version = "0.8.1", features = ["v4"] }
+zenoh-util =  { version = "0.1.0", path = "../zenoh-util" }
+lazy_static = "1.4.0"
 
 [dev-dependencies]
-criterion = "0.3.0"
+criterion = "0.3.1"
 
 [[bench]]
 name = "codec_bench"
@@ -34,9 +37,40 @@ name = "rwbuf_bench"
 harness = false
 
 [[bench]]
-name = "queue_bench"
+name = "rname_bench"
 harness = false
 
 [[bench]]
-name = "rname_bench"
+name = "data_creation"
 harness = false
+
+[[bin]]
+name = "base_sub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "base_pub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "base_pubsub_peer"
+test = false
+bench = false
+
+[[bin]]
+name = "base_sub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "base_pub_client"
+test = false
+bench = false
+
+[[bin]]
+name = "base_broker"
+test = false
+bench = false
+

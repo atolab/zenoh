@@ -1,0 +1,30 @@
+[package]
+name = "zenoh-util"
+version = "0.1.0"
+authors = ["kydos <angelo@icorsaro.net>",
+           "Luca Cominardi <luca.cominardi@adlinktech.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-std = { version = "1.5.0", features = ["unstable"] }
+futures = { version = "0.3.4", features = ["unstable"] }
+rand = "0.7.3"
+lazy_static = "1.4.0"
+
+[[example]]
+name = "fifo_queue"
+path = "examples/fifo_queue.rs"
+
+[[example]]
+name = "priority_queue"
+path = "examples/priority_queue.rs"
+
+[[example]]
+name = "credit_queue"
+path = "examples/credit_queue.rs"
+
+[[example]]
+name = "credit_queue_batching"
+path = "examples/credit_queue_batching.rs"

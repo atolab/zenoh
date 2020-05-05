@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use rand::RngCore;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
-use zenoh_protocol::io::ArcSlice;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, ReplySource, WhatAmI, Mux, DeMux};
-use zenoh_protocol::session::{SessionManager, SessionHandler, MsgHandler};
+use zenoh_protocol::io::RBuf;
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
+use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler};
 
 const N: usize = 100_000;
 
@@ -62,13 +62,10 @@ impl Primitives for ThrouputPrimitives {
     async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {}
     async fn forget_subscriber(&self, _reskey: &ResKey) {}
     
-    async fn storage(&self, _reskey: &ResKey) {}
-    async fn forget_storage(&self, _reskey: &ResKey) {}
-    
-    async fn eval(&self, _reskey: &ResKey) {}
-    async fn forget_eval(&self, _reskey: &ResKey) {}
+    async fn queryable(&self, _reskey: &ResKey) {}
+    async fn forget_queryable(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<ArcSlice>, _payload: &ArcSlice) {
+    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
             stats.start = SystemTime::now();
@@ -81,8 +78,8 @@ impl Primitives for ThrouputPrimitives {
             stats.count = 0;
         }  
     }
-    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation) {}
-    async fn reply(&self, _qid: ZInt, _source: &ReplySource, _replierid: &Option<PeerId>, _reskey: &ResKey, _info: &Option<ArcSlice>, _payload: &ArcSlice) {}
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
+    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {}
@@ -115,7 +112,13 @@ fn main() {
         rand::thread_rng().fill_bytes(&mut pid);
 
         let session_handler = Arc::new(LightSessionHandler::new());
-        let manager = SessionManager::new(0, WhatAmI::Client, PeerId{id: pid.clone()}, 0, session_handler.clone());
+        let config = SessionManagerConfig {
+            version: 0,
+            whatami: WhatAmI::Client,
+            id: PeerId{id: pid.clone()},
+            handler: session_handler.clone()
+        };
+        let manager = SessionManager::new(config, None);
 
         if let Some(locator) = args.next() {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {

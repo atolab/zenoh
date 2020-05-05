@@ -1,7 +1,4 @@
-use async_std::sync::{
-    Arc,
-    Barrier
-};
+use async_std::sync::Arc;
 use async_std::task;
 use async_trait::async_trait;
 use std::time::Duration;
@@ -13,7 +10,9 @@ use zenoh_protocol::session::{
     DummyHandler,
     MsgHandler,
     SessionHandler,
-    SessionManager
+    SessionManager,
+    SessionManagerConfig,
+    SessionManagerOptionalConfig
 };
 
 
@@ -52,135 +51,223 @@ impl SessionHandler for SHClient {
 
 
 async fn run(locator: Locator) {
-    let m_barrier = Arc::new(Barrier::new(2));
-    let b_router = Arc::new(Barrier::new(2));
-    let b_client = Arc::new(Barrier::new(2));
+    /* [ROUTER] */
+    let router_id = PeerId{id: vec![0u8]};
 
-    let client_id = PeerId{id: vec![0u8]};
-    let router_id = PeerId{id: vec![1u8]};
+    // Create the router session manager
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: WhatAmI::Router,
+        id: router_id.clone(),
+        handler: Arc::new(SHRouter::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
+        lease: None,
+        resolution: None,
+        batchsize: None,
+        timeout: None,
+        retries: None,
+        max_sessions: Some(1),
+        max_links: Some(2) 
+    };
+    let router_manager = SessionManager::new(config, Some(opt_config));
 
-    // Router task
-    let c_mbr = m_barrier.clone();
-    let c_cbr = b_router.clone();
-    let c_rbr = b_client.clone();
-    let c_loc = locator.clone();
-    let c_cid = client_id.clone();
-    let c_rid = router_id.clone();
-    task::spawn(async move {
-        // Create the router session handler
-        let routing = Arc::new(SHRouter::new());
 
-        // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Router;
-        let id = c_rid;
-        let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, routing);
+    /* [CLIENT] */
+    let client01_id = PeerId{id: vec![1u8]};
+    let client02_id = PeerId{id: vec![2u8]};
 
-        // Limit the number of connections to 1 for each listener
-        // Not implemented at the moment
-        let limit = Some(1);
+    // The timeout when opening a session
+    // Set it to 100 ms for testing purposes
+    let timeout = 10;
+    let retries = 1;
 
-        // Create the listeners
-        let res = manager.add_locator(&c_loc, limit).await; 
-        assert_eq!(res.is_ok(), true);
-        assert_eq!(manager.get_locators().await.len(), 1);
+    // Create the transport session manager for the first client
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: WhatAmI::Client,
+        id: client01_id.clone(),
+        handler: Arc::new(SHClient::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
+        lease: None,
+        resolution: None,
+        batchsize: None,
+        timeout: Some(timeout),
+        retries: Some(retries),
+        max_sessions: None,
+        max_links: None 
+    };
+    let client01_manager = SessionManager::new(config, Some(opt_config));
 
-        // Wait for the client
-        c_cbr.wait().await;
+    // Create the transport session manager for the second client
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: WhatAmI::Client,
+        id: client02_id.clone(),
+        handler: Arc::new(SHClient::new())
+    };
+    let opt_config = SessionManagerOptionalConfig {
+        lease: None,
+        resolution: None,
+        batchsize: None,
+        timeout: Some(timeout),
+        retries: Some(retries),
+        max_sessions: None,
+        max_links: None 
+    };
+    let client02_manager = SessionManager::new(config, Some(opt_config));
 
-        let sessions = manager.get_sessions().await;
-        assert_eq!(sessions.len(), 1);
-        let ses1 = &sessions[0];
-        assert_eq!(ses1.get_peer(), c_cid);
-        assert_eq!(ses1.get_links().await.len(), 1);
 
-        // Notify the client
-        c_rbr.wait().await;
-        // Wait for the client
-        c_cbr.wait().await;
+    /* [1] */
+    // Add the locator on the router
+    let res = router_manager.add_locator(&locator).await; 
+    assert!(res.is_ok());
+    assert_eq!(router_manager.get_locators().await.len(), 1);
 
-        let sessions = manager.get_sessions().await;
-        assert_eq!(sessions.len(), 1);
-        let ses2 = &sessions[0];
-        assert_eq!(ses1, ses2);
-        assert_eq!(ses2.get_links().await.len(), 2);
+    // Open a first session from the client to the router 
+    // -> This should be accepted
+    let res = client01_manager.open_session(&locator).await;
+    assert!(res.is_ok());
+    let c_ses1 = res.unwrap();
+    assert_eq!(client01_manager.get_sessions().await.len(), 1);
+    assert_eq!(c_ses1.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses1.get_links().await.unwrap().len(), 1);
 
-        // Notify the client
-        c_rbr.wait().await;
-        // Wait for the client
-        c_cbr.wait().await;
+    // Verify that the session has been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
 
-        // Wait 10ms to give the time to the close message
-        // sent by client to arrive at the router and close
-        // the actual session
-        task::sleep(Duration::from_millis(10)).await;
-        
-        let sessions = manager.get_sessions().await;
-        assert_eq!(sessions.len(), 0);
 
-        // Stop the listener
-        let res = manager.del_locator(&c_loc).await;
-        assert_eq!(res.is_ok(), true);
-        assert_eq!(manager.get_locators().await.len(), 0);
+    /* [2] */
+    // Open a second session from the client to the router 
+    // -> This should be accepted
+    let res = client01_manager.open_session(&locator).await;
+    assert!(res.is_ok());
+    let c_ses2 = res.unwrap();
+    assert_eq!(client01_manager.get_sessions().await.len(), 1);
+    assert_eq!(c_ses2.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses2.get_links().await.unwrap().len(), 2);
+    assert_eq!(c_ses2, c_ses1);
 
-        // Notify the main task
-        c_mbr.wait().await;
-    });
+    // Verify that the session has been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 2);
 
-    // Client task
-    let c_cbr = b_router.clone();
-    let c_rbr = b_client.clone();
-    let c_loc = locator.clone();
-    let c_cid = client_id.clone();
-    let c_rid = router_id.clone();
-    task::spawn(async move {
-        // Create the client session handler
-        let client = Arc::new(SHClient::new());
 
-        // Create the transport session manager
-        let version = 0u8;
-        let whatami = WhatAmI::Client;
-        let id = c_cid;
-        let lease = 60;    
-        let manager = SessionManager::new(version, whatami, id, lease, client);
+    /* [3] */
+    // Open session -> This should be rejected because
+    // of the maximum limit of links per session
+    let res = client01_manager.open_session(&locator).await;
+    assert!(res.is_err());
+    assert_eq!(client01_manager.get_sessions().await.len(), 1);
+    assert_eq!(c_ses1.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses1.get_links().await.unwrap().len(), 2);
 
-        // Open session -> This should be accepted
-        let res1 = manager.open_session(&c_loc).await;
-        assert_eq!(res1.is_ok(), true);
-        let ses1 = res1.unwrap();
-        assert_eq!(manager.get_sessions().await.len(), 1);
-        assert_eq!(ses1.get_peer(), c_rid);
-        assert_eq!(ses1.get_links().await.len(), 1);
+    // Verify that the session has not been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 2);
 
-        // Notify the router
-        c_cbr.wait().await;
-        // Wait for the router
-        c_rbr.wait().await;
 
-        // Open session -> This should be accepted
-        let res2 = manager.open_session(&c_loc).await;
-        assert_eq!(res2.is_ok(), true);
-        let ses2 = res2.unwrap();
-        assert_eq!(manager.get_sessions().await.len(), 1);
-        assert_eq!(ses1, ses2);
-        assert_eq!(ses2.get_links().await.len(), 2);
+    /* [4] */
+    // Close the open session on the client
+    let res = c_ses1.close().await;
+    assert!(res.is_ok());
+    assert_eq!(client01_manager.get_sessions().await.len(), 0);
 
-        // Notify the router 
-        c_cbr.wait().await;
-        // Wait for the router
-        c_rbr.wait().await;
-        
-        // Close the open session
-        let res3 = ses1.close().await;
-        assert_eq!(res3.is_ok(), true);
-        assert_eq!(manager.get_sessions().await.len(), 0);
+    // Verify that the session has been closed also on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 0);
 
-        // Notify the router 
-        c_cbr.wait().await;
-    });
 
-    m_barrier.wait().await;
+    /* [5] */
+    // Open session -> This should be accepted because
+    // the number of links should be back to 0
+    let res = client01_manager.open_session(&locator).await;
+    assert!(res.is_ok());
+    let c_ses3 = res.unwrap();
+    assert_eq!(client01_manager.get_sessions().await.len(), 1);
+    assert_eq!(c_ses3.get_peer().unwrap(), router_id);
+    assert_eq!(c_ses3.get_links().await.unwrap().len(), 1);
+
+    // Verify that the session has not been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
+
+
+    /* [6] */
+    // Open session -> This should be rejected because
+    // of the maximum limit of sessions
+    let res = client02_manager.open_session(&locator).await;
+    assert!(res.is_err());
+    assert_eq!(client02_manager.get_sessions().await.len(), 0);
+
+    // Verify that the session has not been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client01_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
+
+
+    /* [7] */
+    // Close the open session on the client
+    let res = c_ses3.close().await;
+    assert!(res.is_ok());
+    assert_eq!(client01_manager.get_sessions().await.len(), 0);
+
+    // Verify that the session has been closed also on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 0);
+
+
+    /* [8] */
+    // Open session -> This should be accepted because
+    // the number of sessions should be back to 0
+    let res = client02_manager.open_session(&locator).await;
+    assert!(res.is_ok());
+    let c_ses4 = res.unwrap();
+    assert_eq!(client02_manager.get_sessions().await.len(), 1);
+    assert_eq!(c_ses4.get_links().await.unwrap().len(), 1);
+
+    // Verify that the session has not been open on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 1);
+    let r_ses1 = &sessions[0];
+    assert_eq!(r_ses1.get_peer().unwrap(), client02_id);
+    assert_eq!(r_ses1.get_links().await.unwrap().len(), 1);
+
+
+    /* [9] */
+    // Close the open session on the client
+    let res = c_ses4.close().await;
+    assert!(res.is_ok());
+    assert_eq!(client01_manager.get_sessions().await.len(), 0);
+
+    // Verify that the session has been closed also on the router
+    task::sleep(Duration::from_millis(timeout)).await;
+    let sessions = router_manager.get_sessions().await;
+    assert_eq!(sessions.len(), 0);
 }
 
 #[test]

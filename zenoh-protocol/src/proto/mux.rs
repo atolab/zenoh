@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use async_trait::async_trait;
-use crate::core::{ZInt, PeerId, ResKey};
-use crate::io::ArcSlice;
+use crate::core::{ZInt, ResKey};
+use crate::io::RBuf;
 use crate::proto::{
     Message, SubInfo, Declaration, 
     Primitives, MessageKind, QueryTarget, 
-    QueryConsolidation, ReplyContext, ReplySource};
+    QueryConsolidation, ReplyContext, Reply, ReplySource};
 use crate::session::MsgHandler;
 
 pub struct Mux<T: MsgHandler + Send + Sync + ?Sized> {
@@ -63,48 +63,47 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
             0, decls, None, None)).await;
     }
     
-    async fn storage(&self, reskey: &ResKey) {
+    async fn queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::Storage{key: reskey.clone()});
+        decls.push(Declaration::Queryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_storage(&self, reskey: &ResKey) {
+    async fn forget_queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
-        decls.push(Declaration::ForgetStorage{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-    
-    async fn eval(&self, reskey: &ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::Eval{key: reskey.clone()});
+        decls.push(Declaration::ForgetQueryable{key: reskey.clone()});
         self.handler.handle_message(Message::make_declare(
             0, decls, None, None)).await;
     }
 
-    async fn forget_eval(&self, reskey: &ResKey) {
-        let mut decls = Vec::new();
-        decls.push(Declaration::ForgetEval{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
-    }
-
-    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<ArcSlice>, payload: &ArcSlice) {
+    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload.clone(), None, None, None)).await;
+            MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload, None, None, None)).await;
     }
 
-    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: &Option<QueryTarget>, consolidation: &QueryConsolidation) {
+    async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
+        let target_opt = if target == QueryTarget::default() { None } else { Some(target) };
         self.handler.handle_message(Message::make_query(
-            0, reskey.clone(), predicate.to_string(), qid, target.clone(), consolidation.clone(), None, None)).await;
+            0, reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None, None)).await;
     }
 
-    async fn reply(&self, qid: ZInt, source: &ReplySource, replierid: &Option<PeerId>, reskey: &ResKey, info: &Option<ArcSlice>, payload: &ArcSlice) {
-        self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
-            Some(ReplyContext::make(qid, source.clone(), replierid.clone())), None, None)).await;
+    async fn reply(&self, qid: ZInt, reply: &Reply) {
+        match reply {
+            Reply::ReplyData {source, replier_id, reskey, info, payload} => {
+                self.handler.handle_message(Message::make_data(
+                    MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
+                    Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            }
+            Reply::SourceFinal {source, replier_id} => {
+                self.handler.handle_message(Message::make_unit(
+                    true, 0, Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            }
+            Reply::ReplyFinal {} => {
+                self.handler.handle_message(Message::make_unit(
+                    true, 0, Some(ReplyContext::make(qid, ReplySource::Storage, None)), None, None)).await;
+            }
+        }
     }
 
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {

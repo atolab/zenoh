@@ -18,6 +18,7 @@ use crate::{
     zerror
 };
 use crate::core::{
+    ZResult,
     ZError,
     ZErrorKind
 };
@@ -80,7 +81,7 @@ impl LinkUdp {
 
 #[async_trait]
 impl Link for LinkUdp {
-    async fn close(&self, reason: Option<ZError>) -> Result<(), ZError> {
+    async fn close(&self, reason: Option<ZError>) -> ZResult<()> {
         // TODO: need to stop the receive loop
         match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
             Ok(_) => return Ok(()),
@@ -90,7 +91,7 @@ impl Link for LinkUdp {
         }
     }
 
-    async fn send(&self, message: Arc<Message>) -> Result<(), ZError> {
+    async fn send(&self, message: Arc<Message>) -> ZResult<()> {
         println!("SEND {:?}", message);
         let mut buff = RWBuf::new(self.buff_size);
         match buff.write_message(&message) {
@@ -109,7 +110,7 @@ impl Link for LinkUdp {
         }
     }
 
-    async fn set_session(&self, session: Weak<Session>) -> Result<(), ZError> {
+    async fn set_session(&self, session: Weak<Session>) -> ZResult<()> {
         *self.next_session.lock().await = Some(session);
         Ok(())
     }
@@ -163,7 +164,7 @@ impl ManagerUdp {
 
 #[async_trait]
 impl LinkManager for ManagerUdp {
-    async fn new_link(&self, locator: &Locator, session: Weak<Session>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn new_link(&self, locator: &Locator, session: Weak<Session>) -> ZResult<Arc<dyn Link + Send + Sync>> {
         // Check if the locator is a UDP locator
         let addr = match locator {
             Locator::Udp{ addr } => addr,
@@ -188,7 +189,7 @@ impl LinkManager for ManagerUdp {
         Ok(link)
     }
 
-    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> Result<Arc<dyn Link + Send + Sync>, ZError> {
+    async fn del_link(&self, src: &Locator, dst: &Locator, reason: Option<ZError>) -> ZResult<Arc<dyn Link + Send + Sync>> {
         // Check if the locator is a UDP locator
         let src = match src {
             Locator::Udp{ addr } => addr,
@@ -210,7 +211,7 @@ impl LinkManager for ManagerUdp {
         }
     }
 
-    async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> Result<(), ZError> {
+    async fn new_listener(&self, locator: &Locator, limit: Option<usize>) -> ZResult<()> {
         // Check if the locator is a UDP locator
         let addr = match locator {
             Locator::Udp{ addr } => addr,
@@ -229,7 +230,7 @@ impl LinkManager for ManagerUdp {
         Ok(())
     }
 
-    async fn del_listener(&self, locator: &Locator) -> Result<(), ZError> {
+    async fn del_listener(&self, locator: &Locator) -> ZResult<()> {
         Ok(())
     }
       
@@ -239,7 +240,7 @@ impl LinkManager for ManagerUdp {
     }
 }
 
-async fn receive_loop(manager: Arc<ManagerUdp>, addr: SocketAddr, limit: Option<usize>) -> Result<(), ZError> {
+async fn receive_loop(manager: Arc<ManagerUdp>, addr: SocketAddr, limit: Option<usize>) -> ZResult<()> {
     // Bind on the socket
     let socket = match UdpSocket::bind(addr).await {
         Ok(socket) => Arc::new(socket),

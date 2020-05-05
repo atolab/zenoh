@@ -4,4 +4,8 @@ members = [
   "zenoh",
   "zenoh-router",
   "zenoh-protocol",
+  "zenoh-util"
 ]
+
+[profile.release]
+debug=true
