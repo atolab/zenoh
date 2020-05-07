@@ -197,6 +197,11 @@ impl RBuf {
                     }
                 },
 
+                FRAME => {
+                    // @TODO
+                    unimplemented!();
+                },
+
                 id => return Err(zerror!(ZErrorKind::InvalidMessage {
                     descr: format!("ID unknown: {}", id)
                 }))
