@@ -12,9 +12,9 @@ use std::io::IoSlice;
 use crate::{zerror, to_zerror};
 use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::{ArcSlice, RBuf};
-use crate::proto::Message;
+use crate::proto::SessionMessage;
 use crate::session::{SessionManagerInner, Action, Transport};
-use crate::link::{Link, LinkTrait, Locator, ManagerTrait};
+use super::{Link, LinkTrait, Locator, ManagerTrait};
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
 

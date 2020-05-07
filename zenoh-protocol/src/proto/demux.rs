@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use crate::zerror; 
 use crate::core::{ZResult, ZError, ZErrorKind};
-use crate::proto::{Message, Body, Declaration, Primitives, Reply, flag};
+use crate::proto::{ZenohMessage, ZenohBody, Declaration, Primitives, Reply, zmsg};
 use crate::session::MsgHandler;
 
 #[cfg(demuxtraces)]
@@ -22,40 +22,40 @@ impl<P: Primitives + Send + Sync> DeMux<P> {
 #[async_trait]
 impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
-    async fn handle_message(&self, msg: Message) -> ZResult<()> {
+    async fn handle_message(&self, msg: ZenohMessage) -> ZResult<()> {
         match msg.get_body() {
-            Body::Declare{declarations, ..} => {
+            ZenohBody::Declare{ declarations, .. } => {
                 for declaration in declarations {
                     match declaration {
-                        Declaration::Resource {rid, key} => {
+                        Declaration::Resource { rid, key } => {
                             trace!("DECLARE RESOURCE rid({:?}) key({:?})", rid, key);
                             self.primitives.resource(*rid, key).await;
                         }
-                        Declaration::Publisher {key} => {
+                        Declaration::Publisher { key } => {
                             trace!("DECLARE PUBLISHER key({:?})", key);
                             self.primitives.publisher(key).await;
                         }
-                        Declaration::Subscriber {key, info} => {
+                        Declaration::Subscriber { key, info } => {
                             trace!("DECLARE SUBSCRIBER key({:?}) info({:?})", key, info);
                             self.primitives.subscriber(key, info).await;
                         }
-                        Declaration::Queryable {key} => {
+                        Declaration::Queryable { key } => {
                             trace!("DECLARE QUERYABLE key({:?})", key);
                             self.primitives.queryable(key).await;
                         }
-                        Declaration::ForgetResource {rid} => {
+                        Declaration::ForgetResource { rid } => {
                             trace!("FORGET RESOURCE rid({:?})", rid);
                             self.primitives.forget_resource(*rid).await;
                         }
-                        Declaration::ForgetPublisher {key} => {
+                        Declaration::ForgetPublisher { key } => {
                             trace!("FORGET PUBLISHER key({:?})", key);
                             self.primitives.forget_publisher(key).await;
                         }
-                        Declaration::ForgetSubscriber {key} => {
+                        Declaration::ForgetSubscriber { key } => {
                             trace!("FORGET SUBSCRIBER key({:?})", key);
                             self.primitives.forget_subscriber(key).await;
                         }
-                        Declaration::ForgetQueryable {key} => {
+                        Declaration::ForgetQueryable { key } => {
                             trace!("FORGET QUERYABLE key({:?})", key);
                             self.primitives.forget_queryable(key).await;
                         }
@@ -63,11 +63,11 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
 
                 }
             }
-            Body::Data{reliable, key, info, payload, ..} => {
+            ZenohBody::Data { key, info, payload, .. } => {
                 match &msg.reply_context {
                     None => {
-                        trace!("DATA key({:?}) relibale({:?})", key, reliable);
-                        self.primitives.data(key, *reliable, info, payload.clone()).await;
+                        trace!("DATA key({:?}) relibale({:?})", key, ch);
+                        self.primitives.data(key, msg.is_reliable(), info, payload.clone()).await;
                     }
                     Some(rep) => {
                         match &rep.replier_id {
@@ -80,7 +80,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                     }
                 }
             }
-            Body::Unit{..} => {
+            ZenohBody::Unit { .. } => {
                 if let Some(rep) = &msg.reply_context {
                     if rep.is_final {
                         let reply = Reply::ReplyFinal {};
@@ -93,13 +93,13 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                     }
                 }
             }
-            Body::Query{key, predicate, qid, target, consolidation, ..} => {
+            ZenohBody::Query{ key, predicate, qid, target, consolidation, .. } => {
                 trace!("QUERY key({:?}) predicate({:?}) qid({:?}) target({:?}) consolidation({:?})", key, predicate, *qid, target, consolidation);
                 self.primitives.query(key, predicate, *qid, target.clone().unwrap_or_default(), consolidation.clone()).await;
             }
-            Body::Pull{key, pull_id, max_samples, ..} => {
-                trace!("PULL is_final({:?}) key({:?}) pull_id({:?}) max_samples({:?})", flag::has_flag(msg.header, flag::F), key, *pull_id, max_samples);
-                self.primitives.pull(flag::has_flag(msg.header, flag::F), key, *pull_id, max_samples).await;
+            ZenohBody::Pull{ key, pull_id, max_samples, .. } => {
+                trace!("PULL is_final({:?}) key({:?}) pull_id({:?}) max_samples({:?})", zmsg::has_flag(msg.header, zmsg::flag::F), key, *pull_id, max_samples);
+                self.primitives.pull(zmsg::has_flag(msg.header, zmsg::flag::F), key, *pull_id, max_samples).await;
             }
             _ => () 
         }

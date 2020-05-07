@@ -2,10 +2,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use crate::core::{ZInt, ResKey};
 use crate::io::RBuf;
-use crate::proto::{
-    Message, SubInfo, Declaration, 
-    Primitives, MessageKind, QueryTarget, 
-    QueryConsolidation, ReplyContext, Reply, ReplySource};
+use crate::proto::{channel, ZenohMessage, SubInfo, Declaration, Primitives,  
+    QueryTarget, QueryConsolidation, ReplyContext, Reply, ReplySource};
 use crate::session::MsgHandler;
 
 pub struct Mux<T: MsgHandler + Send + Sync + ?Sized> {
@@ -24,90 +22,80 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
     async fn resource(&self, rid: u64, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::Resource{rid, key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
 
     async fn forget_resource(&self, rid: u64) {
         let mut decls = Vec::new();
         decls.push(Declaration::ForgetResource{rid});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let mut decls = Vec::new();
         decls.push(Declaration::Subscriber{key: reskey.clone(), info: sub_info.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::ForgetSubscriber{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
     
     async fn publisher(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::Publisher{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
 
     async fn forget_publisher(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::ForgetPublisher{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
     
     async fn queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::Queryable{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
 
     async fn forget_queryable(&self, reskey: &ResKey) {
         let mut decls = Vec::new();
         decls.push(Declaration::ForgetQueryable{key: reskey.clone()});
-        self.handler.handle_message(Message::make_declare(
-            0, decls, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_declare(decls, None)).await;
     }
 
-    async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
-        self.handler.handle_message(Message::make_data(
-            MessageKind::FullMessage, reliable, 0, reskey.clone(), info.clone(), payload, None, None, None)).await;
+    async fn data(&self, reskey: &ResKey, reliability: bool, info: &Option<RBuf>, payload: RBuf) {
+        self.handler.handle_message(ZenohMessage::make_data(reliability, reskey.clone(), info.clone(), payload, None, None)).await;
     }
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         let target_opt = if target == QueryTarget::default() { None } else { Some(target) };
-        self.handler.handle_message(Message::make_query(
-            0, reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_query(reskey.clone(), predicate.to_string(), qid, target_opt, consolidation.clone(), None)).await;
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
         match reply {
-            Reply::ReplyData {source, replier_id, reskey, info, payload} => {
-                self.handler.handle_message(Message::make_data(
-                    MessageKind::FullMessage, true, 0, reskey.clone(), info.clone(), payload.clone(), 
-                    Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            Reply::ReplyData { source, replier_id, reskey, info, payload } => {
+                self.handler.handle_message(ZenohMessage::make_data(
+                    channel::RELIABLE, reskey.clone(), info.clone(), payload.clone(), 
+                    Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None)).await;
             }
-            Reply::SourceFinal {source, replier_id} => {
-                self.handler.handle_message(Message::make_unit(
-                    true, 0, Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None, None)).await;
+            Reply::SourceFinal { source, replier_id } => {
+                self.handler.handle_message(ZenohMessage::make_unit(
+                    channel::RELIABLE, Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None)).await;
             }
             Reply::ReplyFinal {} => {
-                self.handler.handle_message(Message::make_unit(
-                    true, 0, Some(ReplyContext::make(qid, ReplySource::Storage, None)), None, None)).await;
+                self.handler.handle_message(ZenohMessage::make_unit(
+                    channel::RELIABLE, Some(ReplyContext::make(qid, ReplySource::Storage, None)), None)).await;
             }
         }
     }
 
     async fn pull(&self, is_final: bool, reskey: &ResKey, pull_id: ZInt, max_samples: &Option<ZInt>) {
-        self.handler.handle_message(Message::make_pull(is_final, 0, reskey.clone(), pull_id, *max_samples, None, None)).await;
+        self.handler.handle_message(ZenohMessage::make_pull(is_final, reskey.clone(), pull_id, *max_samples, None)).await;
     }
 
     async fn close(&self) {

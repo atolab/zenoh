@@ -7,27 +7,123 @@ use std::sync::Arc;
 
 impl RBuf {
 
-    pub fn read_message(&mut self) -> ZResult<Message> {
-        use super::msg::id::*;
+    pub fn read_message(&mut self, with_length: bool) -> ZResult<SessionMessage> {
+        self.read_smsg()
+    }
 
-        let mut kind = MessageKind::FullMessage;
-        let mut cid = None;
+    pub fn read_smsg(&mut self) -> ZResult<SessionMessage> {
+        use super::smsg::id::*;
+
+        let mut has_attachment = false;
+        loop {
+            let header = self.read()?;
+            match smsg::mid(header) {
+                ATTACHMENT => {
+                    has_attachment = true;
+                    continue;
+                },
+                SCOUT => {
+                    let what = if smsg::has_flag(header, smsg::flag::W) {
+                        Some(self.read_zint()?)
+                    } else { 
+                        None 
+                    };
+                    let attachment = if has_attachment {
+                        Some(self.read_attachment()?)
+                    } else {
+                        None
+                    }; 
+                    return Ok(SessionMessage::make_scout(what, attachment));
+                },
+                HELLO => {
+                    let whatami = if flag::has_flag(header, flag::W) {
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
+                    let locators = if flag::has_flag(header, flag::L) {
+                        Some(self.read_locators()?)
+                    } else { None };
+                    return Ok(Message::make_hello(whatami, locators, cid, properties));
+                }
+
+                OPEN => {
+                    let version = self.read()?;
+                    let whatami = if flag::has_flag(header, flag::W) {
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
+                    let pid = self.read_peerid()?;
+                    let lease = self.read_zint()?;
+                    let locators = if flag::has_flag(header, flag::L) {
+                        Some(self.read_locators()?)
+                    } else { None };
+                    return Ok(Message::make_open(version, whatami, pid, lease, locators, cid, properties));
+                }
+
+                ACCEPT => {
+                    let whatami = if flag::has_flag(header, flag::W) {
+                        WhatAmI::from_zint(self.read_zint()?)?
+                    } else { WhatAmI::Broker };
+                    let opid = self.read_peerid()?;
+                    let apid = self.read_peerid()?;
+                    let lease = self.read_zint()?;
+                    return Ok(Message::make_accept(whatami, opid, apid, lease, cid, properties));
+                }
+
+                CLOSE => {
+                    let pid = if flag::has_flag(header, flag::P) {
+                        Some(self.read_peerid()?)
+                    } else { None };
+                    let reason = self.read()?;
+                    return Ok(Message::make_close(pid, reason, cid, properties));
+                }
+
+                KEEP_ALIVE => {
+                    let pid = if flag::has_flag(header, flag::P) {
+                        Some(self.read_peerid()?)
+                    } else { None };
+                    return Ok(Message::make_keep_alive(pid, cid, properties));
+                }
+
+                PING_PONG => {
+                    let hash = self.read_zint()?;
+                    if flag::has_flag(header, flag::P) {
+                        return Ok(Message::make_ping(hash, cid, properties))
+                    } else {
+                        return Ok(Message::make_pong(hash, cid, properties))
+                    }
+                }
+
+                SYNC => {
+                    let reliable = flag::has_flag(header, flag::R);
+                    let sn = self.read_zint()?;
+                    let count = if flag::has_flag(header, flag::C) {
+                        Some(self.read_zint()?)
+                    } else { None };
+                    return Ok(Message::make_sync(reliable, sn, count, cid, properties))
+                }
+
+                ACK_NACK => {
+                    let sn = self.read_zint()?;
+                    let mask = if flag::has_flag(header, flag::M) {
+                        Some(self.read_zint()?)
+                    } else { None };
+                    return Ok(Message::make_ack_nack(sn, mask, cid, properties))
+                }
+
+                id => panic!("UNEXPECTED ID FOR Message: {}", id)   //@TODO: return error
+            }
+        }
+    }
+
+    pub fn read_zmsg(&mut self) -> ZResult<ZenohMessage> {
+        use super::zmsg::id::*;
+
         let mut reply_context = None;
         let mut properties : Option<Arc<Vec<Property>>> = None;
 
+        let mut has_attachment = false;
         loop {
             let header = self.read()?;
             match flag::mid(header) {
-                FRAGMENT => {
-                    kind = self.read_deco_frag(header)?;
-                    continue;
-                }
-
-                CONDUIT => {
-                    cid = Some(self.read_deco_conduit(header)?);
-                    continue;
-                }
-
                 REPLY => {
                     reply_context = Some(self.read_deco_reply(header)?);
                     continue;
@@ -170,7 +266,12 @@ impl RBuf {
         }
     }
 
-    pub fn read_datainfo(&mut self) -> ZResult<DataInfo>{
+    pub fn read_attachment(&mut self) -> ZResult<Arc<RBuf>> {
+        // @TODO
+        Ok(Arc::new(RBuf::new()))
+    }
+
+    pub fn read_datainfo(&mut self) -> ZResult<DataInfo> {
         let header = self.read()?;
         let source_id = if header & info_flag::SRCID > 0 {
             Some(self.read_peerid()?)
