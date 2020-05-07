@@ -3,8 +3,9 @@ mod defaults;
 mod manager;
 mod transport;
 
-pub(crate) use conduit::*;
 pub use manager::*;
+
+pub(crate) use conduit::*;
 pub(crate) use transport::*;
 
 use async_std::sync::Arc;

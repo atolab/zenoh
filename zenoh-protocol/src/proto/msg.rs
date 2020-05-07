@@ -5,12 +5,18 @@ use crate::link::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
 
+const DECORATOR_ATTACHMENT_ID: u8 = 0x1f;
+
 /*************************************/
 /*         ZENOH MESSAGES            */
 /*************************************/
 pub mod zmsg {
+    use super::DECORATOR_ATTACHMENT_ID;
+
     // Zenoh message IDs
     pub mod id {
+        use super::DECORATOR_ATTACHMENT_ID;
+
         // Messages
         pub const DECLARE       : u8 = 0x01;
         pub const DATA  	    : u8 = 0x02;
@@ -19,16 +25,21 @@ pub mod zmsg {
         pub const UNIT          : u8 = 0x05;
 
         // Message decorators
-        pub const REPLY         : u8 = 0x1f;
+        pub const REPLY         : u8 = 0x1e;
+        pub const ATTACHMENT    : u8 = DECORATOR_ATTACHMENT_ID; 
     }
 
     // Zenoh message flags
     pub mod flag {
+        // TO UPDATE THE REPLY AND REMOVE
+        pub const E: u8 = 1 << 5; // 0x20 FromEval     if E==1 then the Reply is from Eval
+
         pub const F: u8 = 1 << 5; // 0x20 Final        if F==1 then this is the final message (e.g., Reply, Pull)
         pub const I: u8 = 1 << 6; // 0x40 Info         if I==1 then Info is present
         pub const K: u8 = 1 << 7; // 0x80 ResourceKey  if K==1 then only numerical ID
         pub const N: u8 = 1 << 6; // 0x40 MaxSamples   if N==1 then the MaxSamples is indicated
         pub const R: u8 = 1 << 5; // 0x20 Reliable     if R==1 then it concerns the reliable channel, best-effort otherwise
+        pub const S: u8 = 1 << 5; // 0x80 SubMode      if S==1 then the declaration SubMode is indicated
         pub const T: u8 = 1 << 5; // 0x20 QueryTarget  if T==1 then the query target is present
 
         pub const X: u8 = 0;      // Unused flags are set to zero
@@ -677,10 +688,10 @@ pub enum SessionBody {
     /// +-+-+-+-+-------+
     /// ~      sn       ~ -- Sequence number of the next message to be transmitted on this channel.
     /// +---------------+
-    /// ~     count     ~ if R==1 && G==1 -- Number of unacknowledged messages. 
+    /// ~     count     ~ if R==1 && C==1 -- Number of unacknowledged messages. 
     /// +---------------+
     ///
-    /// - if R==1 then the SYNC concerns the reliable channel, the best-effort channel otherwise.
+    /// - if R==1 then the SYNC concerns the reliable channel, otherwise the best-effort channel.
     /// 
     Sync { ch: Channel, sn: ZInt, count: Option<ZInt> },
 

@@ -44,11 +44,11 @@ pub struct SubInfo {
 pub enum Declaration {
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C| RESOURCE|
+    /// |X|X|K| RESOURCE|
     /// +---------------+
     /// ~      RID      ~
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
     ///    
     /// @Olivier, the idea would be to be able to declare a 
@@ -73,9 +73,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|   PUB   |
+    /// |X|X|K|   PUB   |
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
     Publisher {
         key: ResKey
@@ -83,9 +83,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|  F_PUB  |
+    /// |X|X|K|  F_PUB  |
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
     ForgetPublisher {
         key: ResKey
@@ -93,9 +93,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |S|R|C|   SUB   |  R for Reliable
+    /// |S|R|K|   SUB   |  R for Reliable
     /// +---------------+
-    /// ~    ResKey     ~ if C==1 then only numerical id
+    /// ~    ResKey     ~ if K==1 then only numerical id
     /// +---------------+
     /// |    SubMode    | if S==1. Otherwise: SubMode=Push
     /// +---------------+
@@ -108,9 +108,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|  F_SUB  |
+    /// |X|X|K|  F_SUB  |
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
     ForgetSubscriber {
         key: ResKey
@@ -118,9 +118,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C|  QABLE  |
+    /// |X|X|K|  QABLE  |
     /// +---------------+
-    /// ~     ResKey    ~ if  C==1 then only numerical id
+    /// ~     ResKey    ~ if  K==1 then only numerical id
     /// +---------------+
     Queryable {
         key: ResKey
@@ -128,9 +128,9 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|C| F_QABLE |
+    /// |X|X|K| F_QABLE |
     /// +---------------+
-    /// ~    ResKey     ~ if  C==1 then only numerical id
+    /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
     ForgetQueryable {
         key: ResKey
