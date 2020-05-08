@@ -7,8 +7,29 @@ use zenoh_protocol::core::{ResKey, ResourceId}; // { rname, PeerId, ResourceId, 
 
 pub struct ZNSession(zenoh::net::Session);
 
+pub struct ZProperties(zenoh::net::Properties);
+
 #[no_mangle]
-pub unsafe extern "C" fn zn_open(locator: *const c_char) -> *mut ZNSession {
+pub extern "C" fn zn_properties_make() -> *mut ZProperties {
+  Box::into_raw(Box::new(ZProperties(zenoh::net::Properties::new())))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn zn_properties_add(rps: *mut ZProperties, id: c_ulong, value: *const c_char) -> *mut ZProperties {
+  let mut ps = Box::from_raw(rps);  
+  let bs = CStr::from_ptr(value).to_bytes();
+  ps.0.insert(id as zenoh::net::ZInt, Vec::from(bs));
+  rps
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn zn_properties_free(rps: *mut ZProperties ) {
+  let ps = Box::from_raw(rps);  
+  drop(ps);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn zn_open(locator: *const c_char, _ps: *const ZProperties) -> *mut ZNSession {
   let l = 
   if locator.is_null() { "" } 
   else {
