@@ -16,6 +16,13 @@ unsigned long zn_declare_resource_ws(ZNSession *session, unsigned long rid, cons
 
 ZNSession *zn_open(const char *locator, const ZProperties *_ps);
 
+/**
+ * Add a property
+ *
+ * # Safety
+ * The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+ *
+ */
 ZProperties *zn_properties_add(ZProperties *rps, unsigned long id, const char *value);
 
 void zn_properties_free(ZProperties *rps);

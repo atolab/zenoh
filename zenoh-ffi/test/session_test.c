@@ -11,8 +11,8 @@ int main(int argc, char** argv) {
     exit(-1);
   } 
   sleep(1);
-  char *data = "Hello World\0";
-  zn_write(s, "/zenoh/demo/quote", data, strlen(data));
-  sleep(3);
-  zn_close(s);  
+  const char *data = "Hello from C";
+  const char *key = "/zenoh/demo/quote";
+  zn_write(s, key, data, strlen(data));
+  zn_close(s);
 }
