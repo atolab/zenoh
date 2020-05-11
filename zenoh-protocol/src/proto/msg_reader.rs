@@ -7,22 +7,23 @@ use super::msg::*;
 use super::decl::{Declaration, SubInfo, SubMode, Reliability, Period};
 use std::sync::Arc;
 
+
 impl RBuf {
-
-    pub fn read_message(&mut self, with_length: bool) -> ZResult<SessionMessage> {
-        self.read_smsg()
-    }
-
-    pub fn read_smsg(&mut self) -> ZResult<SessionMessage> {
+    pub fn read_session_message(&mut self) -> ZResult<SessionMessage> {
         use super::smsg::id::*;
 
-        let mut has_attachment = false;
-        loop {
+        let attachment_header = None;
+        
+        // Read the message
+        let (header, body) = loop {
+            // Read the header
             let header = self.read()?;
+
+            // Read the body
             match smsg::mid(header) {
                 ATTACHMENT => {
-                    has_attachment = true;
-                    continue;
+                    attachment_header = Some(header);
+                    continue
                 },
 
                 SCOUT => {
@@ -30,13 +31,10 @@ impl RBuf {
                         Some(self.read_zint()?)
                     } else { 
                         None 
-                    };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
                     }; 
-                    return Ok(SessionMessage::make_scout(what, attachment));
+
+                    let body = SessionBody::Scout { what };
+                    break (header, body)
                 },
 
                 HELLO => {
@@ -50,12 +48,9 @@ impl RBuf {
                     } else { 
                         None 
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    }; 
-                    return Ok(SessionMessage::make_hello(whatami, locators, attachment));
+                    
+                    let body = SessionBody::Hello { whatami, locators };
+                    break (header, body)
                 },
 
                 OPEN => {
@@ -80,12 +75,9 @@ impl RBuf {
                     } else {
                         (None, None)
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    }; 
-                    return Ok(SessionMessage::make_open(version, whatami, pid, lease, initial_sn, sn_resolution, locators, attachment));
+
+                    let body = SessionBody::Open { version, whatami, pid, lease, initial_sn, sn_resolution, locators };
+                    break (header, body)
                 },
 
                 ACCEPT => {
@@ -114,12 +106,9 @@ impl RBuf {
                     } else {
                         (None, None, None)
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    }; 
-                    return Ok(SessionMessage::make_accept(whatami, opid, apid, initial_sn, sn_resolution, lease, locators, attachment));
+
+                    let body = SessionBody::Accept { whatami, opid, apid, initial_sn, sn_resolution, lease, locators };
+                    break (header, body)
                 },
 
                 CLOSE => {
@@ -130,28 +119,22 @@ impl RBuf {
                         None 
                     };
                     let reason = self.read()?;
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    }; 
-                    return Ok(SessionMessage::make_close(pid, reason, link_only, attachment));
+
+                    let body = SessionBody::Close { pid, reason, link_only };
+                    break (header, body)
                 },
 
                 SYNC => {
-                    let reliable = smsg::has_flag(header, smsg::flag::R);
+                    let ch = smsg::has_flag(header, smsg::flag::R);
                     let sn = self.read_zint()?;
                     let count = if smsg::has_flag(header, smsg::flag::C) {
                         Some(self.read_zint()?)
                     } else { 
                         None 
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    }; 
-                    return Ok(SessionMessage::make_sync(reliable, sn, count, attachment))
+                    
+                    let body = SessionBody::Sync { ch, sn, count };
+                    break (header, body)
                 },
 
                 ACK_NACK => {
@@ -161,12 +144,9 @@ impl RBuf {
                     } else { 
                         None 
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(SessionMessage::make_ack_nack(sn, mask, attachment))
+                    
+                    let body = SessionBody::AckNack { sn, mask };
+                    break (header, body)
                 },
 
                 KEEP_ALIVE => {
@@ -175,70 +155,98 @@ impl RBuf {
                     } else { 
                         None 
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(SessionMessage::make_keep_alive(pid, attachment));
+                    
+                    let body = SessionBody::KeepAlive { pid };
+                    break (header, body)
                 },
 
                 PING_PONG => {
                     let hash = self.read_zint()?;
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
+                    
+                    let body = if smsg::has_flag(header, smsg::flag::P) {
+                        SessionBody::Ping { hash }
                     } else {
-                        None
+                        SessionBody::Pong { hash }
                     };
-                    if smsg::has_flag(header, smsg::flag::P) {
-                        return Ok(SessionMessage::make_ping(hash, attachment))
-                    } else {
-                        return Ok(SessionMessage::make_pong(hash, attachment))
-                    }
+
+                    break (header, body)
                 },
 
                 FRAME => {
-                    // @TODO
-                    unimplemented!();
+                    let ch = smsg::has_flag(header, smsg::flag::R);
+                    let sn = self.read_zint()?;
+
+                    let payload = if smsg::has_flag(header, smsg::flag::F) {
+                        let buffer = RBuf::from(self.read_bytes_array()?);
+                        let is_final = smsg::has_flag(header, smsg::flag::E);
+
+                        FramePayload::Fragment { buffer, is_final }
+                    } else {
+                        // @TODO: check 
+                        let mut messages: Vec<ZenohMessage> = Vec::with_capacity(1);
+                        while let Ok(msg) = self.read_zenoh_message() {
+                            messages.push(msg);
+                        }
+
+                        FramePayload::Messages { messages }
+                    };
+
+                    let body = SessionBody::Frame { ch, sn, payload };
+                    break (header, body)
                 },
 
-                id => return Err(zerror!(ZErrorKind::InvalidMessage {
-                    descr: format!("ID unknown: {}", id)
+                unknown => return Err(zerror!(ZErrorKind::InvalidMessage {
+                    descr: format!("ID unknown: {}", unknown)
                 }))
             }
-        }
+        };
+
+        // Read the attachment if any
+        let attachment = if let Some(h) = attachment_header {
+            Some(self.read_deco_attachment(h)?)
+        } else {
+            None
+        };
+
+        Ok(SessionMessage { header, body, attachment })        
     }
 
-    pub fn read_zmsg(&mut self) -> ZResult<ZenohMessage> {
+    pub fn read_zenoh_message(&mut self) -> ZResult<ZenohMessage> {
         use super::zmsg::id::*;
 
+        // Message decorators
         let mut reply_context = None;
-        let mut has_attachment = false;
-        loop {
+        let mut attachment_header = None;
+
+        // Read the message
+        let (header, body, channel) = loop {
+            // Read the header
             let header = self.read()?;
+
+            // Read the body
             match zmsg::mid(header) {
+                // Decorators
                 REPLY => {
                     reply_context = Some(self.read_deco_reply(header)?);
-                    continue;
+                    continue
                 },
 
                 ATTACHMENT => {
-                    has_attachment = true;
-                    continue;
+                    attachment_header = Some(header);
+                    continue
                 },
 
+                // Messages
                 DECLARE => {
                     let declarations = self.read_declarations()?;
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(ZenohMessage::make_declare(declarations, attachment));
+
+                    let body = ZenohBody::Declare { declarations };
+                    let channel = zmsg::default_channel::DECLARE;
+                    break (header, body, channel)
                 },
 
                 DATA => {
-                    let reliable = zmsg::has_flag(header, zmsg::flag::R);
+                    let channel = zmsg::has_flag(header, zmsg::flag::R);
                     let key = self.read_reskey(zmsg::has_flag(header, zmsg::flag::K))?;
                     let info = if zmsg::has_flag(header, zmsg::flag::I) {
                         Some(RBuf::from(self.read_bytes_array()?))
@@ -246,23 +254,17 @@ impl RBuf {
                         None 
                     };
                     let payload = RBuf::from(self.read_bytes_array()?);
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment))
+
+                    let body = ZenohBody::Data { key, info, payload };
+                    break (header, body, channel)
                 },
 
                 UNIT => {
-                    let reliable = zmsg::has_flag(header, zmsg::flag::R);
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(ZenohMessage::make_unit(reliable, reply_context, attachment))
-                }
+                    let channel = zmsg::has_flag(header, zmsg::flag::R);
+
+                    let body = ZenohBody::Unit {};
+                    break (header, body, channel)
+                },
 
                 PULL => {
                     let is_final = zmsg::has_flag(header, zmsg::flag::F);
@@ -273,12 +275,10 @@ impl RBuf {
                     } else { 
                         None 
                     };
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(ZenohMessage::make_pull(is_final, key, pull_id, max_samples, attachment))
+
+                    let body = ZenohBody::Pull { key, pull_id, max_samples, is_final };
+                    let channel = zmsg::default_channel::PULL;
+                    break (header, body, channel)
                 },
 
                 QUERY => {
@@ -291,24 +291,43 @@ impl RBuf {
                         None 
                     };
                     let consolidation = self.read_consolidation()?;
-                    let attachment = if has_attachment {
-                        Some(self.read_attachment()?)
-                    } else {
-                        None
-                    };
-                    return Ok(ZenohMessage::make_query(key, predicate, qid, target, consolidation, attachment))
-                }
+                    
+                    let body = ZenohBody::Query { key, predicate, qid, target, consolidation };
+                    let channel = zmsg::default_channel::QUERY;
+                    break (header, body, channel)
+                },
 
-                id => return Err(zerror!(ZErrorKind::InvalidMessage {
-                    descr: format!("ID unknown: {}", id)
+                unknown => return Err(zerror!(ZErrorKind::InvalidMessage {
+                    descr: format!("ID unknown: {}", unknown)
                 }))
             }
-        }
+        };
+
+        // Read the attachment if any
+        let attachment = if let Some(h) = attachment_header {
+            Some(self.read_deco_attachment(h)?)
+        } else {
+            None
+        };
+
+        Ok(ZenohMessage { header, body, channel, reply_context, attachment })
     }
 
-    pub fn read_attachment(&mut self) -> ZResult<Arc<RBuf>> {
-        // @TODO
-        Ok(Arc::new(RBuf::new()))
+    fn read_deco_attachment(&mut self, header: u8) -> ZResult<Attachment> {
+        let encoding = smsg::flags(header);
+        let buffer = Arc::new(RBuf::from(self.read_bytes_array()?));
+        Ok(Attachment { encoding, buffer })
+    }
+
+    // @TODO: Update the Reply format
+    fn read_deco_reply(&mut self, header: u8) -> ZResult<ReplyContext> {
+        let is_final = zmsg::has_flag(header, zmsg::flag::F);
+        let source = if zmsg::has_flag(header, zmsg::flag::E) { ReplySource::Eval } else { ReplySource::Storage };
+        let qid = self.read_zint()?;
+        let replier_id = if is_final { None } else {
+            Some(self.read_peerid()?)
+        };
+        Ok(ReplyContext{ is_final, qid, source, replier_id })
     }
 
     pub fn read_datainfo(&mut self) -> ZResult<DataInfo> {
@@ -336,17 +355,6 @@ impl RBuf {
         } else { None };
 
         Ok(DataInfo { header, source_id, source_sn, fist_broker_id, fist_broker_sn, timestamp, kind, encoding })
-    }
-
-    // @TODO: Update the Reply format
-    fn read_deco_reply(&mut self, header: u8) -> ZResult<ReplyContext> {
-        let is_final = zmsg::has_flag(header, zmsg::flag::F);
-        let source = if zmsg::has_flag(header, zmsg::flag::E) { ReplySource::Eval } else { ReplySource::Storage };
-        let qid = self.read_zint()?;
-        let replier_id = if is_final { None } else {
-            Some(self.read_peerid()?)
-        };
-        Ok(ReplyContext{ is_final, qid, source, replier_id })
     }
 
     fn read_property(&mut self) -> ZResult<Property> {

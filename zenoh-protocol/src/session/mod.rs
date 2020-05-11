@@ -12,14 +12,14 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
-use crate::proto::{Message, WhatAmI};
+use crate::proto::{ZenohMessage, WhatAmI};
 
 /*********************************************************/
 /* Session Callback to be implemented by the Upper Layer */
 /*********************************************************/
 #[async_trait]
 pub trait MsgHandler {
-    async fn handle_message(&self, msg: Message) -> ZResult<()>;
+    async fn handle_message(&self, msg: ZenohMessage) -> ZResult<()>;
     async fn close(&self);
 }
 
@@ -44,7 +44,7 @@ impl DummyHandler {
 
 #[async_trait]
 impl MsgHandler for DummyHandler {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         Ok(())
     }
     async fn close(&self) {}

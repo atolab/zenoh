@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::link::{Link, LinkManager, LinkManagerBuilder, Locator, LocatorProtocol};
-use crate::proto::{Message, WhatAmI, close_reason};
+use crate::proto::{SessionMessage, WhatAmI, ZenohMessage, smsg};
 use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
     SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
@@ -507,13 +507,13 @@ impl Session {
         Ok(session.transport.get_links().await)
     }
 
-    pub async fn schedule(&self, message: Message, link: Option<Link>) -> ZResult<()> {
+    pub async fn schedule(&self, message: ZenohMessage, link: Option<Link>) -> ZResult<()> {
         let session = zsession!(self.0);
         session.transport.schedule(message, *QUEUE_PRIO_DATA, link).await;
         Ok(())
     }
 
-    pub async fn schedule_batch(&self, messages: Vec<Message>, link: Option<Link>, cid: Option<ZInt>) -> ZResult<()> {
+    pub async fn schedule_batch(&self, messages: Vec<ZenohMessage>, link: Option<Link>, cid: Option<ZInt>) -> ZResult<()> {
         let session = zsession!(self.0);
         session.transport.schedule_batch(messages, *QUEUE_PRIO_DATA, link, cid).await;
         task::yield_now().await;
@@ -524,7 +524,7 @@ impl Session {
 #[async_trait]
 impl MsgHandler for Session {
     #[inline]
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
+    async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         self.schedule(message, None).await
     }
 
@@ -640,7 +640,7 @@ impl SessionInner {
         let properties = None;
 
         // Build the Open Message
-        let message = Message::make_open(
+        let message = SessionMessage::make_open(
             version, whatami, peer_id, lease, locators, conduit_id, properties,
         );
 
@@ -653,10 +653,10 @@ impl SessionInner {
     async fn close(&self) -> ZResult<()> {
         // Send a close message
         let peer_id = Some(self.manager.config.id.clone());
-        let reason_id = close_reason::GENERIC;              
+        let reason_id = smsg::close_reason::GENERIC;              
         let conduit_id = None;  // This is should always be None for Close Messages                
         let properties = None;  // Parameter of open_session
-        let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+        let message = SessionMessage::make_close(peer_id, reason_id, conduit_id, properties);
 
         // Get the transport links
         let links = self.transport.get_links().await;
@@ -767,10 +767,10 @@ impl SessionInner {
         if version > self.manager.config.version {
             // Send a close message
             let peer_id = Some(self.manager.config.id.clone());
-            let reason_id = close_reason::UNSUPPORTED;              
+            let reason_id = smsg::close_reason::UNSUPPORTED;              
             let conduit_id = None;  // This is should always be None for Close Messages                
             let properties = None;  // Parameter of open_session
-            let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+            let message = SessionMessage::make_close(peer_id, reason_id, conduit_id, properties);
 
             // Send the close message for this link
             let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
@@ -791,10 +791,10 @@ impl SessionInner {
                 if num >= limit {
                     // Send a close message
                     let peer_id = Some(self.manager.config.id.clone());
-                    let reason_id = close_reason::MAX_SESSIONS;                
+                    let reason_id = smsg::close_reason::MAX_SESSIONS;                
                     let conduit_id = None;  // This is should always be None for Close Messages                
                     let properties = None;  // Parameter of open_session
-                    let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+                    let message = SessionMessage::make_close(peer_id, reason_id, conduit_id, properties);
 
                     // Send the close message for this link
                     let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
@@ -819,10 +819,10 @@ impl SessionInner {
             if target.transport.num_links() >= limit {
                 // Send a close message
                 let peer_id = Some(self.manager.config.id.clone());
-                let reason_id = close_reason::MAX_LINKS;               
+                let reason_id = smsg::close_reason::MAX_LINKS;               
                 let conduit_id = None;  // This is should always be None for Close Messages                
                 let properties = None;  // Parameter of open_session
-                let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+                let message = SessionMessage::make_close(peer_id, reason_id, conduit_id, properties);
 
                 // Send the close message for this link
                 let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
@@ -849,7 +849,7 @@ impl SessionInner {
         // Build Accept message
         let conduit_id = None; // Conduit ID always None
         let properties = None; // Properties always None for the time being. May change in the future.
-        let message = Message::make_accept(
+        let message = SessionMessage::make_accept(
             self.manager.config.whatami.clone(),
             pid.clone(),
             self.manager.config.id.clone(),

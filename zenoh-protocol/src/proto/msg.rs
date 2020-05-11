@@ -1,32 +1,123 @@
-use crate::zerror;
-use crate::core::{ZError, ZErrorKind, ZInt, ZResult, PeerId, Property, ResKey, TimeStamp};
+use crate::core::{ZInt, PeerId, ResKey, TimeStamp};
 use crate::io::RBuf;
 use crate::link::Locator;
 use super::decl::Declaration;
 use std::sync::Arc;
 
-const DECORATOR_ATTACHMENT_ID: u8 = 0x1f;
+// Channel values
+pub type Channel = channel::Type;
+pub mod channel {
+    pub type Type = bool;
+
+    pub const BEST_EFFORT   : Type = false;
+    pub const RELIABLE      : Type = true;
+}
+
+// WhatAmI values
+pub type WhatAmI = whatami::Type;
+pub mod whatami {
+    use super::ZInt;
+
+    pub type Type = ZInt;
+
+    pub const BROKER        : Type = 1 << 0; // 0x01
+    pub const ROUTER        : Type = 1 << 1; // 0x02
+    pub const PEER          : Type = 1 << 2; // 0x04
+    pub const CLIENT        : Type = 1 << 3; // 0x08
+    // b4-b13: Reserved
+}
+
+// Attachment decorator
+/// NOTE: 16 bits (2 bytes) may be prepended to the serialized message indicating the total lenght 
+///       in bytes of the message, resulting in the maximum lenght of a message being 65_536 bytes.
+///       This is necessary in those stream-oriented transports (e.g., TCP) that do not preserve 
+///       the boundary of the serialized messages. The length is encoded as little-endian.
+///       In any case, the lenght of a message must not exceed 65_536 bytes.    
+/// 
+/// The Attachment can decorate any message (i.e., SessionMessage and ZenohMessage) and it allows to 
+/// append to the message any additional information. Since the information contained in the 
+/// Attachement is relevant only to the layer that provided them (e.g., Session, Zenoh, User) it 
+/// is the duty of that layer to serialize and de-serialize the attachment whenever deemed necessary.
+/// 
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// | ENC |  ATTCH  |
+/// +-+-+-+---------+
+/// ~    Message    ~
+/// +---------------+
+/// ~   Attachment  ~
+/// +---------------+
+///
+/// ENC values:
+/// - 0x00 => Zenoh Properties
+/// 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attachment {
+    encoding: u8,
+    buffer: Arc<RBuf>
+}
+
+// Message IDs
+mod msg {
+    pub(super) mod id {
+        // Session Messages
+        pub(crate) const SCOUT         : u8 = 0x01;
+        pub(crate) const HELLO         : u8 = 0x02;
+        pub(crate) const OPEN          : u8 = 0x03;
+        pub(crate) const ACCEPT        : u8 = 0x04;
+        pub(crate) const CLOSE         : u8 = 0x05;
+        pub(crate) const SYNC          : u8 = 0x06;
+        pub(crate) const ACK_NACK      : u8 = 0x07;
+        pub(crate) const KEEP_ALIVE    : u8 = 0x08;
+        pub(crate) const PING_PONG     : u8 = 0x09;
+        pub(crate) const FRAME         : u8 = 0x0a; 
+
+        // Zenoh Messages
+        pub(crate) const DECLARE       : u8 = 0x0b;
+        pub(crate) const DATA          : u8 = 0x0c;
+        pub(crate) const QUERY         : u8 = 0x0d;
+        pub(crate) const PULL          : u8 = 0x0e;
+        pub(crate) const UNIT          : u8 = 0x0f;
+
+        // Message decorators
+        pub(crate) const REPLY         : u8 = 0x1e;
+        pub(crate) const ATTACHMENT    : u8 = 0x1f; 
+    }
+}
+
 
 /*************************************/
 /*         ZENOH MESSAGES            */
 /*************************************/
 pub mod zmsg {
-    use super::DECORATOR_ATTACHMENT_ID;
+    use super::msg;
+    use super::channel;
 
     // Zenoh message IDs
     pub mod id {
-        use super::DECORATOR_ATTACHMENT_ID;
+        use super::msg;
 
         // Messages
-        pub const DECLARE       : u8 = 0x01;
-        pub const DATA  	    : u8 = 0x02;
-        pub const QUERY         : u8 = 0x03;
-        pub const PULL          : u8 = 0x04;
-        pub const UNIT          : u8 = 0x05;
+        pub const DECLARE       : u8 = msg::id::DECLARE;
+        pub const DATA  	    : u8 = msg::id::DATA;
+        pub const QUERY         : u8 = msg::id::QUERY;
+        pub const PULL          : u8 = msg::id::PULL;
+        pub const UNIT          : u8 = msg::id::UNIT;
 
         // Message decorators
-        pub const REPLY         : u8 = 0x1e;
-        pub const ATTACHMENT    : u8 = DECORATOR_ATTACHMENT_ID; 
+        pub const REPLY         : u8 = msg::id::REPLY;
+        pub const ATTACHMENT    : u8 = msg::id::ATTACHMENT; 
+    }
+
+    // Default channel for each Zenoh Message
+    pub mod default_channel {
+        use super::channel;
+
+        pub const DECLARE       : channel::Type = channel::RELIABLE;
+        pub const DATA  	    : channel::Type = channel::BEST_EFFORT;
+        pub const QUERY         : channel::Type = channel::RELIABLE;
+        pub const PULL          : channel::Type = channel::RELIABLE;
+        pub const UNIT          : channel::Type = channel::BEST_EFFORT;
     }
 
     // Zenoh message flags
@@ -228,7 +319,7 @@ pub enum ZenohBody {
     /// +---------------+
     /// ~  max_samples  ~ if N==1
     /// +---------------+
-    Pull { key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>},
+    Pull { key: ResKey, pull_id: ZInt, max_samples: Option<ZInt>, is_final: bool },
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
@@ -251,22 +342,22 @@ pub enum ZenohBody {
 pub struct ZenohMessage {
     pub(crate) header: u8,
     pub(crate) body: ZenohBody,
-    pub(crate) ch: Channel,
+    pub(crate) channel: Channel,
     pub(crate) reply_context: Option<ReplyContext>,
-    pub(crate) attachment: Option<Arc<RBuf>>
+    pub(crate) attachment: Option<Attachment>
 }
 
 impl ZenohMessage {
     pub fn make_declare(
         declarations: Vec<Declaration>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> ZenohMessage {
         let header = zmsg::id::DECLARE;
 
         ZenohMessage {
             header,
-            ch: channel::RELIABLE,
             body: ZenohBody::Declare { declarations },
+            channel: zmsg::default_channel::DECLARE,
             reply_context: None,
             attachment
         }
@@ -274,39 +365,39 @@ impl ZenohMessage {
 
     #[allow(clippy::too_many_arguments)]
     pub fn make_data(
-        ch: Channel,
+        channel: Channel,
         key: ResKey,
         info: Option<RBuf>,
         payload: RBuf,
         reply_context: Option<ReplyContext>,
-        attachment: Option<Arc<RBuf>> 
+        attachment: Option<Attachment> 
     ) -> ZenohMessage {   
         let kflag = if key.is_numerical() { zmsg::flag::K } else { 0 };
         let iflag = if info.is_some() { zmsg::flag::I } else { 0 };  
-        let rflag = if ch { zmsg::flag::R } else { 0 };
+        let rflag = if channel { zmsg::flag::R } else { 0 };
         let header = zmsg::id::DATA | iflag | rflag | kflag;
 
         ZenohMessage {
             header,
-            ch, 
             body: ZenohBody::Data { key, info, payload },
+            channel,
             reply_context,
             attachment
         }
     }
 
     pub fn make_unit(
-        ch: Channel,
+        channel: Channel,
         reply_context: Option<ReplyContext>,
-        attachment: Option<Arc<RBuf>> 
+        attachment: Option<Attachment> 
     ) -> ZenohMessage {
-        let rflag = if ch { zmsg::flag::R } else { 0 };
+        let rflag = if channel { zmsg::flag::R } else { 0 };
         let header = zmsg::id::UNIT | rflag;
 
         ZenohMessage {
             header,
-            ch,
             body: ZenohBody::Unit { },
+            channel,
             reply_context,
             attachment
         }
@@ -317,7 +408,7 @@ impl ZenohMessage {
         key: ResKey, 
         pull_id: ZInt, 
         max_samples: Option<ZInt>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> ZenohMessage {
         let kflag = if key.is_numerical() { zmsg::flag::K } else { 0 };
         let nflag = if max_samples.is_some() { zmsg::flag::N } else { 0 };
@@ -326,8 +417,8 @@ impl ZenohMessage {
 
         ZenohMessage {
             header,
-            ch: channel::RELIABLE,
-            body: ZenohBody::Pull { key, pull_id, max_samples },
+            body: ZenohBody::Pull { key, pull_id, max_samples, is_final },
+            channel: zmsg::default_channel::PULL,
             reply_context: None,
             attachment
         }
@@ -339,7 +430,7 @@ impl ZenohMessage {
         qid: ZInt,
         target: Option<QueryTarget>, 
         consolidation: QueryConsolidation, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> ZenohMessage {
         let kflag = if key.is_numerical() { zmsg::flag::K } else { 0 };
         let tflag = if target.is_some() { zmsg::flag::T } else { 0 };
@@ -347,8 +438,8 @@ impl ZenohMessage {
 
         ZenohMessage {
             header,
-            ch: channel::RELIABLE,
             body: ZenohBody::Query { key, predicate, qid, target, consolidation },
+            channel: zmsg::default_channel::QUERY,
             reply_context: None,
             attachment
         }
@@ -357,7 +448,8 @@ impl ZenohMessage {
     // -- Message Predicates
     #[inline]
     pub fn is_reliable(&self) -> bool {
-        self.ch
+        // RELIABLE channel is internally represented as boolean with value "true"
+        self.channel
     }
 
     #[inline]
@@ -372,7 +464,7 @@ impl ZenohMessage {
     }
 
     #[inline]
-    pub fn get_attachment(&self) -> &Option<Arc<RBuf>> {
+    pub fn get_attachment(&self) -> &Option<Attachment> {
         &self.attachment
     }
 }
@@ -381,22 +473,26 @@ impl ZenohMessage {
 /*        SESSION MESSAGES           */
 /*************************************/
 pub mod smsg {
+    use super::msg;
+
     // Session message IDs
     pub mod id {
+        use super::msg;
+        
         // Messages
-        pub const SCOUT         : u8 = 0x01;
-        pub const HELLO         : u8 = 0x02;
-        pub const OPEN          : u8 = 0x03;
-        pub const ACCEPT        : u8 = 0x04;
-        pub const CLOSE         : u8 = 0x05;
-        pub const SYNC          : u8 = 0x06;
-        pub const ACK_NACK      : u8 = 0x07;
-        pub const KEEP_ALIVE    : u8 = 0x08;
-        pub const PING_PONG     : u8 = 0x09;
-        pub const FRAME         : u8 = 0x0a; 
+        pub const SCOUT         : u8 = msg::id::SCOUT;
+        pub const HELLO         : u8 = msg::id::HELLO;
+        pub const OPEN          : u8 = msg::id::OPEN;
+        pub const ACCEPT        : u8 = msg::id::ACCEPT;
+        pub const CLOSE         : u8 = msg::id::CLOSE;
+        pub const SYNC          : u8 = msg::id::SYNC;
+        pub const ACK_NACK      : u8 = msg::id::ACK_NACK;
+        pub const KEEP_ALIVE    : u8 = msg::id::KEEP_ALIVE;
+        pub const PING_PONG     : u8 = msg::id::PING_PONG;
+        pub const FRAME         : u8 = msg::id::FRAME; 
 
         // Message decorators
-        pub const ATTACHMENT    : u8 = 0x1f;
+        pub const ATTACHMENT    : u8 = msg::id::ATTACHMENT;
     }
 
     // Session message flags
@@ -434,26 +530,6 @@ pub mod smsg {
     pub fn has_flag(byte: u8, flag: u8) -> bool { byte & flag != 0 }
 }
 
-// Channel values
-pub type Channel = bool;
-pub mod channel {
-    use super::Channel;
-
-    pub const BEST_EFFORT   : Channel = false;
-    pub const RELIABLE      : Channel = true;
-}
-
-// WhatAmI values
-pub type WhatAmI = ZInt;
-pub mod whatami {
-    use super::WhatAmI;
-    pub const BROKER    : WhatAmI = 1 << 0; // 0x01
-    pub const ROUTER    : WhatAmI = 1 << 1; // 0x02
-    pub const PEER      : WhatAmI = 1 << 2; // 0x04
-    pub const CLIENT    : WhatAmI = 1 << 3; // 0x08
-    // b4-b13: Reserved
-}
-
 #[derive(Debug, Clone)]
 pub enum SessionMode {
     Push,
@@ -473,38 +549,6 @@ pub enum FramePayload {
 // Zenoh messages at zenoh-session level
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionBody {
-    /// -- Message Decorators
-    ///    Message decorators are used to represent on the wire certain message properties.
-    ///    The wire format of message decorators is described below. That said,
-    ///    they are represented as fields in the memory-representation of the message.
-
-    /// NOTE: 16 bits (2 bytes) may be prepended to the serialized message indicating the total lenght 
-    ///       in bytes of the message, resulting in the maximum lenght of a message being 65_536 bytes.
-    ///       This is necessary in those stream-oriented transports (e.g., TCP) that do not preserve 
-    ///       the boundary of the serialized messages. The length is encoded as little-endian.
-    ///       In any case, the lenght of a message must not exceed 65_536 bytes.    
-    /// 
-    /// The Attachment can decorate any message (i.e., SessionMessage and ZenohMessage) and it allows to 
-    /// append to the message any additional information. Since the information contained in the 
-    /// Attchement is relevant only to the layer that provided them (e.g., Session, Zenoh, User) it 
-    /// is the duty of that layer to serialize and de-serialize the attachment whenever deemed necessary.
-    /// 
-    ///  7 6 5 4 3 2 1 0
-    /// +-+-+-+-+-+-+-+-+
-    /// | ENC |  ATTCH  |
-    /// +-+-+-+---------+
-    /// ~    Message    ~
-    /// +---------------+
-    /// ~   Attachment  ~
-    /// +---------------+
-    ///
-    /// ENC values:
-    /// - 0x00 => Zenoh Properties
-    /// 
-    Attachment { payload: Arc<RBuf> },
-
-    /// -- Messages at session level
-
     /// NOTE: 16 bits (2 bytes) may be prepended to the serialized message indicating the total lenght 
     ///       in bytes of the message, resulting in the maximum lenght of a message being 65_536 bytes.
     ///       This is necessary in those stream-oriented transports (e.g., TCP) that do not preserve 
@@ -763,22 +807,22 @@ pub enum SessionBody {
     /// +-+-+-+-+-------+
     /// ~      SN       ~
     /// +---------------+
-    /// ~  FramePayload ~ -- Either a list of complete Zenoh Messages or a fragment of a single Zenoh Message
+    /// ~  FramePayload ~ -- if F==1 then the payload is a fragment of a single Zenoh Message, a list of complete Zenoh Messages otherwise. 
     /// +---------------+
     /// 
     /// - if R==1 then the FRAME is sent on the reliable channel, best-effort otherwise.
     /// - if F==1 then the FRAME is a fragment.
-    /// - if E==1 then the FRAME is the last fragment. F==1 is valid iff C==1.
+    /// - if E==1 then the FRAME is the last fragment. E==1 is valid iff F==1.
     /// 
     /// NOTE: Only one bit would be sufficient to signal fragmentation in a IP-like fashion as follows:
-    ///         - if C==1 then this FRAME is a fragment and more fragment will follow;
-    ///         - if C==0 then the message is the last fragment if SN-1 had C==1, 
+    ///         - if F==1 then this FRAME is a fragment and more fragment will follow;
+    ///         - if F==0 then the message is the last fragment if SN-1 had F==1, 
     ///           otherwise it's a non-fragmented message.
     ///       However, this would require to always perform a two-steps de-serialization: first
-    ///       de-serialize the FRAME and then the Payload. This is due to the fact the C==0 is ambigous
+    ///       de-serialize the FRAME and then the Payload. This is due to the fact the F==0 is ambigous
     ///       w.r.t. detecting if the FRAME is a fragment or not before SN re-ordering has occured. 
     ///       By using the F bit to only signal whether the FRAME is fragmented or not, it allows to 
-    ///       de-serialize the payload in one single pass when C==0 since no re-ordering needs to take
+    ///       de-serialize the payload in one single pass when F==0 since no re-ordering needs to take
     ///       place at this stage. Then, the F bit is used to detect the last fragment during re-ordering.
     /// 
     Frame { ch: Channel, sn: ZInt, payload: FramePayload }
@@ -788,13 +832,13 @@ pub enum SessionBody {
 pub struct SessionMessage {
     pub(crate) header: u8,
     pub(crate) body: SessionBody,
-    pub(crate) attachment: Option<Arc<RBuf>>
+    pub(crate) attachment: Option<Attachment>
 }
 
 impl SessionMessage {
     pub fn make_scout(
         what: Option<WhatAmI>,
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let wflag = if what.is_some() { smsg::flag::W } else { 0 };
         let header = smsg::id::SCOUT | wflag;
@@ -809,7 +853,7 @@ impl SessionMessage {
     pub fn make_hello(
         whatami: Option<WhatAmI>,
         locators: Option<Vec<Locator>>,
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let wflag = if whatami.is_some() { smsg::flag::W } else { 0 };
         let lflag = if locators.is_some() { smsg::flag::L } else { 0 };
@@ -830,7 +874,7 @@ impl SessionMessage {
         initial_sn: ZInt,
         sn_resolution: Option<ZInt>,
         locators: Option<Vec<Locator>>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let oflag = if sn_resolution.is_some() || locators.is_some() { smsg::flag::O } else { 0 };
         let header = smsg::id::OPEN | oflag;
@@ -850,7 +894,7 @@ impl SessionMessage {
         sn_resolution: Option<ZInt>, 
         lease: Option<ZInt>,
         locators: Option<Vec<Locator>>,
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let oflag = if sn_resolution.is_some() || lease.is_some() 
                     || locators.is_some() { smsg::flag::O } else { 0 };
@@ -867,7 +911,7 @@ impl SessionMessage {
         pid: Option<PeerId>, 
         reason: u8,
         link_only: bool,
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let kflag = if link_only { smsg::flag::K } else { 0 };
         let iflag = if pid.is_some() { smsg::flag::I } else { 0 };
@@ -884,7 +928,7 @@ impl SessionMessage {
         ch: Channel, 
         sn: ZInt, 
         count: Option<ZInt>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let cflag = if count.is_some() { smsg::flag::C } else { 0 };
         let rflag = if ch { smsg::flag::R } else { 0 };
@@ -900,7 +944,7 @@ impl SessionMessage {
     pub fn make_ack_nack(
         sn: ZInt, 
         mask: Option<ZInt>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let mflag = if mask.is_some() { smsg::flag::M } else { 0 };
         let header = smsg::id::ACK_NACK | mflag;
@@ -914,7 +958,7 @@ impl SessionMessage {
 
     pub fn make_keep_alive(
         pid: Option<PeerId>, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let iflag = if pid.is_some() { smsg::flag::I } else { 0 };
         let header = smsg::id::KEEP_ALIVE | iflag;
@@ -928,7 +972,7 @@ impl SessionMessage {
 
     pub fn make_ping(
         hash: ZInt, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let pflag = smsg::flag::P;
         let header = smsg::id::PING_PONG | pflag;
@@ -942,7 +986,7 @@ impl SessionMessage {
 
     pub fn make_pong(
         hash: ZInt, 
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let pflag = 0;
         let header = smsg::id::PING_PONG | pflag;
@@ -958,7 +1002,7 @@ impl SessionMessage {
         ch: Channel,
         sn: ZInt,
         payload: FramePayload,
-        attachment: Option<Arc<RBuf>>
+        attachment: Option<Attachment>
     ) -> SessionMessage {
         let rflag = if ch { smsg::flag::R } else { 0 };
         let (eflag, fflag) = match payload {
@@ -987,7 +1031,7 @@ impl SessionMessage {
         &self.body
     }
 
-    pub fn get_attachment(&self) -> &Option<Arc<RBuf>> {
+    pub fn get_attachment(&self) -> &Option<Attachment> {
         &self.attachment
     }
 }

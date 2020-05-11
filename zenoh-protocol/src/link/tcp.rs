@@ -4,6 +4,7 @@ use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::net::Shutdown;
 
 #[cfg(write_vectored)]
@@ -23,7 +24,7 @@ const DEFAULT_MTU: usize = 65_535;
 
 configurable!{
     // Size of buffer used to read from socket
-    static ref READ_BUFFER_SIZE: usize = 128 * 1_024;
+    static ref READ_BUFFER_SIZE: usize = 64 * 1_024;
     // Size of buffer used to read from socket
     static ref MESSAGES_TO_READ: usize = 1_024;
 }
@@ -179,17 +180,30 @@ impl LinkTrait for Tcp {
 }
 
 async fn read_task(link: Arc<Tcp>) {
-    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {
-        let mut buff = RBuf::new();
-        let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
+    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {    
+        // The link object to be passed to the transport
         let link_obj: Link = link.clone();
-
+        // Acquire the lock on the transport
         let mut guard = zasynclock!(link.transport);
+
+        // The list of messages being read
+        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*MESSAGES_TO_READ);
+
+        // The RBuf to read onto
+        let mut rbuf = RBuf::new();
+
+        // The buffer allocated to read from a single syscall
+        let mut buffer = vec![0u8; link.buff_size];
+        let mut is_new = true;
+        let mut to_read: usize = 0;
+        let mut read = 0;
+        // @TODO: incomplete implementation
         loop {
             // Async read from the TCP socket
-            let mut rbuf = vec![0u8; link.buff_size];
-            match (&link.socket).read(&mut rbuf).await {
-                Ok(n) => { 
+            match (&link.socket).read(&mut buffer).await {
+                Ok(n) => {
+                    read += n;
+
                     // Reading zero bytes means error
                     if n == 0 {
                         // Close the underlying TCP socket
@@ -198,9 +212,38 @@ async fn read_task(link: Arc<Tcp>) {
                         let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                         // Notify the transport
                         guard.link_err(&link_obj).await;
+
                         return Some(false)
+                    } 
+                    
+                    // Check if this is a new message batch
+                    if is_new {
+                        // Check if we can read the batch length
+                        if read >= 2 {
+                            // Read the first 16 bits (2 bytes) to detect the length of the message
+                            let length: [u8; 2] = buffer[0..2].try_into().unwrap();
+                            to_read = u16::from_le_bytes(length) as usize;
+                            // We have read the length, substract 2 bytes from the useful read bytes
+                            read -= 2;
+                            // Mark the current reading as on-going reading
+                            is_new = false;
+                        } else {
+                            // We haven't read enough bytes to read the message length
+                            continue
+                        }
                     }
-                    buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
+
+                    // Check if we have read all the required bytes
+                    if read >= to_read {
+                        // Copy the slice
+                        let slice = vec![0u8; to_read];
+                        rbuf.add_slice(ArcSlice::new(Arc::new(slice), 0, n));
+
+                        // Reset
+                        read = 0;
+                        to_read = 0;
+                        is_new = true;
+                    }
                 },
                 Err(_) => {
                     // Close the underlying TCP socket
@@ -215,14 +258,14 @@ async fn read_task(link: Arc<Tcp>) {
 
             // Read and serialize all the messages from the buffer
             loop {
-                let pos = buff.get_pos();
-                match buff.read_message() {
+                let pos = rbuf.get_pos();
+                match rbuf.read_session_message() {
                     Ok(message) => {
                         messages.push(message);
-                        buff.clean_read_slices();
+                        rbuf.clean_read_slices();
                     },
                     Err(_) => {
-                        if buff.set_pos(pos).is_err() {
+                        if rbuf.set_pos(pos).is_err() {
                             panic!("Unrecoverable error in TCP read loop!")
                         }
                         break

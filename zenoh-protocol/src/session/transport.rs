@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::core::{AtomicZInt, ZError, ZErrorKind, ZInt, ZResult};
 use crate::link::Link;
-use crate::proto::Message;
+use crate::proto::SessionMessage;
 use crate::session::{Conduit, MsgHandler, SessionInner};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
