@@ -362,7 +362,7 @@ impl SessionManagerInner {
             }));
         }
 
-        let lm = LinkManagerBuilder::new(a_self.clone(), protocol);
+        let lm = LinkManagerBuilder::make(a_self.clone(), protocol);
         w_guard.insert(protocol.clone(), lm.clone());
         Ok(lm)
     }
