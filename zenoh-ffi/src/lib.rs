@@ -1,10 +1,8 @@
 use libc::{c_char, c_ulong, c_uint, c_int};
 use std::ffi::CStr;
 use std::slice;
-use std::sync::Arc;
 use async_std::task;
 use zenoh::net;
-use zenoh_protocol::io::{ArcSlice, RBuf};
 
 use zenoh_protocol::core::{ResKey, ResourceId}; // { rname, PeerId, ResourceId, , ZError, ZErrorKind };
 
