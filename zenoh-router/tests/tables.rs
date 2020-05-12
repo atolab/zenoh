@@ -193,8 +193,8 @@ fn clean_test() {
 }
 
 pub struct Data{
-    _key: String, 
-    _payload: RBuf
+    reskey: ResKey, 
+    payload: RBuf
 }
 
 pub struct ClientPrimitives {
@@ -230,6 +230,15 @@ impl ClientPrimitives {
             ResKey::RIdWithSuffix(id, suffix) => {[&mapping.get(id).unwrap()[..], &suffix[..]].concat()}
         }
     }
+
+    fn get_last_name(&self) -> Option<String> {
+        self.data.lock().unwrap().as_ref().map(|data|{self.get_name(&data.reskey)})
+    }
+
+    #[allow(dead_code)]
+    fn get_last_key(&self) -> Option<ResKey> {
+        self.data.lock().unwrap().as_ref().map(|data|{data.reskey.clone()})
+    }
 }
 
 #[async_trait]
@@ -252,7 +261,9 @@ impl Primitives for ClientPrimitives {
     async fn queryable(&self, _reskey: &ResKey) {}
     async fn forget_queryable(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {}
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {
+        *self.data.lock().unwrap() = Some(Data{reskey: reskey.clone(), payload});
+    }
     async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
     async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
@@ -293,165 +304,94 @@ fn client_test() {
         primitives2.resource(31, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex2, 31, "/**", &sub_info).await;
 
-        
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 0, "/test/client/z1_wr1", true, &None, RBuf::new()).await;
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives0.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr1");
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_wr1");
         // mapping strategy check
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z1_wr1");
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_wr1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives1.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr1");
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_wr1");
         // mapping strategy check
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr1");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        // functionnal check
-        assert_eq!(primitives2.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr1");
-        // mapping strategy check
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr1");
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_wr1".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 11, "/z1_wr2").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 11, "/z1_wr2", true, &None, RBuf::new()).await;
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives0.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr2");
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_wr2");
         // mapping strategy check
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z1_wr2");
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_wr2".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives1.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr2");
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_wr2");
         // mapping strategy check
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr2");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        // functionnal check
-        assert_eq!(primitives2.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_wr2");
-        // mapping strategy check
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr2");
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_wr2".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 0, "/test/client/**").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex1, 0, "/test/client/**", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives0.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/**");
+        assert!(primitives0.get_last_name().is_some());
+        assert_eq!(primitives0.get_last_name().unwrap(), "/test/client/**");
         // mapping strategy check
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/**");
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(11, "/**".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives1.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/**");
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/**");
         // mapping strategy check
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/**");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        // functionnal check
-        assert_eq!(primitives2.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/**");
-        // mapping strategy check
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/**");
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/**".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 12, "").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 12, "", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives0.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_pub1");
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_pub1");
         // mapping strategy check
-        assert_eq!(*id, 12);
-        assert_eq!(suffix, "");
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_pub1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives1.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_pub1");
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_pub1");
         // mapping strategy check
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_pub1");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        // functionnal check
-        assert_eq!(primitives2.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z1_pub1");
-        // mapping strategy check
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_pub1");
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_pub1".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 22, "").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex1, 22, "", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives0.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z2_pub1");
+        assert!(primitives0.get_last_name().is_some());
+        assert_eq!(primitives0.get_last_name().unwrap(), "/test/client/z2_pub1");
         // mapping strategy check
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z2_pub1");
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(11, "/z2_pub1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
         // functionnal check
-        assert_eq!(primitives1.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z2_pub1");
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z2_pub1");
         // mapping strategy check
-        assert_eq!(*id, 22);
-        assert_eq!(suffix, "");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        // functionnal check
-        assert_eq!(primitives2.get_name(&ResKey::RIdWithSuffix(*id, suffix.clone())), "/test/client/z2_pub1");
-        // mapping strategy check
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z2_pub1");
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z2_pub1".to_string()));
     });
 }
 
