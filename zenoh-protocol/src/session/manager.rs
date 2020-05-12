@@ -1,4 +1,3 @@
-
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, RwLock, Sender, Weak};
 use async_std::task;
@@ -15,7 +14,7 @@ use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
     SESSION_OPEN_TIMEOUT, SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
 };
-use crate::session::{MsgHandler, Action, SessionHandler, Transport};
+use crate::session::{MsgHandler, Action, InitialSession, SessionHandler, Transport};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
 
@@ -30,30 +29,6 @@ macro_rules! zsession {
             }))
         }
     );
-}
-
-// Define an empty SessionCallback for the initial session
-struct InitialHandler;
-
-impl InitialHandler {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl MsgHandler for InitialHandler {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
-        println!(
-            "!!! WARNING: InitialHandler::handle_message({:?}) => dropped",
-            message.body
-        );
-        Ok(())
-    }
-
-    async fn close(&self) {
-        println!("!!! WARNING: InitialHandler::close()");
-    }
 }
 
 /// # Example:
@@ -102,7 +77,7 @@ impl MsgHandler for InitialHandler {
 /// // Setting a value to None indicates to use the default value
 /// let opt_config = SessionManagerOptionalConfig {
 ///     lease: Some(1_000),     // Set the default lease to 1s
-///     resolution: None,       // Use the default sequence number resolution
+///     sn_resolution: None,       // Use the default sequence number resolution
 ///     batchsize: None,        // Use the default batch size
 ///     timeout: Some(10_0000), // Timeout of 10s when opening a session
 ///     retries: Some(3),       // Tries to open a session 3 times before failure
@@ -124,7 +99,7 @@ pub struct SessionManagerConfig {
 
 pub struct SessionManagerOptionalConfig {
     pub lease: Option<ZInt>,
-    pub resolution: Option<ZInt>,
+    pub sn_resolution: Option<ZInt>,
     pub batchsize: Option<usize>,
     pub timeout: Option<u64>,
     pub retries: Option<usize>,
@@ -136,7 +111,7 @@ impl SessionManager {
     pub fn new(config: SessionManagerConfig, opt_config: Option<SessionManagerOptionalConfig>) -> SessionManager {
         // Set default optional values
         let mut lease = *SESSION_LEASE;
-        let mut resolution = *SESSION_SEQ_NUM_RESOLUTION;
+        let mut sn_resolution = *SESSION_SEQ_NUM_RESOLUTION;
         let mut batchsize = *SESSION_BATCH_SIZE;
         let mut timeout = *SESSION_OPEN_TIMEOUT;
         let mut retries = *SESSION_OPEN_RETRIES;
@@ -148,8 +123,8 @@ impl SessionManager {
             if let Some(v) = opt.lease {
                 lease = v;
             }
-            if let Some(v) = opt.resolution {
-                resolution = v;
+            if let Some(v) = opt.sn_resolution {
+                sn_resolution = v;
             }
             if let Some(v) = opt.batchsize {
                 batchsize = v;
@@ -167,38 +142,22 @@ impl SessionManager {
         let inner_config = SessionManagerInnerConfig {
             version: config.version,
             whatami: config.whatami.clone(),
-            id: config.id.clone(),
-            handler: config.handler,
+            pid: config.id.clone(),            
             lease,
-            resolution,
+            sn_resolution,
             batchsize,
             timeout,
             retries, 
             max_sessions,
-            max_links
+            max_links,
+            handler: config.handler,
         };
         // Create the inner session manager
         let manager_inner = Arc::new(SessionManagerInner::new(inner_config));
-
-        // Create a session used to establish new connections
-        // This session wrapper does not require to contact the upper layer
-        let callback = Arc::new(InitialHandler::new());
-        let session_inner = Arc::new(SessionInner::new(
-            manager_inner.clone(),
-            config.id,
-            config.whatami,
-            lease,
-            resolution,
-            batchsize,
-            true
-        ));
-
-        // Initiliaze the transport
-        session_inner.transport.init_session(Arc::downgrade(&session_inner));
-        // Initiliaze the callback
-        session_inner.transport.init_callback(callback);
+        // Create the initial session used to establish new connections
+        let initial_session = Arc::new(InitialSession::new(manager_inner.clone()));
         // Add the session to the inner session manager
-        manager_inner.init_initial_session(session_inner);
+        manager_inner.init_initial_session(initial_session);
 
         SessionManager(manager_inner)
     }
@@ -208,14 +167,14 @@ impl SessionManager {
     /*************************************/
     pub async fn open_session(&self, locator: &Locator) -> ZResult<Session> {
         // Retrieve the initial session
-        let initial = self.0.get_initial_session().await;
+        let initial_transport = self.0.get_initial_transport().await;
         // Create the timeout duration
         let to = Duration::from_millis(self.0.config.timeout);
 
         // Automatically create a new link manager for the protocol if it does not exist
         let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
         // Create a new link associated by calling the Link Manager
-        let link = manager.new_link(&locator, initial.transport.clone()).await?;
+        let link = manager.new_link(&locator, initial_transport).await?;
         // Create a channel for knowing when a session is open
         let (sender, receiver) = channel::<ZResult<Weak<SessionInner>>>(1);
         
@@ -294,22 +253,22 @@ impl Drop for SessionManager {
 
 
 struct SessionManagerInnerConfig {
-    version: u8,
-    whatami: WhatAmI,
-    id: PeerId,
-    handler: Arc<dyn SessionHandler + Send + Sync>,
-    lease: ZInt,
-    resolution: ZInt,
-    batchsize: usize,
-    timeout: u64,
-    retries: usize,
-    max_sessions: Option<usize>,
-    max_links: Option<usize>
+    pub(crate) version: u8,
+    pub(crate) whatami: WhatAmI,
+    pub(crate) pid: PeerId,
+    pub(crate) lease: ZInt,
+    pub(crate) sn_resolution: ZInt,
+    pub(crate) batchsize: usize,
+    pub(crate) timeout: u64,
+    pub(crate) retries: usize,
+    pub(crate) max_sessions: Option<usize>,
+    pub(crate) max_links: Option<usize>,
+    pub(crate) handler: Arc<dyn SessionHandler + Send + Sync>
 }
 
-pub struct SessionManagerInner {
-    config: SessionManagerInnerConfig,
-    initial: RwLock<Option<Arc<SessionInner>>>,
+pub(crate) struct SessionManagerInner {
+    pub(crate) config: SessionManagerInnerConfig,    
+    initial: RwLock<Option<Arc<InitialSession>>>,
     protocols: RwLock<HashMap<LocatorProtocol, LinkManager>>,
     sessions: RwLock<HashMap<PeerId, Arc<SessionInner>>>,
 }
@@ -327,7 +286,7 @@ impl SessionManagerInner {
     /*************************************/
     /*          INITIALIZATION           */
     /*************************************/
-    fn init_initial_session(&self, session: Arc<SessionInner>) {
+    fn init_initial_session(&self, session: Arc<InitialSession>) {
         *self.initial.try_write().unwrap() = Some(session);
     }
 
@@ -396,7 +355,7 @@ impl SessionManagerInner {
     /*************************************/
     /*              SESSION              */
     /*************************************/
-    pub(crate) async fn get_initial_session(&self) -> Arc<SessionInner> {
+    pub(crate) async fn get_initial_transport(&self) -> Arc<dyn Transport + Send + Sync> {
         zasyncread!(self.initial).as_ref().unwrap().clone()
     }
 
@@ -457,7 +416,7 @@ impl SessionManagerInner {
             peer.clone(),
             whatami.clone(),
             self.config.lease,
-            self.config.resolution,
+            self.config.sn_resolution,
             self.config.batchsize,
             false
         ));
@@ -567,7 +526,7 @@ impl SessionInner {
         peer: PeerId,
         whatami: WhatAmI,
         lease: ZInt,
-        resolution: ZInt,
+        sn_resolution: ZInt,
         batchsize: usize,
         is_initial: bool,
     ) -> SessionInner {
@@ -575,7 +534,7 @@ impl SessionInner {
             manager,
             peer,
             whatami,
-            transport: Arc::new(Transport::new(lease, resolution, batchsize)),
+            transport: Arc::new(Transport::new(lease, sn_resolution, batchsize)),
             is_initial,
             channels: RwLock::new(HashMap::new()),
         }

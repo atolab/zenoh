@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::core::{AtomicZInt, ZError, ZErrorKind, ZInt, ZResult};
 use crate::link::Link;
-use crate::proto::SessionMessage;
-use crate::session::{Conduit, MsgHandler, SessionInner};
+use crate::proto::{SessionMessage, ZenohMessage};
+use crate::session::{Channel, MsgHandler, SessionInner};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
 
@@ -16,16 +16,15 @@ use zenoh_util::{zasyncread, zasyncwrite};
 /*          TRANSPORT TX             */
 /*************************************/
 
-pub enum Action {
-    ChangeTransport(Arc<Transport>),
-    Close,
-    Read
+pub(crate) enum MessageInner {
+    SessionMessage,
+    ZenohMessage
 }
 
 // Struct to add additional fields to the message required for transmission
 pub(crate) struct MessageTx {
     // The inner message to transmit
-    pub(crate) inner: Message,
+    pub(crate) inner: MessageInner,
     // The preferred link to transmit the Message on
     pub(crate) link: Option<Link>,
     pub(crate) notify: Option<Sender<ZResult<()>>>,
@@ -50,7 +49,7 @@ pub struct Transport {
     // The transport has no links or not
     num_links: AtomicUsize,
     // Conduits
-    conduits: RwLock<HashMap<ZInt, Arc<Conduit>>>
+    channel: Channel
 }
 
 impl Transport {
@@ -148,143 +147,143 @@ impl Transport {
     /*************************************/
     /*            CONDUITS               */
     /*************************************/
-    pub(crate) async fn get_or_new_conduit(&self, id: ZInt) -> Arc<Conduit> {
-        loop {
-            match self.get_conduit(id).await {
-                Ok(conduit) => return conduit,
-                Err(_) => match self.new_conduit(id).await {
-                    Ok(conduit) => return conduit,
-                    Err(_) => continue
-                }
-            }
-        }
-    }
+    // pub(crate) async fn get_or_new_conduit(&self, id: ZInt) -> Arc<Conduit> {
+    //     loop {
+    //         match self.get_conduit(id).await {
+    //             Ok(conduit) => return conduit,
+    //             Err(_) => match self.new_conduit(id).await {
+    //                 Ok(conduit) => return conduit,
+    //                 Err(_) => continue
+    //             }
+    //         }
+    //     }
+    // }
 
-    pub(crate) async fn get_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
-        match zasyncread!(self.conduits).get(&id) {
-            Some(conduit) => Ok(conduit.clone()),
-            None => Err(zerror!(ZErrorKind::Other {
-                descr: format!("Conduit {} not found", id)
-            }))
-        }
-    }
+    // pub(crate) async fn get_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
+    //     match zasyncread!(self.conduits).get(&id) {
+    //         Some(conduit) => Ok(conduit.clone()),
+    //         None => Err(zerror!(ZErrorKind::Other {
+    //             descr: format!("Conduit {} not found", id)
+    //         }))
+    //     }
+    // }
 
-    pub(crate) async fn new_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
-        let session = if let Some(session) = zasyncread!(self.session).as_ref() {
-            session.clone()
-        } else {
-            panic!("Session is uninitialized");
-        };
+    // pub(crate) async fn new_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
+    //     let session = if let Some(session) = zasyncread!(self.session).as_ref() {
+    //         session.clone()
+    //     } else {
+    //         panic!("Session is uninitialized");
+    //     };
 
-        // Get the perameters from the transport
-        let resolution = self.get_resolution();
-        let batchsize = self.get_batchsize();
+    //     // Get the perameters from the transport
+    //     let resolution = self.get_resolution();
+    //     let batchsize = self.get_batchsize();
 
-        let conduit = {
-            // Acquire the lock on the conduits
-            let mut w_guard = zasyncwrite!(self.conduits);
-            if w_guard.contains_key(&id) {
-                return Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Conduit {} already exists", id)
-                }));
-            }
-            // Add the Tx conduit
-            let conduit = Arc::new(Conduit::new(id, resolution, batchsize, session));
-            // Add the conduit to the HashMap
-            w_guard.insert(id, conduit.clone());
+    //     let conduit = {
+    //         // Acquire the lock on the conduits
+    //         let mut w_guard = zasyncwrite!(self.conduits);
+    //         if w_guard.contains_key(&id) {
+    //             return Err(zerror!(ZErrorKind::Other {
+    //                 descr: format!("Conduit {} already exists", id)
+    //             }));
+    //         }
+    //         // Add the Tx conduit
+    //         let conduit = Arc::new(Conduit::new(id, resolution, batchsize, session));
+    //         // Add the conduit to the HashMap
+    //         w_guard.insert(id, conduit.clone());
 
-            conduit
-        };
+    //         conduit
+    //     };
 
-        // Init the conduit callback if set
-        if let Some(callback) = zasyncread!(self.callback).as_ref() {
-            conduit.set_callback(callback.clone()).await;
-        }
+    //     // Init the conduit callback if set
+    //     if let Some(callback) = zasyncread!(self.callback).as_ref() {
+    //         conduit.set_callback(callback.clone()).await;
+    //     }
 
-        // Add all the available links to the conduit
-        // @TODO: perform an intelligent assocation of links to conduits
-        let links = zasyncread!(self.links);
-        if !links.is_empty() {
-            for l in links.iter() {
-                let _ = conduit.add_link(l.clone()).await;
-            }
-            Conduit::start(&conduit).await;
-        }
+    //     // Add all the available links to the conduit
+    //     // @TODO: perform an intelligent assocation of links to conduits
+    //     let links = zasyncread!(self.links);
+    //     if !links.is_empty() {
+    //         for l in links.iter() {
+    //             let _ = conduit.add_link(l.clone()).await;
+    //         }
+    //         Conduit::start(&conduit).await;
+    //     }
 
-        Ok(conduit)
-    }
+    //     Ok(conduit)
+    // }
 
-    #[allow(dead_code)]
-    pub(crate) async fn del_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
-        // Remove the conduit
-        if let Some(cond) = zasyncwrite!(self.conduits).remove(&id) {
-            // If the conduit was present, stop it
-            cond.stop().await;
-            return Ok(cond)
-        }
+    // #[allow(dead_code)]
+    // pub(crate) async fn del_conduit(&self, id: ZInt) -> ZResult<Arc<Conduit>> {
+    //     // Remove the conduit
+    //     if let Some(cond) = zasyncwrite!(self.conduits).remove(&id) {
+    //         // If the conduit was present, stop it
+    //         cond.stop().await;
+    //         return Ok(cond)
+    //     }
 
-        Err(zerror!(ZErrorKind::Other {
-            descr: format!("Conduit {} can not be deleted becasue it was not found", id)
-        }))
-    }
+    //     Err(zerror!(ZErrorKind::Other {
+    //         descr: format!("Conduit {} can not be deleted becasue it was not found", id)
+    //     }))
+    // }
 
     /*************************************/
     /*            LINKS TX               */
     /*************************************/
-    pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
-        // Links
-        {
-            // Acquire the lock on the links
-            let mut l_guard = zasyncwrite!(self.links);
+    // pub(crate) async fn add_link(&self, link: Link) -> ZResult<()> {
+    //     // Links
+    //     {
+    //         // Acquire the lock on the links
+    //         let mut l_guard = zasyncwrite!(self.links);
 
-            // Check if this link is not already present
-            if l_guard.contains(&link) {
-                return Err(zerror!(ZErrorKind::InvalidLink {
-                    descr: format!("{}", link)
-                }));
-            }
+    //         // Check if this link is not already present
+    //         if l_guard.contains(&link) {
+    //             return Err(zerror!(ZErrorKind::InvalidLink {
+    //                 descr: format!("{}", link)
+    //             }));
+    //         }
 
-            // Add the link to the transport
-            l_guard.insert(link.clone());
-            self.num_links.fetch_add(1, Ordering::Relaxed);
-        }
-        // Conduits
-        {
-            // Acquire the lock on the conduits
-            let c_guard = zasyncread!(self.conduits);
-            // Add the link to the conduits
-            // @TODO: Enable a smart allocation of links across the various conduits
-            //        The link is added to all the conduits for the time being
-            for (_, conduit) in c_guard.iter() {
-                let _ = conduit.add_link(link.clone()).await;
-                Conduit::start(&conduit).await;
-            }
-        }
+    //         // Add the link to the transport
+    //         l_guard.insert(link.clone());
+    //         self.num_links.fetch_add(1, Ordering::Relaxed);
+    //     }
+    //     // Conduits
+    //     {
+    //         // Acquire the lock on the conduits
+    //         let c_guard = zasyncread!(self.conduits);
+    //         // Add the link to the conduits
+    //         // @TODO: Enable a smart allocation of links across the various conduits
+    //         //        The link is added to all the conduits for the time being
+    //         for (_, conduit) in c_guard.iter() {
+    //             let _ = conduit.add_link(link.clone()).await;
+    //             Conduit::start(&conduit).await;
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
-        // Acquire the lock on the links
-        let mut l_guard = zasyncwrite!(self.links);
-        // Acquire the lock on the conduits
-        let c_guard = zasyncread!(self.conduits);
+    // pub(crate) async fn del_link(&self, link: &Link) -> ZResult<()> {
+    //     // Acquire the lock on the links
+    //     let mut l_guard = zasyncwrite!(self.links);
+    //     // Acquire the lock on the conduits
+    //     let c_guard = zasyncread!(self.conduits);
 
-        // Delete the link from all the conduits
-        for (_, conduit) in c_guard.iter() {
-            let _ = conduit.del_link(&link).await;
-        }
+    //     // Delete the link from all the conduits
+    //     for (_, conduit) in c_guard.iter() {
+    //         let _ = conduit.del_link(&link).await;
+    //     }
 
-        // Delete the link from the transport
-        if !l_guard.remove(link) {
-            return Err(zerror!(ZErrorKind::InvalidLink {
-                descr: format!("{}", link)
-            }));
-        }
-        self.num_links.fetch_sub(1, Ordering::Relaxed);
+    //     // Delete the link from the transport
+    //     if !l_guard.remove(link) {
+    //         return Err(zerror!(ZErrorKind::InvalidLink {
+    //             descr: format!("{}", link)
+    //         }));
+    //     }
+    //     self.num_links.fetch_sub(1, Ordering::Relaxed);
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub(crate) async fn link_err(&self, link: &Link) {
         if let Some(session) = zasyncread!(self.session).as_ref() {
@@ -377,34 +376,34 @@ impl Transport {
     /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    pub async fn receive_message(&self, link: &Link, message: Message) -> Action {
-        let conduit = self.get_or_new_conduit(message.cid).await;
-        // Process the message
-        conduit.receive_message(link, message).await
+    // pub async fn receive_message(&self, link: &Link, message: Message) -> Action {
+    //     let conduit = self.get_or_new_conduit(message.cid).await;
+    //     // Process the message
+    //     conduit.receive_message(link, message).await
 
-    }
+    // }
 
     /*************************************/
     /*        CLOSE THE TRANSPORT        */
     /*************************************/
-    pub(crate) async fn close(&self) -> ZResult<()> {
-        // Notify the callback
-        if let Some(callback) = zasyncread!(self.callback).as_ref() {
-            callback.close().await;
-        }
+    // pub(crate) async fn close(&self) -> ZResult<()> {
+    //     // Notify the callback
+    //     if let Some(callback) = zasyncread!(self.callback).as_ref() {
+    //         callback.close().await;
+    //     }
 
-        // Stop the conduits
-        for (_, conduit) in zasyncwrite!(self.conduits).drain().take(1) {
-            conduit.stop().await;
-        }
+    //     // Stop the conduits
+    //     for (_, conduit) in zasyncwrite!(self.conduits).drain().take(1) {
+    //         conduit.stop().await;
+    //     }
 
-        // Close all the links
-        for l in zasyncwrite!(self.links).drain().take(1) {
-            let _ = l.close().await;
-        }
+    //     // Close all the links
+    //     for l in zasyncwrite!(self.links).drain().take(1) {
+    //         let _ = l.close().await;
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }
 
 // impl Drop for Transport {

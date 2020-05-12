@@ -58,7 +58,7 @@ pub struct Tcp {
     // The buffer size to use in a read operation
     buff_size: usize,
     // The reference to the associated transport
-    transport: Mutex<Arc<Transport>>,
+    transport: Mutex<Arc<dyn Transport + Send + Sync>>,
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
@@ -69,7 +69,7 @@ pub struct Tcp {
 }
 
 impl Tcp {
-    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> Tcp {
+    fn new(socket: TcpStream, transport: Arc<dyn Transport + Send + Sync>, manager: Arc<ManagerTcpInner>) -> Tcp {
         // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
@@ -335,7 +335,7 @@ async fn read_task(link: Arc<Tcp>) {
                         } else                        
                         // Check if we are in the special case that we have only 1 byte left to read.
                         // This case is problematic when the only byte left to read is the last byte
-                        // of the buffer (i.e. at index:= buffer.len() - 1). If we fall in this case, it 
+                        // of the buffer (i.e. at index := buffer.len() - 1). If we fall in this case, it 
                         // would be impossible to read additional bytes on the buffer unless we reset it.
                         if read == 1 {                            
                             // Manually copy the last byte at the beginning of the buffer
@@ -569,7 +569,7 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             };
 
             // Retrieve the initial temporary session 
-            let initial = a_self.inner.get_initial_session().await;
+            let initial = a_self.inner.get_initial_transport().await;
             // Create the new link object
             let link = Arc::new(Tcp::new(stream, initial.transport.clone(), a_self.clone()));
             link.initizalize(Arc::downgrade(&link));

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
 use crate::link::Link;
-use crate::proto::{Body, Message, MessageKind, SeqNum, SeqNumGenerator};
+use crate::proto::{SessionBody, SessionMessage, SeqNum, SeqNumGenerator};
 use crate::session::{Action, MessageTx, MsgHandler, SessionInner};
 use crate::session::defaults::{
     // Control buffer
@@ -41,7 +41,7 @@ macro_rules! zsession {
 }
 
 /*************************************/
-/*           CONDUIT TASK            */
+/*           CHANNEL TASK            */
 /*************************************/
 
 struct LinkContext {
@@ -86,7 +86,7 @@ async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut Message) {
 
 // Mapping
 async fn map_messages_on_links(
-    inner: &mut ConduitInnerTx,
+    inner: &mut ChannelInnerTx,
     drain: &mut CreditQueueDrain<'_, MessageTx>,
     context: &mut Vec<LinkContext>
 ) {
@@ -209,7 +209,7 @@ async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
 }
 
 // Consuming function
-async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
+async fn consume_loop(conduit: &Arc<Channel>) -> Option<bool> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
@@ -272,7 +272,7 @@ async fn consume_loop(conduit: &Arc<Conduit>) -> Option<bool> {
     None
 }
 
-async fn consume_task(conduit: Arc<Conduit>, receiver: Receiver<bool>) {
+async fn consume_task(conduit: Arc<Channel>, receiver: Receiver<bool>) {
     // Create the consume future
     let consume = consume_loop(&conduit);
     // Create the signal future
@@ -282,7 +282,7 @@ async fn consume_task(conduit: Arc<Conduit>, receiver: Receiver<bool>) {
 }
 
 /*************************************/
-/*      CONDUIT INNER TX STRUCT      */
+/*      CHANNEL INNER TX STRUCT      */
 /*************************************/
 
 // Structs to manage the sequence numbers of channels
@@ -301,19 +301,19 @@ impl SeqNumTx {
 }
 
 // Store the mutable data that need to be used for transmission
-struct ConduitInnerTx {
+struct ChannelInnerTx {
     sn: SeqNumTx,
     batchsize: usize,
     links: Vec<Link>,
     main_idx: Option<usize>
 }
 
-impl ConduitInnerTx {
-    fn new(resolution: ZInt, batchsize: usize) -> ConduitInnerTx {
+impl ChannelInnerTx {
+    fn new(resolution: ZInt, batchsize: usize) -> ChannelInnerTx {
         // @TODO: Randomly initialize the SN generator
         let zero: ZInt = 0;
 
-        ConduitInnerTx {
+        ChannelInnerTx {
             sn: SeqNumTx::new(zero, zero, resolution),
             batchsize,
             links: Vec::new(),
@@ -375,7 +375,7 @@ impl ConduitInnerTx {
 
 
 /*************************************/
-/*     CONDUIT INNER RX STRUCT       */
+/*     CHANNEL INNER RX STRUCT       */
 /*************************************/
 
 // Structs to manage the sequence numbers of channels
@@ -394,19 +394,19 @@ impl SeqNumRx {
 }
 
 // Store the mutable data that need to be used for transmission
-struct ConduitInnerRx {
+struct ChannelInnerRx {
     session: Weak<SessionInner>,
     callback: Option<Arc<dyn MsgHandler + Send + Sync>>,
     sn: SeqNumRx,
 }
 
-impl ConduitInnerRx {
+impl ChannelInnerRx {
     fn new(
         session: Weak<SessionInner>,
         resolution: ZInt
-    ) -> ConduitInnerRx {
+    ) -> ChannelInnerRx {
         // @TODO: Randomly initialize the SN generator
-        ConduitInnerRx {
+        ChannelInnerRx {
             session,
             callback: None,
             sn: SeqNumRx::new(resolution - 1, resolution - 1, resolution)
@@ -416,20 +416,20 @@ impl ConduitInnerRx {
 
 
 /*************************************/
-/*           CONDUIT STRUCT          */
+/*           CHANNEL STRUCT          */
 /*************************************/
 
-pub(crate) struct Conduit {
+pub(crate) struct Channel {
     pub(crate) id: ZInt,
     pub(crate) queue: CreditQueue<MessageTx>,
     active: AtomicBool,
-    tx: Mutex<ConduitInnerTx>,
-    rx: Mutex<ConduitInnerRx>,
+    tx: Mutex<ChannelInnerTx>,
+    rx: Mutex<ChannelInnerRx>,
     signal: Mutex<Option<Sender<bool>>>
 }
 
-impl Conduit {
-    pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize, session: Weak<SessionInner>) -> Conduit {
+impl Channel {
+    pub(crate) fn new(id: ZInt, resolution: ZInt, batchsize: usize, session: Weak<SessionInner>) -> Channel {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_CTRL,
@@ -454,12 +454,12 @@ impl Conduit {
         // The buffer with index 0 has the highest priority.
         let queue_tx = vec![ctrl, retx, data];
 
-        Conduit{
+        Channel{
             id,
             queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
             active: AtomicBool::new(false),
-            tx: Mutex::new(ConduitInnerTx::new(resolution, batchsize)),
-            rx: Mutex::new(ConduitInnerRx::new(session, resolution)),
+            tx: Mutex::new(ChannelInnerTx::new(resolution, batchsize)),
+            rx: Mutex::new(ChannelInnerRx::new(session, resolution)),
             signal: Mutex::new(None)
         }
     }
@@ -645,9 +645,9 @@ impl Conduit {
     }
 }
 
-impl Eq for Conduit {}
+impl Eq for Channel {}
 
-impl PartialEq for Conduit {
+impl PartialEq for Channel {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
     }

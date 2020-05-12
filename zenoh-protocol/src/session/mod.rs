@@ -1,18 +1,34 @@
-mod conduit;
+mod channel;
 mod defaults;
+mod initial;
 mod manager;
-mod transport;
 
 pub use manager::*;
 
-pub(crate) use conduit::*;
-pub(crate) use transport::*;
+pub(crate) use channel::*;
+pub(crate) use initial::*;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
-use crate::proto::{ZenohMessage, WhatAmI};
+use crate::link::Link;
+use crate::proto::{SessionMessage, WhatAmI, ZenohMessage};
+
+/*********************************************************/
+/*           Trait for implementing a transport          */
+/*********************************************************/
+pub enum Action {
+    ChangeTransport(Arc<dyn Transport + Send + Sync>),
+    Close,
+    Read
+}
+
+#[async_trait]
+pub trait Transport {
+    async fn receive_message(&self, link: &Link, msg: SessionMessage) -> Action;
+    async fn link_err(&self, link: &Link);
+}
 
 /*********************************************************/
 /* Session Callback to be implemented by the Upper Layer */
