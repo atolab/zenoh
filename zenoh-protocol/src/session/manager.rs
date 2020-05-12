@@ -671,7 +671,7 @@ impl SessionInner {
         let _ = self.transport.close().await;
 
         // Remove the session from the manager
-        self.manager.del_session(&self.peer).await?;
+        let _ = self.manager.del_session(&self.peer).await;
 
         Ok(())
     }
