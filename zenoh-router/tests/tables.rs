@@ -192,13 +192,8 @@ fn clean_test() {
     });
 }
 
-pub struct Data{
-    reskey: ResKey, 
-    payload: RBuf
-}
-
 pub struct ClientPrimitives {
-    data: std::sync::Mutex<Option<Data>>,
+    data: std::sync::Mutex<Option<ResKey>>,
     mapping: std::sync::Mutex<std::collections::HashMap<ZInt, String>>,
 }
 
@@ -232,12 +227,12 @@ impl ClientPrimitives {
     }
 
     fn get_last_name(&self) -> Option<String> {
-        self.data.lock().unwrap().as_ref().map(|data|{self.get_name(&data.reskey)})
+        self.data.lock().unwrap().as_ref().map(|data|{self.get_name(&data)})
     }
 
     #[allow(dead_code)]
     fn get_last_key(&self) -> Option<ResKey> {
-        self.data.lock().unwrap().as_ref().map(|data|{data.reskey.clone()})
+        self.data.lock().unwrap().as_ref().map(|data|data.clone())
     }
 }
 
@@ -261,8 +256,8 @@ impl Primitives for ClientPrimitives {
     async fn queryable(&self, _reskey: &ResKey) {}
     async fn forget_queryable(&self, _reskey: &ResKey) {}
 
-    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {
-        *self.data.lock().unwrap() = Some(Data{reskey: reskey.clone(), payload});
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
+        *self.data.lock().unwrap() = Some(reskey.clone());
     }
     async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
     async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
