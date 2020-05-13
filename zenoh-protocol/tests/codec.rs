@@ -1,12 +1,12 @@
 
 use zenoh_protocol::core::{ZInt, ZResult};
-use zenoh_protocol::io::WBuf;
+use zenoh_protocol::io::{WBuf, RBuf};
 
 
 fn test_zint(v: ZInt) -> ZResult<()> {
-  let mut buf = WBuf::new(32);
+  let mut buf = WBuf::new(32, true);
   buf.write_zint(v);
-  assert_eq!(v, buf.as_rbuf().read_zint()?);
+  assert_eq!(v, RBuf::from(&buf).read_zint()?);
   Ok(())
 }
 

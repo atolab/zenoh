@@ -213,6 +213,25 @@ impl From<&[u8]> for RBuf {
     }
 }
 
+impl From<Vec<ArcSlice>> for RBuf {
+    fn from(slices: Vec<ArcSlice>) -> RBuf {
+        RBuf{ slices, pos:(0,0) } 
+    }
+}
+
+impl<'a> From<Vec<IoSlice<'a>>> for RBuf {
+    fn from(slices: Vec<IoSlice>) -> RBuf {
+        let v: Vec<ArcSlice> = slices.iter().map(ArcSlice::from).collect();
+        RBuf::from(v)
+    }
+}
+
+impl From<&super::WBuf> for RBuf {
+    fn from(wbuf: &super::WBuf) -> RBuf {
+        RBuf::from(wbuf.as_arcslices())
+    }
+}
+
 impl PartialEq for RBuf {
     fn eq(&self, other: &Self) -> bool {
         if self.len() != other.len() {

@@ -25,13 +25,13 @@ fn _bench_zint_write_three((v, buf): (&[u64; 3], &mut WBuf)) {
 
 fn bench_one_zint_codec((v, buf): (u64, &mut WBuf)) -> ZResult<()> {  
   buf.write_zint(v);
-  buf.as_rbuf().read_zint().map(|_| ())
+  RBuf::from(&*buf).read_zint().map(|_| ())
 }
 
 fn bench_two_zint_codec((v, buf): (&[u64;2], &mut WBuf)) -> ZResult<()> {  
   buf.write_zint(v[0]);
   buf.write_zint(v[1]);
-  let mut rbuf = buf.as_rbuf();
+  let mut rbuf = RBuf::from(&*buf);
   let _ = rbuf.read_zint()?;
   rbuf.read_zint().map(|_| ())  
 }
@@ -40,7 +40,7 @@ fn bench_three_zint_codec((v, buf): (&[u64;3], &mut WBuf)) -> ZResult<()> {
   buf.write_zint(v[0]);
   buf.write_zint(v[1]);
   buf.write_zint(v[2]);
-  let mut rbuf = buf.as_rbuf();
+  let mut rbuf = RBuf::from(&*buf);
   let _ = rbuf.read_zint()?;
   let _ = rbuf.read_zint()?;
   rbuf.read_zint().map(|_| ())  
@@ -67,7 +67,7 @@ fn bench_write_10bytes1((v, buf): (u8, &mut WBuf)) {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut buf = WBuf::new(64);     
+    let mut buf = WBuf::new(64, true);     
     let rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
     let rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
     let _ns: [u64;4] = [0; 4];

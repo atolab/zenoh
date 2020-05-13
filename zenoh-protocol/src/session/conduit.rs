@@ -4,7 +4,7 @@ use async_std::task;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{ZError, ZErrorKind, ZInt, ZResult};
-use crate::io::WBuf;
+use crate::io::{RBuf, WBuf};
 use crate::link::Link;
 use crate::proto::{Body, Message, MessageKind, SeqNum, SeqNumGenerator};
 use crate::session::{Action, MessageTx, MsgHandler, SessionInner};
@@ -22,7 +22,7 @@ use crate::session::defaults::{
     QUEUE_SIZE_TOT,
     QUEUE_CONCURRENCY,
     // Default slice size when serializing a message
-    WRITE_MSG_SLICE_SIZE
+    WRITE_MSG_SLICE_SIZE,
 };
 use crate::zerror;
 use zenoh_util::collections::{CreditBuffer, CreditQueue};
@@ -57,8 +57,8 @@ impl LinkContext {
     fn new(batchsize: usize) -> LinkContext {
         LinkContext {
             messages: Vec::with_capacity(*QUEUE_SIZE_TOT),
-            batch: WBuf::new(batchsize),
-            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE)
+            batch: WBuf::new(batchsize, true),
+            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE, true)
         }
     }
 }
@@ -145,12 +145,12 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
         context.buffer.write_message(&msg.inner);
 
         // Create the RBuf out of batch and buff WBuff for transmission
-        let buff_read = context.buffer.as_rbuf();
+        let buff_read = RBuf::from(&context.buffer);
 
         if let Some(notify) = msg.notify {
             // Transmit the current batch if present
             if batchlen > 0 { 
-                let batch_read = context.batch.as_rbuf();
+                let batch_read = RBuf::from(&context.batch);
                 if let Err(e) = link.send(batch_read).await {
                     // Clear the batch buffer
                     context.batch.clear();
@@ -169,7 +169,7 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
             continue
         } else if batchlen + buff_read.len() > batchsize {
             // The message does not fit in the batch, first transmit the current batch
-            let batch_read = context.batch.as_rbuf();
+            let batch_read = RBuf::from(&context.batch);
             if let Err(e) = link.send(batch_read).await {
                 // Clear the batch buffer
                 context.batch.clear();
@@ -184,7 +184,7 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
         // Add the message to the batch
         let slices = buff_read.get_slices();
         for s in slices.iter() {
-            context.batch.add_slice(s.clone());
+            context.batch.write_slice(s.clone());
         }
         batchlen += buff_read.len();
     }
@@ -193,7 +193,7 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
 }
 
 async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
-    let batch_read = context.batch.as_rbuf();
+    let batch_read = RBuf::from(&context.batch);
     if !batch_read.is_empty() {
         // Transmit the batch on the link
         if let Err(e) = link.send(batch_read).await {

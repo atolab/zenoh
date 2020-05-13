@@ -59,7 +59,7 @@ impl std::ops::Index<usize> for ArcSlice {
 
 impl fmt::Display for ArcSlice {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "[{:02x?}]", self.as_slice())
+        write!(f, "{:02x?}", self.as_slice())
     }
 }
   
@@ -80,6 +80,18 @@ impl From<Arc<Vec<u8>>> for ArcSlice {
 impl From<Vec<u8>> for ArcSlice {
     fn from(buf: Vec<u8>) -> ArcSlice {
         ArcSlice::from(Arc::new(buf))
+    }
+}
+
+impl From<&[u8]> for ArcSlice {
+    fn from(buf: &[u8]) -> ArcSlice {
+        ArcSlice::from(buf.to_vec())
+    }
+}
+
+impl<'a> From<&IoSlice<'a>> for ArcSlice {
+    fn from(buf: &IoSlice) -> ArcSlice {
+        ArcSlice::from(buf.to_vec())
     }
 }
 

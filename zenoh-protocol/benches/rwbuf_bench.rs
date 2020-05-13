@@ -11,7 +11,7 @@ fn bench_foo((v, buf): (u64, &mut WBuf)) {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut buf = WBuf::new(64);     
+    let mut buf = WBuf::new(64, true);     
     let rs3: [u64;3] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];     
     let _rs2: [u64;2] = [u64::from(rand::random::<u8>()), u64::from(rand::random::<u8>())];
     let _ns: [u64;4] = [0; 4];
