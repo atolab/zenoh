@@ -55,10 +55,10 @@ pub struct Tcp {
     src_locator: Locator,
     // The destination Zenoh locator of this link (locator used on the local host)
     dst_locator: Locator,
-    // The buffer size to use in a read operation
+    // The buffer size to use in the read operation
     buff_size: usize,
     // The reference to the associated transport
-    transport: Mutex<Arc<dyn Transport + Send + Sync>>,
+    transport: Mutex<Transport>,
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
@@ -69,7 +69,7 @@ pub struct Tcp {
 }
 
 impl Tcp {
-    fn new(socket: TcpStream, transport: Arc<dyn Transport + Send + Sync>, manager: Arc<ManagerTcpInner>) -> Tcp {
+    fn new(socket: TcpStream, transport: Transport, manager: Arc<ManagerTcpInner>) -> Tcp {
         // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
@@ -207,7 +207,7 @@ async fn read_task(link: Arc<Tcp>) {
         loop {
             // Async read from the TCP socket
             match (&link.socket).read(&mut buffer[w_pos..]).await {
-                Ok(read) => {
+                Ok(mut read) => {
                     // Reading zero bytes means error
                     if read == 0 {
                         // Close the underlying TCP socket
@@ -385,7 +385,7 @@ impl Drop for Tcp {
 pub struct ManagerTcp(Arc<ManagerTcpInner>);
 
 impl ManagerTcp {
-    pub fn new(manager: Arc<SessionManagerInner>) -> Self {  
+    pub(crate) fn new(manager: Arc<SessionManagerInner>) -> Self {  
         Self(Arc::new(ManagerTcpInner::new(manager)))
     }
 }
@@ -394,7 +394,7 @@ impl ManagerTcp {
 impl ManagerTrait for ManagerTcp {
     // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
     #[allow(clippy::infallible_destructuring_match)]
-    async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
+    async fn new_link(&self, dst: &Locator, transport: &Transport) -> ZResult<Link> {
         let dst = get_tcp_addr!(dst);
         let link: Link = self.0.new_link(&self.0, dst, transport).await?;
         Ok(link)
@@ -472,7 +472,7 @@ impl ManagerTcpInner {
         }
     }
 
-    async fn new_link(&self, a_self: &Arc<Self>, dst: &SocketAddr, transport: Arc<Transport>) -> ZResult<Arc<Tcp>> {
+    async fn new_link(&self, a_self: &Arc<Self>, dst: &SocketAddr, transport: &Transport) -> ZResult<Arc<Tcp>> {
         // Create the TCP connection
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
@@ -571,17 +571,17 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             // Retrieve the initial temporary session 
             let initial = a_self.inner.get_initial_transport().await;
             // Create the new link object
-            let link = Arc::new(Tcp::new(stream, initial.transport.clone(), a_self.clone()));
+            let link = Arc::new(Tcp::new(stream, initial, a_self.clone()));
             link.initizalize(Arc::downgrade(&link));
 
             // Store a reference to the link into the manger
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
 
-            // Store a reference to the link into the session
-            let link_obj: Link = link.clone();
-            if initial.add_link(link_obj).await.is_err() {
-                continue
-            }
+            // // Store a reference to the link into the session
+            // let link_obj: Link = link.clone();
+            // if initial.add_link(link_obj).await.is_err() {
+            //     continue
+            // }
 
             // Spawn the receive loop for the new link
             let _ = link.start().await;

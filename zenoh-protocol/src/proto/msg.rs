@@ -53,8 +53,8 @@ pub mod whatami {
 /// 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
-    encoding: u8,
-    buffer: Arc<RBuf>
+    pub encoding: u8,
+    pub buffer: Arc<RBuf>
 }
 
 // Message IDs
@@ -518,8 +518,9 @@ pub mod smsg {
     pub mod close_reason {
         pub const GENERIC       : u8 = 0x00;
         pub const UNSUPPORTED   : u8 = 0x01;
-        pub const MAX_SESSIONS  : u8 = 0x02;
-        pub const MAX_LINKS     : u8 = 0x03;
+        pub const INVALID       : u8 = 0x02;
+        pub const MAX_SESSIONS  : u8 = 0x03;
+        pub const MAX_LINKS     : u8 = 0x04;
     }
 
     // Header mask
@@ -857,7 +858,7 @@ impl SessionMessage {
     ) -> SessionMessage {
         let wflag = if whatami.is_some() { smsg::flag::W } else { 0 };
         let lflag = if locators.is_some() { smsg::flag::L } else { 0 };
-        let header = smsg::id::HELLO | wflag;
+        let header = smsg::id::HELLO | wflag | lflag;
 
         SessionMessage {
             header,
@@ -1005,15 +1006,15 @@ impl SessionMessage {
         attachment: Option<Attachment>
     ) -> SessionMessage {
         let rflag = if ch { smsg::flag::R } else { 0 };
-        let (eflag, fflag) = match payload {
-            FramePayload::Fragment { buffer, is_final} => {
-                if is_final {
+        let (eflag, fflag) = match &payload {
+            FramePayload::Fragment { is_final, .. } => {
+                if *is_final {
                     (smsg::flag::E, smsg::flag::F)
                 } else {
                     (0, smsg::flag::F)
                 }
             },
-            FramePayload::Messages { messages } => {
+            FramePayload::Messages { .. } => {
                 (0, 0)
             }
         };

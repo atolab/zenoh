@@ -12,7 +12,7 @@ impl RBuf {
     pub fn read_session_message(&mut self) -> ZResult<SessionMessage> {
         use super::smsg::id::*;
 
-        let attachment_header = None;
+        let mut attachment_header = None;
         
         // Read the message
         let (header, body) = loop {

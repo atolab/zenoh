@@ -18,16 +18,18 @@ use crate::proto::{SessionMessage, WhatAmI, ZenohMessage};
 /*********************************************************/
 /*           Trait for implementing a transport          */
 /*********************************************************/
-pub enum Action {
-    ChangeTransport(Arc<dyn Transport + Send + Sync>),
-    Close,
-    Read
-}
+pub type Transport = Arc<dyn TransportTrait + Send + Sync>;
 
 #[async_trait]
-pub trait Transport {
+pub trait TransportTrait {
     async fn receive_message(&self, link: &Link, msg: SessionMessage) -> Action;
     async fn link_err(&self, link: &Link);
+}
+
+pub enum Action {
+    ChangeTransport(Transport),
+    Close,
+    Read
 }
 
 /*********************************************************/

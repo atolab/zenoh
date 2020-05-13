@@ -79,7 +79,7 @@ pub type LinkManager = Arc<dyn ManagerTrait + Send + Sync>;
 
 #[async_trait]
 pub trait ManagerTrait {
-    async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link>;
+    async fn new_link(&self, dst: &Locator, transport: &Transport) -> ZResult<Link>;
 
     async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link>;
 

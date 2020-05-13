@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use zenoh_protocol::core::{PeerId, ResKey, ZResult};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Message, MessageKind, WhatAmI};
+use zenoh_protocol::proto::{ZenohMessage, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 
@@ -26,7 +26,7 @@ impl MySH {
 #[async_trait]
 impl SessionHandler for MySH {
     async fn new_session(&self, 
-        _whatami: WhatAmI, 
+        _whatami: whatami::Type, 
         _session: Arc<dyn MsgHandler + Send + Sync>
     ) -> Arc<dyn MsgHandler + Send + Sync> {
         if !self.active.swap(true, Ordering::Acquire) {
@@ -56,7 +56,7 @@ impl MyMH {
 
 #[async_trait]
 impl MsgHandler for MyMH {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         self.counter.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -146,13 +146,13 @@ fn main() {
 
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Peer,
+        whatami: whatami::PEER,
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new(count))
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize: Some(batchsize),
         timeout: None,
         retries: None,
