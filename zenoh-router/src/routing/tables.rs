@@ -2,14 +2,12 @@ use async_trait::async_trait;
 use async_std::sync::RwLock;
 use std::sync::{Arc, Weak};
 use std::collections::{HashMap};
-use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI, QueryTarget, QueryConsolidation, Reply};
+use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
-use crate::routing::query::Query;
 
 /// # Example: 
 /// ```
@@ -85,12 +83,11 @@ impl SessionHandler for TablesHdl {
 }
 
 pub type DataRoute = HashMap<usize, (Arc<Face>, u64, String)>;
-pub type QueryRoute = HashMap<usize, (Arc<Face>, u64, String, u64)>;
 
 pub struct Tables {
     sex_counter: usize,
-    root_res: Arc<Resource>,
-    faces: HashMap<usize, Arc<Face>>,
+    pub(crate) root_res: Arc<Resource>,
+    pub(crate) faces: HashMap<usize, Arc<Face>>,
 }
 
 impl Tables {
@@ -113,7 +110,7 @@ impl Tables {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn get_mapping<'a>(&'a self, face: &'a Face, rid: &ZInt) -> Option<&'a Arc<Resource>> {
+    pub(crate) fn get_mapping<'a>(&'a self, face: &'a Face, rid: &ZInt) -> Option<&'a Arc<Resource>> {
         match rid {
             0 => {Some(&self.root_res)}
             rid => {face.get_mapping(rid)}
@@ -216,7 +213,7 @@ impl Tables {
         for match_ in &res.matches {
             for (sid, context) in &match_.upgrade().unwrap().contexts {
                 if context.subs.is_some() {
-                    let (rid, suffix) = Tables::get_best_key(res, "", *sid);
+                    let (rid, suffix) = Resource::get_best_key(res, "", *sid);
                     dests.insert(*sid, (context.face.clone(), rid, suffix));
                 }
             }
@@ -224,7 +221,7 @@ impl Tables {
         Arc::get_mut_unchecked(res).route = dests;
     }
 
-    unsafe fn build_matches_direct_tables(res: &mut Arc<Resource>) {
+    pub(crate) unsafe fn build_matches_direct_tables(res: &mut Arc<Resource>) {
         Tables::build_direct_tables(res);
 
         let resclone = res.clone();
@@ -233,29 +230,6 @@ impl Tables {
                 Tables::build_direct_tables(&mut match_.upgrade().unwrap());
             }
         }
-    }
-
-    unsafe fn make_and_match_resource(from: &Arc<Resource>, prefix: &mut Arc<Resource>, suffix: &str) -> Arc<Resource> {
-        let mut res = Resource::make_resource(prefix, suffix);
-        let mut matches = Tables::get_matches_from(&res.name(), from);
-
-        fn matches_contain(matches: &[Weak<Resource>], res: &Arc<Resource>) -> bool {
-            for match_ in matches {
-                if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
-                    return true
-                }
-            }
-            false
-        }
-        
-        for match_ in &mut matches {
-            let mut match_ = match_.upgrade().unwrap();
-            if ! matches_contain(&match_.matches, &res) {
-                Arc::get_mut_unchecked(&mut match_).matches.push(Arc::downgrade(&res));
-            }
-        }
-        Arc::get_mut_unchecked(&mut res).matches = matches;
-        res
     }
 
     pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, prefixid: u64, suffix: &str) {
@@ -271,7 +245,8 @@ impl Tables {
                     None => {
                         match t.get_mapping(&sex, &prefixid).cloned() {
                             Some(mut prefix) => unsafe {
-                                let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
+                                let mut res = Resource::make_resource(&mut prefix, suffix);
+                                Resource::match_resource(&t.root_res, &mut res);
                                 let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(sex.id).or_insert_with( ||
                                     Arc::new(Context {
                                         face: sex.clone(),
@@ -322,7 +297,8 @@ impl Tables {
             Some(mut sex) => {
                 match t.get_mapping(&sex, &prefixid).cloned() {
                     Some(mut prefix) => unsafe {
-                        let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
+                        let mut res = Resource::make_resource(&mut prefix, suffix);
+                        Resource::match_resource(&t.root_res, &mut res);
                         {
                             let res = Arc::get_mut_unchecked(&mut res);
                             match res.contexts.get_mut(&sex.id) {
@@ -417,187 +393,9 @@ impl Tables {
         }
     }
 
-    pub async fn declare_queryable(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
-        let mut t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => {
-                let prefix = {
-                    match prefixid {
-                        0 => {Some(t.root_res.clone())}
-                        prefixid => {sex.get_mapping(&prefixid).cloned()}
-                    }
-                };
-                match prefix {
-                    Some(mut prefix) => unsafe {
-                        let mut res = Tables::make_and_match_resource(&t.root_res, &mut prefix, suffix);
-                        {
-                            match Arc::get_mut_unchecked(&mut res).contexts.get_mut(&sex.id) {
-                                Some(mut ctx) => {
-                                    Arc::get_mut_unchecked(&mut ctx).qabl = true;
-                                }
-                                None => {
-                                    Arc::get_mut_unchecked(&mut res).contexts.insert(sex.id, 
-                                        Arc::new(Context {
-                                            face: sex.clone(),
-                                            local_rid: None,
-                                            remote_rid: None,
-                                            subs: None,
-                                            qabl: true,
-                                        })
-                                    );
-                                }
-                            }
-                        }
-
-                        for (id, face) in &mut t.faces {
-                            if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
-                                let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
-                                match nonwild_prefix {
-                                    Some(mut nonwild_prefix) => {
-                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.get_mut(id) {
-                                            if let Some(rid) = ctx.local_rid {
-                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
-                                            } else if let Some(rid) = ctx.remote_rid {
-                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
-                                            } else {
-                                                let rid = face.get_next_local_id();
-                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
-
-                                                face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
-                                                face.primitives.clone().queryable((rid, wildsuffix).into()).await;
-                                            }
-                                        } else {
-                                            let rid = face.get_next_local_id();
-                                            Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(*id, 
-                                                Arc::new(Context {
-                                                    face: face.clone(),
-                                                    local_rid: Some(rid),
-                                                    remote_rid: None,
-                                                    subs: None,
-                                                    qabl: false,
-                                            }));
-                                            Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
-
-                                            face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
-                                            face.primitives.clone().queryable((rid, wildsuffix).into()).await;
-                                        }
-                                    }
-                                    None => {
-                                        face.primitives.clone().queryable(ResKey::RName(wildsuffix)).await;
-                                    }
-                                }
-                            }
-                        }
-                        Tables::build_matches_direct_tables(&mut res);
-                        Arc::get_mut_unchecked(&mut sex).qabl.push(res);
-                    }
-                    None => println!("Declare queryable for unknown rid {}!", prefixid)
-                }
-            }
-            None => println!("Declare queryable for closed session!")
-        }
-    }
-
-    pub async fn undeclare_queryable(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
-        let t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => {
-                match t.get_mapping(&sex, &prefixid) {
-                    Some(prefix) => {
-                        match Resource::get_resource(prefix, suffix) {
-                            Some(mut res) => unsafe {
-                                if let Some(mut ctx) = Arc::get_mut_unchecked(&mut res).contexts.get_mut(&sex.id) {
-                                    Arc::get_mut_unchecked(&mut ctx).qabl = false;
-                                }
-                                Arc::get_mut_unchecked(&mut sex).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
-                                Resource::clean(&mut res)
-                            }
-                            None => println!("Undeclare unknown queryable!")
-                        }
-                    }
-                    None => println!("Undeclare queryable with unknown prefix!")
-                }
-            }
-            None => println!("Undeclare queryable for closed session!")
-        }
-    }
-
-    fn fst_chunk(rname: &str) -> (&str, &str) {
-        if rname.starts_with('/') {
-            match rname[1..].find('/') {
-                Some(idx) => {(&rname[0..(idx+1)], &rname[(idx+1)..])}
-                None => (rname, "")
-            }
-        } else {
-            match rname.find('/') {
-                Some(idx) => {(&rname[0..(idx)], &rname[(idx)..])}
-                None => (rname, "")
-            }
-        }
-    }
-
-    fn get_matches_from(rname: &str, from: &Arc<Resource>) -> Vec<Weak<Resource>> {
-        let mut matches = Vec::new();
-        if from.parent.is_none() {
-            for child in from.childs.values() {
-                matches.append(&mut Tables::get_matches_from(rname, child));
-            }
-            return matches
-        }
-        if rname.is_empty() {
-            if from.suffix == "/**" || from.suffix == "/" {
-                matches.push(Arc::downgrade(from));
-                for child in from.childs.values() {
-                    matches.append(&mut Tables::get_matches_from(rname, child));
-                }
-            }
-            return matches
-        }
-        let (chunk, rest) = Tables::fst_chunk(rname);
-        if intersect(chunk, &from.suffix) {
-            if rest.is_empty() || rest == "/" || rest == "/**" {
-                matches.push(Arc::downgrade(from));
-            } else if chunk == "/**" || from.suffix == "/**" {
-                matches.append(&mut Tables::get_matches_from(rest, from));
-            }
-            for child in from.childs.values() {
-                matches.append(&mut Tables::get_matches_from(rest, child));
-                if chunk == "/**" || from.suffix == "/**" {
-                    matches.append(&mut Tables::get_matches_from(rname, child));
-                }
-            }
-        }
-        matches
-    }
-
     pub async fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Weak<Resource>> {
         let t = tables.read().await;
-        Tables::get_matches_from(rname, &t.root_res)
-    }
-
-    #[inline]
-    fn get_best_key(prefix: &Arc<Resource>, suffix: &str, sid: usize) -> (u64, String) {
-        fn get_best_key_(prefix: &Arc<Resource>, suffix: &str, sid: usize, checkchilds: bool) -> (u64, String) {
-            if checkchilds && ! suffix.is_empty() {
-                let (chunk, rest) = Tables::fst_chunk(suffix);
-                if let Some(child) = prefix.childs.get(chunk) {
-                    return get_best_key_(child, rest, sid, true)
-                }
-            }
-            if let Some(ctx) = prefix.contexts.get(&sid) {
-                if let Some(rid) = ctx.local_rid {
-                    return (rid, suffix.to_string())
-                } else if let Some(rid) = ctx.remote_rid {
-                    return (rid, suffix.to_string())
-                }
-            }
-            match &prefix.parent {
-                Some(parent) => {get_best_key_(&parent, &[&prefix.suffix, suffix].concat(), sid, false)}
-                None => {(0, suffix.to_string())}
-            }
-        }
-        get_best_key_(prefix, suffix, sid, true)
+        Resource::get_matches_from(rname, &t.root_res)
     }
 
     pub async fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) -> Option<DataRoute> {
@@ -611,12 +409,12 @@ impl Tables {
                             Some(res) => {Some(res.route.clone())}
                             None => {
                                 let mut sexs = HashMap::new();
-                                for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
+                                for res in Resource::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
                                     let res = res.upgrade().unwrap();
                                     for (sid, context) in &res.contexts {
                                         if context.subs.is_some() {
                                             sexs.entry(*sid).or_insert_with( || {
-                                                let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
+                                                let (rid, suffix) = Resource::get_best_key(prefix, suffix, *sid);
                                                 (context.face.clone(), rid, suffix)
                                             });
                                         }
@@ -657,96 +455,6 @@ impl Tables {
                 }
             }
             None => {println!("Route data for closed session!")}
-        }
-    }
-
-    pub async fn route_query_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, qid: ZInt, rid: u64, suffix: &str/*, _predicate: &str, */
-    /*_qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation*/) -> Option<QueryRoute> {
-        let t = tables.write().await;
-
-        match sex.upgrade() {
-            Some(sex) => {
-                match t.get_mapping(&sex, &rid) {
-                    Some(prefix) => {
-                        let query = Arc::new(Query {src_face: sex.clone(), src_qid: qid});
-                        let mut sexs = HashMap::new();
-                        for res in Tables::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
-                            unsafe {
-                                let mut res = res.upgrade().unwrap();
-                                for (sid, context) in &mut Arc::get_mut_unchecked(&mut res).contexts {
-                                    if context.qabl && ! Arc::ptr_eq(&sex, &context.face)
-                                    {
-                                        sexs.entry(*sid).or_insert_with( || {
-                                            let (rid, suffix) = Tables::get_best_key(prefix, suffix, *sid);
-                                            let face = Arc::get_mut_unchecked(&mut Arc::get_mut_unchecked(context).face);
-                                            face.next_qid += 1;
-                                            let qid = face.next_qid;
-                                            face.pending_queries.insert(qid, query.clone());
-                                            (context.face.clone(), rid, suffix, qid)
-                                        });
-                                    }
-                                }
-                            }
-                        };
-                        Some(sexs)
-                    }
-                    None => {println!("Route query with unknown rid {}!", rid); None}
-                }
-            }
-            None => {println!("Route query for closed session!"); None}
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn route_query(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str, predicate: &str, 
-                            qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
-        match sex.upgrade() {
-            Some(strongsex) => {
-                if let Some(outfaces) = Tables::route_query_to_map(tables, sex, qid, rid, suffix).await {
-                    for (_id, (face, rid, suffix, qid)) in outfaces {
-                        let primitives = {
-                            if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                Some(face.primitives.clone())
-                            } else {
-                                None
-                            }
-                        };
-                        if let Some(primitives) = primitives {
-                            primitives.query((rid, suffix).into(), predicate.to_string(), qid, target.clone(), consolidation.clone()).await
-                        }
-                    }
-                }
-            }
-            None => {println!("Route data for closed session!")}
-        }
-    }
-
-    pub async fn route_reply(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, qid: ZInt, reply: &Reply) {
-        let _t = tables.write().await;
-
-        match sex.upgrade() {
-            Some(mut strongsex) => {
-                match strongsex.pending_queries.get(&qid) {
-                    Some(query) => {
-                        match reply {
-                            Reply::ReplyData {..} | Reply::SourceFinal {..} => {
-                                query.src_face.primitives.clone().reply(query.src_qid, reply.clone()).await;
-                            }
-                            Reply::ReplyFinal {..} => {
-                                unsafe {
-                                    let query = strongsex.pending_queries.get(&qid).unwrap().clone();
-                                    Arc::get_mut_unchecked(&mut strongsex).pending_queries.remove(&qid);
-                                    if Arc::strong_count(&query) == 1 {
-                                        query.src_face.primitives.clone().reply(query.src_qid, Reply::ReplyFinal).await;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    None => {println!("Route reply for unknown query!")}
-                }
-            }
-            None => {println!("Route reply for closed session!")}
         }
     }
 

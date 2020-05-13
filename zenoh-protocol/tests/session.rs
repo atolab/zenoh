@@ -78,8 +78,8 @@ async fn run(locator: Locator) {
     let client02_id = PeerId{id: vec![2u8]};
 
     // The timeout when opening a session
-    // Set it to 100 ms for testing purposes
-    let timeout = 10;
+    // Set it to 1000 ms for testing purposes
+    let timeout = 1_000;
     let retries = 1;
 
     // Create the transport session manager for the first client

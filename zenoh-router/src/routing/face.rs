@@ -8,7 +8,7 @@ use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 use crate::routing::ownedprimitives::OwnedPrimitives;
-use crate::routing::query::Query;
+use crate::routing::queries::*;
 
 pub struct Face {
     pub(super) id: usize,
@@ -92,12 +92,14 @@ impl Primitives for FaceHdl {
     
     async fn queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        declare_queryable(&mut tables, &self.face, prefixid, suffix).await;
     }
 
     async fn forget_queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        undeclare_queryable(&mut tables, &self.face, prefixid, suffix).await;
     }
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
@@ -107,11 +109,13 @@ impl Primitives for FaceHdl {
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_query(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, predicate, qid, target, consolidation).await;
+        let mut tables = self.tables.write().await;
+        route_query(&mut tables, &self.face, prefixid, suffix, predicate, qid, target, consolidation).await;
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
-        Tables::route_reply(&self.tables, &Arc::downgrade(&self.face), qid, reply).await;
+        let mut tables = self.tables.write().await;
+        route_reply(&mut tables, &self.face, qid, reply).await;
     }
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
