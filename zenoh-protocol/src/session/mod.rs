@@ -5,8 +5,8 @@ mod manager;
 
 pub use manager::*;
 
-pub(crate) use channel::*;
-pub(crate) use initial::*;
+use channel::*;
+use initial::*;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;

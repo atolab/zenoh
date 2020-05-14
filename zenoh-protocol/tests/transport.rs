@@ -16,11 +16,10 @@ use zenoh_protocol::core::{
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::proto::{
-    Body,
-    Message,
-    MessageKind,
+    ZenohMessage,
     SeqNum,
-    WhatAmI
+    WhatAmI,
+    whatami
 };
 use zenoh_protocol::session::{
     MsgHandler,
@@ -75,24 +74,13 @@ impl SCRouter {
 
 #[async_trait]
 impl MsgHandler for SCRouter {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
+    async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         self.count.fetch_add(1, Ordering::AcqRel);
-        let is_reliable = message.is_reliable();
-        match message.get_body() {
-            Body::Data{sn, ..} |
-            Body::Declare{sn, ..} |
-            Body::Pull{sn, ..} |
-            Body::Query{sn, ..} => {
-                let mut l = if is_reliable {
-                    zasynclock!(self.last_reliable)
-                } else {
-                    zasynclock!(self.last_unreliable)
-                };
-                assert!(l.precedes(*sn));
-                l.set(*sn).unwrap();
-            },
-            _ => {}
-        }
+        if message.is_reliable() {
+            zasynclock!(self.last_reliable)
+        } else {
+            zasynclock!(self.last_unreliable)
+        };
         Ok(())
     }
 
@@ -131,7 +119,7 @@ impl SCClient {
 
 #[async_trait]
 impl MsgHandler for SCClient {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         self.count.fetch_add(1, Ordering::AcqRel);
         Ok(())
     }
@@ -157,13 +145,13 @@ async fn transport_base_inner() {
     // Create the router session manager
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Router,
+        whatami: whatami::ROUTER,
         id: router_id,
         handler: Arc::new(SHRouter::new(resolution))
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: Some(resolution),
+        sn_resolution: Some(resolution),
         batchsize: None,
         timeout: None,
         retries: None,
@@ -175,13 +163,13 @@ async fn transport_base_inner() {
     // Create the client session manager
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Client,
+        whatami: whatami::CLIENT,
         id: client_id,
         handler: Arc::new(SHClient::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: Some(resolution),
+        sn_resolution: Some(resolution),
         batchsize: None,
         timeout: None,
         retries: None,
@@ -196,22 +184,19 @@ async fn transport_base_inner() {
 
     // Create an empty session with the client
     // Open session -> This should be accepted
-    let res = client_manager.open_session(&locator).await;
+    let attachment = None;
+    let res = client_manager.open_session(&locator, &attachment).await;
     assert_eq!(res.is_ok(), true);
     let session = res.unwrap();
 
     // Send reliable messages
-    let kind = MessageKind::FullMessage;
     let reliable = true;
-    let sn = 0;
     let key = ResKey::RName("test".to_string());
     let info = None;
     let payload = RBuf::from(vec![0u8; 1]);
     let reply_context = None;
-    let cid = None;
-    let properties = None;
-
-    let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
 
     // Send the messages, no dropping or reordering in place
     for _ in 0..messages_count { 
@@ -219,17 +204,13 @@ async fn transport_base_inner() {
     }
 
     // Send unreliable messages
-    let kind = MessageKind::FullMessage;
     let reliable = false; 
-    let sn = 0;
     let key = ResKey::RName("test".to_string());
     let info = None;
     let payload = RBuf::from(vec![0u8; 1]);
     let reply_context = None;
-    let cid = None;
-    let properties = None;
-
-    let message = Message::make_data(kind, reliable, sn, key, info, payload, reply_context, cid, properties);
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
 
     // Send again the messages, this time they will randomly dropped
     for _ in 0..messages_count { 

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use zenoh_protocol::core::PeerId;
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::proto::WhatAmI;
+use zenoh_protocol::proto::{WhatAmI, whatami};
 use zenoh_protocol::session::{
     DummyHandler,
     MsgHandler,
@@ -51,19 +51,21 @@ impl SessionHandler for SHClient {
 
 
 async fn run(locator: Locator) {
+    let attachment = None;
+    
     /* [ROUTER] */
     let router_id = PeerId{id: vec![0u8]};
 
     // Create the router session manager
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Router,
+        whatami: whatami::ROUTER,
         id: router_id.clone(),
         handler: Arc::new(SHRouter::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize: None,
         timeout: None,
         retries: None,
@@ -85,13 +87,13 @@ async fn run(locator: Locator) {
     // Create the transport session manager for the first client
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Client,
+        whatami: whatami::CLIENT,
         id: client01_id.clone(),
         handler: Arc::new(SHClient::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize: None,
         timeout: Some(timeout),
         retries: Some(retries),
@@ -103,13 +105,13 @@ async fn run(locator: Locator) {
     // Create the transport session manager for the second client
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Client,
+        whatami: whatami::CLIENT,
         id: client02_id.clone(),
         handler: Arc::new(SHClient::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize: None,
         timeout: Some(timeout),
         retries: Some(retries),
@@ -127,7 +129,8 @@ async fn run(locator: Locator) {
 
     // Open a first session from the client to the router 
     // -> This should be accepted
-    let res = client01_manager.open_session(&locator).await;
+    let res = client01_manager.open_session(&locator, &attachment).await;
+    println!("{:?}", res);
     assert!(res.is_ok());
     let c_ses1 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
@@ -146,7 +149,7 @@ async fn run(locator: Locator) {
     /* [2] */
     // Open a second session from the client to the router 
     // -> This should be accepted
-    let res = client01_manager.open_session(&locator).await;
+    let res = client01_manager.open_session(&locator, &attachment).await;
     assert!(res.is_ok());
     let c_ses2 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
@@ -166,7 +169,7 @@ async fn run(locator: Locator) {
     /* [3] */
     // Open session -> This should be rejected because
     // of the maximum limit of links per session
-    let res = client01_manager.open_session(&locator).await;
+    let res = client01_manager.open_session(&locator, &attachment).await;
     assert!(res.is_err());
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
     assert_eq!(c_ses1.get_peer().unwrap(), router_id);
@@ -196,7 +199,7 @@ async fn run(locator: Locator) {
     /* [5] */
     // Open session -> This should be accepted because
     // the number of links should be back to 0
-    let res = client01_manager.open_session(&locator).await;
+    let res = client01_manager.open_session(&locator, &attachment).await;
     assert!(res.is_ok());
     let c_ses3 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
@@ -215,7 +218,7 @@ async fn run(locator: Locator) {
     /* [6] */
     // Open session -> This should be rejected because
     // of the maximum limit of sessions
-    let res = client02_manager.open_session(&locator).await;
+    let res = client02_manager.open_session(&locator, &attachment).await;
     assert!(res.is_err());
     assert_eq!(client02_manager.get_sessions().await.len(), 0);
 
@@ -243,7 +246,7 @@ async fn run(locator: Locator) {
     /* [8] */
     // Open session -> This should be accepted because
     // the number of sessions should be back to 0
-    let res = client02_manager.open_session(&locator).await;
+    let res = client02_manager.open_session(&locator, &attachment).await;
     assert!(res.is_ok());
     let c_ses4 = res.unwrap();
     assert_eq!(client02_manager.get_sessions().await.len(), 1);

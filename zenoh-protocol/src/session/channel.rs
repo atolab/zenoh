@@ -430,7 +430,9 @@ impl ChannelInnerRx {
 /*************************************/
 
 pub(super) struct Channel {
-    pub(super) peer: PeerId,
+    pid: PeerId,
+    lease: ZInt,
+    sn_resolution: ZInt,
     active: AtomicBool,
     // The callback has been set or not
     has_callback: AtomicBool,
@@ -442,7 +444,7 @@ pub(super) struct Channel {
 
 impl Channel {
     pub(super) fn new(
-        peer: PeerId, 
+        pid: PeerId, 
         whatami: WhatAmI,
         lease: ZInt,
         sn_resolution: ZInt, 
@@ -476,7 +478,9 @@ impl Channel {
         let queue_tx = vec![ctrl, retx, data];
 
         Channel{
-            peer,
+            pid,
+            lease,
+            sn_resolution,
             has_callback: AtomicBool::new(false),
             queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
             active: AtomicBool::new(false),
@@ -497,6 +501,18 @@ impl Channel {
         let mut guard = zasynclock!(self.rx);
         self.has_callback.store(true, Ordering::Relaxed);
         guard.callback = Some(callback);
+    }
+
+    pub(super) fn get_peer(&self) -> PeerId {
+        self.pid.clone()
+    }
+
+    pub(super) fn get_lease(&self) -> ZInt {
+        self.lease
+    }
+
+    pub(super) fn get_sn_resolution(&self) -> ZInt {
+        self.sn_resolution
     }
 
     pub(super) async fn close(&self) -> ZResult<()> {

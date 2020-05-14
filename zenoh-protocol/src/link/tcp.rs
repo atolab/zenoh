@@ -26,7 +26,7 @@ configurable!{
     // Size of buffer used to read from socket
     static ref READ_BUFFER_SIZE: usize = 64 * 1_024;
     // Size of buffer used to read from socket
-    static ref MESSAGES_left_to_read: usize = 64;
+    static ref MESSAGES_TO_READ: usize = 64;
 }
 
 
@@ -187,7 +187,7 @@ async fn read_task(link: Arc<Tcp>) {
         let mut guard = zasynclock!(link.transport);
 
         // The list of deserliazed messages
-        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*MESSAGES_left_to_read);
+        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*MESSAGES_TO_READ);
 
         // The RBuf to read a message batch onto
         let mut rbuf = RBuf::new();

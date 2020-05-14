@@ -405,7 +405,7 @@ impl SessionManagerInner {
             .map(|x| Session::new(Arc::downgrade(&x))).collect()
     }
 
-    async fn new_session(
+    pub(super) async fn new_session(
         &self,
         a_self: &Arc<Self>,
         peer: &PeerId,
@@ -492,7 +492,17 @@ impl Session {
     /*************************************/
     pub fn get_peer(&self) -> ZResult<PeerId> {
         let channel = zchannel!(self.0);
-        Ok(channel.peer.clone())
+        Ok(channel.get_peer())
+    }
+
+    pub fn get_lease(&self) -> ZResult<ZInt> {
+        let channel = zchannel!(self.0);
+        Ok(channel.get_lease())
+    }
+
+    pub fn get_sn_resolution(&self) -> ZResult<ZInt> {
+        let channel = zchannel!(self.0);
+        Ok(channel.get_sn_resolution())
     }
 
     pub async fn close(&self) -> ZResult<()> {
@@ -548,7 +558,7 @@ impl PartialEq for Session {
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(channel) = self.0.upgrade() {
-            write!(f, "Session ({:?})", channel.peer)
+            write!(f, "Session ({:?})", channel.get_peer())
         } else {
             write!(f, "Session closed")
         }

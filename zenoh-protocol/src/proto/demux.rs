@@ -62,7 +62,8 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                     }
 
                 }
-            }
+            },
+            
             ZenohBody::Data { key, info, payload, .. } => {
                 match &msg.reply_context {
                     None => {
@@ -79,7 +80,8 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         }
                     }
                 }
-            }
+            },
+
             ZenohBody::Unit { .. } => {
                 if let Some(rep) = &msg.reply_context {
                     if rep.is_final {
@@ -92,16 +94,17 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                         self.primitives.reply(rep.qid, &reply).await
                     }
                 }
-            }
+            },
+
             ZenohBody::Query{ key, predicate, qid, target, consolidation, .. } => {
                 trace!("QUERY key({:?}) predicate({:?}) qid({:?}) target({:?}) consolidation({:?})", key, predicate, *qid, target, consolidation);
                 self.primitives.query(key, predicate, *qid, target.clone().unwrap_or_default(), consolidation.clone()).await;
-            }
+            },
+
             ZenohBody::Pull{ key, pull_id, max_samples, .. } => {
                 trace!("PULL is_final({:?}) key({:?}) pull_id({:?}) max_samples({:?})", zmsg::has_flag(msg.header, zmsg::flag::F), key, *pull_id, max_samples);
                 self.primitives.pull(zmsg::has_flag(msg.header, zmsg::flag::F), key, *pull_id, max_samples).await;
             }
-            _ => () 
         }
 
         Ok(())
