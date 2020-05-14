@@ -10,7 +10,7 @@ use crate::io::WBuf;
 use crate::link::{Link, Locator};
 use crate::proto::{Attachment, SessionMessage, WhatAmI, smsg};
 use crate::session::defaults::SESSION_SEQ_NUM_RESOLUTION;
-use crate::session::{Action, Channel, Session, SessionManagerInner, TransportTrait};
+use crate::session::{Action, Session, SessionManagerInner, TransportTrait};
 use crate::zerror;
 use zenoh_util::{zasyncread, zasyncwrite};
 

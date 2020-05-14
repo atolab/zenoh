@@ -4,7 +4,8 @@ members = [
   "zenoh",
   "zenoh-router",
   "zenoh-protocol",
-  "zenoh-util"
+  "zenoh-util",
+  "zenoh-ffi"
 ]
 
 [profile.release]

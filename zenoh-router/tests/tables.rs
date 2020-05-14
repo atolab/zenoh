@@ -1,8 +1,11 @@
 use async_std::task;
 use async_std::sync::Arc;
+use async_trait::async_trait;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
-use zenoh_protocol::proto::{Mux, Reliability, SubMode, SubInfo, WhatAmI};
+use zenoh_protocol::core::{ResKey, ZInt};
+use zenoh_protocol::io::RBuf;
+use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, WhatAmI, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::DummyHandler;
 use zenoh_router::routing::tables::Tables;
 use zenoh_router::routing::resource::Resource;
@@ -189,145 +192,201 @@ fn clean_test() {
     });
 }
 
+pub struct ClientPrimitives {
+    data: std::sync::Mutex<Option<ResKey>>,
+    mapping: std::sync::Mutex<std::collections::HashMap<ZInt, String>>,
+}
+
+impl ClientPrimitives {
+    pub fn new() -> ClientPrimitives {
+        ClientPrimitives {
+            data: std::sync::Mutex::new(None),
+            mapping: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn clear_data(&self) {
+        *self.data.lock().unwrap() = None;
+    }
+}
+
+impl Default for ClientPrimitives {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClientPrimitives {
+    fn get_name(&self, reskey: &ResKey) -> String {
+        let mapping = self.mapping.lock().unwrap();
+        match reskey {
+            ResKey::RName(name) => {name.clone()}
+            ResKey::RId(id) => {mapping.get(id).unwrap().clone()}
+            ResKey::RIdWithSuffix(id, suffix) => {[&mapping.get(id).unwrap()[..], &suffix[..]].concat()}
+        }
+    }
+
+    fn get_last_name(&self) -> Option<String> {
+        self.data.lock().unwrap().as_ref().map(|data|{self.get_name(&data)})
+    }
+
+    #[allow(dead_code)]
+    fn get_last_key(&self) -> Option<ResKey> {
+        self.data.lock().unwrap().as_ref().map(|data|data.clone())
+    }
+}
+
+#[async_trait]
+impl Primitives for ClientPrimitives {
+
+    async fn resource(&self, rid: ZInt, reskey: &ResKey) {
+        let name = self.get_name(reskey);
+        self.mapping.lock().unwrap().insert(rid, name);
+    }
+    async fn forget_resource(&self, rid: ZInt) {
+        self.mapping.lock().unwrap().remove(&rid);
+    }
+    
+    async fn publisher(&self, _reskey: &ResKey) {}
+    async fn forget_publisher(&self, _reskey: &ResKey) {}
+    
+    async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {}
+    async fn forget_subscriber(&self, _reskey: &ResKey) {}
+    
+    async fn queryable(&self, _reskey: &ResKey) {}
+    async fn forget_queryable(&self, _reskey: &ResKey) {}
+
+    async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
+        *self.data.lock().unwrap() = Some(reskey.clone());
+    }
+    async fn query(&self, _reskey: &ResKey, _predicate: &str, _qid: ZInt, _target: QueryTarget, _consolidation: QueryConsolidation) {}
+    async fn reply(&self, _qid: ZInt, _reply: &Reply) {}
+    async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
+
+    async fn close(&self) {}
+}
+
+
 #[test]
 fn client_test() {
     task::block_on(async{
         let tables = Tables::new();
-        let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
         let sub_info = SubInfo {
             reliability: Reliability::Reliable,
             mode: SubMode::Push,
             period: None
         };
         
-        let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let primitives0 = Arc::new(ClientPrimitives::new());
+        let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives0.clone()).await;
         Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client").await;
+        primitives0.resource(11, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex0, 11, "/**", &sub_info).await;
         Tables::declare_resource(&tables, &sex0, 12, 11, "/z1_pub1").await;
+        primitives0.resource(12, &ResKey::RIdWithSuffix(11, "/z1_pub1".to_string())).await;
 
-        let sex1 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let primitives1 = Arc::new(ClientPrimitives::new());
+        let sex1 = Tables::declare_session(&tables, WhatAmI::Client, primitives1.clone()).await;
         Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client").await;
+        primitives1.resource(21, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex1, 21, "/**", &sub_info).await;
         Tables::declare_resource(&tables, &sex1, 22, 21, "/z2_pub1").await;
+        primitives1.resource(22, &ResKey::RIdWithSuffix(21, "/z2_pub1".to_string())).await;
 
-        let sex2 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let primitives2 = Arc::new(ClientPrimitives::new());
+        let sex2 = Tables::declare_session(&tables, WhatAmI::Client, primitives2.clone()).await;
         Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client").await;
+        primitives2.resource(31, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex2, 31, "/**", &sub_info).await;
 
-        
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 0, "/test/client/z1_wr1").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 0, "/test/client/z1_wr1", true, &None, RBuf::new()).await;
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z1_wr1");
+        // functionnal check
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_wr1");
+        // mapping strategy check
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_wr1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr1");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr1");
+        // functionnal check
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_wr1");
+        // mapping strategy check
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_wr1".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 11, "/z1_wr2").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 11, "/z1_wr2", true, &None, RBuf::new()).await;
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z1_wr2");
+        // functionnal check
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_wr2");
+        // mapping strategy check
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_wr2".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr2");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_wr2");
+        // functionnal check
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_wr2");
+        // mapping strategy check
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_wr2".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 0, "/test/client/**").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex1, 0, "/test/client/**", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/**");
+        // functionnal check
+        assert!(primitives0.get_last_name().is_some());
+        assert_eq!(primitives0.get_last_name().unwrap(), "/test/client/**");
+        // mapping strategy check
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(11, "/**".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/**");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/**");
+        // functionnal check
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/**");
+        // mapping strategy check
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/**".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex0, 12, "").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex0, 12, "", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 12);
-        assert_eq!(suffix, "");
+        // functionnal check
+        assert!(primitives1.get_last_name().is_some());
+        assert_eq!(primitives1.get_last_name().unwrap(), "/test/client/z1_pub1");
+        // mapping strategy check
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(21, "/z1_pub1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 21); Temporarily skip this test
-        assert_eq!(suffix, "/z1_pub1");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z1_pub1");
+        // functionnal check
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z1_pub1");
+        // mapping strategy check
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z1_pub1".to_string()));
 
         
-        let result_opt = Tables::route_data_to_map(&tables, &sex1, 22, "").await; 
-        assert!(result_opt.is_some());
-        let result = result_opt.unwrap();
+        primitives0.clear_data();
+        primitives1.clear_data();
+        primitives2.clear_data();
+        Tables::route_data(&tables, &sex1, 22, "", true, &None, RBuf::new()).await; 
 
-        let opt_sex = result.get(&0);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 11);
-        assert_eq!(suffix, "/z2_pub1");
+        // functionnal check
+        assert!(primitives0.get_last_name().is_some());
+        assert_eq!(primitives0.get_last_name().unwrap(), "/test/client/z2_pub1");
+        // mapping strategy check
+        // assert_eq!(primitives1.get_last_key().unwrap(), ResKey::RIdWithSuffix(11, "/z2_pub1".to_string()));
 
-        let opt_sex = result.get(&1);
-        assert!(opt_sex.is_some());
-        let (_, id, suffix) = opt_sex.unwrap();
-        assert_eq!(*id, 22);
-        assert_eq!(suffix, "");
-
-        let opt_sex = result.get(&2);
-        assert!(opt_sex.is_some());
-        let (_, _id, suffix) = opt_sex.unwrap();
-        // assert_eq!(*id, 31); Temporarily skip this test
-        assert_eq!(suffix, "/z2_pub1");
+        // functionnal check
+        assert!(primitives2.get_last_name().is_some());
+        assert_eq!(primitives2.get_last_name().unwrap(), "/test/client/z2_pub1");
+        // mapping strategy check
+        // assert_eq!(primitives2.get_last_key().unwrap(), ResKey::RIdWithSuffix(31, "/z2_pub1".to_string()));
     });
 }
 

@@ -621,6 +621,7 @@ impl fmt::Debug for Session {
     /*************************************/
     /*            OPEN/CLOSE             */
     /*************************************/
+<<<<<<< HEAD
     // async fn open(&self, link: Link, sender: Sender<ZResult<Weak<SessionInner>>>) -> ZResult<()> {
     //     // Add the link to the transport
     //     self.transport.add_link(link.clone()).await?;
@@ -680,6 +681,67 @@ impl fmt::Debug for Session {
 
     //     Ok(())
     // }
+=======
+    async fn open(&self, link: Link, sender: Sender<ZResult<Weak<SessionInner>>>) -> ZResult<()> {
+        // Add the link to the transport
+        self.transport.add_link(link.clone()).await?;
+
+        // Store the sender for the callback to be used in the process_message
+        let key = (link.get_src(), link.get_dst());
+        zasyncwrite!(self.channels).insert(key, sender);
+
+        // Build the fields for the Open Message
+        let version = self.manager.config.version;
+        let whatami = self.manager.config.whatami.clone();
+        let peer_id = self.manager.config.id.clone();
+        let lease = self.manager.config.lease;
+        let locators = self.manager.get_locators().await;
+        let locators = match locators.len() {
+            0 => None,
+            _ => Some(locators),
+        };
+        // This is should always be None for Open Messages
+        let conduit_id = None;
+        // Parameter of open_session
+        let properties = None;
+
+        // Build the Open Message
+        let message = Message::make_open(
+            version, whatami, peer_id, lease, locators, conduit_id, properties,
+        );
+
+        // Schedule the message for transmission
+        self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link)).await?;
+
+        Ok(())
+    }
+
+    async fn close(&self) -> ZResult<()> {
+        // Send a close message
+        let peer_id = Some(self.manager.config.id.clone());
+        let reason_id = close_reason::GENERIC;              
+        let conduit_id = None;  // This is should always be None for Close Messages                
+        let properties = None;  // Parameter of open_session
+        let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
+
+        // Get the transport links
+        let links = self.transport.get_links().await;
+        // Send close message on DATA queue so we ensure that all the pending DATA messages
+        // are actually sent on the channel
+        let futs: FuturesUnordered<_> = links.iter().map(|l| 
+            self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone()))
+        ).collect();
+        let _ = futs.into_future().await;
+
+        // Close the transport
+        let _ = self.transport.close().await;
+
+        // Remove the session from the manager
+        let _ = self.manager.del_session(&self.peer).await;
+
+        Ok(())
+    }
+>>>>>>> upstream/rust-new-wbuf
 
     /*************************************/
     /*          PROCESS MESSAGES         */
