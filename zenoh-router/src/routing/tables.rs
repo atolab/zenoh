@@ -82,7 +82,7 @@ impl SessionHandler for TablesHdl {
 }
 
 pub struct Tables {
-    sex_counter: usize,
+    face_counter: usize,
     pub(crate) root_res: Arc<Resource>,
     pub(crate) faces: HashMap<usize, Arc<Face>>,
 }
@@ -91,7 +91,7 @@ impl Tables {
 
     pub fn new() -> Arc<RwLock<Tables>> {
         Arc::new(RwLock::new(Tables {
-            sex_counter: 0,
+            face_counter: 0,
             root_res: Resource::root(),
             faces: HashMap::new(),
         }))
@@ -117,8 +117,8 @@ impl Tables {
     pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
         unsafe {
             let mut t = tables.write().await;
-            let sid = t.sex_counter;
-            t.sex_counter += 1;
+            let sid = t.face_counter;
+            t.face_counter += 1;
             let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
             
             // @TODO temporarily propagate to everybody (clients)
@@ -183,23 +183,23 @@ impl Tables {
         }
     }
 
-    pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>) {
+    pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>) {
         let mut t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => unsafe {
-                let sex = Arc::get_mut_unchecked(&mut sex);
-                for mut mapping in sex.remote_mappings.values_mut() {
+        match face.upgrade() {
+            Some(mut face) => unsafe {
+                let face = Arc::get_mut_unchecked(&mut face);
+                for mut mapping in face.remote_mappings.values_mut() {
                     Resource::clean(&mut mapping);
                 }
-                sex.remote_mappings.clear();
-                for mut mapping in sex.local_mappings.values_mut() {
+                face.remote_mappings.clear();
+                for mut mapping in face.local_mappings.values_mut() {
                     Resource::clean(&mut mapping);
                 }
-                sex.local_mappings.clear();
-                while let Some(mut res) = sex.subs.pop() {
+                face.local_mappings.clear();
+                while let Some(mut res) = face.subs.pop() {
                     Resource::clean(&mut res);
                 }
-                t.faces.remove(&sex.id);
+                t.faces.remove(&face.id);
             }
             None => println!("Undeclare closed session!")
         }
@@ -229,24 +229,24 @@ impl Tables {
         }
     }
 
-    pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, prefixid: u64, suffix: &str) {
+    pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>, rid: u64, prefixid: u64, suffix: &str) {
         let t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => {
-                match sex.remote_mappings.get(&rid) {
+        match face.upgrade() {
+            Some(mut face) => {
+                match face.remote_mappings.get(&rid) {
                     Some(_res) => {
                         // if _res.read().name() != rname {
                         //     // TODO : mapping change 
                         // }
                     }
                     None => {
-                        match t.get_mapping(&sex, &prefixid).cloned() {
+                        match t.get_mapping(&face, &prefixid).cloned() {
                             Some(mut prefix) => unsafe {
                                 let mut res = Resource::make_resource(&mut prefix, suffix);
                                 Resource::match_resource(&t.root_res, &mut res);
-                                let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(sex.id).or_insert_with( ||
+                                let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(face.id).or_insert_with( ||
                                     Arc::new(Context {
-                                        face: sex.clone(),
+                                        face: face.clone(),
                                         local_rid: None,
                                         remote_rid: Some(rid),
                                         subs: None,
@@ -254,16 +254,16 @@ impl Tables {
                                     })
                                 ).clone();
 
-                                if sex.local_mappings.get(&rid).is_some() && ctx.local_rid == None {
-                                    let local_rid = Arc::get_mut_unchecked(&mut sex).get_next_local_id();
+                                if face.local_mappings.get(&rid).is_some() && ctx.local_rid == None {
+                                    let local_rid = Arc::get_mut_unchecked(&mut face).get_next_local_id();
                                     Arc::get_mut_unchecked(&mut ctx).local_rid = Some(local_rid);
 
-                                    Arc::get_mut_unchecked(&mut sex).local_mappings.insert(local_rid, res.clone());
+                                    Arc::get_mut_unchecked(&mut face).local_mappings.insert(local_rid, res.clone());
 
-                                    sex.primitives.clone().resource(local_rid, ResKey::RName(res.name())).await;
+                                    face.primitives.clone().resource(local_rid, ResKey::RName(res.name())).await;
                                 }
 
-                                Arc::get_mut_unchecked(&mut sex).remote_mappings.insert(rid, res.clone());
+                                Arc::get_mut_unchecked(&mut face).remote_mappings.insert(rid, res.clone());
                                 Tables::build_matches_direct_tables(&mut res);
                             }
                             None => println!("Declare resource with unknown prefix {}!", prefixid)
@@ -275,11 +275,11 @@ impl Tables {
         }
     }
 
-    pub async fn undeclare_resource(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64) {
+    pub async fn undeclare_resource(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>, rid: u64) {
         let _t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => unsafe {
-                match Arc::get_mut_unchecked(&mut sex).remote_mappings.remove(&rid) {
+        match face.upgrade() {
+            Some(mut face) => unsafe {
+                match Arc::get_mut_unchecked(&mut face).remote_mappings.remove(&rid) {
                     Some(mut res) => {Resource::clean(&mut res)}
                     None => println!("Undeclare unknown resource!")
                 }
