@@ -27,7 +27,7 @@ pub mod whatami {
     // b4-b13: Reserved
 }
 
-// Attachment decorator
+// -- Attachment decorator
 /// NOTE: 16 bits (2 bytes) may be prepended to the serialized message indicating the total lenght 
 ///       in bytes of the message, resulting in the maximum lenght of a message being 65_536 bytes.
 ///       This is necessary in those stream-oriented transports (e.g., TCP) that do not preserve 
@@ -43,8 +43,6 @@ pub mod whatami {
 /// +-+-+-+-+-+-+-+-+
 /// | ENC |  ATTCH  |
 /// +-+-+-+---------+
-/// ~    Message    ~
-/// +---------------+
 /// ~   Attachment  ~
 /// +---------------+
 ///
@@ -56,6 +54,46 @@ pub struct Attachment {
     pub encoding: u8,
     pub buffer: Arc<RBuf>
 }
+
+/// -- ReplyContext decorator
+///
+/// The **ReplyContext** is a message decorator for either:
+///   - the **Data** messages that result from a query
+///   - or a **Unit** message in case the message is a
+///     SOURCE_FINAL or REPLY_FINAL.
+///  The **replier-id** (eval or storage id) is represented as a byte-array.
+///
+///  7 6 5 4 3 2 1 0
+/// +-+-+-+-+-+-+-+-+
+/// |X|X|F|  R_CTX  |
+/// +-+-+-+---------+
+/// ~      qid      ~
+/// +---------------+
+/// ~   replier_id  ~ if F==0
+/// +---------------+
+///
+/// - if F==1 then the message is a REPLY_FINAL 
+/// 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplyContext { 
+    pub(super) is_final: bool, 
+    pub(super) qid: ZInt, 
+    pub(super) source: ReplySource, 
+    pub(super) replier_id: Option<PeerId> 
+}
+
+impl ReplyContext {
+    // Note: id replier_id=None flag F is set, meaning it's a REPLY_FINAL
+    pub fn make(qid: ZInt, source: ReplySource, replier_id: Option<PeerId>) -> ReplyContext {
+        ReplyContext {
+            is_final: replier_id.is_none(),
+            qid,
+            source,
+            replier_id
+        }
+    }
+}
+
 
 // Message IDs
 mod msg {
@@ -80,8 +118,9 @@ mod msg {
         pub(crate) const UNIT          : u8 = 0x0f;
 
         // Message decorators
-        pub(crate) const REPLY         : u8 = 0x1e;
-        pub(crate) const ATTACHMENT    : u8 = 0x1f; 
+        pub(crate) const REPLY_CONTEXT : u8 = 0x1d;
+        pub(crate) const ZATTACHMENT   : u8 = 0x1e;
+        pub(crate) const SATTACHMENT   : u8 = 0x1f; 
     }
 }
 
@@ -105,8 +144,8 @@ pub mod zmsg {
         pub const UNIT          : u8 = msg::id::UNIT;
 
         // Message decorators
-        pub const REPLY         : u8 = msg::id::REPLY;
-        pub const ATTACHMENT    : u8 = msg::id::ATTACHMENT; 
+        pub const REPLY_CONTEXT : u8 = msg::id::REPLY_CONTEXT;
+        pub const ATTACHMENT    : u8 = msg::id::ZATTACHMENT; 
     }
 
     // Default channel for each Zenoh Message
@@ -123,14 +162,14 @@ pub mod zmsg {
     // Zenoh message flags
     pub mod flag {
         // TO UPDATE THE REPLY AND REMOVE
-        pub const E: u8 = 1 << 5; // 0x20 FromEval     if E==1 then the Reply is from Eval
+        pub const E: u8 = 1 << 5; // 0x20 FromEval     if E==1 then the ReplyContext is from Eval
 
-        pub const F: u8 = 1 << 5; // 0x20 Final        if F==1 then this is the final message (e.g., Reply, Pull)
+        pub const F: u8 = 1 << 5; // 0x20 Final        if F==1 then this is the final message (e.g., ReplyContext, Pull)
         pub const I: u8 = 1 << 6; // 0x40 Info         if I==1 then Info is present
         pub const K: u8 = 1 << 7; // 0x80 ResourceKey  if K==1 then only numerical ID
         pub const N: u8 = 1 << 6; // 0x40 MaxSamples   if N==1 then the MaxSamples is indicated
         pub const R: u8 = 1 << 5; // 0x20 Reliable     if R==1 then it concerns the reliable channel, best-effort otherwise
-        pub const S: u8 = 1 << 5; // 0x80 SubMode      if S==1 then the declaration SubMode is indicated
+        pub const S: u8 = 1 << 6; // 0x40 SubMode      if S==1 then the declaration SubMode is indicated
         pub const T: u8 = 1 << 5; // 0x20 QueryTarget  if T==1 then the query target is present
 
         pub const X: u8 = 0;      // Unused flags are set to zero
@@ -157,14 +196,14 @@ pub mod zmsg {
 
 #[derive(Debug, Clone)]
 pub struct DataInfo {
-    pub(in super) header: u8,
-    pub(in super) source_id: Option<PeerId>,
-    pub(in super) source_sn: Option<ZInt>,
-    pub(in super) fist_broker_id: Option<PeerId>,
-    pub(in super) fist_broker_sn: Option<ZInt>,
-    pub(in super) timestamp: Option<TimeStamp>,
-    pub(in super) kind: Option<ZInt>,
-    pub(in super) encoding: Option<ZInt>,
+    pub(super) header: u8,
+    pub(super) source_id: Option<PeerId>,
+    pub(super) source_sn: Option<ZInt>,
+    pub(super) fist_broker_id: Option<PeerId>,
+    pub(super) fist_broker_sn: Option<ZInt>,
+    pub(super) timestamp: Option<TimeStamp>,
+    pub(super) kind: Option<ZInt>,
+    pub(super) encoding: Option<ZInt>,
 }
 
 impl DataInfo {
@@ -228,55 +267,9 @@ pub struct QueryTarget {
     // @TODO: finalise
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ReplyContext {
-    pub(in super) is_final: bool,
-    pub(in super) qid: ZInt,
-    pub(in super) source: ReplySource,
-    pub(in super) replier_id: Option<PeerId>
-}
-
-impl ReplyContext {
-    // Note: id replier_id=None flag F is set, meaning it's a REPLY_FINAL
-    pub fn make(qid: ZInt, source: ReplySource, replier_id: Option<PeerId>) -> ReplyContext {
-        ReplyContext {
-            is_final: replier_id.is_none(),
-            qid,
-            source,
-            replier_id
-        }
-    }
-}
-
 // Zenoh messages at zenoh level
 #[derive(Debug, Clone, PartialEq)]
 pub enum ZenohBody {
-    /// -- Message Decorators at zenoh level
-    ///
-    /// The wire format of message decorators is described below. That said,
-    /// they are represented as fields in the memory-representation of the message.
-
-    ///  7 6 5 4 3 2 1 0
-    /// +-+-+-+-+-+-+-+-+
-    /// |X|X|F|  REPLY  |
-    /// +-+-+-+---------+
-    /// ~      qid      ~
-    /// +---------------+
-    /// ~   replier_id  ~ if F==0
-    /// +---------------+
-    ///
-    /// - if F==1 then the message is a REPLY_FINAL 
-    ///
-    /// The **Reply** is a message decorator for either:
-    ///   - the **Data** messages that result from a query
-    ///   - or a **Unit** message in case the message is a
-    ///     SOURCE_FINAL or REPLY_FINAL.
-    ///  The **replier-id** (eval or storage id) is represented as a byte-array.
-    /// 
-    Reply { is_final: bool, qid: ZInt, source: ReplySource, replier_id: Option<PeerId> },
-
-    /// -- Message at zenoh level
-    
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
     /// |X|X|X| DECLARE |
@@ -492,7 +485,7 @@ pub mod smsg {
         pub const FRAME         : u8 = msg::id::FRAME; 
 
         // Message decorators
-        pub const ATTACHMENT    : u8 = msg::id::ATTACHMENT;
+        pub const ATTACHMENT    : u8 = msg::id::SATTACHMENT;
     }
 
     // Session message flags
@@ -595,9 +588,6 @@ pub enum SessionBody {
     /// +---------------+
     /// 
     Hello { whatami: Option<WhatAmI>, locators: Option<Vec<Locator>> },
-
-    /// -- Messages at zenoh-session level
-    ///    The wire format of messages is described below.
 
     /// NOTE: 16 bits (2 bytes) may be prepended to the serialized message indicating the total lenght 
     ///       in bytes of the message, resulting in the maximum lenght of a message being 65_536 bytes.

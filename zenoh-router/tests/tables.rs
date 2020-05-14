@@ -5,7 +5,7 @@ use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, WhatAmI, QueryConsolidation, QueryTarget, Reply};
+use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, QueryConsolidation, QueryTarget, Reply, whatami};
 use zenoh_protocol::session::DummyHandler;
 use zenoh_router::routing::tables::Tables;
 use zenoh_router::routing::resource::Resource;
@@ -15,7 +15,7 @@ fn base_test() {
     task::block_on(async{
         let tables = Tables::new();
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let sex = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let sex = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         Tables::declare_resource(&tables, &sex, 1, 0, "/one/two/three").await;
         Tables::declare_resource(&tables, &sex, 2, 0, "/one/deux/trois").await;
         
@@ -48,7 +48,7 @@ fn match_test() {
 
         let tables = Tables::new();
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let sex = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let sex = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         for (i, rname) in rnames.iter().enumerate() {
             Tables::declare_resource(&tables, &sex, i.try_into().unwrap(), 0, rname).await;
         }
@@ -73,7 +73,7 @@ fn clean_test() {
         let tables = Tables::new();
 
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let sex0 = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         assert!(sex0.upgrade().is_some());
 
         // --------------
@@ -278,7 +278,7 @@ fn client_test() {
         };
         
         let primitives0 = Arc::new(ClientPrimitives::new());
-        let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives0.clone()).await;
+        let sex0 = Tables::declare_session(&tables, whatami::CLIENT, primitives0.clone()).await;
         Tables::declare_resource(&tables, &sex0, 11, 0, "/test/client").await;
         primitives0.resource(11, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex0, 11, "/**", &sub_info).await;
@@ -286,7 +286,7 @@ fn client_test() {
         primitives0.resource(12, &ResKey::RIdWithSuffix(11, "/z1_pub1".to_string())).await;
 
         let primitives1 = Arc::new(ClientPrimitives::new());
-        let sex1 = Tables::declare_session(&tables, WhatAmI::Client, primitives1.clone()).await;
+        let sex1 = Tables::declare_session(&tables, whatami::CLIENT, primitives1.clone()).await;
         Tables::declare_resource(&tables, &sex1, 21, 0, "/test/client").await;
         primitives1.resource(21, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex1, 21, "/**", &sub_info).await;
@@ -294,7 +294,7 @@ fn client_test() {
         primitives1.resource(22, &ResKey::RIdWithSuffix(21, "/z2_pub1".to_string())).await;
 
         let primitives2 = Arc::new(ClientPrimitives::new());
-        let sex2 = Tables::declare_session(&tables, WhatAmI::Client, primitives2.clone()).await;
+        let sex2 = Tables::declare_session(&tables, whatami::CLIENT, primitives2.clone()).await;
         Tables::declare_resource(&tables, &sex2, 31, 0, "/test/client").await;
         primitives2.resource(31, &ResKey::RName("/test/client".to_string())).await;
         Tables::declare_subscription(&tables, &sex2, 31, "/**", &sub_info).await;

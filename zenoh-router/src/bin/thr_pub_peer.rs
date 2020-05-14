@@ -4,7 +4,7 @@ use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::proto::{WhatAmI, Mux};
+use zenoh_protocol::proto::{Mux, whatami};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionManagerOptionalConfig, DummyHandler};
 use zenoh_router::routing::tables::TablesHdl;
 
@@ -40,13 +40,13 @@ fn main() {
     
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Peer,
+            whatami: whatami::PEER,
             id: PeerId{id: pid},
             handler: tables.clone()
         };
         let opt_config = SessionManagerOptionalConfig {
             lease: None,
-            resolution: None,
+            sn_resolution: None,
             batchsize: batch_size,
             timeout: None,
             retries: None,
@@ -60,8 +60,9 @@ fn main() {
             std::process::exit(-1);
         }
 
+        let attachment = None;
         for locator in args {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }

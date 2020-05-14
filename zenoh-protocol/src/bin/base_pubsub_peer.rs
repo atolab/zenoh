@@ -161,6 +161,8 @@ fn main() {
     };
     let manager = SessionManager::new(config, Some(opt_config));
 
+    let attachment = None;
+
     // Connect to publisher
     task::block_on(async {
         if manager.add_locator(&listen_on).await.is_ok() {
@@ -171,7 +173,7 @@ fn main() {
         };
 
         let session = loop {
-            if let Ok(s) = manager.open_session(&connect_to).await {
+            if let Ok(s) = manager.open_session(&connect_to, &attachment).await {
                 println!("Opened session with {}", connect_to);
                 break s;
             } else {
@@ -180,23 +182,20 @@ fn main() {
         };
 
         // Send reliable messages
-        let kind = MessageKind::FullMessage;
         let reliable = true;
-        let sn = 0;
         let key = ResKey::RName("test".to_string());
         let info = None;
         let payload = RBuf::from(vec![0u8; payload]);
         let reply_context = None;
-        let cid = None;
-        let properties = None;
 
-        let message = Message::make_data(
-            kind, reliable, sn, key, info, payload, reply_context, cid, properties
+
+        let message = ZenohMessage::make_data(
+            reliable, key, info, payload, reply_context, attachment
         );
 
         loop {
             let v = vec![message.clone(); msg_batch];
-            let res = session.schedule_batch(v, None, None).await;
+            let res = session.schedule_batch(v, None).await;
             if res.is_err() {
                 break
             }

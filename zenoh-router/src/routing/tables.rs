@@ -4,7 +4,7 @@ use std::sync::{Arc, Weak};
 use std::collections::{HashMap};
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
+use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
@@ -61,7 +61,7 @@ impl TablesHdl {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, WhatAmI::Client, primitives).await.upgrade().unwrap(),
+            face: Tables::declare_session(&self.tables, whatami::CLIENT, primitives).await.upgrade().unwrap(),
         })
     }
 }
@@ -320,7 +320,7 @@ impl Tables {
                         }
 
                         for (id, face) in &mut t.faces {
-                            if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
+                            if sex.id != *id && (sex.whatami != whatami::PEER || face.whatami != whatami::PEER) {
                                 let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
                                 match nonwild_prefix {
                                     Some(mut nonwild_prefix) => {
@@ -441,7 +441,7 @@ impl Tables {
                     for (_id, (face, rid, suffix)) in outfaces {
                         if ! Arc::ptr_eq(&strongsex, &face) {
                             let primitives = {
-                                if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
+                                if strongsex.whatami != whatami::PEER || face.whatami != whatami::PEER {
                                     Some(face.primitives.clone())
                                 } else {
                                     None

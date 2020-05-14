@@ -5,140 +5,183 @@ use super::msg::*;
 use super::decl::{Declaration, SubMode, Reliability, Period};
 
 macro_rules! check {
-    ($op:expr) => (if ! $op { return false })
+    ($op:expr) => (if !$op { return false })
 }
 
 
 impl WBuf {
-    pub fn write_message(&mut self, msg: &Message) -> bool {
-        check!(self.write_deco_frag(&msg.kind));
-
-        if msg.has_decorators {
-            if msg.cid != 0 {
-                check!(self.write_deco_conduit(msg.cid));
-            }
-            if let Some(reply) = &msg.reply_context {
-                check!(self.write_deco_reply(reply));
-            }
-            if let Some(props) = &msg.properties {
-                check!(self.write_deco_properties(&props));
-            }
-        }
+    pub fn write_session_message(&mut self, msg: &SessionMessage) -> bool {
+        if let Some(attachment) = &msg.attachment {
+            check!(self.write_deco_attachment(attachment, true));
+        };
 
         check!(self.write(msg.header));
-        match &msg.body {
-            Body::Scout { what } => {
-                if let Some(w) = what {
-                    check!(self.write_zint(*w));
+        match msg.get_body() {
+            SessionBody::Scout { what } => {
+                if let Some(w) = *what {
+                    check!(self.write_zint(w));
                 }
-            }
+            },
 
-            Body::Hello { whatami, locators } => {
-                if *whatami != WhatAmI::Broker {
-                    check!(self.write_zint(WhatAmI::to_zint(whatami)));
+            SessionBody::Hello { whatami, locators } => {
+                if let Some(w) = *whatami {
+                    if w != whatami::BROKER {
+                        check!(self.write_zint(w));
+                    }
                 }
                 if let Some(locs) = locators {
                     check!(self.write_locators(locs.as_ref()));
                 }
-            }
+            }, 
 
-            Body::Open { version, whatami, pid, lease, locators } => {
+            SessionBody::Open { version, whatami, pid, lease, initial_sn, sn_resolution, locators } => {
                 check!(self.write(*version));
-                if *whatami != WhatAmI::Broker {
-                    check!(self.write_zint(WhatAmI::to_zint(whatami)));
+                check!(self.write_zint(*whatami));
+                check!(self.write_bytes_array(&pid.id));
+                check!(self.write_zint(*lease));
+                check!(self.write_zint(*initial_sn));
+                // Compute the options byte flags
+                let mut options: u8 = 0;
+                if sn_resolution.is_some() {
+                    options |= smsg::flag::S;
                 }
-                check!(
-                    self.write_bytes_array(&pid.id) &&
-                    self.write_zint(*lease));
-                if let Some(l) = locators {
-                    check!(self.write_locators(l));
+                if locators.is_some() {
+                    options |= smsg::flag::L;
                 }
-            }
+                if options != 0 {
+                    check!(self.write(options));
+                    if let Some(snr) = *sn_resolution {
+                        check!(self.write_zint(snr));
+                    }
+                    if let Some(locs) = locators {
+                        check!(self.write_locators(locs.as_ref()));
+                    }
+                }
+            },
 
-            Body::Accept {whatami, opid, apid, lease } => {
-                if *whatami != WhatAmI::Broker {
-                    check!(self.write_zint(WhatAmI::to_zint(whatami)));
+            SessionBody::Accept { whatami, opid, apid, initial_sn, sn_resolution, lease, locators } => {
+                check!(self.write_zint(*whatami));
+                check!(self.write_bytes_array(&opid.id));
+                check!(self.write_bytes_array(&apid.id));
+                check!(self.write_zint(*initial_sn));
+                // Compute the options byte flags
+                let mut options: u8 = 0;
+                if sn_resolution.is_some() {
+                    options |= smsg::flag::S;
                 }
-                check!(
-                    self.write_bytes_array(&opid.id) &&
-                    self.write_bytes_array(&apid.id) &&
-                    self.write_zint(*lease));
-            }
+                if lease.is_some() {
+                    options |= smsg::flag::D;
+                }
+                if locators.is_some() {
+                    options |= smsg::flag::L;
+                }
+                if options != 0 {
+                    check!(self.write(options));
+                    if let Some(snr) = *sn_resolution {
+                        check!(self.write_zint(snr));
+                    }
+                    if let Some(l) = *lease {
+                        check!(self.write_zint(l));
+                    }
+                    if let Some(locs) = locators {
+                        check!(self.write_locators(locs.as_ref()));
+                    }
+                }
+            },
 
-            Body::Close { pid, reason } => {
+            SessionBody::Close { pid, reason, .. } => {
                 if let Some(p) = pid {
                     check!(self.write_bytes_array(&p.id));
                 }
                 check!(self.write(*reason));
-            }
+            },
 
-            Body::KeepAlive { pid } => {
+            SessionBody::Sync { sn, count, .. } => {
+                check!(self.write_zint(*sn));
+                if let Some(c) = *count {
+                    check!(self.write_zint(c));
+                }
+            },
+
+            SessionBody::AckNack { sn, mask } => {
+                check!(self.write_zint(*sn));
+                if let Some(m) = *mask {
+                    check!(self.write_zint(m));
+                }
+            },
+
+            SessionBody::KeepAlive { pid } => {
                 if let Some(p) = pid {
                     check!(self.write_bytes_array(&p.id));
                 }
-            }
+            },
 
-            Body::Declare { sn, declarations } => {
-                check!(
-                    self.write_zint(*sn) &&
-                    self.write_declarations(&declarations));
-            }
-
-            Body::Data { sn, key, info, payload, .. } => {
-                check!(
-                    self.write_zint(*sn) &&
-                    self.write_reskey(&key));
-                if let Some(rbuf) = info {
-                    check!(self.write_rbuf(&rbuf));
-                }
-                check!(self.write_rbuf(&payload));
-            }
-
-            Body::Unit { sn, .. } => {
-                check!(self.write_zint(*sn));
-            }
-
-            Body::Pull { sn, key, pull_id, max_samples } => {
-                check!(
-                    self.write_zint(*sn) &&
-                    self.write_reskey(&key) &&
-                    self.write_zint(*pull_id));
-                if let Some(n) = max_samples {
-                    check!(self.write_zint(*n));
-                }
-            }
-
-            Body::Query { sn, key, predicate, qid, target, consolidation } => {
-                check!(
-                    self.write_zint(*sn) &&
-                    self.write_reskey( &key) &&
-                    self.write_string(predicate) &&
-                    self.write_zint(*qid));
-                if let Some(t) = target {
-                    check!(self.write_query_target(t));
-                }
-                check!(self.write_consolidation(consolidation));
-            }
-
-            Body::Ping { hash } | 
-            Body::Pong { hash } => {
+            SessionBody::Ping { hash }
+            | SessionBody::Pong { hash } => {
                 check!(self.write_zint(*hash));
-            }
+            },
 
-            Body::Sync { sn, count } => {
+            SessionBody::Frame { sn, payload, .. } => {
                 check!(self.write_zint(*sn));
-                if let Some(c) = count {
-                    check!(self.write_zint(*c));
-                }
-            }
-
-            Body::AckNack { sn, mask } => {
-                check!(self.write_zint(*sn));
-                if let Some(m) = mask {
-                    check!(self.write_zint(*m));
+                match payload {
+                    FramePayload::Fragment { buffer, .. } => {
+                        check!(self.write_rbuf(&buffer));
+                    }, 
+                    FramePayload::Messages { messages } => {
+                        for m in messages {
+                            check!(self.write_zenoh_message(m));
+                        }
+                    }
                 }
             }
         }
+
+        true
+    }
+
+    pub fn write_zenoh_message(&mut self, msg: &ZenohMessage) -> bool {
+        if let Some(attachment) = &msg.attachment {
+            check!(self.write_deco_attachment(attachment, false));
+        }
+        if let Some(reply_context) = &msg.reply_context {
+            check!(self.write_deco_reply(reply_context));
+        }
+
+        check!(self.write(msg.header));
+        match msg.get_body() {
+            ZenohBody::Declare { declarations } => {
+                check!(self.write_declarations(&declarations));
+            },
+
+            ZenohBody::Data { key, info, payload } => {
+                check!(self.write_reskey(&key));
+                if let Some(rbuf) = info {
+                    check!(self.write_rbuf(&rbuf));
+                } 
+                check!(self.write_rbuf(&payload));
+            },
+
+            ZenohBody::Unit { } => {},
+
+            ZenohBody::Pull { key, pull_id, max_samples, .. } => {
+                check!(self.write_reskey(&key));
+                check!(self.write_zint(*pull_id));
+                if let Some(n) = max_samples {
+                    check!(self.write_zint(*n));
+                } 
+            },
+
+            ZenohBody::Query { key, predicate, qid, target, consolidation } => {
+                check!(self.write_reskey(&key));
+                check!(self.write_string(predicate));
+                check!(self.write_zint(*qid));
+                if let Some(t) = target {
+                    check!(self.write_query_target(t));
+                } 
+                check!(self.write_consolidation(consolidation));
+            }
+        }
+
         true
     }
 
@@ -165,59 +208,31 @@ impl WBuf {
         if let Some(enc) = &info.encoding {
             check!(self.write_zint(*enc));
         }
+
         true
     }
 
-    fn write_deco_frag(&mut self, kind: &MessageKind) -> bool {
-        match kind {
-            MessageKind::FullMessage => { true }, // No decorator in this case
-            MessageKind::FirstFragment{n: None} => {
-                self.write(flag::F | id::FRAGMENT)
-            }
-            MessageKind::FirstFragment{n: Some(i)} => {
-                self.write(flag::F | flag::C | id::FRAGMENT) &&
-                self.write_zint(*i)
-            }
-            MessageKind::InbetweenFragment => {
-                self.write(id::FRAGMENT)
-            }
-            MessageKind::LastFragment => {
-                self.write(flag::L | id::FRAGMENT)
-            }
-        }
-    }
-
-    fn write_deco_conduit(&mut self, cid: ZInt) -> bool {
-        if cid <= 4 {
-            let hl = ((cid-1) <<5) as u8;
-            self.write(flag::Z | hl | id::CONDUIT)
+    fn write_deco_attachment(&mut self, attachment: &Attachment, session: bool) -> bool {
+        if session {
+            check!(self.write(attachment.encoding | smsg::id::ATTACHMENT));
         } else {
-            self.write(id::CONDUIT) &&
-            self.write_zint(cid)
+            check!(self.write(attachment.encoding | zmsg::id::ATTACHMENT));
         }
+        self.write_rbuf(&attachment.buffer)
     }
 
-    fn write_deco_reply(&mut self, reply: &ReplyContext) -> bool {
-        let fflag = if reply.is_final { flag::F } else { 0 };
-        let eflag = match &reply.source {
-            ReplySource::Eval => flag::E,
+    fn write_deco_reply(&mut self, reply_context: &ReplyContext) -> bool {
+        let fflag = if reply_context.is_final { zmsg::flag::F } else { 0 };
+        let eflag = match &reply_context.source {
+            ReplySource::Eval => zmsg::flag::E,
             ReplySource::Storage => 0
         };
-        check!(self.write(id::REPLY | fflag | eflag) &&
-               self.write_zint(reply.qid));
-        if let Some(pid) = &reply.replier_id {
+        check!(self.write(zmsg::id::REPLY_CONTEXT | fflag | eflag));
+        check!(self.write_zint(reply_context.qid));
+        if let Some(pid) = &reply_context.replier_id {
             check!(self.write_bytes_array(&pid.id));
         }
-        true
-    }
 
-    fn write_deco_properties(&mut self, props: &[Property]) -> bool {
-        let len = props.len() as ZInt;        
-        check!(self.write(id::PROPERTIES) &&
-               self.write_zint(len));
-        for p in props {
-            check!(self.write_property(p));
-        }
         true
     }
 
@@ -232,6 +247,7 @@ impl WBuf {
         for l in locators {
             check!(self.write_string(&l.to_string()));
         }
+
         true
     }
 
@@ -249,15 +265,15 @@ impl WBuf {
 
         macro_rules! write_key_decl {
             ($buf:ident, $flag:ident, $key:ident) => {{
-                $buf.write($flag | (if $key.is_numerical() { flag::C } else { 0 })) &&
+                $buf.write($flag | (if $key.is_numerical() { zmsg::flag::K } else { 0 })) &&
                 $buf.write_reskey($key)
             }}
         }
           
         match declaration {
             Resource { rid, key } => {
-                let cflag = if key.is_numerical() { flag::C } else { 0 };
-                self.write(RESOURCE | cflag) &&
+                let kflag = if key.is_numerical() { zmsg::flag::K } else { 0 };
+                self.write(RESOURCE | kflag) &&
                 self.write_zint(*rid) &&
                 self.write_reskey(key)
             }
@@ -267,11 +283,11 @@ impl WBuf {
                 self.write_zint(*rid)
             }
 
-            Subscriber { key, info } =>  {
-                let sflag = if info.mode == SubMode::Push && info.period.is_none() { 0 } else { flag::S };
-                let rflag = if info.reliability == Reliability::Reliable { flag::R } else { 0 };
-                let cflag = if key.is_numerical() { flag::C } else { 0 };
-                self.write(SUBSCRIBER | sflag | rflag | cflag) &&
+            Subscriber { key, info } =>  {                               
+                let kflag = if key.is_numerical() { zmsg::flag::K } else { 0 };
+                let sflag = if info.mode == SubMode::Push && info.period.is_none() { 0 } else { zmsg::flag::S };
+                let rflag = if info.reliability == Reliability::Reliable { zmsg::flag::R } else { 0 };
+                self.write(SUBSCRIBER | rflag | sflag | kflag) &&
                 self.write_reskey(key) &&
                 (sflag == 0 || self.write_submode(&info.mode, &info.period))
             }

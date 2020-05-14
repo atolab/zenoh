@@ -5,7 +5,7 @@ use rand::RngCore;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, Mux, DeMux};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, whatami, Mux, DeMux};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler};
 
 const N: usize = 100_000;
@@ -114,14 +114,15 @@ fn main() {
         let session_handler = Arc::new(LightSessionHandler::new());
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Client,
+            whatami: whatami::CLIENT,
             id: PeerId{id: pid.clone()},
             handler: session_handler.clone()
         };
         let manager = SessionManager::new(config, None);
 
+        let attachment = None;
         if let Some(locator) = args.next() {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }

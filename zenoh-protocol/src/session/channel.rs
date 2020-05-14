@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
-use crate::io::WBuf;
+use crate::io::{RBuf, WBuf};
 use crate::link::Link;
 use crate::proto::{SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage};
 use crate::session::{Action, MsgHandler, SessionManagerInner, TransportTrait};
@@ -63,8 +63,8 @@ impl LinkContext {
     fn new(batchsize: usize) -> LinkContext {
         LinkContext {
             messages: Vec::with_capacity(*QUEUE_SIZE_TOT),
-            batch: WBuf::new(batchsize),
-            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE)
+            batch: WBuf::new(batchsize, true),
+            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE, true)
         }
     }
 }
@@ -199,7 +199,7 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
 }
 
 async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
-    let batch_read = context.batch.as_rbuf();
+    let batch_read = RBuf::from(&context.batch);
     if !batch_read.is_empty() {
         // Transmit the batch on the link
         if let Err(e) = link.send(batch_read).await {

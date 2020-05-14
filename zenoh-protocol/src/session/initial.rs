@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
-use crate::io::WBuf;
+use crate::io::{RBuf, WBuf};
 use crate::link::{Link, Locator};
 use crate::proto::{Attachment, SessionMessage, WhatAmI, smsg};
 use crate::session::defaults::SESSION_SEQ_NUM_RESOLUTION;
@@ -21,9 +21,9 @@ const DEFAULT_WBUF_CAPACITY: usize = 64;
 macro_rules! zsend {
     ($msg:expr, $link:expr) => ({
         // Serialize the message
-        let mut buffer = WBuf::new(DEFAULT_WBUF_CAPACITY);
-        buffer.write_message(&$msg);
-        let buffer = buffer.as_rbuf();
+        let mut buffer = WBuf::new(DEFAULT_WBUF_CAPACITY, true);
+        buffer.write_session_message(&$msg);
+        let buffer = RBuf::from(&buffer);
 
         // Send the message on the link
         $link.send(buffer).await

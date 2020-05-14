@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, WhatAmI, Mux};
+use zenoh_protocol::proto::{Primitives, WhatAmI, whatami, Mux};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler, DummyHandler};
 
 struct LightSessionHandler {
@@ -38,14 +38,15 @@ fn main() {
         let session_handler = Arc::new(LightSessionHandler::new());
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Client,
+            whatami: whatami::CLIENT,
             id: PeerId{id: pid.clone()},
             handler: session_handler.clone()
         };
         let manager = SessionManager::new(config, None);
 
+        let attachment = None;
         if let Some(locator) = args.next() {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }

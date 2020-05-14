@@ -2,21 +2,21 @@
 use crate::core::{ZInt, ResKey};
 
 pub mod id {
-  // Declarations
-  pub const RESOURCE            :  u8 =  0x01;
-  pub const PUBLISHER           :  u8 =  0x02;
-  pub const SUBSCRIBER          :  u8 =  0x03;
-  pub const QUERYABLE           :  u8 =  0x04;
-  
-  pub const FORGET_RESOURCE     :  u8 =  0x11;
-  pub const FORGET_PUBLISHER    :  u8 =  0x12;
-  pub const FORGET_SUBSCRIBER   :  u8 =  0x13;
-  pub const FORGET_QUERYABLE    :  u8 =  0x14;
-  
-  // SubModes
-  pub const MODE_PUSH           : u8 = 0x00;
-  pub const MODE_PULL           : u8 = 0x01;
-  pub const PERIOD              : u8 = 0x80;
+    // Declarations
+    pub const RESOURCE            : u8 =  0x01;
+    pub const PUBLISHER           : u8 =  0x02;
+    pub const SUBSCRIBER          : u8 =  0x03;
+    pub const QUERYABLE           : u8 =  0x04;
+
+    pub const FORGET_RESOURCE     : u8 =  0x11;
+    pub const FORGET_PUBLISHER    : u8 =  0x12;
+    pub const FORGET_SUBSCRIBER   : u8 =  0x13;
+    pub const FORGET_QUERYABLE    : u8 =  0x14;
+
+    // SubModes
+    pub const MODE_PUSH           : u8 = 0x00;
+    pub const MODE_PULL           : u8 = 0x01;
+    pub const PERIOD              : u8 = 0x80;
 }
 
 
@@ -44,7 +44,7 @@ pub struct SubInfo {
 pub enum Declaration {
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K| RESOURCE|
+    /// |K|X|X| RESOURCE|
     /// +---------------+
     /// ~      RID      ~
     /// +---------------+
@@ -73,7 +73,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K|   PUB   |
+    /// |K|X|X|   PUB   |
     /// +---------------+
     /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
@@ -83,7 +83,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K|  F_PUB  |
+    /// |K|X|X|  F_PUB  |
     /// +---------------+
     /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
@@ -93,7 +93,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |S|R|K|   SUB   |  R for Reliable
+    /// |K|S|R|   SUB   |  R for Reliable
     /// +---------------+
     /// ~    ResKey     ~ if K==1 then only numerical id
     /// +---------------+
@@ -108,7 +108,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K|  F_SUB  |
+    /// |K|X|X|  F_SUB  |
     /// +---------------+
     /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+
@@ -118,7 +118,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K|  QABLE  |
+    /// |K|X|X|  QABLE  |
     /// +---------------+
     /// ~     ResKey    ~ if  K==1 then only numerical id
     /// +---------------+
@@ -128,7 +128,7 @@ pub enum Declaration {
 
     ///  7 6 5 4 3 2 1 0
     /// +-+-+-+-+-+-+-+-+
-    /// |X|X|K| F_QABLE |
+    /// |K|X|X| F_QABLE |
     /// +---------------+
     /// ~    ResKey     ~ if  K==1 then only numerical id
     /// +---------------+

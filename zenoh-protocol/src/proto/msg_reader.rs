@@ -12,7 +12,7 @@ impl RBuf {
     pub fn read_session_message(&mut self) -> ZResult<SessionMessage> {
         use super::smsg::id::*;
 
-        let mut attachment_header = None;
+        let mut attachment = None;
         
         // Read the message
         let (header, body) = loop {
@@ -22,7 +22,7 @@ impl RBuf {
             // Read the body
             match smsg::mid(header) {
                 ATTACHMENT => {
-                    attachment_header = Some(header);
+                    attachment = Some(self.read_deco_attachment(header)?);
                     continue
                 },
 
@@ -201,13 +201,6 @@ impl RBuf {
             }
         };
 
-        // Read the attachment if any
-        let attachment = if let Some(h) = attachment_header {
-            Some(self.read_deco_attachment(h)?)
-        } else {
-            None
-        };
-
         Ok(SessionMessage { header, body, attachment })        
     }
 
@@ -216,7 +209,7 @@ impl RBuf {
 
         // Message decorators
         let mut reply_context = None;
-        let mut attachment_header = None;
+        let mut attachment = None;
 
         // Read the message
         let (header, body, channel) = loop {
@@ -226,13 +219,13 @@ impl RBuf {
             // Read the body
             match zmsg::mid(header) {
                 // Decorators
-                REPLY => {
+                REPLY_CONTEXT => {
                     reply_context = Some(self.read_deco_reply(header)?);
                     continue
                 },
 
                 ATTACHMENT => {
-                    attachment_header = Some(header);
+                    attachment = Some(self.read_deco_attachment(header)?);
                     continue
                 },
 
@@ -303,13 +296,6 @@ impl RBuf {
             }
         };
 
-        // Read the attachment if any
-        let attachment = if let Some(h) = attachment_header {
-            Some(self.read_deco_attachment(h)?)
-        } else {
-            None
-        };
-
         Ok(ZenohMessage { header, body, channel, reply_context, attachment })
     }
 
@@ -319,7 +305,7 @@ impl RBuf {
         Ok(Attachment { encoding, buffer })
     }
 
-    // @TODO: Update the Reply format
+    // @TODO: Update the ReplyContext format
     fn read_deco_reply(&mut self, header: u8) -> ZResult<ReplyContext> {
         let is_final = zmsg::has_flag(header, zmsg::flag::F);
         let source = if zmsg::has_flag(header, zmsg::flag::E) { ReplySource::Eval } else { ReplySource::Storage };
