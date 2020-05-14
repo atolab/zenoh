@@ -6,7 +6,8 @@ use async_std::sync::Arc;
 use criterion::{Criterion, BenchmarkId};
 use zenoh_protocol::proto::{Mux, SubInfo, Reliability, SubMode, WhatAmI};
 use zenoh_protocol::session::DummyHandler;
-use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::broker::Tables;
+use zenoh_router::routing::resource::*;
 use zenoh_router::routing::pubsub::*;
 
 fn tables_bench(c: &mut Criterion) {
@@ -15,8 +16,8 @@ fn tables_bench(c: &mut Criterion) {
     let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
 
     let face0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
-    Tables::declare_resource(&tables, &face0, 1, 0, "/bench/tables").await;
-    Tables::declare_resource(&tables, &face0, 2, 0, "/bench/tables/*").await;
+    declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1, 0, "/bench/tables").await;
+    declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2, 0, "/bench/tables/*").await;
 
     let face1 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
 
@@ -29,7 +30,7 @@ fn tables_bench(c: &mut Criterion) {
 
     for p in [8, 32, 256, 1024, 8192].iter() {
       for i in 1..(*p) {
-        Tables::declare_resource(&tables, &face1, i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
+        declare_resource(&mut *tables.write().await, &mut face1.upgrade().unwrap(), i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
         declare_subscription(&mut *tables.write().await, &mut face1.upgrade().unwrap(), i, "", &sub_info).await;
       }
 

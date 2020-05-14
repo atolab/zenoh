@@ -5,8 +5,11 @@ use std::collections::{HashMap};
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
-use crate::routing::resource::*;
 use crate::routing::face::{Face, FaceHdl};
+
+pub use crate::routing::resource::*;
+pub use crate::routing::pubsub::*;
+pub use crate::routing::queries::*;
 
 /// # Example: 
 /// ```
@@ -15,7 +18,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///   use zenoh_protocol::io::RBuf;
 ///   use zenoh_protocol::proto::WhatAmI::Peer;
 ///   use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
-///   use zenoh_router::routing::tables::TablesHdl;
+///   use zenoh_router::routing::broker::Broker;
 /// 
 ///   async{
 ///     // implement Primitives trait
@@ -23,20 +26,20 @@ use crate::routing::face::{Face, FaceHdl};
 ///     use zenoh_protocol::session::DummyHandler;
 ///     let dummyPrimitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
 ///   
-///     // Instanciate routing tables
-///     let tables = Arc::new(TablesHdl::new());
+///     // Instanciate broker
+///     let broker = Arc::new(Broker::new());
 /// 
-///     // Instanciate SessionManager and plug it to the routing tables
+///     // Instanciate SessionManager and plug it to the broker
 ///     let config = SessionManagerConfig {
 ///         version: 0,
 ///         whatami: Peer,
 ///         id: PeerId{id: vec![1, 2]},
-///         handler: tables.clone()
+///         handler: broker.clone()
 ///     };
 ///     let manager = SessionManager::new(config, None);
 /// 
 ///     // Declare new primitives
-///     let primitives = tables.new_primitives(dummyPrimitives).await;
+///     let primitives = broker.new_primitives(dummyPrimitives).await;
 ///     
 ///     // Use primitives
 ///     primitives.data(&"/demo".to_string().into(), true, &None, RBuf::from(vec![1, 2])).await;
@@ -46,13 +49,13 @@ use crate::routing::face::{Face, FaceHdl};
 ///   };
 /// 
 /// ```
-pub struct TablesHdl {
+pub struct Broker {
     pub tables: Arc<RwLock<Tables>>,
 }
 
-impl TablesHdl {
-    pub fn new() -> TablesHdl {
-        TablesHdl {
+impl Broker {
+    pub fn new() -> Broker {
+        Broker {
             tables: Tables::new()
         }
     }
@@ -65,14 +68,14 @@ impl TablesHdl {
     }
 }
 
-impl Default for TablesHdl {
+impl Default for Broker {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait]
-impl SessionHandler for TablesHdl {
+impl SessionHandler for Broker {
     async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
@@ -226,65 +229,6 @@ impl Tables {
             if ! Arc::ptr_eq(&match_.upgrade().unwrap(), &resclone) {
                 Tables::build_direct_tables(&mut match_.upgrade().unwrap());
             }
-        }
-    }
-
-    pub async fn declare_resource(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>, rid: u64, prefixid: u64, suffix: &str) {
-        let t = tables.write().await;
-        match face.upgrade() {
-            Some(mut face) => {
-                match face.remote_mappings.get(&rid) {
-                    Some(_res) => {
-                        // if _res.read().name() != rname {
-                        //     // TODO : mapping change 
-                        // }
-                    }
-                    None => {
-                        match t.get_mapping(&face, &prefixid).cloned() {
-                            Some(mut prefix) => unsafe {
-                                let mut res = Resource::make_resource(&mut prefix, suffix);
-                                Resource::match_resource(&t.root_res, &mut res);
-                                let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(face.id).or_insert_with( ||
-                                    Arc::new(Context {
-                                        face: face.clone(),
-                                        local_rid: None,
-                                        remote_rid: Some(rid),
-                                        subs: None,
-                                        qabl: false,
-                                    })
-                                ).clone();
-
-                                if face.local_mappings.get(&rid).is_some() && ctx.local_rid == None {
-                                    let local_rid = Arc::get_mut_unchecked(&mut face).get_next_local_id();
-                                    Arc::get_mut_unchecked(&mut ctx).local_rid = Some(local_rid);
-
-                                    Arc::get_mut_unchecked(&mut face).local_mappings.insert(local_rid, res.clone());
-
-                                    face.primitives.clone().resource(local_rid, ResKey::RName(res.name())).await;
-                                }
-
-                                Arc::get_mut_unchecked(&mut face).remote_mappings.insert(rid, res.clone());
-                                Tables::build_matches_direct_tables(&mut res);
-                            }
-                            None => println!("Declare resource with unknown prefix {}!", prefixid)
-                        }
-                    }
-                }
-            }
-            None => println!("Declare resource for closed session!")
-        }
-    }
-
-    pub async fn undeclare_resource(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>, rid: u64) {
-        let _t = tables.write().await;
-        match face.upgrade() {
-            Some(mut face) => unsafe {
-                match Arc::get_mut_unchecked(&mut face).remote_mappings.remove(&rid) {
-                    Some(mut res) => {Resource::clean(&mut res)}
-                    None => println!("Undeclare unknown resource!")
-                }
-            }
-            None => println!("Undeclare resource for closed session!")
         }
     }
     

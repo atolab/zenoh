@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use zenoh_protocol::core::rname::intersect;
+use zenoh_protocol::core::ResKey;
 use zenoh_protocol::proto::SubInfo;
+use crate::routing::broker::Tables;
 use crate::routing::face::Face;
 
 pub(super) struct Context {
@@ -285,6 +287,55 @@ impl Resource {
                 }
             }
             Arc::get_mut_unchecked(res).matches = matches;
+        }
+    }
+}
+
+pub async fn declare_resource(tables: &mut Tables, face: &mut Arc<Face>, rid: u64, prefixid: u64, suffix: &str) {
+    match face.remote_mappings.get(&rid) {
+        Some(_res) => {
+            // if _res.read().name() != rname {
+            //     // TODO : mapping change 
+            // }
+        }
+        None => {
+            match tables.get_mapping(&face, &prefixid).cloned() {
+                Some(mut prefix) => unsafe {
+                    let mut res = Resource::make_resource(&mut prefix, suffix);
+                    Resource::match_resource(&tables.root_res, &mut res);
+                    let mut ctx = Arc::get_mut_unchecked(&mut res).contexts.entry(face.id).or_insert_with( ||
+                        Arc::new(Context {
+                            face: face.clone(),
+                            local_rid: None,
+                            remote_rid: Some(rid),
+                            subs: None,
+                            qabl: false,
+                        })
+                    ).clone();
+
+                    if face.local_mappings.get(&rid).is_some() && ctx.local_rid == None {
+                        let local_rid = Arc::get_mut_unchecked(face).get_next_local_id();
+                        Arc::get_mut_unchecked(&mut ctx).local_rid = Some(local_rid);
+
+                        Arc::get_mut_unchecked(face).local_mappings.insert(local_rid, res.clone());
+
+                        face.primitives.clone().resource(local_rid, ResKey::RName(res.name())).await;
+                    }
+
+                    Arc::get_mut_unchecked(face).remote_mappings.insert(rid, res.clone());
+                    Tables::build_matches_direct_tables(&mut res);
+                }
+                None => println!("Declare resource with unknown prefix {}!", prefixid)
+            }
+        }
+    }
+}
+
+pub async fn undeclare_resource(_tables: &mut Tables, face: &mut Arc<Face>, rid: u64) {
+    unsafe {
+        match Arc::get_mut_unchecked(face).remote_mappings.remove(&rid) {
+            Some(mut res) => {Resource::clean(&mut res)}
+            None => println!("Undeclare unknown resource!")
         }
     }
 }

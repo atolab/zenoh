@@ -7,9 +7,7 @@ use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, WhatAmI, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::DummyHandler;
-use zenoh_router::routing::tables::Tables;
-use zenoh_router::routing::resource::Resource;
-use zenoh_router::routing::pubsub::*;
+use zenoh_router::routing::broker::*;
 
 #[test]
 fn base_test() {
@@ -17,8 +15,8 @@ fn base_test() {
         let tables = Tables::new();
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
         let face = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
-        Tables::declare_resource(&tables, &face, 1, 0, "/one/two/three").await;
-        Tables::declare_resource(&tables, &face, 2, 0, "/one/deux/trois").await;
+        declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), 1, 0, "/one/two/three").await;
+        declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), 2, 0, "/one/deux/trois").await;
         
         let sub_info = SubInfo {
             reliability: Reliability::Reliable,
@@ -51,7 +49,7 @@ fn match_test() {
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
         let face = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
         for (i, rname) in rnames.iter().enumerate() {
-            Tables::declare_resource(&tables, &face, i.try_into().unwrap(), 0, rname).await;
+            declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), i.try_into().unwrap(), 0, rname).await;
         }
 
         for rname1 in rnames.iter() {
@@ -78,41 +76,41 @@ fn clean_test() {
         assert!(face0.upgrade().is_some());
 
         // --------------
-        Tables::declare_resource(&tables, &face0, 1, 0, "/todrop1").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1, 0, "/todrop1").await;
         let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
         assert!(res1.upgrade().is_some());
 
-        Tables::declare_resource(&tables, &face0, 2, 0, "/todrop1/todrop11").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2, 0, "/todrop1/todrop11").await;
         let optres2 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1/todrop11").map(|res| {Arc::downgrade(&res)});
         assert!(optres2.is_some());
         let res2 = optres2.unwrap();
         assert!(res2.upgrade().is_some());
 
-        Tables::declare_resource(&tables, &face0, 3, 0, "/**").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 3, 0, "/**").await;
         let optres3 = Resource::get_resource(&tables.read().await._get_root(), "/**").map(|res| {Arc::downgrade(&res)});
         assert!(optres3.is_some());
         let res3 = optres3.unwrap();
         assert!(res3.upgrade().is_some());
 
-        Tables::undeclare_resource(&tables, &face0, 1).await;
+        undeclare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1).await;
         assert!(res1.upgrade().is_some());
         assert!(res2.upgrade().is_some());
         assert!(res3.upgrade().is_some());
 
-        Tables::undeclare_resource(&tables, &face0, 2).await;
+        undeclare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2).await;
         assert!( ! res1.upgrade().is_some());
         assert!( ! res2.upgrade().is_some());
         assert!(res3.upgrade().is_some());
 
-        Tables::undeclare_resource(&tables, &face0, 3).await;
+        undeclare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 3).await;
         assert!( ! res1.upgrade().is_some());
         assert!( ! res2.upgrade().is_some());
         assert!( ! res3.upgrade().is_some());
 
         // --------------
-        Tables::declare_resource(&tables, &face0, 1, 0, "/todrop1").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1, 0, "/todrop1").await;
         let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop1").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
         let res1 = optres1.unwrap();
@@ -146,13 +144,13 @@ fn clean_test() {
         assert!( ! res2.upgrade().is_some());
         assert!( ! res3.upgrade().is_some());
 
-        Tables::undeclare_resource(&tables, &face0, 1).await;
+        undeclare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1).await;
         assert!( ! res1.upgrade().is_some());
         assert!( ! res2.upgrade().is_some());
         assert!( ! res3.upgrade().is_some());
 
         // --------------
-        Tables::declare_resource(&tables, &face0, 2, 0, "/todrop3").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2, 0, "/todrop3").await;
         declare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 0, "/todrop3", &sub_info).await;
         let optres1 = Resource::get_resource(&tables.read().await._get_root(), "/todrop3").map(|res| {Arc::downgrade(&res)});
         assert!(optres1.is_some());
@@ -162,12 +160,12 @@ fn clean_test() {
         undeclare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 0, "/todrop3").await;
         assert!(res1.upgrade().is_some());
 
-        Tables::undeclare_resource(&tables, &face0, 2).await;
+        undeclare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2).await;
         assert!( ! res1.upgrade().is_some());
 
         // --------------
-        Tables::declare_resource(&tables, &face0, 3, 0, "/todrop4").await;
-        Tables::declare_resource(&tables, &face0, 4, 0, "/todrop5").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 3, 0, "/todrop4").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 4, 0, "/todrop5").await;
         declare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 0, "/todrop5", &sub_info).await;
         declare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 0, "/todrop6", &sub_info).await;
 
@@ -280,23 +278,23 @@ fn client_test() {
         
         let primitives0 = Arc::new(ClientPrimitives::new());
         let face0 = Tables::declare_session(&tables, WhatAmI::Client, primitives0.clone()).await;
-        Tables::declare_resource(&tables, &face0, 11, 0, "/test/client").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 11, 0, "/test/client").await;
         primitives0.resource(11, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 11, "/**", &sub_info).await;
-        Tables::declare_resource(&tables, &face0, 12, 11, "/z1_pub1").await;
+        declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 12, 11, "/z1_pub1").await;
         primitives0.resource(12, &ResKey::RIdWithSuffix(11, "/z1_pub1".to_string())).await;
 
         let primitives1 = Arc::new(ClientPrimitives::new());
         let face1 = Tables::declare_session(&tables, WhatAmI::Client, primitives1.clone()).await;
-        Tables::declare_resource(&tables, &face1, 21, 0, "/test/client").await;
+        declare_resource(&mut *tables.write().await, &mut face1.upgrade().unwrap(), 21, 0, "/test/client").await;
         primitives1.resource(21, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face1.upgrade().unwrap(), 21, "/**", &sub_info).await;
-        Tables::declare_resource(&tables, &face1, 22, 21, "/z2_pub1").await;
+        declare_resource(&mut *tables.write().await, &mut face1.upgrade().unwrap(), 22, 21, "/z2_pub1").await;
         primitives1.resource(22, &ResKey::RIdWithSuffix(21, "/z2_pub1".to_string())).await;
 
         let primitives2 = Arc::new(ClientPrimitives::new());
         let face2 = Tables::declare_session(&tables, WhatAmI::Client, primitives2.clone()).await;
-        Tables::declare_resource(&tables, &face2, 31, 0, "/test/client").await;
+        declare_resource(&mut *tables.write().await, &mut face2.upgrade().unwrap(), 31, 0, "/test/client").await;
         primitives2.resource(31, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face2.upgrade().unwrap(), 31, "/**", &sub_info).await;
 

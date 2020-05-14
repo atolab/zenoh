@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::proto::{WhatAmI, QueryTarget, QueryConsolidation, Reply};
+use crate::routing::broker::Tables;
 use crate::routing::face::Face;
-use crate::routing::tables::Tables;
 use crate::routing::resource::{Resource, Context};
 
 pub(crate) struct Query {

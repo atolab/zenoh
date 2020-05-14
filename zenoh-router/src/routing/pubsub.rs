@@ -4,7 +4,7 @@ use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{WhatAmI, SubInfo};
 use crate::routing::face::Face;
-use crate::routing::tables::Tables;
+use crate::routing::broker::Tables;
 use crate::routing::resource::{Resource, Context};
 
 pub type DataRoute = HashMap<usize, (Arc<Face>, u64, String)>;

@@ -12,7 +12,7 @@ use zenoh_protocol:: {
     session::{SessionManager, SessionManagerConfig},
     zerror
 };
-use zenoh_router::routing::tables::TablesHdl;
+use zenoh_router::routing::broker::Broker;
 use super::*;
 
 // rename to avoid conflicts
@@ -22,14 +22,14 @@ type TxSession = zenoh_protocol::session::Session;
 pub struct Session {
     session_manager: SessionManager,
     tx_session: Option<Arc<TxSession>>,
-    tables: Arc<TablesHdl>,
+    broker: Arc<Broker>,
     inner: Arc<RwLock<InnerSession>>,
 }
 
 impl Session {
 
     pub(super) async fn new(locator: &str, _ps: Option<Properties>) -> Session {
-        let tables = Arc::new(TablesHdl::new());
+        let broker = Arc::new(Broker::new());
         
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
@@ -39,7 +39,7 @@ impl Session {
             version: 0,
             whatami: WhatAmI::Client,
             id: peerid.clone(),
-            handler: tables.clone()
+            handler: broker.clone()
         };
         let session_manager = SessionManager::new(config, None);
 
@@ -68,9 +68,9 @@ impl Session {
             InnerSession::new(peerid)
         ));
         let inner2 = inner.clone();
-        let session = Session{ session_manager, tx_session, tables, inner };
+        let session = Session{ session_manager, tx_session, broker, inner };
 
-        let prim = session.tables.new_primitives(Arc::new(session.clone())).await;
+        let prim = session.broker.new_primitives(Arc::new(session.clone())).await;
         inner2.write().primitives = Some(prim);
 
         // Workaround for the declare_and_shoot problem

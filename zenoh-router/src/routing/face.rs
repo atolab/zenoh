@@ -5,11 +5,8 @@ use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
-use crate::routing::resource::Resource;
-use crate::routing::tables::Tables;
+use crate::routing::broker::*;
 use crate::routing::ownedprimitives::OwnedPrimitives;
-use crate::routing::pubsub::*;
-use crate::routing::queries::*;
 
 pub struct Face {
     pub(super) id: usize,
@@ -70,11 +67,13 @@ pub struct FaceHdl {
 impl Primitives for FaceHdl {
     async fn resource(&self, rid: u64, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), rid, prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        declare_resource(&mut tables, &mut self.face.clone(), rid, prefixid, suffix).await;
     }
 
     async fn forget_resource(&self, rid: u64) {
-        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), rid).await;
+        let mut tables = self.tables.write().await;
+        undeclare_resource(&mut tables, &mut self.face.clone(), rid).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
