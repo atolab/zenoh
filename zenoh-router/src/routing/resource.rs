@@ -265,24 +265,26 @@ impl Resource {
         matches
     }
 
-    pub unsafe fn match_resource(from: &Arc<Resource>, res: &mut Arc<Resource>){
-        let mut matches = Resource::get_matches_from(&res.name(), from);
+    pub fn match_resource(from: &Arc<Resource>, res: &mut Arc<Resource>){
+        unsafe {
+            let mut matches = Resource::get_matches_from(&res.name(), from);
 
-        fn matches_contain(matches: &[Weak<Resource>], res: &Arc<Resource>) -> bool {
-            for match_ in matches {
-                if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
-                    return true
+            fn matches_contain(matches: &[Weak<Resource>], res: &Arc<Resource>) -> bool {
+                for match_ in matches {
+                    if Arc::ptr_eq(&match_.upgrade().unwrap(), res) {
+                        return true
+                    }
+                }
+                false
+            }
+            
+            for match_ in &mut matches {
+                let mut match_ = match_.upgrade().unwrap();
+                if ! matches_contain(&match_.matches, &res) {
+                    Arc::get_mut_unchecked(&mut match_).matches.push(Arc::downgrade(&res));
                 }
             }
-            false
+            Arc::get_mut_unchecked(res).matches = matches;
         }
-        
-        for match_ in &mut matches {
-            let mut match_ = match_.upgrade().unwrap();
-            if ! matches_contain(&match_.matches, &res) {
-                Arc::get_mut_unchecked(&mut match_).matches.push(Arc::downgrade(&res));
-            }
-        }
-        Arc::get_mut_unchecked(res).matches = matches;
     }
 }
