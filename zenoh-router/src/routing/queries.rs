@@ -13,7 +13,7 @@ pub(crate) struct Query {
 
 type QueryRoute = HashMap<usize, (Arc<Face>, u64, String, u64)>;
 
-pub(crate) async fn declare_queryable(tables: &mut Tables, sex: &Arc<Face>, prefixid: u64, suffix: &str) {
+pub(crate) async fn declare_queryable(tables: &mut Tables, sex: &mut Arc<Face>, prefixid: u64, suffix: &str) {
     let prefix = {
         match prefixid {
             0 => {Some(tables.root_res.clone())}
@@ -84,13 +84,13 @@ pub(crate) async fn declare_queryable(tables: &mut Tables, sex: &Arc<Face>, pref
                 }
             }
             Tables::build_matches_direct_tables(&mut res);
-            Arc::get_mut_unchecked(&mut sex.clone()).qabl.push(res);
+            Arc::get_mut_unchecked(sex).qabl.push(res);
         }
         None => println!("Declare queryable for unknown rid {}!", prefixid)
     }
 }
 
-pub async fn undeclare_queryable(tables: &mut Tables, sex: &Arc<Face>, prefixid: u64, suffix: &str) {
+pub async fn undeclare_queryable(tables: &mut Tables, sex: &mut Arc<Face>, prefixid: u64, suffix: &str) {
     match tables.get_mapping(&sex, &prefixid) {
         Some(prefix) => {
             match Resource::get_resource(prefix, suffix) {
@@ -98,7 +98,7 @@ pub async fn undeclare_queryable(tables: &mut Tables, sex: &Arc<Face>, prefixid:
                     if let Some(mut ctx) = Arc::get_mut_unchecked(&mut res).contexts.get_mut(&sex.id) {
                         Arc::get_mut_unchecked(&mut ctx).qabl = false;
                     }
-                    Arc::get_mut_unchecked(&mut sex.clone()).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
+                    Arc::get_mut_unchecked(sex).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
                     Resource::clean(&mut res)
                 }
                 None => println!("Undeclare unknown queryable!")
@@ -157,7 +157,7 @@ pub(crate) async fn route_query(tables: &mut Tables, sex: &Arc<Face>, rid: u64, 
     }
 }
 
-pub(crate) async fn route_reply(_tables: &mut Tables, sex: &Arc<Face>, qid: ZInt, reply: &Reply) {
+pub(crate) async fn route_reply(_tables: &mut Tables, sex: &mut Arc<Face>, qid: ZInt, reply: &Reply) {
     match sex.pending_queries.get(&qid) {
         Some(query) => {
             match reply {
@@ -167,7 +167,7 @@ pub(crate) async fn route_reply(_tables: &mut Tables, sex: &Arc<Face>, qid: ZInt
                 Reply::ReplyFinal {..} => {
                     unsafe {
                         let query = sex.pending_queries.get(&qid).unwrap().clone();
-                        Arc::get_mut_unchecked(&mut sex.clone()).pending_queries.remove(&qid);
+                        Arc::get_mut_unchecked(sex).pending_queries.remove(&qid);
                         if Arc::strong_count(&query) == 1 {
                             query.src_face.primitives.clone().reply(query.src_qid, Reply::ReplyFinal).await;
                         }

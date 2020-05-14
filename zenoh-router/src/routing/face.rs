@@ -8,6 +8,7 @@ use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation
 use crate::routing::resource::Resource;
 use crate::routing::tables::Tables;
 use crate::routing::ownedprimitives::OwnedPrimitives;
+use crate::routing::pubsub::*;
 use crate::routing::queries::*;
 
 pub struct Face {
@@ -78,12 +79,14 @@ impl Primitives for FaceHdl {
     
     async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, sub_info).await;
+        let mut tables = self.tables.write().await;
+        declare_subscription(&mut tables, &mut self.face.clone(), prefixid, suffix, sub_info).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        undeclare_subscription(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
     
     async fn publisher(&self, _reskey: &ResKey) {}
@@ -93,18 +96,19 @@ impl Primitives for FaceHdl {
     async fn queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
         let mut tables = self.tables.write().await;
-        declare_queryable(&mut tables, &self.face, prefixid, suffix).await;
+        declare_queryable(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
 
     async fn forget_queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
         let mut tables = self.tables.write().await;
-        undeclare_queryable(&mut tables, &self.face, prefixid, suffix).await;
+        undeclare_queryable(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, reliable, info, payload).await;
+        let tables = self.tables.read().await;
+        route_data(&tables, &self.face, prefixid, suffix, reliable, info, payload).await;
     }
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
@@ -115,7 +119,7 @@ impl Primitives for FaceHdl {
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
         let mut tables = self.tables.write().await;
-        route_reply(&mut tables, &self.face, qid, reply).await;
+        route_reply(&mut tables, &mut self.face.clone(), qid, reply).await;
     }
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}

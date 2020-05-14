@@ -3,7 +3,6 @@ use async_std::sync::RwLock;
 use std::sync::{Arc, Weak};
 use std::collections::{HashMap};
 use zenoh_protocol::core::{ResKey, ZInt};
-use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
 use crate::routing::resource::*;
@@ -48,7 +47,7 @@ use crate::routing::face::{Face, FaceHdl};
 /// 
 /// ```
 pub struct TablesHdl {
-    tables: Arc<RwLock<Tables>>,
+    pub tables: Arc<RwLock<Tables>>,
 }
 
 impl TablesHdl {
@@ -81,8 +80,6 @@ impl SessionHandler for TablesHdl {
         }))
     }
 }
-
-pub type DataRoute = HashMap<usize, (Arc<Face>, u64, String)>;
 
 pub struct Tables {
     sex_counter: usize,
@@ -290,172 +287,10 @@ impl Tables {
             None => println!("Undeclare resource for closed session!")
         }
     }
-
-    pub async fn declare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str, sub_info: &SubInfo) {
-        let mut t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => {
-                match t.get_mapping(&sex, &prefixid).cloned() {
-                    Some(mut prefix) => unsafe {
-                        let mut res = Resource::make_resource(&mut prefix, suffix);
-                        Resource::match_resource(&t.root_res, &mut res);
-                        {
-                            let res = Arc::get_mut_unchecked(&mut res);
-                            match res.contexts.get_mut(&sex.id) {
-                                Some(mut ctx) => {
-                                    Arc::get_mut_unchecked(&mut ctx).subs = Some(sub_info.clone());
-                                }
-                                None => {
-                                    res.contexts.insert(sex.id, 
-                                        Arc::new(Context {
-                                            face: sex.clone(),
-                                            local_rid: None,
-                                            remote_rid: None,
-                                            subs: Some(sub_info.clone()),
-                                            qabl: false,
-                                        })
-                                    );
-                                }
-                            }
-                        }
-
-                        for (id, face) in &mut t.faces {
-                            if sex.id != *id && (sex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer) {
-                                let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
-                                match nonwild_prefix {
-                                    Some(mut nonwild_prefix) => {
-                                        if let Some(mut ctx) = Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.get_mut(id) {
-                                            if let Some(rid) = ctx.local_rid {
-                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
-                                            } else if let Some(rid) = ctx.remote_rid {
-                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
-                                            } else {
-                                                let rid = face.get_next_local_id();
-                                                Arc::get_mut_unchecked(&mut ctx).local_rid = Some(rid);
-                                                Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
-
-                                                face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
-                                                face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
-                                            }
-                                        } else {
-                                            let rid = face.get_next_local_id();
-                                            Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(*id, 
-                                                Arc::new(Context {
-                                                    face: face.clone(),
-                                                    local_rid: Some(rid),
-                                                    remote_rid: None,
-                                                    subs: None,
-                                                    qabl: false,
-                                            }));
-                                            Arc::get_mut_unchecked(face).local_mappings.insert(rid, nonwild_prefix.clone());
-
-                                            face.primitives.clone().resource(rid, nonwild_prefix.name().into()).await;
-                                            face.primitives.clone().subscriber((rid, wildsuffix).into(), sub_info.clone()).await;
-                                        }
-                                    }
-                                    None => {
-                                        face.primitives.clone().subscriber(ResKey::RName(wildsuffix), sub_info.clone()).await;
-                                    }
-                                }
-                            }
-                        }
-                        Tables::build_matches_direct_tables(&mut res);
-                        Arc::get_mut_unchecked(&mut sex).subs.push(res);
-                    }
-                    None => println!("Declare subscription for unknown rid {}!", prefixid)
-                }
-            }
-            None => println!("Declare subscription for closed session!")
-        }
-    }
-
-    pub async fn undeclare_subscription(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, prefixid: u64, suffix: &str) {
-        let t = tables.write().await;
-        match sex.upgrade() {
-            Some(mut sex) => {
-                match t.get_mapping(&sex, &prefixid) {
-                    Some(prefix) => {
-                        match Resource::get_resource(prefix, suffix) {
-                            Some(mut res) => unsafe {
-                                if let Some(mut ctx) = Arc::get_mut_unchecked(&mut res).contexts.get_mut(&sex.id) {
-                                    Arc::get_mut_unchecked(&mut ctx).subs = None;
-                                }
-                                Arc::get_mut_unchecked(&mut sex).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
-                                Resource::clean(&mut res)
-                            }
-                            None => println!("Undeclare unknown subscription!")
-                        }
-                    }
-                    None => println!("Undeclare subscription with unknown prefix!")
-                }
-            }
-            None => println!("Undeclare subscription for closed session!")
-        }
-    }
-
+    
     pub async fn get_matches(tables: &Arc<RwLock<Tables>>, rname: &str) -> Vec<Weak<Resource>> {
         let t = tables.read().await;
         Resource::get_matches_from(rname, &t.root_res)
-    }
-
-    pub async fn route_data_to_map(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str) -> Option<DataRoute> {
-        let t = tables.read().await;
-
-        match sex.upgrade() {
-            Some(sex) => {
-                match t.get_mapping(&sex, &rid) {
-                    Some(prefix) => {
-                        match Resource::get_resource(prefix, suffix) {
-                            Some(res) => {Some(res.route.clone())}
-                            None => {
-                                let mut sexs = HashMap::new();
-                                for res in Resource::get_matches_from(&[&prefix.name(), suffix].concat(), &t.root_res) {
-                                    let res = res.upgrade().unwrap();
-                                    for (sid, context) in &res.contexts {
-                                        if context.subs.is_some() {
-                                            sexs.entry(*sid).or_insert_with( || {
-                                                let (rid, suffix) = Resource::get_best_key(prefix, suffix, *sid);
-                                                (context.face.clone(), rid, suffix)
-                                            });
-                                        }
-                                    }
-                                };
-                                Some(sexs)
-                            }
-                        }
-                    }
-                    None => {
-                        println!("Route data with unknown rid {}!", rid); None
-                    }
-
-                }
-            }
-            None => {println!("Route data for closed session!"); None}
-        }
-    }
-
-    pub async fn route_data(tables: &Arc<RwLock<Tables>>, sex: &Weak<Face>, rid: u64, suffix: &str, reliable:bool, info: &Option<RBuf>, payload: RBuf) {
-        match sex.upgrade() {
-            Some(strongsex) => {
-                if let Some(outfaces) = Tables::route_data_to_map(tables, sex, rid, suffix).await {
-                    for (_id, (face, rid, suffix)) in outfaces {
-                        if ! Arc::ptr_eq(&strongsex, &face) {
-                            let primitives = {
-                                if strongsex.whatami != WhatAmI::Peer || face.whatami != WhatAmI::Peer {
-                                    Some(face.primitives.clone())
-                                } else {
-                                    None
-                                }
-                            };
-                            if let Some(primitives) = primitives {
-                                primitives.data((rid, suffix).into(), reliable, info.clone(), payload.clone()).await
-                            }
-                        }
-                    }
-                }
-            }
-            None => {println!("Route data for closed session!")}
-        }
     }
 
 }

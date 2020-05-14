@@ -7,6 +7,7 @@ use criterion::{Criterion, BenchmarkId};
 use zenoh_protocol::proto::{Mux, SubInfo, Reliability, SubMode, WhatAmI};
 use zenoh_protocol::session::DummyHandler;
 use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::pubsub::*;
 
 fn tables_bench(c: &mut Criterion) {
   task::block_on(async{
@@ -29,19 +30,22 @@ fn tables_bench(c: &mut Criterion) {
     for p in [8, 32, 256, 1024, 8192].iter() {
       for i in 1..(*p) {
         Tables::declare_resource(&tables, &sex1, i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
-        Tables::declare_subscription(&tables, &sex1, i, "", &sub_info).await;
+        declare_subscription(&mut *tables.write().await, &mut sex1.upgrade().unwrap(), i, "", &sub_info).await;
       }
 
+      let tables = tables.read().await;
+      let sex0 = sex0.upgrade().unwrap();
+      
       tables_bench.bench_function(BenchmarkId::new("direct_route", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 2, "")
+        route_data_to_map(&tables, &sex0, 2, "")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("known_resource", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/*")
+        route_data_to_map(&tables, &sex0, 0, "/bench/tables/*")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("matches_lookup", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/A*")
+        route_data_to_map(&tables, &sex0, 0, "/bench/tables/A*")
       }));
     }
     tables_bench.finish();
