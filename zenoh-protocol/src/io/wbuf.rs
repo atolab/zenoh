@@ -186,6 +186,36 @@ impl WBuf {
         }
     }
 
+    pub fn copy_into_wbuf(&mut self, dest: &mut WBuf, dest_len: usize) {
+        if self.copy_pos.0 >= self.slices.len() {
+            panic!("Not enough bytes to copy into dest");
+        }
+        let src = self.get_slice_to_copy();
+        if src.len() - self.copy_pos.1 >= dest_len {
+            // Copy a sub-part of src into dest
+            let end_pos = self.copy_pos.1 + dest_len;
+            if !(dest.write_bytes(&src[self.copy_pos.1..end_pos])) {
+                panic!("Failed to copy bytes into wbuf: destination is probably not big enough");
+            };
+            // Move copy_pos
+            if end_pos < src.len() {
+                self.copy_pos.1 = end_pos
+            } else {
+                self.copy_pos = (self.copy_pos.0 + 1, 0);
+            }
+        } else {
+            // Copy the remaining of src into dest
+            let copy_len = src.len() - self.copy_pos.1;
+            if !(dest.write_bytes(&src[self.copy_pos.1..])) {
+                panic!("Failed to copy bytes into wbuf: destination is probably not big enough");
+            };
+            // Move copy_pos to next slice and recurse
+            self.copy_pos = (self.copy_pos.0 + 1, 0);
+            self.copy_into_wbuf(dest, dest_len - copy_len);
+        }
+    }
+
+
     pub fn mark(&mut self) {
         self.mark = (self.slices.clone(), self.buf.len());
     }
@@ -445,6 +475,18 @@ mod tests {
     }
 
     #[test]
+    fn wbuf_contiguous_copy_into_wbuf() {
+        let mut buf = WBuf::new(6, true);
+        assert!(buf.write_slice(ArcSlice::from(&[0u8, 1, 2, 3, 4, 5] as &[u8])));
+
+        let mut copy =  WBuf::new(10, true);
+        buf.copy_into_wbuf(&mut copy, 3);
+        assert_eq!(to_vec_vec!(copy), &[[0, 1, 2,]]);
+        buf.copy_into_wbuf(&mut copy, 3);
+        assert_eq!(to_vec_vec!(copy), &[[0, 1, 2, 3, 4, 5]]);
+    }
+
+    #[test]
     fn wbuf_noncontiguous_new() {
         let buf = WBuf::new(10, false);
         assert_eq!(buf.len(), 0);
@@ -648,4 +690,28 @@ mod tests {
         buf.copy_into_slice(&mut copy[8..12]);
         assert_eq!(copy, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     }
+
+    #[test]
+    fn wbuf_noncontiguous_copy_into_wbuf() {
+        let mut buf = WBuf::new(6, false);
+        assert!(buf.write(0));
+        assert!(buf.write(1));
+        assert!(buf.write_slice(ArcSlice::from(&[2u8, 3, 4] as &[u8])));
+        assert!(buf.write(5));
+        assert!(buf.write_bytes(&[6, 7]));
+        assert!(buf.write(8));
+        assert!(buf.write_slice(ArcSlice::from(&[9u8, 10, 11] as &[u8])));
+        assert_eq!(to_vec_vec!(buf), [vec![0, 1], vec![2, 3, 4], vec![5, 6, 7, 8],  vec![9, 10, 11]]);
+
+        let mut copy = WBuf::new(12, true);
+        buf.copy_into_wbuf(&mut copy, 1);
+        assert_eq!(to_vec_vec!(copy), &[[0]]);
+        buf.copy_into_wbuf(&mut copy, 5);
+        assert_eq!(to_vec_vec!(copy), &[[0, 1, 2, 3, 4, 5]]);
+        buf.copy_into_wbuf(&mut copy, 2);
+        assert_eq!(to_vec_vec!(copy), &[[0, 1, 2, 3, 4, 5, 6, 7]]);
+        buf.copy_into_wbuf(&mut copy, 4);
+        assert_eq!(to_vec_vec!(copy), &[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]]);
+    }
+
 }
