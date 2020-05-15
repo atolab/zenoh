@@ -20,7 +20,7 @@ const DEFAULT_WBUF_CAPACITY: usize = 64;
 macro_rules! zsend {
     ($msg:expr, $link:expr) => ({
         // Serialize the message
-        let mut wbuf = WBuf::new(DEFAULT_WBUF_CAPACITY, true);
+        let mut wbuf = WBuf::new(DEFAULT_WBUF_CAPACITY, false);
         if $link.is_streamed() {
             // Reserve 16 bits to write the lenght
             wbuf.write_bytes(&[0u8, 0u8]); 
@@ -32,8 +32,8 @@ macro_rules! zsend {
             let bits = wbuf.get_first_slice_mut(2);
             bits.copy_from_slice(&length.to_le_bytes());
         }
-        let mut buffer = Vec::with_capacity(wbuf.len());
-        wbuf.copy_into_slice(&mut buffer);
+        let mut buffer = vec![0u8; wbuf.len()];
+        wbuf.copy_into_slice(&mut buffer[..]);
 
         // Send the message on the link
         $link.send(&buffer).await
@@ -559,7 +559,7 @@ impl InitialSession {
 #[async_trait]
 impl TransportTrait for InitialSession {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        println!("{:?}", message.body);
+        println!("Initial Session: {:?}", message.body);
         match message.body {
             SessionBody::Open { version, whatami, pid, lease, initial_sn, sn_resolution, locators } => {
                 self.process_open(link, version, whatami, pid, lease, initial_sn, sn_resolution, locators).await

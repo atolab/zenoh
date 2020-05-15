@@ -493,16 +493,6 @@ impl Channel {
     /*************************************/
     /*            ACCESSORS              */
     /*************************************/
-    pub(super) fn has_callback(&self) -> bool {
-        self.has_callback.load(Ordering::Relaxed)
-    }
-
-    pub(super) async fn set_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {        
-        let mut guard = zasynclock!(self.rx);
-        self.has_callback.store(true, Ordering::Relaxed);
-        guard.callback = Some(callback);
-    }
-
     pub(super) fn get_peer(&self) -> PeerId {
         self.pid.clone()
     }
@@ -513,6 +503,16 @@ impl Channel {
 
     pub(super) fn get_sn_resolution(&self) -> ZInt {
         self.sn_resolution
+    }
+
+    pub(super) fn has_callback(&self) -> bool {
+        self.has_callback.load(Ordering::Relaxed)
+    }
+
+    pub(super) async fn set_callback(&self, callback: Arc<dyn MsgHandler + Send + Sync>) {        
+        let mut guard = zasynclock!(self.rx);
+        self.has_callback.store(true, Ordering::Relaxed);
+        guard.callback = Some(callback);
     }
 
     pub(super) async fn close(&self) -> ZResult<()> {
@@ -683,6 +683,7 @@ impl TransportTrait for Channel {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");
             },
             SessionBody::Close { pid, reason, link_only } => {
+                println!("CHANNEL CLOSE");
                 // let guard = zasynclock!(self.rx);
                 // let session = zsession!(guard.session);
                 // let c_reason = *reason;

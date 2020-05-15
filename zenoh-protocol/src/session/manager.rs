@@ -203,7 +203,9 @@ impl SessionManager {
             }
         }
 
-        // @TODO: Close the link or delete the link form the link manager
+        // Delete the link form the link manager
+        let _ = manager.del_link(&link.get_src(), &link.get_dst()).await;
+
         Err(zerror!(ZErrorKind::Other {
             descr: "Open session: maximum number of retries reached".to_string()
         }))

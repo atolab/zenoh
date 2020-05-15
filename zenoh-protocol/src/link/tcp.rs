@@ -187,7 +187,7 @@ impl LinkTrait for Tcp {
 }
 
 async fn read_task(link: Arc<Tcp>) {
-    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {    
+    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {   
         // The link object to be passed to the transport
         let link_obj: Link = link.clone();
         // Acquire the lock on the transport
@@ -244,7 +244,7 @@ async fn read_task(link: Arc<Tcp>) {
                             // Read the first 16 bits (2 bytes) to detect the length of the message
                             let end = r_pos + 2;
                             // Read the lenght as litlle endian from the buffer (array of 2 bytes in size)
-                            let length: [u8; 2] = buffer[r_pos..end].try_into().unwrap();
+                            let length: [u8; 2] = buffer[r_pos..end].try_into().unwrap();                            
                             // Update the total amount of bytes that we are expected to read
                             left_to_read = u16::from_le_bytes(length) as usize;       
 
