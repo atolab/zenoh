@@ -212,6 +212,19 @@ impl WBuf {
         true
     }
 
+    pub fn write_properties(&mut self, props: &[Property]) {
+        let len = props.len() as ZInt;
+        self.write_zint(len);
+        for p in props {
+            self.write_property(p);
+        }
+    }
+
+    fn write_property(&mut self, p: &Property) -> bool {
+        self.write_zint(p.key) &&
+        self.write_bytes_array(&p.value)
+    }
+
     fn write_deco_attachment(&mut self, attachment: &Attachment, session: bool) -> bool {
         if session {
             check!(self.write(attachment.encoding | smsg::id::ATTACHMENT));
@@ -234,11 +247,6 @@ impl WBuf {
         }
 
         true
-    }
-
-    fn write_property(&mut self, p: &Property) -> bool {
-        self.write_zint(p.key) &&
-        self.write_bytes_array(&p.value)
     }
 
     fn write_locators(&mut self, locators: &[Locator]) -> bool {

@@ -77,7 +77,6 @@ impl WBuf {
         }
     }
 
-
     #[inline]
     pub fn len(&self) -> usize {
         self.slices.iter().fold(0,
@@ -140,6 +139,18 @@ impl WBuf {
         }
     }
 
+    pub fn get_first_slice_mut(&mut self, len: usize) -> &mut [u8] {
+        if let Some(Slice::Internal(_, _)) = self.slices.first() {
+            if self.buf.len() >= len {
+                &mut self.buf[..len]
+            } else {
+                panic!("Cannot return 1st wlice of WBuf as mutable: internal buf is smaller than requested slice")
+            }
+        } else {
+            panic!("Cannot return 1st wlice of WBuf as mutable: it's an external ArcSlice");
+        }
+    }
+
     fn get_slice_to_copy(&self) -> &[u8] {
         match self.slices.get(self.copy_pos.0) {
             Some(Slice::External(ref s)) => s.as_slice(),
@@ -174,7 +185,6 @@ impl WBuf {
             self.copy_into_slice(&mut dest[copy_len..]);
         }
     }
-
 
     pub fn mark(&mut self) {
         self.mark = (self.slices.clone(), self.buf.len());
@@ -236,7 +246,6 @@ impl WBuf {
             false
         }
     }
-
 }
 
 impl fmt::Display for WBuf {
@@ -378,6 +387,24 @@ mod tests {
         assert_eq!(buf.len(), 6);
         assert_eq!(buf.capacity(),6);
         assert_eq!(to_vec_vec!(buf), [[0, 1, 2, 3, 4, 5]]);
+    }
+
+    #[test]
+    fn wbuf_contiguous_get_first_slice_mut() {
+        let mut buf = WBuf::new(10, true);
+        // reserve 2 bytes writing 0x00
+        assert!(buf.write(0));
+        assert!(buf.write(0));
+
+        // write a payload
+        assert!(buf.write_bytes(&[1, 2, 3, 4, 5]));
+
+        // prepend size in 2 bytes
+        let prefix: &mut [u8] = buf.get_first_slice_mut(2);
+        prefix[0] = 5;
+        prefix[1] = 0;
+
+        assert_eq!(to_vec_vec!(buf), [[5, 0, 1, 2, 3, 4, 5]]);
     }
 
     #[test]
@@ -523,6 +550,26 @@ mod tests {
         
         assert!(buf.write_slice(ArcSlice::from(&[9u8, 10, 11] as &[u8])));
         assert_eq!(to_vec_vec!(buf), [vec![0, 1], vec![2, 3, 4], vec![5, 6, 7, 8],  vec![9, 10, 11]]);
+    }
+
+    #[test]
+    fn wbuf_noncontiguous_get_first_slice_mut() {
+        let mut buf = WBuf::new(10, false);
+        // reserve 2 bytes writing 0x00
+        assert!(buf.write(0));
+        assert!(buf.write(0));
+
+        // write some bytes
+        assert!(buf.write_bytes(&[1, 2, 3, 4, 5]));
+        // add an ArcSlice
+        assert!(buf.write_slice(ArcSlice::from(&[6u8, 7, 8, 9, 10] as &[u8])));
+
+        // prepend size in 2 bytes
+        let prefix: &mut [u8] = buf.get_first_slice_mut(2);
+        prefix[0] = 10;
+        prefix[1] = 0;
+
+        assert_eq!(to_vec_vec!(buf), [vec![10, 0, 1, 2, 3, 4, 5], vec![6, 7, 8, 9, 10]]);
     }
 
     #[test]

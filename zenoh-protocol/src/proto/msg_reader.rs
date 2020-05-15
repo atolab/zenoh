@@ -5,7 +5,6 @@ use crate::zerror;
 
 use super::msg::*;
 use super::decl::{Declaration, SubInfo, SubMode, Reliability, Period};
-use std::sync::Arc;
 
 
 impl RBuf {
@@ -41,7 +40,7 @@ impl RBuf {
                     let whatami = if smsg::has_flag(header, smsg::flag::W) {
                         Some(self.read_zint()?)
                     } else { 
-                        Some(whatami::BROKER)
+                        None
                     };
                     let locators = if smsg::has_flag(header, smsg::flag::L) {
                         Some(self.read_locators()?)
@@ -301,7 +300,7 @@ impl RBuf {
 
     fn read_deco_attachment(&mut self, header: u8) -> ZResult<Attachment> {
         let encoding = smsg::flags(header);
-        let buffer = Arc::new(RBuf::from(self.read_bytes_array()?));
+        let buffer = RBuf::from(self.read_bytes_array()?);
         Ok(Attachment { encoding, buffer })
     }
 
@@ -341,6 +340,15 @@ impl RBuf {
         } else { None };
 
         Ok(DataInfo { header, source_id, source_sn, fist_broker_id, fist_broker_sn, timestamp, kind, encoding })
+    }
+
+    pub fn read_properties(&mut self) -> ZResult<Vec<Property>> {
+        let len = self.read_zint()?;
+        let mut vec: Vec<Property> = Vec::new();
+        for _ in 0..len {
+            vec.push(self.read_property()?);
+        }
+        Ok(vec)
     }
 
     fn read_property(&mut self) -> ZResult<Property> {

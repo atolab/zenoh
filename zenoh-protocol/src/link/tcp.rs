@@ -108,30 +108,33 @@ impl LinkTrait for Tcp {
         Ok(())
     }
     
-    async fn send(&self, buffer: RBuf) -> ZResult<()> {
-        #[cfg(write_vectored)]
-        {
-            let mut ioslices = &mut buffer.as_ioslices()[..];
-            while ! ioslices.is_empty() {
-                match (&self.socket).write_vectored(ioslices).await {
-                    Ok(size) => {
-                        ioslices = IoSlice::advance(ioslices, size);
-                    },
-                    err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
-                }
-            }
-        }
+    async fn send(&self, buffer: &[u8]) -> ZResult<()> {
+        // #[cfg(write_vectored)]
+        // {
+        //     let mut ioslices = &mut buffer.as_ioslices()[..];
+        //     while ! ioslices.is_empty() {
+        //         match (&self.socket).write_vectored(ioslices).await {
+        //             Ok(size) => {
+        //                 ioslices = IoSlice::advance(ioslices, size);
+        //             },
+        //             err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
+        //         }
+        //     }
+        // }
         
-        #[cfg(not(write_vectored))]
-        {
-            let mut sendbuff = Vec::with_capacity(buffer.readable());
-            for s in buffer.get_slices() {
-                std::io::Write::write_all(&mut sendbuff, s.as_slice())
-                    .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
-            }
-            (&self.socket).write_all(&sendbuff).await
-                .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
-        }
+        // #[cfg(not(write_vectored))]
+        // {
+        //     let mut sendbuff = Vec::with_capacity(buffer.readable());
+        //     for s in buffer.get_slices() {
+        //         std::io::Write::write_all(&mut sendbuff, s.as_slice())
+        //             .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
+        //     }
+        //     (&self.socket).write_all(&sendbuff).await
+        //         .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
+        // }
+        
+        (&self.socket).write_all(buffer).await
+            .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
 
         Ok(())
     }
@@ -175,6 +178,10 @@ impl LinkTrait for Tcp {
     }
 
     fn is_reliable(&self) -> bool {
+        true
+    }
+
+    fn is_streamed(&self) -> bool {
         true
     }
 }
@@ -264,7 +271,7 @@ async fn read_task(link: Arc<Tcp>) {
                             // In total we have read fewer bytes than expected, add them to the current RBuf
                             let mut slice = Vec::with_capacity(read);
                             let end = w_pos; // Copy all what we have read
-                            slice.extend_from_slice(&buffer[r_pos..w_pos]);
+                            slice.extend_from_slice(&buffer[r_pos..end]);
                             rbuf.add_slice(ArcSlice::new(Arc::new(slice), 0, read));
 
                             // Decrement the amount of bytes still to be read

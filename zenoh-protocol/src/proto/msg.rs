@@ -2,7 +2,6 @@ use crate::core::{ZInt, PeerId, ResKey, TimeStamp};
 use crate::io::RBuf;
 use crate::link::Locator;
 use super::decl::Declaration;
-use std::sync::Arc;
 
 // Channel values
 pub type Channel = channel::Type;
@@ -52,7 +51,13 @@ pub mod whatami {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
     pub encoding: u8,
-    pub buffer: Arc<RBuf>
+    pub buffer: RBuf
+}
+
+impl Attachment {
+    pub fn make(encoding: u8, buffer: RBuf) -> Attachment {
+        Attachment { encoding, buffer }
+    }
 }
 
 /// -- ReplyContext decorator
@@ -162,7 +167,7 @@ pub mod zmsg {
     // Zenoh message flags
     pub mod flag {
         // TO UPDATE THE REPLY AND REMOVE
-        pub const E: u8 = 1 << 5; // 0x20 FromEval     if E==1 then the ReplyContext is from Eval
+        pub const E: u8 = 1 << 6; // 0x40 FromEval     if E==1 then the ReplyContext is from Eval
 
         pub const F: u8 = 1 << 5; // 0x20 Final        if F==1 then this is the final message (e.g., ReplyContext, Pull)
         pub const I: u8 = 1 << 6; // 0x40 Info         if I==1 then Info is present
@@ -459,6 +464,11 @@ impl ZenohMessage {
     #[inline]
     pub fn get_attachment(&self) -> &Option<Attachment> {
         &self.attachment
+    }
+
+    #[inline]
+    pub fn get_attachment_mut(&mut self) -> &mut Option<Attachment> {
+        &mut self.attachment
     }
 }
 
@@ -1008,7 +1018,7 @@ impl SessionMessage {
                 (0, 0)
             }
         };
-        let header = smsg::id::PING_PONG | rflag | fflag | eflag;
+        let header = smsg::id::FRAME | rflag | fflag | eflag;
 
         SessionMessage {
             header,
@@ -1018,12 +1028,19 @@ impl SessionMessage {
     }
 
     // -- Accessor
+    #[inline]
     pub fn get_body(&self) -> &SessionBody {
         &self.body
     }
 
+    #[inline]
     pub fn get_attachment(&self) -> &Option<Attachment> {
         &self.attachment
+    }
+
+    #[inline]
+    pub fn get_attachment_mut(&mut self) -> &mut Option<Attachment> {
+        &mut self.attachment
     }
 }
 

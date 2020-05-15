@@ -5,7 +5,7 @@ use rand::Rng;
 use std::collections::HashMap;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
-use crate::io::{RBuf, WBuf};
+use crate::io::WBuf;
 use crate::link::{Link, Locator};
 use crate::proto::{Attachment, SessionMessage, SessionBody, WhatAmI, smsg};
 use crate::session::defaults::SESSION_SEQ_NUM_RESOLUTION;
@@ -20,12 +20,23 @@ const DEFAULT_WBUF_CAPACITY: usize = 64;
 macro_rules! zsend {
     ($msg:expr, $link:expr) => ({
         // Serialize the message
-        let mut buffer = WBuf::new(DEFAULT_WBUF_CAPACITY, true);
-        buffer.write_session_message(&$msg);
-        let buffer = RBuf::from(&buffer);
+        let mut wbuf = WBuf::new(DEFAULT_WBUF_CAPACITY, true);
+        if $link.is_streamed() {
+            // Reserve 16 bits to write the lenght
+            wbuf.write_bytes(&[0u8, 0u8]); 
+        }
+        wbuf.write_session_message(&$msg);
+        if $link.is_streamed() {
+            let length: u16 = wbuf.len() as u16 - 2;
+            // Write the length on the first 16 bits
+            let bits = wbuf.get_first_slice_mut(2);
+            bits.copy_from_slice(&length.to_le_bytes());
+        }
+        let mut buffer = Vec::with_capacity(wbuf.len());
+        wbuf.copy_into_slice(&mut buffer);
 
         // Send the message on the link
-        $link.send(buffer).await
+        $link.send(&buffer).await
     });
 }
 

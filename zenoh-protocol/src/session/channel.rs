@@ -70,8 +70,8 @@ impl LinkContext {
 }
 
 // Update the sequence number
-#[inline]
-async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut SessionMessage) {
+// #[inline]
+// async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut SessionMessage) {
     // let is_reliable = message.is_reliable();
     // match message.body {
     //     Body::Data { ref mut sn, .. }
@@ -88,14 +88,14 @@ async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut SessionMessage) {
     //     }
     //     _ => {}
     // }
-}
+// }
 
 // Mapping
-async fn map_messages_on_links(
-    inner: &mut ChannelInnerTx,
-    drain: &mut CreditQueueDrain<'_, MessageInner>,
-    context: &mut Vec<LinkContext>
-) {
+// async fn map_messages_on_links(
+//     inner: &mut ChannelInnerTx,
+//     drain: &mut CreditQueueDrain<'_, MessageInner>,
+//     context: &mut Vec<LinkContext>
+// ) {
     // if let Some(main_idx) = inner.main_idx {
     //     // If there is a main link, it means that there is at least one link
     //     // associated to the conduit. Drain the messages and perform the mapping
@@ -138,9 +138,9 @@ async fn map_messages_on_links(
     //         }
     //     }
     // }
-}
+// }
 
-async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
+// async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
     // let batchsize = batchsize.min(link.get_mtu());
     // let mut batchlen = 0;
     // // Process all the messages just drained
@@ -195,27 +195,27 @@ async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchs
     //     batchlen += buff_read.len();
     // }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
-    let batch_read = RBuf::from(&context.batch);
-    if !batch_read.is_empty() {
-        // Transmit the batch on the link
-        if let Err(e) = link.send(batch_read).await {
-            // Clear the batch buffer
-            context.batch.clear();
-            return Err(e)
-        }
-    }
-    // Clear the batch buffer
-    context.batch.clear();
+// async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
+    // let batch_read = RBuf::from(&context.batch);
+    // if !batch_read.is_empty() {
+    //     // Transmit the batch on the link
+    //     if let Err(e) = link.send(&context.batch).await {
+    //         // Clear the batch buffer
+    //         context.batch.clear();
+    //         return Err(e)
+    //     }
+    // }
+    // // Clear the batch buffer
+    // context.batch.clear();
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 // Consuming function
-async fn consume_loop(conduit: &Arc<Channel>) -> Option<bool> {
+// async fn consume_loop(conduit: &Arc<Channel>) -> Option<bool> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
@@ -275,16 +275,16 @@ async fn consume_loop(conduit: &Arc<Channel>) -> Option<bool> {
     //     task::yield_now().await;
     // }
 
-    None
-}
+//     None
+// }
 
 async fn consume_task(conduit: Arc<Channel>, receiver: Receiver<bool>) {
-    // Create the consume future
-    let consume = consume_loop(&conduit);
-    // Create the signal future
-    let signal = receiver.recv();
-    // Wait for the stop signal
-    let _ = consume.race(signal).await;
+    // // Create the consume future
+    // let consume = consume_loop(&conduit);
+    // // Create the signal future
+    // let signal = receiver.recv();
+    // // Wait for the stop signal
+    // let _ = consume.race(signal).await;
 }
 
 /*************************************/
