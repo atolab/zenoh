@@ -2,21 +2,25 @@ use async_std::prelude::*;
 use async_std::sync::{channel, Arc, Mutex, Receiver, Sender};
 use async_std::task;
 use async_trait::async_trait;
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::{RBuf, WBuf};
 use crate::link::Link;
-use crate::proto::{SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage};
+use crate::proto::{SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage, smsg};
 use crate::session::{Action, MsgHandler, SessionManagerInner, TransportTrait};
 use crate::session::defaults::{
     // Control buffer
+    QUEUE_PRIO_CTRL,
     QUEUE_SIZE_CTRL,
     QUEUE_CRED_CTRL,
     // Retransmission buffer
+    QUEUE_PRIO_RETX,
     QUEUE_SIZE_RETX,
     QUEUE_CRED_RETX,
     // Data buffer
+    QUEUE_PRIO_DATA,
     QUEUE_SIZE_DATA,
     QUEUE_CRED_DATA,
     // Queue size
@@ -41,9 +45,17 @@ use zenoh_util::zasynclock;
 //     );
 // }
 
-pub(super) enum MessageInner {
-    SessionMessage,
-    ZenohMessage
+enum MessageInner {
+    Session(SessionMessage),
+    Zenoh(ZenohMessage)
+}
+
+struct MessageTx {
+    // The inner message to transmit
+    inner: MessageInner,
+    // The preferred link to transmit the Message on
+    link: Option<Link>,
+    notify: Option<Sender<ZResult<()>>>,
 }
 
 /*************************************/
@@ -55,8 +67,8 @@ struct LinkContext {
     messages: Vec<MessageInner>,
     // The buffer to perform the batching on
     batch: WBuf,
-    // The buffer to serialize each message on
-    buffer: WBuf
+    // The buffer to fragment a message on
+    fragment: WBuf
 }
 
 impl LinkContext {
@@ -64,38 +76,141 @@ impl LinkContext {
         LinkContext {
             messages: Vec::with_capacity(*QUEUE_SIZE_TOT),
             batch: WBuf::new(batchsize, true),
-            buffer: WBuf::new(*WRITE_MSG_SLICE_SIZE, true)
+            fragment: WBuf::new(*WRITE_MSG_SLICE_SIZE, false)
         }
     }
 }
 
-// Update the sequence number
-// #[inline]
-// async fn update_sn(sn_gen: &mut SeqNumTx, message: &mut SessionMessage) {
-    // let is_reliable = message.is_reliable();
-    // match message.body {
-    //     Body::Data { ref mut sn, .. }
-    //     | Body::Unit { ref mut sn, .. }
-    //     | Body::Declare { ref mut sn, .. }
-    //     | Body::Pull { ref mut sn, .. }
-    //     | Body::Query { ref mut sn, .. } => {
-    //         // Update the sequence number
-    //         *sn = if is_reliable {
-    //             sn_gen.reliable.get()
-    //         } else {
-    //             sn_gen.unreliable.get()
-    //         };
-    //     }
-    //     _ => {}
-    // }
-// }
-
 // Mapping
 // async fn map_messages_on_links(
 //     inner: &mut ChannelInnerTx,
-//     drain: &mut CreditQueueDrain<'_, MessageInner>,
+//     drain: &mut CreditQueueDrain<'_, MessageTx>,
 //     context: &mut Vec<LinkContext>
 // ) {
+//     if let Some(main_idx) = inner.main_idx {
+//         // If there is a main link, it means that there is at least one link
+//         // associated to the conduit. Drain the messages and perform the mapping
+//         for mut msg in drain {
+//             // Update the sequence number while draining
+//             update_sn(&mut inner.sn, &mut msg.inner).await;
+    
+//             // @TODO: implement the reliability queue
+    
+//             // Find the right index for the link
+//             let index = if let Some(link) = &msg.link {
+//                 // Check if the target link exists, otherwise fallback on the main link
+//                 if let Some(index) = inner.find_link_index(&link) {
+//                     index
+//                 } else {
+//                     if let Some(notify) = &msg.notify {
+//                         // Notify now the result 
+//                         let res = Err(zerror!(ZErrorKind::InvalidLink {
+//                             descr: format!("Can not send message on unexsiting link ({})!", link)
+//                         }));
+//                         notify.send(res).await;
+//                     }
+//                     // Drop this message, continue with the following one
+//                     continue;
+//                 } 
+//             } else {
+//                 main_idx
+//             };
+//             // Add the message to the right link
+//             context[index].messages.push(msg);
+//         }
+//     } else {
+//         // There are no links associated to the conduits. Drain the messages, keep the 
+//         // reliable messages and drop the unreliable ones
+//         for mut msg in drain {
+//             if msg.inner.is_reliable() {
+//                 // Update the sequence number while draining
+//                 update_sn(&mut inner.sn, &mut msg.inner).await;
+//                 // @TODO: implement the reliability queue
+//             }
+//         }
+//     }
+// }
+
+// async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
+//     let batchsize = batchsize.min(link.get_mtu());
+//     let mut batchlen = 0;
+//     // Process all the messages just drained
+//     for msg in context.messages.drain(..) {        
+//         // Clear the message buffer
+//         context.buffer.clear();
+//         // Serialize the message on the buffer
+//         context.buffer.write_message(&msg.inner);
+
+//         // Create the RBuf out of batch and buff WBuff for transmission
+//         let buff_read = context.buffer.as_rbuf();
+
+//         if let Some(notify) = msg.notify {
+//             // Transmit the current batch if present
+//             if batchlen > 0 { 
+//                 let batch_read = context.batch.as_rbuf();
+//                 if let Err(e) = link.send(batch_read).await {
+//                     // Clear the batch buffer
+//                     context.batch.clear();
+//                     return Err(e)
+//                 }
+//                 // Clear the batch buffer
+//                 context.batch.clear();
+//                 // Reset the batchlen
+//                 batchlen = 0;
+//             }
+//             // Transmit now the message
+//             let res = link.send(buff_read).await;
+//             // Notify now the result 
+//             notify.send(res).await;
+//             // We are done with this message, continue with the following one
+//             continue
+//         } else if batchlen + buff_read.len() > batchsize {
+//             // The message does not fit in the batch, first transmit the current batch
+//             let batch_read = context.batch.as_rbuf();
+//             if let Err(e) = link.send(batch_read).await {
+//                 // Clear the batch buffer
+//                 context.batch.clear();
+//                 return Err(e)
+//             }
+//             // Clear the batch buffer
+//             context.batch.clear();
+//             // Reset the batchlen
+//             batchlen = 0;
+//         }
+
+//         // Add the message to the batch
+//         let slices = buff_read.get_slices();
+//         for s in slices.iter() {
+//             context.batch.add_slice(s.clone());
+//         }
+//         batchlen += buff_read.len();
+//     }
+
+//     Ok(())
+// }
+
+// async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
+//     let batch_read = RBuf::from(&context.batch);
+//     if !batch_read.is_empty() {
+//         // Transmit the batch on the link
+//         if let Err(e) = link.send(&context.batch).await {
+//             // Clear the batch buffer
+//             context.batch.clear();
+//             return Err(e)
+//         }
+//     }
+//     // Clear the batch buffer
+//     context.batch.clear();
+
+//     Ok(())
+// }
+
+async fn map_batch_fragment(
+    // inner: ChannelInnerTx,
+    drain: &mut CreditQueueDrain<'_, MessageTx>,
+    batches: &mut Vec<WBuf>,
+    fragment: &mut WBuf
+) { 
     // if let Some(main_idx) = inner.main_idx {
     //     // If there is a main link, it means that there is at least one link
     //     // associated to the conduit. Drain the messages and perform the mapping
@@ -138,153 +253,140 @@ impl LinkContext {
     //         }
     //     }
     // }
-// }
+}
 
-// async fn batch_fragement_transmit(link: &Link, context: &mut LinkContext, batchsize: usize) -> ZResult<()> {
-    // let batchsize = batchsize.min(link.get_mtu());
-    // let mut batchlen = 0;
-    // // Process all the messages just drained
-    // for msg in context.messages.drain(..) {        
-    //     // Clear the message buffer
-    //     context.buffer.clear();
-    //     // Serialize the message on the buffer
-    //     context.buffer.write_message(&msg.inner);
-
-    //     // Create the RBuf out of batch and buff WBuff for transmission
-    //     let buff_read = context.buffer.as_rbuf();
-
-    //     if let Some(notify) = msg.notify {
-    //         // Transmit the current batch if present
-    //         if batchlen > 0 { 
-    //             let batch_read = context.batch.as_rbuf();
-    //             if let Err(e) = link.send(batch_read).await {
-    //                 // Clear the batch buffer
-    //                 context.batch.clear();
-    //                 return Err(e)
-    //             }
-    //             // Clear the batch buffer
-    //             context.batch.clear();
-    //             // Reset the batchlen
-    //             batchlen = 0;
-    //         }
-    //         // Transmit now the message
-    //         let res = link.send(buff_read).await;
-    //         // Notify now the result 
-    //         notify.send(res).await;
-    //         // We are done with this message, continue with the following one
-    //         continue
-    //     } else if batchlen + buff_read.len() > batchsize {
-    //         // The message does not fit in the batch, first transmit the current batch
-    //         let batch_read = context.batch.as_rbuf();
-    //         if let Err(e) = link.send(batch_read).await {
-    //             // Clear the batch buffer
-    //             context.batch.clear();
-    //             return Err(e)
-    //         }
-    //         // Clear the batch buffer
-    //         context.batch.clear();
-    //         // Reset the batchlen
-    //         batchlen = 0;
-    //     }
-
-    //     // Add the message to the batch
-    //     let slices = buff_read.get_slices();
-    //     for s in slices.iter() {
-    //         context.batch.add_slice(s.clone());
-    //     }
-    //     batchlen += buff_read.len();
-    // }
-
-//     Ok(())
-// }
-
-// async fn flush_batch(link: &Link, context: &mut LinkContext) -> ZResult<()> {
-    // let batch_read = RBuf::from(&context.batch);
-    // if !batch_read.is_empty() {
-    //     // Transmit the batch on the link
-    //     if let Err(e) = link.send(&context.batch).await {
-    //         // Clear the batch buffer
-    //         context.batch.clear();
-    //         return Err(e)
-    //     }
-    // }
-    // // Clear the batch buffer
-    // context.batch.clear();
-
-//     Ok(())
-// }
-
-// Consuming function
-// async fn consume_loop(conduit: &Arc<Channel>) -> Option<bool> {
+// Consume function
+async fn consume_loop(ch: &Arc<Channel>) -> Option<bool> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
-    // Create a buffer for the batching
-    // let mut context: Vec<LinkContext> = Vec::new();
-    // while conduit.is_active() {
-    //     // Get a Drain iterator for the queue
-    //     // drain() waits for the queue to be non-empty
-    //     let mut drain = conduit.queue.drain().await;
+    // Create a buffer per link for the batching
+    let mut even = true;
+    let mut batches_one: Vec<WBuf> = Vec::new();
+    let mut batches_two: Vec<WBuf> = Vec::new();
+    let mut len = 0;
+    let mut links: Arc<Vec<Link>> = Arc::new(Vec::new());
 
-    //     // Acquire the lock on the inner conduit data structure
-    //     let mut inner = zasynclock!(conduit.tx);
-    //     // Create or remove link context if needed
-    //     if context.len() != inner.links.len() {
-    //         context.resize_with(inner.links.len(), || LinkContext::new(inner.batchsize));
-    //     }
+    // Create a general buffer for fragmentation
+    let mut fragment = WBuf::new(*WRITE_MSG_SLICE_SIZE, false);
 
-    //     // Keep mapping, batching, fragmenting and transmitting until there are
-    //     // messages in the queue
-    //     while conduit.is_active() {  
-    //         // Map the messages on the links. This operation drains messages from the Drain iterator
-    //         map_messages_on_links(&mut inner, &mut drain, &mut context).await;
-    //         // The drop() on Drain object needs to be manually called since an async
-    //         // destructor is not yet supported in Rust. More information available at:
-    //         // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
-    //         drain.drop().await;
-    //         // Batch/Fragmenet and transmit the messages
-    //         for (i, mut c) in context.iter_mut().enumerate() {
-    //             let res = batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
-    //             if res.is_err() {
-    //                 // There was an error while transmitting. Deschedule the task to allow other tasks 
-    //                 // to be scheduled and eventually break this loop because the task needs to be stopeed
-    //                 task::yield_now().await;
-    //                 break
-    //             }
-    //         }
-    //         // Try to drain messages from the queue
-    //         // try_drain does not wait for the queue to be non-empty
-    //         drain = conduit.queue.try_drain().await;
-    //         // Check if we can drain from the Drain iterator
-    //         let (min, _) = drain.size_hint();
-    //         if min == 0 {
-    //             // The drop() on Drain object needs to be manually called since an async
-    //             // destructor is not yet supported in Rust. More information available at:
-    //             // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
-    //             drain.drop().await;
-    //             break
-    //         }
-    //     }
+    while ch.is_active() {
+        // Acquire the lock on the inner conduit data structure
+        let mut inner = zasynclock!(ch.tx);
 
-    //     // Transmit all the messages left in the batch if any
-    //     for (i, mut c) in context.iter_mut().enumerate() {
-    //         let _ = flush_batch(&inner.links[i], &mut c).await;
-    //     }
+        // Create or remove link batches if needed
+        if len != inner.links.len() {
+            batches_one = Vec::new();
+            batches_two = Vec::new();
+            for link in inner.links.iter() {
+                let batchsize = inner.batchsize.min(link.get_mtu());
+                batches_one.push(WBuf::new(batchsize, true));
+                batches_two.push(WBuf::new(batchsize, true));
+            }
+            links = Arc::new(inner.links.clone());
+            len = inner.links.len();
+        }
 
-    //     // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
-    //     task::yield_now().await;
-    // }
+        // Use double buffering to allow parallel serialization and transmission
+        let (mut serialize, mut transmit) = if even {
+            (&mut batches_one, &mut batches_two)
+        } else {
+            (&mut batches_two, &mut batches_one)
+        };
+        let mut frag = &mut fragment;
 
-//     None
-// }
+        // Get a Drain iterator for the queue
+        // drain() waits for the queue to be non-empty
+        let mut drain = ch.queue.drain().await;
+
+        // Keep mapping, batching, fragmenting and transmitting until there are
+        // messages in the queue
+        while ch.is_active() {
+            even = !even;
+
+            // let r_inner = &mut inner;
+            {
+                let f_sr = async {
+                    // Map the messages on the links. This operation drains messages from the Drain iterator
+                    map_batch_fragment(&mut drain, &mut serialize, &mut frag).await;  
+                    
+                    // The drop() on Drain object needs to be manually called since an async
+                    // destructor is not yet supported in Rust. More information available at:
+                    // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
+                    drain.drop().await;
+                };
+
+                let futs: FuturesUnordered<_> = links.iter().enumerate().map(|(i, l)| {
+                    // let len = transmit[i].len();
+                    let buffer = transmit[i].get_buffer();
+                    // futs.push(l.send(buffer));
+                    l.send(buffer)
+                }).collect();
+                let f_tx = futs.into_future();
+                
+                // let f_tx = async {
+                //     for (i, link) in links.iter().enumerate() {    
+                //         let len = transmit[i].len();
+                //         let buffer = transmit[i].get_first_slice_mut(len);
+                //         let res = link.send(buffer).await;
+                //         if res.is_err() {
+                //             // There was an error while transmitting. Deschedule the task to allow other tasks 
+                //             // to be scheduled and eventually break this loop because the task needs to be stopeed
+                //             task::yield_now().await;
+                //             break
+                //         }
+                //     }
+                // };
+
+                let res = f_sr.join(f_tx).await;
+            }
+
+            // Swap the serialize and transmit pointers for the next iteration
+            std::mem::swap(&mut serialize, &mut transmit);
+
+            // // Batch/Fragmenet and transmit the messages
+            // for (i, mut c) in context.iter_mut().enumerate() {
+            //     let res = batch_fragement_transmit(&inner.links[i], &mut c, inner.batchsize).await;
+            //     if res.is_err() {
+            //         // There was an error while transmitting. Deschedule the task to allow other tasks 
+            //         // to be scheduled and eventually break this loop because the task needs to be stopeed
+            //         task::yield_now().await;
+            //         break
+            //     }
+            // }
+            // Try to drain messages from the queue
+            // try_drain does not wait for the queue to be non-empty
+            drain = ch.queue.try_drain().await;
+            // Check if we can drain from the Drain iterator
+            let (min, _) = drain.size_hint();
+            if min == 0 {
+                // The drop() on Drain object needs to be manually called since an async
+                // destructor is not yet supported in Rust. More information available at:
+                // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
+                drain.drop().await;
+                break
+            }
+        }
+
+        // // Transmit all the messages left in the batch if any
+        // for (i, mut c) in context.iter_mut().enumerate() {
+        //     let _ = flush_batch(&inner.links[i], &mut c).await;
+        // }
+
+        // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
+        task::yield_now().await;
+    }
+
+    None
+}
 
 async fn consume_task(conduit: Arc<Channel>, receiver: Receiver<bool>) {
-    // // Create the consume future
-    // let consume = consume_loop(&conduit);
-    // // Create the signal future
-    // let signal = receiver.recv();
-    // // Wait for the stop signal
-    // let _ = consume.race(signal).await;
+    // Create the consume future
+    let consume = consume_loop(&conduit);
+    // Create the signal future
+    let signal = receiver.recv();
+    // Wait for the stop signal
+    let _ = consume.race(signal).await;
 }
 
 /*************************************/
@@ -316,9 +418,6 @@ struct ChannelInnerTx {
 
 impl ChannelInnerTx {
     fn new(sn_resolution: ZInt, initial_sn: ZInt, batchsize: usize) -> ChannelInnerTx {
-        // @TODO: Randomly initialize the SN generator
-        let zero: ZInt = 0;
-
         ChannelInnerTx {
             sn: SeqNumTx::new(sn_resolution, initial_sn),
             batchsize,
@@ -436,7 +535,7 @@ pub(super) struct Channel {
     active: AtomicBool,
     // The callback has been set or not
     has_callback: AtomicBool,
-    queue: CreditQueue<MessageInner>,
+    queue: CreditQueue<MessageTx>,
     tx: Mutex<ChannelInnerTx>,
     rx: Mutex<ChannelInnerRx>,
     signal: Mutex<Option<Sender<bool>>>
@@ -454,23 +553,23 @@ impl Channel {
         manager: Arc<SessionManagerInner>
     ) -> Channel {
         // The buffer to send the Control messages. High priority
-        let ctrl = CreditBuffer::<MessageInner>::new(
+        let ctrl = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_CTRL,
             *QUEUE_CRED_CTRL,
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the retransmission of messages. Medium priority
-        let retx = CreditBuffer::<MessageInner>::new(
+        let retx = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_RETX,
             *QUEUE_CRED_RETX,
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the Data messages. Low priority
-        let data = CreditBuffer::<MessageInner>::new(
+        let data = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_DATA,
             *QUEUE_CRED_DATA,
             // @TODO: Once the reliability queue is implemented, update the spending policy
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // Build the vector of buffer for the transmission queue.
         // A lower index in the vector means higher priority in the queue.
@@ -516,68 +615,59 @@ impl Channel {
     }
 
     pub(super) async fn close(&self) -> ZResult<()> {
-        Ok(())
+        let peer_id = Some(self.pid.clone());
+        let reason_id = smsg::close_reason::GENERIC;              
+        let link_only = false;  // This is should always be false for user-triggered close              
+        let attachment = None;  // No attachment here
+        let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
+
+        let (sender, receiver) = channel::<ZResult<()>>(1);
+        let message = MessageTx {
+            inner: MessageInner::Session(message),
+            link: None,
+            notify: Some(sender)
+        };
+        self.queue.push(message, *QUEUE_PRIO_DATA).await;
+
+        // Wait for the message to be actually sent
+        let res = match receiver.recv().await {
+            Some(res) => res,
+            None => Err(zerror!(ZErrorKind::Other {
+                descr: "Send failed unexpectedly!".to_string()
+            })),
+        };
+
+        // Stop the consume_task
+        self.stop().await;
+
+        res
     }
 
     /*************************************/
     /*        SCHEDULE AND SEND TX       */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(super) async fn schedule(&self, message: ZenohMessage,link: Option<Link>) {
-        // let message = MessageTx {
-        //     inner: message,
-        //     notify: None,
-        //     link
-        // };
-        // // Wait for the queue to have space for the message
-        // self.push_on_conduit_queue(message, priority).await;
+    pub(super) async fn schedule(&self, message: ZenohMessage, link: Option<Link>) {
+        let message = MessageTx {
+            inner: MessageInner::Zenoh(message),
+            notify: None,
+            link
+        };
+        // Wait for the queue to have space for the message
+        self.queue.push(message, *QUEUE_PRIO_DATA).await;
     }
 
     // Schedule a batch of messages to be sent asynchronsly
-    pub(super) async fn schedule_batch(&self, messages: Vec<ZenohMessage>, link: Option<Link>) {
-        // let cid: ZInt = cid.unwrap_or(0);
-        // let messages = messages.drain(..).map(|mut x| {
-        //     x.cid = cid;
-        //     MessageTx {
-        //         inner: x,
-        //         link: link.clone(),
-        //         notify: None
-        //     }
-        // }).collect();
-        // // Wait for the queue to have space for the message
-        // self.push_batch_on_conduit_queue(messages, priority, cid).await;
-    }
-
-    async fn push_on_conduit_queue(&self, message: MessageInner, priority: usize) {
-        // Push the message on the conduit queue
-        // If the conduit does not exist, create it on demand
-        // let guard = zasyncread!(self.conduits);
-        // if let Some(conduit) = guard.get(&message.inner.cid) {
-        //     conduit.queue.push(message, priority).await;
-        // } else {
-        //     // Drop the guard to dynamically add the new conduit
-        //     drop(guard);
-        //     // Add the new conduit
-        //     if let Ok(conduit) = self.new_conduit(message.inner.cid).await {
-        //         conduit.queue.push(message, priority).await
-        //     }
-        // }
-    }
-
-    async fn push_batch_on_conduit_queue(&self, messages: Vec<MessageInner>, priority: usize, cid: ZInt) {
-        // Push the message on the conduit queue
-        // If the conduit does not exist, create it on demand
-        // let guard = zasyncread!(self.conduits);
-        // if let Some(conduit) = guard.get(&cid) {
-        //     conduit.queue.push_batch(messages, priority).await;
-        // } else {
-        //     // Drop the guard to dynamically add the new conduit
-        //     drop(guard);
-        //     // Add the new conduit
-        //     if let Ok(conduit) = self.new_conduit(cid).await {
-        //         conduit.queue.push_batch(messages, priority).await;
-        //     }
-        // }
+    pub(super) async fn schedule_batch(&self, mut messages: Vec<ZenohMessage>, link: Option<Link>) {
+        let messages = messages.drain(..).map(|x| {
+            MessageTx {
+                inner: MessageInner::Zenoh(x),
+                link: link.clone(),
+                notify: None
+            }
+        }).collect();
+        // Wait for the queue to have space for the message
+        self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;
     }
 
     /*************************************/
@@ -610,19 +700,19 @@ impl Channel {
         self.active.load(Ordering::Relaxed)
     }
 
-    pub(super) async fn start(conduit: &Arc<Self>) {
+    pub(super) async fn start(a_self: &Arc<Self>) {
         // If not already active, start the transmission loop
-        if !conduit.active.swap(true, Ordering::Relaxed) {
+        if !a_self.active.swap(true, Ordering::Relaxed) {
             // Create the signal channel
             let (sender, receiver) = channel::<bool>(1);
             // Store the sender
-            let mut guard = zasynclock!(conduit.signal);
+            let mut guard = zasynclock!(a_self.signal);
             // Store the sender needed to stop the transmission loop
             *guard = Some(sender);
-            // Drop the guard that borrows the conduit
+            // Drop the guard that borrows the channel
             drop(guard);
             // Spawn the transmission loop
-            task::spawn(consume_task(conduit.clone(), receiver));
+            task::spawn(consume_task(a_self.clone(), receiver));
         }
     }
 
@@ -724,6 +814,6 @@ impl TransportTrait for Channel {
     }
 
     async fn link_err(&self, link: &Link) {
-
+        let _ = self.del_link(link).await;
     }
 }

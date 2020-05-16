@@ -427,7 +427,7 @@ impl InitialSession {
                     // Invalid value, send a Close message
                     let peer_id = Some(self.manager.config.pid.clone());
                     let reason_id = smsg::close_reason::INVALID;              
-                    let link_only = false;  // This is should always be true for invalid sn resolution                
+                    let link_only = false;  // This is should always be false for invalid sn resolution                
                     let attachment = None;  // No attachment here
                     let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
@@ -453,7 +453,7 @@ impl InitialSession {
                 // Invalid value, send a Close message
                 let peer_id = Some(self.manager.config.pid.clone());
                 let reason_id = smsg::close_reason::INVALID;              
-                let link_only = false;  // This is should always be true for invalid sn resolution                
+                let link_only = false;  // This is should always be false for invalid initial sn                
                 let attachment = None;  // No attachment here
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
@@ -485,7 +485,7 @@ impl InitialSession {
                 // Invalid value, send a Close message
                 let peer_id = Some(self.manager.config.pid.clone());
                 let reason_id = smsg::close_reason::INVALID;              
-                let link_only = false;  // This is should always be true for invalid sn resolution                
+                let link_only = true;  // This is should always be true for error when adding the link                
                 let attachment = None;  // No attachment here
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 

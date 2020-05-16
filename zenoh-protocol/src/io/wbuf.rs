@@ -139,6 +139,10 @@ impl WBuf {
         }
     }
 
+    pub fn get_buffer(&self) -> &[u8] {
+        &self.buf[..]
+    }
+
     pub fn get_first_slice_mut(&mut self, len: usize) -> &mut [u8] {
         if let Some(Slice::Internal(_, _)) = self.slices.first() {
             if self.buf.len() >= len {
