@@ -129,8 +129,7 @@ async fn run(locator: Locator) {
 
     // Open a first session from the client to the router 
     // -> This should be accepted
-    let res = client01_manager.open_session(&locator, &attachment).await;
-    println!("{:?}", res);
+    let res = client01_manager.open_session(&locator, &attachment).await;    
     assert!(res.is_ok());
     let c_ses1 = res.unwrap();
     assert_eq!(client01_manager.get_sessions().await.len(), 1);
@@ -186,7 +185,9 @@ async fn run(locator: Locator) {
 
     /* [4] */
     // Close the open session on the client
+    println!("=== SESSION CLOSING 4");
     let res = c_ses1.close().await;
+    println!("=== SESSION CLOSING 4 RES: {:?}", res);
     assert!(res.is_ok());
     assert_eq!(client01_manager.get_sessions().await.len(), 0);
 

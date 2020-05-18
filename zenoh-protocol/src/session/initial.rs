@@ -29,7 +29,7 @@ macro_rules! zsend {
         if $link.is_streamed() {
             let length: u16 = wbuf.len() as u16 - 2;
             // Write the length on the first 16 bits
-            let bits = wbuf.get_first_slice_mut(2);
+            let bits = wbuf.get_first_slice_mut(..2);
             bits.copy_from_slice(&length.to_le_bytes());
         }
         let mut buffer = vec![0u8; wbuf.len()];
@@ -559,7 +559,7 @@ impl InitialSession {
 #[async_trait]
 impl TransportTrait for InitialSession {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        println!("Initial Session: {:?}", message.body);
+        println!("::: Initial Session: {:?}", message.body);
         match message.body {
             SessionBody::Open { version, whatami, pid, lease, initial_sn, sn_resolution, locators } => {
                 self.process_open(link, version, whatami, pid, lease, initial_sn, sn_resolution, locators).await

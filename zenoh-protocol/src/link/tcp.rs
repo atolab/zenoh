@@ -65,7 +65,7 @@ pub struct Tcp {
     ch_send: Sender<bool>,
     ch_recv: Receiver<bool>,
     // Weak reference to self
-    w_self: RwLock<Option<Weak<Tcp>>>
+    w_self: RwLock<Option<Weak<Self>>>
 }
 
 impl Tcp {

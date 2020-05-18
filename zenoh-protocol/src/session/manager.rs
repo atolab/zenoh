@@ -436,7 +436,8 @@ impl SessionManagerInner {
             a_self.clone(),
         ));
         // Start the channel
-        Channel::start(&a_ch).await;
+        a_ch.initialize(Arc::downgrade(&a_ch));
+        a_ch.start().await;
 
         // Create a weak reference to the session
         let session = Session::new(Arc::downgrade(&a_ch));
