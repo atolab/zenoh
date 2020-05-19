@@ -140,7 +140,7 @@ async fn transport_base_inner() {
     let router_id = PeerId{id: vec![1u8]};
 
     // Reliable messages to send
-    let messages_count: ZInt = 1_000;
+    let messages_count: ZInt = 10_000;
 
     // Create the router session manager
     let config = SessionManagerConfig {

@@ -247,6 +247,7 @@ async fn read_task(link: Arc<Tcp>) {
                             let length: [u8; 2] = buffer[r_pos..end].try_into().unwrap();                            
                             // Update the total amount of bytes that we are expected to read
                             left_to_read = u16::from_le_bytes(length) as usize;       
+                            println!("\tReading {} bytes", left_to_read);
 
                             // Decrement the number of useful bytes just read (i.e. minus 2 bytes)
                             read -= 2;

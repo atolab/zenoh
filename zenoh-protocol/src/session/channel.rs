@@ -1,5 +1,5 @@
 use async_std::prelude::*;
-use async_std::sync::{channel, Arc, Mutex, RwLock, Sender, Weak};
+use async_std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use futures::stream::{FuturesUnordered, StreamExt};
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
 use crate::link::Link;
-use crate::proto::{FramePayload, SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage, channel as ch, smsg};
+use crate::proto::{FramePayload, SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage, smsg};
 use crate::session::{Action, MsgHandler, SessionManagerInner, TransportTrait};
 use crate::session::defaults::{
     // Control buffer
@@ -16,7 +16,7 @@ use crate::session::defaults::{
     QUEUE_SIZE_CTRL,
     QUEUE_CRED_CTRL,
     // Retransmission buffer
-    QUEUE_PRIO_RETX,
+    // QUEUE_PRIO_RETX,
     QUEUE_SIZE_RETX,
     QUEUE_CRED_RETX,
     // Data buffer
@@ -24,10 +24,9 @@ use crate::session::defaults::{
     QUEUE_SIZE_DATA,
     QUEUE_CRED_DATA,
     // Queue size
-    QUEUE_SIZE_TOT,
     QUEUE_CONCURRENCY,
-    // Default slice size when serializing a message
-    WRITE_MSG_SLICE_SIZE
+    // Default slice size when serializing a message that needs to be fragmented
+    // WRITE_MSG_SLICE_SIZE
 };
 use crate::zerror;
 use zenoh_util::collections::{CreditBuffer, CreditQueue};
@@ -56,8 +55,7 @@ struct MessageTx {
     // The inner message to transmit
     inner: MessageInner,
     // The preferred link to transmit the Message on
-    link: Option<Link>,
-    notify: Option<Sender<ZResult<()>>>
+    link: Option<Link>
 }
 
 /*************************************/
@@ -96,8 +94,7 @@ impl MBFContext {
 struct SerializedBatch {
     buffer: WBuf,
     reserved: bool,
-    empty: bool,
-    notify: Vec<Sender<ZResult<()>>>
+    empty: bool
 }
 
 impl SerializedBatch {
@@ -105,8 +102,7 @@ impl SerializedBatch {
         let mut sb = SerializedBatch {
             buffer: WBuf::new(size, true), // Non-expandable batch
             reserved,
-            empty: true,
-            notify: Vec::new()
+            empty: true
         };
         if sb.reserved {
             sb.buffer.write_bytes(&TWO_BYTES);
@@ -157,6 +153,7 @@ impl SerializedBatch {
     fn write_length(&mut self) {
         if self.reserved {
             let length: u16 = self.buffer.len() as u16 - 2;
+            println!("\tWriting {} bytes", length);
             // Write the length on the first 16 bits
             let bits = self.buffer.get_first_slice_mut(..2);
             bits.copy_from_slice(&length.to_le_bytes());
@@ -174,6 +171,8 @@ async fn map_batch_fragment(
     // None means that there is no current frame
     let mut is_current_frame_reliable = None;
 
+    // @TODO: Implement fragmentation here
+
     // Check first if we have some message that did not fit in the previous batch
     if let Some(msg) = context.message.take() {
         // Find the right index for the link
@@ -181,14 +180,7 @@ async fn map_batch_fragment(
             // Check if the target link exists, otherwise fallback on the main link
             if let Some(index) = links.find_link_index(&link) {
                 index
-            } else {
-                if let Some(notify) = &msg.notify {
-                    // Notify now the result 
-                    let res = Err(zerror!(ZErrorKind::InvalidLink {
-                        descr: format!("Can not send message on unexsiting link ({})!", link)
-                    }));
-                    notify.send(res).await;
-                }                
+            } else {                              
                 // Drop this message and clear the context
                 context.clear();
                 return Some(true)
@@ -231,7 +223,7 @@ async fn map_batch_fragment(
                     batches[index].revert();
                     // The frame header or the zenoh message does not fit in the current batch, 
                     // try to serialize them in the next serialization iteration
-                    println!("!!! Zenoh message should be fragmented, however fragmentation is not yet implemented. Dropping Zenoh message.");
+                    println!("!!! Zenoh message should be fragmented. However, fragmentation is not yet implemented. Dropping Zenoh message.");
                     // Clear the context
                     context.clear();
                 }
@@ -239,27 +231,21 @@ async fn map_batch_fragment(
                 // Mark the first reliable zenoh message we are expecting
                 is_current_frame_reliable = Some(reliable);
             },
-            _ => {}
+            _ => {
+                context.clear();
+                return None
+            }
         }
     }
 
-    // Drain the messages and perform the mapping
+    // Drain the messages from the queue and perform the mapping and serialization
     for msg in drain {
-        println!("... Draining {:?}", msg.inner);
-
         // Find the right index for the link
         let index = if let Some(link) = &msg.link {
             // Check if the target link exists, otherwise fallback on the main link
             if let Some(index) = links.find_link_index(&link) {
                 index
             } else {
-                if let Some(notify) = &msg.notify {
-                    // Notify now the result 
-                    let res = Err(zerror!(ZErrorKind::InvalidLink {
-                        descr: format!("Can not send message on unexsiting link ({})!", link)
-                    }));
-                    notify.send(res).await;
-                }
                 // Drop this message, continue with the following one
                 continue;
             } 
@@ -267,7 +253,6 @@ async fn map_batch_fragment(
             DEFAULT_LINK_INDEX
         };
 
-        println!("... Serializing {:?}", msg.inner);
         // Serialize the message
         match &msg.inner {
             MessageInner::Session(m) => {
@@ -349,12 +334,6 @@ async fn map_batch_fragment(
                 return None
             }
         }
-
-        if let Some(notify) = msg.notify {
-            println!("... Adding notify {:?}", msg.inner);
-            // Add the notification handle if any to the serialized batch
-            batches[index].notify.push(notify);
-        }
     }
 
     Some(true)
@@ -381,7 +360,7 @@ async fn consume_task(ch: Arc<Channel>) {
     }
 
     let links_serialize: ChannelLinks = guard.clone();
-    let links_transmit = guard.links.clone();
+    let links_transmit: Vec<Link> = guard.links.clone();
 
     // Drop the mutex guard
     drop(guard);
@@ -404,9 +383,6 @@ async fn consume_task(ch: Arc<Channel>) {
 
         // Explicit scope for transmit mutability
         {
-            println!("+++\t\t(0) Serialize: {:?}", serialize[0].get_buffer());
-            println!("+++\t\t(0) Transmit: {:?}", transmit[0].get_buffer());
-
             // Serialization future
             let f_sr = async {                             
                 // Get a Drain iterator for the queue
@@ -428,7 +404,7 @@ async fn consume_task(ch: Arc<Channel>) {
                     if let Some(iterate) = res {
                         if iterate {
                             // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
-                            // task::yield_now().await;
+                            task::yield_now().await;
                             
                             // Try to drain messages from the queue
                             // try_drain does not wait for the queue to be non-empty
@@ -465,15 +441,9 @@ async fn consume_task(ch: Arc<Channel>) {
             for (i, link) in links_transmit.iter().enumerate() {                
                 if !transmit[i].is_empty() {
                     let buffer = transmit[i].get_buffer();
-                    // @TODO: find a way to avoid the clone on the notify
-                    let mut notify = transmit[i].notify.clone();
                     // Push the future to the future list
                     futs.push(async move {
                         let res = link.send(buffer).await;
-                        for n in notify.drain(..) {
-                            // @TODO: Propagate tx errros
-                            n.send(Ok(())).await;
-                        }
                         res
                     });                    
                 }
@@ -481,7 +451,7 @@ async fn consume_task(ch: Arc<Channel>) {
             let f_tx = futs.into_future();            
 
             // Join serialization and transmission futures
-            let res = f_sr.join(f_tx).await;
+            let _ = f_sr.join(f_tx).await;
 
             // @TODO: Handle res
         }
@@ -497,6 +467,25 @@ async fn consume_task(ch: Arc<Channel>) {
         // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
         task::yield_now().await;
     }
+
+    // Send any leftover on the transmission batch
+    // Transmission future
+    let futs: FuturesUnordered<_> = FuturesUnordered::new();
+    // Concurrently send on all the selected links
+    for (i, link) in links_transmit.iter().enumerate() {                
+        if !transmit[i].is_empty() {
+            let buffer = transmit[i].get_buffer();
+            // Push the future to the future list
+            futs.push(async move {
+                let res = link.send(buffer).await;
+                res
+            });                    
+        }
+    }
+    let _ = futs.into_future().await;
+
+    // Synchronize with the stop()
+    ch.barrier.wait().await;
 }
 
 /*************************************/
@@ -600,6 +589,13 @@ struct SeqNumRx {
 
 impl SeqNumRx {
     fn new(sn_resolution: ZInt, initial_sn: ZInt) -> SeqNumRx {
+        // Set the sequence number in the state as it had 
+        // received a message with initial_sn - 1
+        let initial_sn = if initial_sn == 0 {
+            sn_resolution
+        } else {
+            initial_sn - 1
+        };
         SeqNumRx {
             reliable: SeqNum::make(initial_sn, sn_resolution).unwrap(),
             best_effort: SeqNum::make(initial_sn, sn_resolution).unwrap(),
@@ -609,7 +605,6 @@ impl SeqNumRx {
 
 // Store the mutable data that need to be used for transmission
 struct ChannelInnerRx {    
-    manager: Arc<SessionManagerInner>,
     lease: ZInt,
     sn: SeqNumRx,
     callback: Option<Arc<dyn MsgHandler + Send + Sync>>
@@ -617,14 +612,12 @@ struct ChannelInnerRx {
 
 impl ChannelInnerRx {
     fn new(
-        manager: Arc<SessionManagerInner>,
         lease: ZInt,
         sn_resolution: ZInt,
         initial_sn: ZInt
     ) -> ChannelInnerRx {
         // @TODO: Randomly initialize the SN generator
         ChannelInnerRx {
-            manager,
             lease,
             sn: SeqNumRx::new(sn_resolution, initial_sn),
             callback: None
@@ -638,6 +631,8 @@ impl ChannelInnerRx {
 /*************************************/
 
 pub(super) struct Channel {
+    // The manager this channel is associated to
+    manager: Arc<SessionManagerInner>,
     // The remote peer id
     pid: PeerId,
     // The session lease in seconds
@@ -656,20 +651,22 @@ pub(super) struct Channel {
     tx: Mutex<ChannelInnerTx>,
     // The mutable data struct for reception
     rx: Mutex<ChannelInnerRx>,
+    // Barrier for syncrhonizing the stop() with the consume_task
+    barrier: Arc<Barrier>,
     // Weak reference to self
     w_self: RwLock<Option<Weak<Self>>>
 }
 
 impl Channel {
     pub(super) fn new(
+        manager: Arc<SessionManagerInner>,
         pid: PeerId, 
         whatami: WhatAmI,
         lease: ZInt,
         sn_resolution: ZInt, 
         initial_sn_tx: ZInt,
         initial_sn_rx: ZInt,
-        batchsize: usize, 
-        manager: Arc<SessionManagerInner>
+        batchsize: usize        
     ) -> Channel {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
@@ -696,6 +693,7 @@ impl Channel {
         let queue_tx = vec![ctrl, retx, data];
 
         Channel{
+            manager,
             pid,
             lease,
             sn_resolution,
@@ -704,7 +702,8 @@ impl Channel {
             active: AtomicBool::new(false),
             links: RwLock::new(ChannelLinks::new(batchsize)),
             tx: Mutex::new(ChannelInnerTx::new(sn_resolution, initial_sn_tx)),
-            rx: Mutex::new(ChannelInnerRx::new(manager, lease, sn_resolution, initial_sn_rx)),
+            rx: Mutex::new(ChannelInnerRx::new(lease, sn_resolution, initial_sn_rx)),
+            barrier: Arc::new(Barrier::new(2)),
             w_self: RwLock::new(None)
         }
     }
@@ -739,32 +738,33 @@ impl Channel {
     }
 
     pub(super) async fn close(&self) -> ZResult<()> {
-        let peer_id = Some(self.pid.clone());
-        let reason_id = smsg::close_reason::GENERIC;              
-        let link_only = false;  // This is should always be false for user-triggered close              
-        let attachment = None;  // No attachment here
-        let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
+        // Mark the channel as inactive
+        if self.active.swap(false, Ordering::Relaxed) {
+            let peer_id = Some(self.manager.config.pid.clone());
+            let reason_id = smsg::close_reason::GENERIC;              
+            let link_only = false;  // This is should always be false for user-triggered close              
+            let attachment = None;  // No attachment here
+            let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
-        let (sender, receiver) = channel::<ZResult<()>>(1);
-        let message = MessageTx {
-            inner: MessageInner::Session(message),
-            link: None,
-            notify: Some(sender)
-        };
-        self.queue.push(message, *QUEUE_PRIO_DATA).await;
+            let close = MessageTx {
+                inner: MessageInner::Session(message),
+                link: None
+            };
+            let stop = MessageTx {
+                inner: MessageInner::Stop,
+                link: None
+            };
+            // Atomically push the close and stop messages to the queue
+            self.queue.push_batch(vec![close, stop], *QUEUE_PRIO_DATA).await;
 
-        // Wait for the message to be actually sent
-        let res = match receiver.recv().await {
-            Some(res) => res,
-            None => Err(zerror!(ZErrorKind::Other {
-                descr: "Send failed unexpectedly!".to_string()
-            })),
-        };
+            // Wait for the consume_task to stop
+            self.barrier.wait().await;
 
-        // Stop the consume_task
-        self.stop().await;
-
-        res
+            // Delete the session on the manager
+            self.manager.del_session(&self.pid).await?;
+        }
+        
+        Ok(())
     }
 
     /*************************************/
@@ -774,7 +774,6 @@ impl Channel {
     pub(super) async fn schedule(&self, message: ZenohMessage, link: Option<Link>) {
         let message = MessageTx {
             inner: MessageInner::Zenoh(message),
-            notify: None,
             link
         };
         // Wait for the queue to have space for the message
@@ -787,7 +786,6 @@ impl Channel {
             MessageTx {
                 inner: MessageInner::Zenoh(x),
                 link: link.clone(),
-                notify: None
             }
         }).collect();
         // Wait for the queue to have space for the message
@@ -800,17 +798,21 @@ impl Channel {
     pub(super) async fn add_link(&self, link: Link) -> ZResult<()> {
         self.stop().await?;
         zasyncwrite!(self.links).add_link(link).await?;
-        self.start().await
+        self.start().await?;
+        Ok(())
     }
 
     pub(super) async fn del_link(&self, link: &Link) -> ZResult<()> {
         self.stop().await?;
         let mut guard = zasyncwrite!(self.links);
         guard.del_link(link).await?;
-        // Stop the conduit if it has no links left
+        // Start the channel only if there are links left
         if !guard.links.is_empty() {
             self.start().await?;
-        }   
+        } else {
+            // @TODO: Remove the else statement once the lease is implemented
+            self.manager.del_session(&self.pid).await?;
+        }
         Ok(())    
     }
 
@@ -822,11 +824,6 @@ impl Channel {
     /*************************************/
     /*               TASK                */
     /*************************************/
-    #[inline]
-    pub(super) fn is_active(&self) -> bool {
-        self.active.load(Ordering::Relaxed)
-    }
-
     pub(super) async fn start(&self) -> ZResult<()> {
         // Get the Arc to the channel
         let ch = if let Some(ch) = zasyncread!(self.w_self).as_ref() {
@@ -854,10 +851,10 @@ impl Channel {
         if self.active.swap(false, Ordering::Relaxed) {
             let msg = MessageTx {
                 inner: MessageInner::Stop,
-                link: None,
-                notify: None
+                link: None
             };
             self.queue.push(msg, *QUEUE_PRIO_CTRL).await;
+            self.barrier.wait().await;
         }
 
         Ok(())
@@ -867,52 +864,96 @@ impl Channel {
     /*************************************/
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
-    async fn process_reliable_frame(&self, messages: Vec<ZenohMessage>, sn: ZInt) -> Action {
+    async fn process_reliable_frame(&self, sn: ZInt, payload: FramePayload) -> Action {
         // @TODO: implement the reordering and wait for missing messages
-        // let mut guard = zasynclock!(self.rx);
-        // if guard.callback.is_some() {
-        //     // Messages with invalid SN are automatically dropped
-        //     if guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok() {
-        //         let _ = guard.callback.as_ref().unwrap().handle_message(message).await;
-        //     } else {
-        //         println!("!!! Message with invalid SN dropped: {:?}", message.body);
-        //     }
-        // } else {
-        //     println!("!!! Message dropped because callback is unitialized: {:?}", message.body);
-        // }
+        let mut guard = zasynclock!(self.rx);        
+        if !(guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok()) {
+            println!("!!! Reliable frame with invalid SN dropped");
+            return Action::Read
+        }
+
+        let callback = if let Some(callback) = &guard.callback {
+            callback
+        } else {
+            println!("!!! Frame dropped because callback is unitialized");
+            return Action::Read
+        };
+
+        match payload {
+            FramePayload::Fragment { .. } => {
+                unimplemented!("!!! Fragmentation not implemented");
+            },
+            FramePayload::Messages { mut messages } => {
+                // Pass all the messages concurrently to the callback
+                let futs: FuturesUnordered<_> = messages.drain(..).map(|msg|
+                    callback.handle_message(msg)
+                ).collect();
+                let _ = futs.into_future().await;                
+            }
+        }
+        
         Action::Read
     }
 
-    async fn process_best_effort_frame(&self, messages: Vec<ZenohMessage>, sn: ZInt) -> Action {
-        // let mut guard = zasynclock!(self.rx);
-        // if guard.callback.is_some() {
-        //     // Messages with invalid SN are automatically dropped
-        //     if guard.sn.best_effort.precedes(sn) && guard.sn.best_effort.set(sn).is_ok() {
-        //         let _ = guard.callback.as_ref().unwrap().handle_message(message).await;
-        //     } else {
-        //         println!("!!! Message with invalid SN dropped: {:?}", message.body);
-        //     }
-        // } else {
-        //     println!("!!! Message dropped because callback is unitialized: {:?}", message.body);
-        // }
+    async fn process_best_effort_frame(&self, sn: ZInt, payload: FramePayload) -> Action {
+        let mut guard = zasynclock!(self.rx);        
+        if !(guard.sn.best_effort.precedes(sn) && guard.sn.best_effort.set(sn).is_ok()) {
+            println!("!!! Best effort frame with invalid SN dropped");
+            return Action::Read
+        }
+
+        let callback = if let Some(callback) = &guard.callback {
+            callback
+        } else {
+            println!("!!! Frame dropped because callback is unitialized");
+            return Action::Read
+        };
+
+        match payload {
+            FramePayload::Fragment { .. } => {
+                unimplemented!("!!! Fragmentation not implemented");
+            },
+            FramePayload::Messages { mut messages } => {
+                // Pass all the messages concurrently to the callback
+                let futs: FuturesUnordered<_> = messages.drain(..).map(|msg|
+                    callback.handle_message(msg)
+                ).collect();
+                let _ = futs.into_future().await;                
+            }
+        }
+        
         Action::Read
+    }
+
+    async fn process_close(&self, link: &Link, pid: Option<PeerId>, reason: u8, link_only: bool) -> Action {
+        // Check if the PID is correct when provided
+        if let Some(pid) = pid {
+            if pid != self.pid {
+                let s = format!("!!! Received a Close message from a wrong peer ({:?}) with reason ({}). Ignoring.", pid, reason);
+                println!("{}", s);
+                return Action::Read
+            }
+        }
+        // Delete the link
+        let _ = self.del_link(link).await;
+        // Close all the session if this close message is not for the link only
+        if !link_only {
+            let _ = self.manager.del_session(&self.pid).await;
+        }
+        
+        Action::Close
     }
 }
 
 #[async_trait]
 impl TransportTrait for Channel {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        match message.get_body() {
+        match message.body {
             SessionBody::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");
             },
             SessionBody::Close { pid, reason, link_only } => {
-                println!("CHANNEL CLOSE");
-                // let guard = zasynclock!(self.rx);
-                // let session = zsession!(guard.session);
-                // let c_reason = *reason;
-                // session.process_close(link, pid, c_reason).await
-                unimplemented!("Handling of Close Messages not yet implemented!");
+                self.process_close(link, pid, reason, link_only).await
             },
             SessionBody::Hello { .. } => {
                 unimplemented!("Handling of Hello Messages not yet implemented!");
@@ -932,13 +973,11 @@ impl TransportTrait for Channel {
             SessionBody::Sync { .. } => {
                 unimplemented!("Handling of Sync Messages not yet implemented!");
             }
-            SessionBody::Frame { .. } => {
-                unimplemented!("Handling of Frame Messages not yet implemented!");
-                // let c_sn = *sn;
-                // match reliable {
-                //     true => self.process_reliable_message(message, c_sn).await,
-                //     false => self.process_best_effort_message(message, c_sn).await,
-                // }
+            SessionBody::Frame { ch, sn, payload } => {
+                match ch {
+                    true => self.process_reliable_frame(sn, payload).await,
+                    false => self.process_best_effort_frame(sn, payload).await
+                }
             }
             _ => {
                 // unimplemented!("Handling of Invalid Messages not yet implemented!");

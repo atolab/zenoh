@@ -81,7 +81,7 @@ async fn run(locator: Locator) {
 
     // The timeout when opening a session
     // Set it to 1000 ms for testing purposes
-    let timeout = 1_000;
+    let timeout = 10;
     let retries = 1;
 
     // Create the transport session manager for the first client
@@ -185,9 +185,7 @@ async fn run(locator: Locator) {
 
     /* [4] */
     // Close the open session on the client
-    println!("=== SESSION CLOSING 4");
     let res = c_ses1.close().await;
-    println!("=== SESSION CLOSING 4 RES: {:?}", res);
     assert!(res.is_ok());
     assert_eq!(client01_manager.get_sessions().await.len(), 0);
 
