@@ -385,7 +385,15 @@ async fn consume_task(ch: Arc<Channel>) {
     // Control variable
     let mut active = true; 
 
+    // let mut even = false;
     while active {
+        // even = !even;
+        // let (mut serialize, mut transmit) = if even {
+        //     (&mut batches_one, &mut batches_two)
+        // } else {
+        //     (&mut batches_two, &mut batches_one)
+        // };
+
         // Explicit scope for transmit mutability
         {
             // Serialization future
@@ -474,6 +482,11 @@ async fn consume_task(ch: Arc<Channel>) {
     // Transmission future
     let futs: FuturesUnordered<_> = FuturesUnordered::new();
     // Concurrently send on all the selected links
+    // let (mut serialize, mut transmit) = if even {
+    //     (&mut batches_one, &mut batches_two)
+    // } else {
+    //     (&mut batches_two, &mut batches_one)
+    // };
     for (i, link) in links_transmit.iter().enumerate() {                
         if !transmit[i].is_empty() {
             let buffer = transmit[i].get_buffer();

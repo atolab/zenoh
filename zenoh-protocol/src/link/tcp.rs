@@ -133,7 +133,7 @@ impl LinkTrait for Tcp {
         //         .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
         // }
         
-        println!("Sending: {}", buffer.len());
+        // println!("Sending: {}", buffer.len());
         (&self.socket).write_all(buffer).await
             .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
 
