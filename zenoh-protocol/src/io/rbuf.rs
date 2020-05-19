@@ -187,7 +187,7 @@ impl fmt::Debug for RBuf {
         } else {
             write!(f, " slices:")?;
             for s in &self.slices {
-                write!(f,"\n  {:02x?},", s.as_slice())?;
+                write!(f," {:02x?},", s.as_slice())?;
             }
             write!(f, " }}")
         }

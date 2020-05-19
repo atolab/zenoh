@@ -11,7 +11,7 @@ macro_rules! check {
 
 impl WBuf {
     pub fn write_session_message(&mut self, msg: &SessionMessage) -> bool {
-        if let Some(attachment) = &msg.attachment {
+        if let Some(attachment) = msg.get_attachment() {
             check!(self.write_deco_attachment(attachment, true));
         };
 
@@ -140,10 +140,10 @@ impl WBuf {
     }
 
     pub fn write_zenoh_message(&mut self, msg: &ZenohMessage) -> bool {
-        if let Some(attachment) = &msg.attachment {
+        if let Some(attachment) = msg.get_attachment() {
             check!(self.write_deco_attachment(attachment, false));
         }
-        if let Some(reply_context) = &msg.reply_context {
+        if let Some(reply_context) = msg.get_reply_context() {
             check!(self.write_deco_reply(reply_context));
         }
 

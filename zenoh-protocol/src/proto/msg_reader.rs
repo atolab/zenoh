@@ -181,12 +181,18 @@ impl RBuf {
 
                         FramePayload::Fragment { buffer, is_final }
                     } else {
-                        // @TODO: check 
+                        // @TODO: modify the get_pos/set_pos to mark/revert 
                         let mut messages: Vec<ZenohMessage> = Vec::with_capacity(1);
-                        while let Ok(msg) = self.read_zenoh_message() {
-                            messages.push(msg);
+                        loop {
+                            let pos = self.get_pos();
+                            if let Ok(msg) = self.read_zenoh_message() {
+                                messages.push(msg);
+                            } else {
+                                self.set_pos(pos)?;
+                                break
+                            }
                         }
-
+                        
                         FramePayload::Messages { messages }
                     };
 

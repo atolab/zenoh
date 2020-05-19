@@ -333,7 +333,7 @@ impl fmt::Display for WBuf {
 impl fmt::Debug for WBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.contiguous {
-            write!(f, "WBuf{{ contiguous: {}, len: {}, capacity: {},\n  buf: {:?}\n}}",
+            write!(f, "WBuf{{ contiguous: {}, len: {}, capacity: {},\n  buf: {:02x?}\n}}",
                 self.contiguous, self.buf.len(), self.buf.capacity(), self.buf)
         } else {
             writeln!(f, "WBuf{{ contiguous: {}, buf len: {}, slices: [",

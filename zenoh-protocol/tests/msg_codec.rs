@@ -329,6 +329,8 @@ fn pong_tests() {
 
 #[test]
 fn frame_tests() {
+    let msg_payload_count = 4;
+
     for _ in 0..NUM_ITER {
         let ch = [channel::RELIABLE, channel::BEST_EFFORT];
         let reply_context = [None, Some(gen_reply_context(false)), Some(gen_reply_context(true))];
@@ -340,7 +342,7 @@ fn frame_tests() {
         for c in ch.iter() {
             for r in reply_context.iter() {
                 for a in attachment.iter() {
-                    payload.push(FramePayload::Messages { messages: vec![ZenohMessage::make_unit(*c, r.clone(), a.clone()); 3] });
+                    payload.push(FramePayload::Messages { messages: vec![ZenohMessage::make_unit(*c, r.clone(), a.clone()); msg_payload_count] });
                 }
             }
         }
@@ -353,6 +355,78 @@ fn frame_tests() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn frame_batching_tests() {     
+    for _ in 0..NUM_ITER {        
+        // Contigous batch
+        let mut wbuf = WBuf::new(64, true);
+        // Written messages
+        let mut written: Vec<SessionMessage> = Vec::new();
+
+        // Create empty frame message
+        let ch = channel::RELIABLE;        
+        let payload = FramePayload::Messages { messages: vec![] };
+        let sn = gen!(ZInt);
+        let sattachment = None;
+        let frame = SessionMessage::make_frame(ch, sn, payload, sattachment.clone());
+
+        // Write the first frame header
+        assert!(wbuf.write_session_message(&frame));
+
+        // Create data message
+        let reliable = true;
+        let key = ResKey::RName("test".to_string());
+        let info = None;
+        let payload = RBuf::from(vec![0u8; 1]);
+        let reply_context = None;
+        let zattachment = None;
+        let data = ZenohMessage::make_data(reliable, key, info, payload, reply_context, zattachment);
+
+        // Write the first data message
+        assert!(wbuf.write_zenoh_message(&data));
+
+        // Store the first session message written
+        let payload = FramePayload::Messages { messages: vec![data.clone(); 1] };
+        written.push(SessionMessage::make_frame(ch, sn, payload, sattachment.clone()));
+
+        // Write the second frame header
+        assert!(wbuf.write_session_message(&frame));
+
+        // Write until we fill the batch
+        let mut messages: Vec<ZenohMessage> = Vec::new();
+        loop {           
+            wbuf.mark();
+            if wbuf.write_zenoh_message(&data) {
+                messages.push(data.clone());
+            } else {
+                wbuf.revert();
+                break
+            }
+        }
+
+        // Store the second session message written
+        let payload = FramePayload::Messages { messages };
+        written.push(SessionMessage::make_frame(ch, sn, payload, sattachment));        
+        
+        // Deserialize from the buffer
+        let mut rbuf = RBuf::from(&wbuf);
+
+        let mut read: Vec<SessionMessage> = Vec::new();
+        loop {
+            let pos = rbuf.get_pos();
+            match rbuf.read_session_message() {
+                Ok(msg) => read.push(msg),
+                Err(_) => {
+                    assert!(rbuf.set_pos(pos).is_ok());
+                    break
+                }                
+            }
+        }
+
+        assert_eq!(written, read);
     }
 }
 

@@ -528,7 +528,6 @@ impl Session {
     pub async fn schedule_batch(&self, messages: Vec<ZenohMessage>, link: Option<Link>) -> ZResult<()> {
         let channel = zchannel!(self.0);
         channel.schedule_batch(messages, link).await;
-        task::yield_now().await;
         Ok(())
     }
 }
@@ -537,6 +536,7 @@ impl Session {
 impl MsgHandler for Session {
     #[inline]
     async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
+        println!("\n... Scheduling: {:?}\n", message.body);
         self.schedule(message, None).await
     }
 

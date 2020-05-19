@@ -559,7 +559,6 @@ impl InitialSession {
 #[async_trait]
 impl TransportTrait for InitialSession {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        println!("::: Initial Session: {:?}", message.body);
         match message.body {
             SessionBody::Open { version, whatami, pid, lease, initial_sn, sn_resolution, locators } => {
                 self.process_open(link, version, whatami, pid, lease, initial_sn, sn_resolution, locators).await

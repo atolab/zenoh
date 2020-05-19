@@ -470,6 +470,16 @@ impl ZenohMessage {
     pub fn get_attachment_mut(&mut self) -> &mut Option<Attachment> {
         &mut self.attachment
     }
+
+    #[inline]
+    pub fn get_reply_context(&self) -> &Option<ReplyContext> {
+        &self.reply_context
+    }
+
+    #[inline]
+    pub fn get_reply_context_mut(&mut self) -> &mut Option<ReplyContext> {
+        &mut self.reply_context
+    }
 }
 
 /*************************************/
