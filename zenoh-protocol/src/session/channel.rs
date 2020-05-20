@@ -65,8 +65,9 @@ struct SerializedBatch {
 impl SerializedBatch {
     fn new(link: Link, size: usize) -> SerializedBatch {
         let size = size.min(link.get_mtu());
-        // Create 
+        // Create the buffer
         let mut buffer = WBuf::new(size, true);
+        // Reserve two bytes if the link is streamed
         if link.is_streamed() {
             buffer.write_bytes(&TWO_BYTES);
         }
@@ -87,7 +88,7 @@ impl SerializedBatch {
     async fn transmit(&mut self) -> ZResult<()> {
         let mut length: u16 = self.buffer.len() as u16;
         if self.link.is_streamed() {
-            // Remove from the total the 16 bites used for the length
+            // Remove from the total the 16 bits used for the length
             length -= 2;
             // Write the length on the first 16 bits
             let bits = self.buffer.get_first_slice_mut(..2);
@@ -138,14 +139,14 @@ async fn batch_fragment_transmit(
     inner: &mut ChannelInnerTx,
     messages: &mut Vec<MessageInner>,
     batch: &mut SerializedBatch
-) -> ZResult<()> {  
-    // None means that there is no current frame
+) -> bool {  
     let mut current_frame = CurrentFrame::None;
-
-    // @TODO: Implement fragmentation here
+    
     for msg in messages.drain(..) {
         let mut has_failed = false;
         let mut current_sn = None;
+        let mut is_first = true;
+
         loop {
             // Mark the write operation       
             batch.buffer.mark();
@@ -157,40 +158,46 @@ async fn batch_fragment_transmit(
                     // Eventually update the current frame and sn based on the current status
                     match current_frame {
                         CurrentFrame::Reliable => {
-                            if !has_failed && !reliable {
+                            if !reliable {
                                 // A new best-effort frame needs to be started
                                 current_frame = CurrentFrame::BestEffort;
                                 current_sn = Some(inner.sn.best_effort.get());
+                                is_first = true;
                             }
                         }, 
                         CurrentFrame::BestEffort => {
-                            if !has_failed && reliable {    
+                            if reliable {    
                                 // A new reliable frame needs to be started
                                 current_frame = CurrentFrame::Reliable;
                                 current_sn = Some(inner.sn.reliable.get());
+                                is_first = true;
                             }
                         },
                         CurrentFrame::None => {
-                            if reliable {
-                                // A new reliable frame needs to be started
-                                current_frame = CurrentFrame::Reliable;
-                                current_sn = Some(inner.sn.reliable.get());
-                            } else {
-                                // A new best-effort frame needs to be started
-                                current_frame = CurrentFrame::BestEffort;
-                                current_sn = Some(inner.sn.best_effort.get());
+                            if !has_failed || !is_first {
+                                if reliable {
+                                    // A new reliable frame needs to be started
+                                    current_frame = CurrentFrame::Reliable;
+                                    current_sn = Some(inner.sn.reliable.get());
+                                } else {
+                                    // A new best-effort frame needs to be started
+                                    current_frame = CurrentFrame::BestEffort;
+                                    current_sn = Some(inner.sn.best_effort.get());
+                                }
+                                is_first = true;
                             }
                         }
                     }
 
                     // If a new sequence number has been provided, it means we are in the case we need 
                     // to start a new frame. Write a new frame header.
-                    if let Some(sn) = current_sn {
+                    if let Some(sn) = current_sn {                        
                         // Serialize the new frame and the zenoh message
                         batch.buffer.write_frame_header(reliable, sn, None, None)
-                        && batch.buffer.write_zenoh_message(&m)                                                     
+                        && batch.buffer.write_zenoh_message(&m)
                     } else {
-                        batch.buffer.write_zenoh_message(&m)                        
+                        is_first = false;
+                        batch.buffer.write_zenoh_message(&m)
                     }                    
                 },
                 MessageInner::Session(m) => {
@@ -198,10 +205,8 @@ async fn batch_fragment_transmit(
                     batch.buffer.write_session_message(&m)
                 },
                 MessageInner::Stop => {
-                    batch.transmit().await?;
-                    return Err(zerror!(ZErrorKind::Other {
-                        descr: "Received stop signal!".to_string()
-                    }));                   
+                    let _ = batch.transmit().await;
+                    return false
                 }
             };
 
@@ -210,8 +215,14 @@ async fn batch_fragment_transmit(
                 break
             }
 
+            // An error occured, revert the batch buffer
+            batch.buffer.revert();
+            // Reset the current frame but not the sn which is carried over the next iteration
+            current_frame = CurrentFrame::None; 
+
             // This is the second time that the serialization fails, we should fragment
             if has_failed {
+                // @TODO: implement the fragmentation here
                 // Drop the message for the time being
                 batch.clear();
                 break
@@ -225,7 +236,7 @@ async fn batch_fragment_transmit(
         }
     }
 
-    Ok(())
+    true
 }
 
 // Consume function
@@ -279,7 +290,7 @@ async fn consume_task(ch: Arc<Channel>) {
                 // active = batch_fragment_transmit(link, &mut inner, &mut context[i]);
                 // Check if the batch is ready to send      
                 let res = batch_fragment_transmit(&mut inner, &mut messages[i], &mut batch).await;
-                if res.is_err() {
+                if !res {
                     // There was an error while transmitting. Exit.
                     active = false;
                     break

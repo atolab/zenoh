@@ -1037,6 +1037,24 @@ impl SessionMessage {
         }
     }
 
+    pub fn make_frame_header(
+        ch: Channel,
+        is_fragment: Option<bool>,
+    ) -> u8 {
+        let rflag = if ch { smsg::flag::R } else { 0 };
+        let (eflag, fflag) = if let Some(is_final) = is_fragment {
+            if is_final {
+                (smsg::flag::E, smsg::flag::F)
+            } else {
+                (0, smsg::flag::F)
+            }
+        } else {
+            (0, 0)            
+        };
+
+        smsg::id::FRAME | rflag | fflag | eflag
+    }
+
     // -- Accessor
     #[inline]
     pub fn get_body(&self) -> &SessionBody {

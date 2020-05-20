@@ -173,19 +173,19 @@ async fn read_task(link: Arc<Tcp>) {
         // The list of deserliazed messages
         let mut messages: Vec<SessionMessage> = Vec::with_capacity(*MESSAGES_TO_READ);
 
-        // The RBuf to read a message batch onto
-        let mut rbuf = RBuf::new();
+        // // The RBuf to read a message batch onto
+        // let mut rbuf = RBuf::new();
 
-        // The buffer allocated to read from a single syscall
-        let mut buffer = vec![0u8; link.buff_size];        
-        // The read position in the buffer
-        let mut r_pos: usize = 0;
-        let mut w_pos: usize = 0;
+        // // The buffer allocated to read from a single syscall
+        // let mut buffer = vec![0u8; link.buff_size];        
+        // // The read position in the buffer
+        // let mut r_pos: usize = 0;
+        // let mut w_pos: usize = 0;
 
-        // Mark if we are reading a new message batch
-        let mut is_new = true;
-        // Variables to keep track of the bytes that still need to be read
-        let mut left_to_read: usize = 0;
+        // // Mark if we are reading a new message batch
+        // let mut is_new = true;
+        // // Variables to keep track of the bytes that still need to be read
+        // let mut left_to_read: usize = 0;
         
         // Read loop
         loop {
@@ -351,10 +351,8 @@ async fn read_task(link: Arc<Tcp>) {
                     // Create a slice
                     let mut slice = vec![0u8; to_read];
 
-                    // print!("{} ", to_read);
                     match (&link.socket).read_exact(&mut slice).await {
                         Ok(_) => {
-                            // println!("<<< Rx Buffer: {:?}", slice);
                             let mut rbuf = RBuf::new();
                             let len = slice.len();
                             rbuf.add_slice(ArcSlice::new(Arc::new(slice), 0, len));
@@ -366,9 +364,8 @@ async fn read_task(link: Arc<Tcp>) {
                                 match rbuf.read_session_message() {
                                     Ok(msg) => {
                                         messages.push(msg);
-                                        // rbuf.clean_read_slices();
                                     },
-                                    Err(_) => {
+                                    Err(_) => {                                        
                                         if rbuf.set_pos(pos).is_err() {
                                             panic!("Unrecoverable error in TCP read loop!")
                                         }

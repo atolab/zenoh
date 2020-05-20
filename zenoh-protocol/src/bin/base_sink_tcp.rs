@@ -62,7 +62,7 @@ async fn handle_client(mut stream: TcpStream, bs: usize, length: bool) -> Result
         loop {
             task::sleep(Duration::from_secs(1)).await;
             let c = c_c.swap(0, Ordering::Relaxed);
-            println!("{:.3} Gbit/s", (8 as f64*c as f64)/1_000_000_000 as f64);
+            println!("{:.3} Gbit/s", (8_f64*c as f64)/1000000000_f64);
         }
     });
 

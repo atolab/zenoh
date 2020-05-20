@@ -21,17 +21,7 @@ impl WBuf {
             check!(self.write_deco_attachment(&attachment, true));
         }
 
-        let rflag = if ch { smsg::flag::R } else { 0 };
-        let (eflag, fflag) = if let Some(is_final) = is_fragment {
-            if is_final {
-                (smsg::flag::E, smsg::flag::F)
-            } else {
-                (0, smsg::flag::F)
-            }
-        } else {
-            (0, 0)            
-        };
-        let header = smsg::id::FRAME | rflag | fflag | eflag;
+        let header = SessionMessage::make_frame_header(ch, is_fragment);
         
         self.write(header) && self.write_zint(sn)        
     }
