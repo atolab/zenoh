@@ -10,6 +10,32 @@ macro_rules! check {
 
 
 impl WBuf {
+    pub fn write_frame_header(
+        &mut self, 
+        ch: Channel, 
+        sn: ZInt,
+        is_fragment: Option<bool>,
+        attachment: Option<Attachment>
+    ) -> bool {        
+        if let Some(attachment) = attachment {
+            check!(self.write_deco_attachment(&attachment, true));
+        }
+
+        let rflag = if ch { smsg::flag::R } else { 0 };
+        let (eflag, fflag) = if let Some(is_final) = is_fragment {
+            if is_final {
+                (smsg::flag::E, smsg::flag::F)
+            } else {
+                (0, smsg::flag::F)
+            }
+        } else {
+            (0, 0)            
+        };
+        let header = smsg::id::FRAME | rflag | fflag | eflag;
+        
+        self.write(header) && self.write_zint(sn)        
+    }
+
     pub fn write_session_message(&mut self, msg: &SessionMessage) -> bool {
         if let Some(attachment) = msg.get_attachment() {
             check!(self.write_deco_attachment(attachment, true));

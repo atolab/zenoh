@@ -41,13 +41,6 @@ enum MessageInner {
     Stop
 }
 
-struct MessageTx {
-    // The inner message to transmit
-    inner: MessageInner,
-    // The preferred link to transmit the Message on
-    link: Option<Link>
-}
-
 /*************************************/
 /*           CHANNEL TASK            */
 /*************************************/
@@ -58,7 +51,7 @@ const TWO_BYTES: [u8; 2] = [0u8, 0u8];
 
 struct MBFContext {
     // The list of messages to transmit
-    message: Option<MessageTx>,
+    message: Option<MessageInner>,
     // Last sn
     sn: Option<ZInt>,
     // Last frame
@@ -87,49 +80,28 @@ impl MBFContext {
 
 struct SerializedBatch {
     buffer: WBuf,
-    reserved: bool,
-    empty: bool
+    reserved: bool
 }
 
 impl SerializedBatch {
     fn new(size: usize, reserved: bool) -> SerializedBatch {
         let mut sb = SerializedBatch {
             buffer: WBuf::new(size, true), // Non-expandable batch
-            reserved,
-            empty: true
+            reserved
         };
         if sb.reserved {
             sb.buffer.write_bytes(&TWO_BYTES);
         }
         sb
-    }
-
-    fn write_session_message(&mut self, message: &SessionMessage) -> bool {
-        let res = self.buffer.write_session_message(message);
-        if res {
-            self.empty = false;
-        }
-        res
-    }
-
-    fn write_zenoh_message(&mut self, message: &ZenohMessage) -> bool {
-        let res = self.buffer.write_zenoh_message(message);
-        if res {
-            self.empty = false;
-        }
-        res
-    }
-
-    fn mark(&mut self) {
-        self.buffer.mark();
-    }
-
-    fn revert(&mut self) {
-        self.buffer.revert();
-    }
+    }    
 
     fn is_empty(&self) -> bool {
-        self.empty
+        let len = self.buffer.len();
+        if self.reserved {
+            len <= 2
+        } else {
+            len == 0
+        }        
     }
 
     fn get_buffer(&self) -> &[u8] {
@@ -141,11 +113,10 @@ impl SerializedBatch {
         if self.reserved {
             self.buffer.write_bytes(&TWO_BYTES);
         }
-        self.empty = true;
     }
 
     fn write_length(&mut self) {
-        if self.reserved && !self.empty {
+        if self.reserved && !self.is_empty() {
             let length: u16 = self.buffer.len() as u16 - 2;
             // Write the length on the first 16 bits
             let bits = self.buffer.get_first_slice_mut(..2);
@@ -163,7 +134,7 @@ enum MBFResult {
 async fn map_batch_fragment(
     links: &ChannelLinks,
     inner: &mut ChannelInnerTx,
-    drain: &mut CreditQueueDrain<'_, MessageTx>,
+    drain: &mut CreditQueueDrain<'_, MessageInner>,
     batches: &mut Vec<SerializedBatch>,
     context: &mut MBFContext
 ) -> MBFResult {
@@ -176,24 +147,13 @@ async fn map_batch_fragment(
     // Check first if we have some message that did not fit in the previous batch
     if let Some(msg) = context.message.take() {
         // Find the right index for the link
-        let index = if let Some(link) = &msg.link {
-            // Check if the target link exists, otherwise fallback on the main link
-            if let Some(index) = links.find_link_index(&link) {
-                index
-            } else {                              
-                // Drop this message and clear the context
-                context.clear();
-                return MBFResult::Done
-            } 
-        } else {
-            DEFAULT_LINK_INDEX
-        };
+        let index = DEFAULT_LINK_INDEX;
 
-        match &msg.inner {
+        match &msg {
             MessageInner::Session(m) => {
-                batches[index].mark();
-                if !batches[index].write_session_message(&m) {
-                    batches[index].revert();
+                batches[index].buffer.mark();
+                if !batches[index].buffer.write_session_message(&m) {
+                    batches[index].buffer.revert();
                     // This is a session message, nothing we can do for the time being
                     println!("!!! Session message dropped due to failed serialization");                    
                 }
@@ -209,18 +169,14 @@ async fn map_batch_fragment(
                     inner.sn.best_effort.get()
                 };
 
-                let payload = FramePayload::Messages { messages: vec![] };
-                let attachment = None;
-                let frame = SessionMessage::make_frame(reliable, sn, payload, attachment);
+                batches[index].buffer.mark();
 
-                batches[index].mark();
-
-                let res = batches[index].write_session_message(&frame) &&
-                          batches[index].write_zenoh_message(&m); 
+                let res = batches[index].buffer.write_frame_header(reliable, sn, None, None) &&
+                          batches[index].buffer.write_zenoh_message(&m); 
                          
                 if !res {
                     // Revert the batch index
-                    batches[index].revert();
+                    batches[index].buffer.revert();
                     // The frame header or the zenoh message does not fit in the current batch, 
                     // try to serialize them in the next serialization iteration
                     println!("!!! Zenoh message should be fragmented. However, fragmentation is not yet implemented. Dropping Zenoh message.");                  
@@ -242,30 +198,11 @@ async fn map_batch_fragment(
     // Drain the messages from the queue and perform the mapping and serialization
     for msg in drain {
         // Find the right index for the link
-        let index = if let Some(link) = &msg.link {
-            // Check if the target link exists, otherwise fallback on the main link
-            if let Some(index) = links.find_link_index(&link) {
-                index
-            } else {
-                // Drop this message, continue with the following one
-                continue
-            } 
-        } else {
-            DEFAULT_LINK_INDEX
-        };
+        let index = DEFAULT_LINK_INDEX;
 
         // println!("... Serializing: {:?}", msg.inner);
         // Serialize the message
-        match &msg.inner {
-            MessageInner::Session(m) => {
-                batches[index].mark();
-                if !batches[index].write_session_message(&m) {
-                    batches[index].revert();
-                    // The message does not fit in the current batch, send it in the next iteration
-                    context.message = Some(msg);
-                    return MBFResult::Done
-                }               
-            },
+        match &msg {            
             MessageInner::Zenoh(m) => {
                 // The message is reliable or not
                 let reliable = m.is_reliable();
@@ -302,19 +239,14 @@ async fn map_batch_fragment(
                 // to start a new frame. Write a new frame header.
                 if let Some(sn) = sn {
                     // Serialize the new frame and the zenoh message
-                    let payload = FramePayload::Messages { messages: vec![] };
-                    let attachment = None;
-                    let frame = SessionMessage::make_frame(reliable, sn, payload, attachment);
+                    batches[index].buffer.mark();
 
-                    batches[index].mark();
-
-                    let res = batches[index].write_session_message(&frame) &&
-                                batches[index].write_zenoh_message(&m); 
+                    let res = batches[index].buffer.write_frame_header(reliable, sn, None, None) &&
+                          batches[index].buffer.write_zenoh_message(&m); 
                          
                     if !res {
-                        // println!("~~~ Error frame reverting!");
                         // Revert the batch index
-                        batches[index].revert();
+                        batches[index].buffer.revert();
                         // The frame header or the zenoh message does not fit in the current batch, 
                         // try to serialize them in the next serialization iteration
                         context.message = Some(msg);
@@ -323,18 +255,27 @@ async fn map_batch_fragment(
                     }  
                 } else {
                     // Serialize only the zenoh message
-                    batches[index].mark();
-                    let res = batches[index].write_zenoh_message(&m);
+                    batches[index].buffer.mark();
+                    let res = batches[index].buffer.write_zenoh_message(&m);
                     
                     if !res {
                         // println!("~~~ Error zenoh reverting!");
-                        batches[index].revert();
+                        batches[index].buffer.revert();
                         // The zenoh message does not fit in the current batch, 
                         // try to serialize them in the next serialization iteration
                         context.message = Some(msg);
                         return MBFResult::Done
                     }
                 }
+            },
+            MessageInner::Session(m) => {
+                batches[index].buffer.mark();
+                if !batches[index].buffer.write_session_message(&m) {
+                    batches[index].buffer.revert();
+                    // The message does not fit in the current batch, send it in the next iteration
+                    context.message = Some(msg);
+                    return MBFResult::Done
+                }               
             },
             MessageInner::Stop => {
                 return MBFResult::Stop
@@ -385,15 +326,7 @@ async fn consume_task(ch: Arc<Channel>) {
     // Control variable
     let mut active = true; 
 
-    // let mut even = false;
     while active {
-        // even = !even;
-        // let (mut serialize, mut transmit) = if even {
-        //     (&mut batches_one, &mut batches_two)
-        // } else {
-        //     (&mut batches_two, &mut batches_one)
-        // };
-
         // Explicit scope for transmit mutability
         {
             // Serialization future
@@ -417,7 +350,7 @@ async fn consume_task(ch: Arc<Channel>) {
                     match res {
                         MBFResult::Continue => {
                             // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
-                            // task::yield_now().await;
+                            task::yield_now().await;
                             
                             // Try to drain messages from the queue
                             // try_drain does not wait for the queue to be non-empty
@@ -659,7 +592,7 @@ pub(super) struct Channel {
     // The callback has been set or not
     has_callback: AtomicBool,
     // The message queue
-    queue: CreditQueue<MessageTx>,
+    queue: CreditQueue<MessageInner>,
     // The links associated to the channel
     links: RwLock<ChannelLinks>,
     // The mutable data struct for transmission
@@ -684,23 +617,23 @@ impl Channel {
         batchsize: usize        
     ) -> Channel {
         // The buffer to send the Control messages. High priority
-        let ctrl = CreditBuffer::<MessageTx>::new(
+        let ctrl = CreditBuffer::<MessageInner>::new(
             *QUEUE_SIZE_CTRL,
             *QUEUE_CRED_CTRL,
-            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the retransmission of messages. Medium priority
-        let retx = CreditBuffer::<MessageTx>::new(
+        let retx = CreditBuffer::<MessageInner>::new(
             *QUEUE_SIZE_RETX,
             *QUEUE_CRED_RETX,
-            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the Data messages. Low priority
-        let data = CreditBuffer::<MessageTx>::new(
+        let data = CreditBuffer::<MessageInner>::new(
             *QUEUE_SIZE_DATA,
             *QUEUE_CRED_DATA,
             // @TODO: Once the reliability queue is implemented, update the spending policy
-            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
         );
         // Build the vector of buffer for the transmission queue.
         // A lower index in the vector means higher priority in the queue.
@@ -761,14 +694,8 @@ impl Channel {
             let attachment = None;  // No attachment here
             let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
-            let close = MessageTx {
-                inner: MessageInner::Session(message),
-                link: None
-            };
-            let stop = MessageTx {
-                inner: MessageInner::Stop,
-                link: None
-            };
+            let close = MessageInner::Session(message);
+            let stop = MessageInner::Stop;
             // Atomically push the close and stop messages to the queue
             self.queue.push_batch(vec![close, stop], *QUEUE_PRIO_DATA).await;
 
@@ -786,22 +713,16 @@ impl Channel {
     /*        SCHEDULE AND SEND TX       */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(super) async fn schedule(&self, message: ZenohMessage, link: Option<Link>) {
-        let message = MessageTx {
-            inner: MessageInner::Zenoh(message),
-            link
-        };
+    pub(super) async fn schedule(&self, message: ZenohMessage, _link: Option<Link>) {
+        let message = MessageInner::Zenoh(message);
         // Wait for the queue to have space for the message
         self.queue.push(message, *QUEUE_PRIO_DATA).await;
     }
 
     // Schedule a batch of messages to be sent asynchronsly
-    pub(super) async fn schedule_batch(&self, mut messages: Vec<ZenohMessage>, link: Option<Link>) {
+    pub(super) async fn schedule_batch(&self, mut messages: Vec<ZenohMessage>, _link: Option<Link>) {
         let messages = messages.drain(..).map(|x| {
-            MessageTx {
-                inner: MessageInner::Zenoh(x),
-                link: link.clone(),
-            }
+            MessageInner::Zenoh(x)
         }).collect();
         // Wait for the queue to have space for the message
         self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;
@@ -864,10 +785,7 @@ impl Channel {
 
     pub(super) async fn stop(&self) -> ZResult<()> {        
         if self.active.swap(false, Ordering::Relaxed) {
-            let msg = MessageTx {
-                inner: MessageInner::Stop,
-                link: None
-            };
+            let msg = MessageInner::Stop;
             self.queue.push(msg, *QUEUE_PRIO_CTRL).await;
             self.barrier.wait().await;
         }
