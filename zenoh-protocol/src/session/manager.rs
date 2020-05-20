@@ -536,7 +536,6 @@ impl Session {
 impl MsgHandler for Session {
     #[inline]
     async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
-        println!("\n... Scheduling: {:?}\n", message.body);
         self.schedule(message, None).await
     }
 

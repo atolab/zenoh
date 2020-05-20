@@ -6,36 +6,6 @@ use zenoh_protocol::proto::{
 
 
 #[test]
-fn sn_ord_test() {
-  let sn0a = SeqNum::make(0, 14).unwrap();
-  let sn1a = SeqNum::make(1, 14).unwrap();
-  assert!(sn0a < sn1a);
-
-  let sn0b = SeqNum::make(0, 14).unwrap();
-  assert!(sn0a == sn0b);
-
-  let sn0a = SeqNum::make(0, 14).unwrap();
-  let sn1a = SeqNum::make(6, 14).unwrap();
-  assert!(sn0a < sn1a);
-
-  let sn0a = SeqNum::make(0, 14).unwrap();
-  let sn1a = SeqNum::make(7, 14).unwrap();
-  assert!(sn0a < sn1a);
-
-  let sn0a = SeqNum::make(13, 14).unwrap();
-  let sn1a = SeqNum::make(6, 14).unwrap();
-  assert!(sn0a > sn1a);
-
-  let sn0a = SeqNum::make(13, 14).unwrap();
-  let sn1a = SeqNum::make(1, 14).unwrap();
-  assert!(sn0a < sn1a);
-
-  let sn0a = SeqNum::make(13, 14).unwrap();
-  let sn1a = SeqNum::make(5, 14).unwrap();
-  assert!(sn0a < sn1a);
-}
-
-#[test]
 fn sn_pre_test() {
   let sn0a = SeqNum::make(0, 14).unwrap();
   let sn1a: ZInt = 1;

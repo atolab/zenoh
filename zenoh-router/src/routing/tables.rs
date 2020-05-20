@@ -14,7 +14,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///   use async_std::sync::Arc;
 ///   use zenoh_protocol::core::PeerId;
 ///   use zenoh_protocol::io::RBuf;
-///   use zenoh_protocol::proto::WhatAmI::Peer;
+///   use zenoh_protocol::proto::whatami;
 ///   use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 ///   use zenoh_router::routing::tables::TablesHdl;
 /// 
@@ -30,7 +30,7 @@ use crate::routing::face::{Face, FaceHdl};
 ///     // Instanciate SessionManager and plug it to the routing tables
 ///     let config = SessionManagerConfig {
 ///         version: 0,
-///         whatami: Peer,
+///         whatami: whatami::PEER,
 ///         id: PeerId{id: vec![1, 2]},
 ///         handler: tables.clone()
 ///     };

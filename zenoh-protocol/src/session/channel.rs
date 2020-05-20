@@ -1,8 +1,6 @@
-use async_std::prelude::*;
 use async_std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
 use async_std::task;
 use async_trait::async_trait;
-use futures::stream::{FuturesUnordered, StreamExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
@@ -24,6 +22,7 @@ use crate::session::defaults::{
     QUEUE_SIZE_DATA,
     QUEUE_CRED_DATA,
     // Queue size
+    QUEUE_SIZE_TOT,
     QUEUE_CONCURRENCY,
     // Default slice size when serializing a message that needs to be fragmented
     // WRITE_MSG_SLICE_SIZE
@@ -41,6 +40,13 @@ enum MessageInner {
     Stop
 }
 
+struct MessageTx {
+    // The inner message to transmit
+    inner: MessageInner,
+    // The preferred link to transmit the Message on
+    link: Option<Link>
+}
+
 /*************************************/
 /*           CHANNEL TASK            */
 /*************************************/
@@ -49,242 +55,177 @@ enum MessageInner {
 const DEFAULT_LINK_INDEX: usize = 0; 
 const TWO_BYTES: [u8; 2] = [0u8, 0u8];
 
-struct MBFContext {
-    // The list of messages to transmit
-    message: Option<MessageInner>,
-    // Last sn
-    sn: Option<ZInt>,
-    // Last frame
-    frame: Option<bool>
-    // The buffer to fragment a message on
-    // fragment: Option<WBuf>
-}
-
-impl MBFContext {
-    fn new() -> MBFContext {
-        MBFContext {
-            message: None,                       
-            sn: None,
-            frame: None
-            // fragment: None
-        }
-    }
-
-    fn clear(&mut self) {
-        self.message = None;
-        self.sn = None;
-        self.frame = None;
-        // self.fragment = None;
-    }
-}
-
 struct SerializedBatch {
+    // The buffer to perform the batching on
     buffer: WBuf,
-    reserved: bool
+    // The link this batch is associated to
+    link: Link
 }
 
 impl SerializedBatch {
-    fn new(size: usize, reserved: bool) -> SerializedBatch {
-        let mut sb = SerializedBatch {
-            buffer: WBuf::new(size, true), // Non-expandable batch
-            reserved
-        };
-        if sb.reserved {
-            sb.buffer.write_bytes(&TWO_BYTES);
+    fn new(link: Link, size: usize) -> SerializedBatch {
+        let size = size.min(link.get_mtu());
+        // Create 
+        let mut buffer = WBuf::new(size, true);
+        if link.is_streamed() {
+            buffer.write_bytes(&TWO_BYTES);
         }
-        sb
-    }    
 
-    fn is_empty(&self) -> bool {
-        let len = self.buffer.len();
-        if self.reserved {
-            len <= 2
-        } else {
-            len == 0
-        }        
-    }
-
-    fn get_buffer(&self) -> &[u8] {
-        self.buffer.get_first_slice(..)
+        SerializedBatch {
+            buffer,
+            link
+        }
     }
 
     fn clear(&mut self) {
         self.buffer.clear();        
-        if self.reserved {
+        if self.link.is_streamed() {
             self.buffer.write_bytes(&TWO_BYTES);
         }
     }
 
-    fn write_length(&mut self) {
-        if self.reserved && !self.is_empty() {
-            let length: u16 = self.buffer.len() as u16 - 2;
+    async fn transmit(&mut self) -> ZResult<()> {
+        let mut length: u16 = self.buffer.len() as u16;
+        if self.link.is_streamed() {
+            // Remove from the total the 16 bites used for the length
+            length -= 2;
             // Write the length on the first 16 bits
             let bits = self.buffer.get_first_slice_mut(..2);
             bits.copy_from_slice(&length.to_le_bytes());
         }
+
+        if length > 0 {
+            let res = self.link.send(self.buffer.get_first_slice(..)).await;
+            self.clear();
+            return res
+        }
+
+        Ok(())
     }
 }
 
-enum MBFResult {
-    Continue,
-    Done,
-    Stop
+fn map_messages_on_links(    
+    drain: &mut CreditQueueDrain<'_, MessageTx>,
+    batches: &Vec<SerializedBatch>,
+    messages: &mut Vec<Vec<MessageInner>>
+) {
+    // Drain all the messages from the queue and map them on the links
+    for msg in drain {
+        // Find the right index for the message
+        let index = if let Some(link) = &msg.link {
+            // Check if the target link exists, otherwise fallback on the main link            
+            if let Some(index) = batches.iter().position(|x| &x.link == link) {
+                index
+            } else {
+                // Drop the message            
+                continue
+            } 
+        } else {
+            DEFAULT_LINK_INDEX
+        };
+        // Add the message to the right link
+        messages[index].push(msg.inner);
+    }
 }
 
-async fn map_batch_fragment(
-    links: &ChannelLinks,
+enum CurrentFrame {
+    Reliable,
+    BestEffort,
+    None
+}
+
+async fn batch_fragment_transmit(
     inner: &mut ChannelInnerTx,
-    drain: &mut CreditQueueDrain<'_, MessageInner>,
-    batches: &mut Vec<SerializedBatch>,
-    context: &mut MBFContext
-) -> MBFResult {
-    
+    messages: &mut Vec<MessageInner>,
+    batch: &mut SerializedBatch
+) -> ZResult<()> {  
     // None means that there is no current frame
-    let mut is_current_frame_reliable = context.frame.take();
+    let mut current_frame = CurrentFrame::None;
 
     // @TODO: Implement fragmentation here
+    for msg in messages.drain(..) {
+        let mut has_failed = false;
+        let mut current_sn = None;
+        loop {
+            // Mark the write operation       
+            batch.buffer.mark();
+            // Try to serialize the message on the current batch
+            let res = match &msg {
+                MessageInner::Zenoh(m) => {
+                    // The message is reliable or not
+                    let reliable = m.is_reliable();
+                    // Eventually update the current frame and sn based on the current status
+                    match current_frame {
+                        CurrentFrame::Reliable => {
+                            if !has_failed && !reliable {
+                                // A new best-effort frame needs to be started
+                                current_frame = CurrentFrame::BestEffort;
+                                current_sn = Some(inner.sn.best_effort.get());
+                            }
+                        }, 
+                        CurrentFrame::BestEffort => {
+                            if !has_failed && reliable {    
+                                // A new reliable frame needs to be started
+                                current_frame = CurrentFrame::Reliable;
+                                current_sn = Some(inner.sn.reliable.get());
+                            }
+                        },
+                        CurrentFrame::None => {
+                            if reliable {
+                                // A new reliable frame needs to be started
+                                current_frame = CurrentFrame::Reliable;
+                                current_sn = Some(inner.sn.reliable.get());
+                            } else {
+                                // A new best-effort frame needs to be started
+                                current_frame = CurrentFrame::BestEffort;
+                                current_sn = Some(inner.sn.best_effort.get());
+                            }
+                        }
+                    }
 
-    // Check first if we have some message that did not fit in the previous batch
-    if let Some(msg) = context.message.take() {
-        // Find the right index for the link
-        let index = DEFAULT_LINK_INDEX;
-
-        match &msg {
-            MessageInner::Session(m) => {
-                batches[index].buffer.mark();
-                if !batches[index].buffer.write_session_message(&m) {
-                    batches[index].buffer.revert();
-                    // This is a session message, nothing we can do for the time being
-                    println!("!!! Session message dropped due to failed serialization");                    
-                }
-            },
-            MessageInner::Zenoh(m) => {
-                // Check if this message was the first message of a frame or not
-                let reliable = m.is_reliable();
-                let sn = if let Some(sn) = context.sn.take() {
-                    sn
-                } else if reliable {
-                    inner.sn.reliable.get()
-                } else {
-                    inner.sn.best_effort.get()
-                };
-
-                batches[index].buffer.mark();
-
-                let res = batches[index].buffer.write_frame_header(reliable, sn, None, None) &&
-                          batches[index].buffer.write_zenoh_message(&m); 
-                         
-                if !res {
-                    // Revert the batch index
-                    batches[index].buffer.revert();
-                    // The frame header or the zenoh message does not fit in the current batch, 
-                    // try to serialize them in the next serialization iteration
-                    println!("!!! Zenoh message should be fragmented. However, fragmentation is not yet implemented. Dropping Zenoh message.");                  
-                }
-
-                // Mark the first reliable zenoh message we are expecting
-                is_current_frame_reliable = Some(reliable);
-            },
-            MessageInner::Stop => {
-                context.clear();
-                return MBFResult::Stop
-            }
-        }
-    }
-
-    // Clear the context
-    context.clear();
-
-    // Drain the messages from the queue and perform the mapping and serialization
-    for msg in drain {
-        // Find the right index for the link
-        let index = DEFAULT_LINK_INDEX;
-
-        // println!("... Serializing: {:?}", msg.inner);
-        // Serialize the message
-        match &msg {            
-            MessageInner::Zenoh(m) => {
-                // The message is reliable or not
-                let reliable = m.is_reliable();
-                // Get a new sequence number based on the current status
-                let sn = if let Some(current_reliable) = is_current_frame_reliable {
-                    // A frame is already being serialized. Check if we need to create a new frame
-                    //  or we can just append the message to the current frame
-                    if current_reliable && !reliable {
-                        // We have been serialiazing a reliable frame but the message is best effort
-                        // Need to create a new best effort frame
-                        is_current_frame_reliable = Some(false);
-                        Some(inner.sn.best_effort.get())
-                    } else if !current_reliable && reliable {
-                        // We have been serialiazing a best effor frame but the message is reliable
-                        // Need to create a new reliable frame
-                        is_current_frame_reliable = Some(true);
-                        Some(inner.sn.reliable.get())
+                    // If a new sequence number has been provided, it means we are in the case we need 
+                    // to start a new frame. Write a new frame header.
+                    if let Some(sn) = current_sn {
+                        // Serialize the new frame and the zenoh message
+                        batch.buffer.write_frame_header(reliable, sn, None, None)
+                        && batch.buffer.write_zenoh_message(&m)                                                     
                     } else {
-                        // The message is as reliable/best effort as the current frame
-                        // We do not need to create any new frame
-                        None
-                    }
-                } else if reliable {
-                    // This is a new reliable frame
-                    is_current_frame_reliable = Some(true);
-                    Some(inner.sn.reliable.get())
-                } else {
-                    // This is a new best effort frame
-                    is_current_frame_reliable = Some(false);
-                    Some(inner.sn.best_effort.get())
-                };
-
-                // If a new sequence number has been provided, it means we are in the case we need 
-                // to start a new frame. Write a new frame header.
-                if let Some(sn) = sn {
-                    // Serialize the new frame and the zenoh message
-                    batches[index].buffer.mark();
-
-                    let res = batches[index].buffer.write_frame_header(reliable, sn, None, None) &&
-                          batches[index].buffer.write_zenoh_message(&m); 
-                         
-                    if !res {
-                        // Revert the batch index
-                        batches[index].buffer.revert();
-                        // The frame header or the zenoh message does not fit in the current batch, 
-                        // try to serialize them in the next serialization iteration
-                        context.message = Some(msg);
-                        context.sn = Some(sn);                          
-                        return MBFResult::Done
-                    }  
-                } else {
-                    // Serialize only the zenoh message
-                    batches[index].buffer.mark();
-                    let res = batches[index].buffer.write_zenoh_message(&m);
-                    
-                    if !res {
-                        // println!("~~~ Error zenoh reverting!");
-                        batches[index].buffer.revert();
-                        // The zenoh message does not fit in the current batch, 
-                        // try to serialize them in the next serialization iteration
-                        context.message = Some(msg);
-                        return MBFResult::Done
-                    }
+                        batch.buffer.write_zenoh_message(&m)                        
+                    }                    
+                },
+                MessageInner::Session(m) => {
+                    current_frame = CurrentFrame::None;
+                    batch.buffer.write_session_message(&m)
+                },
+                MessageInner::Stop => {
+                    batch.transmit().await?;
+                    return Err(zerror!(ZErrorKind::Other {
+                        descr: "Received stop signal!".to_string()
+                    }));                   
                 }
-            },
-            MessageInner::Session(m) => {
-                batches[index].buffer.mark();
-                if !batches[index].buffer.write_session_message(&m) {
-                    batches[index].buffer.revert();
-                    // The message does not fit in the current batch, send it in the next iteration
-                    context.message = Some(msg);
-                    return MBFResult::Done
-                }               
-            },
-            MessageInner::Stop => {
-                return MBFResult::Stop
+            };
+
+            // We have been succesfull in writing on the current batch, exit the loop
+            if res {
+                break
             }
+
+            // This is the second time that the serialization fails, we should fragment
+            if has_failed {
+                // Drop the message for the time being
+                batch.clear();
+                break
+            }
+
+            // Send the batch
+            let _ = batch.transmit().await;
+
+            // Mark that the serialization attempt has failed
+            has_failed = true;
         }
     }
 
-    context.frame = is_current_frame_reliable;
-    MBFResult::Continue
+    Ok(())
 }
 
 // Consume function
@@ -295,30 +236,18 @@ async fn consume_task(ch: Arc<Channel>) {
     // Acquire the lock on the links
     let guard = zasyncread!(ch.links); 
 
-    // Use double buffering to allow parallel serialization and transmission
-    let mut batches_one: Vec<SerializedBatch> = Vec::with_capacity(guard.links.len());
-    let mut batches_two: Vec<SerializedBatch> = Vec::with_capacity(guard.links.len());
+    // Use double buffering to allow parallel serialization and transmission    
+    let mut batches: Vec<SerializedBatch> = Vec::with_capacity(guard.links.len());
+    let mut messages: Vec<Vec<MessageInner>> = Vec::with_capacity(guard.links.len());
 
     // Initialize the batches based on the current links parameters      
     for link in guard.links.iter() {
-        let batchsize = guard.batchsize.min(link.get_mtu());
-        let needs_write_length = link.is_streamed();
-        batches_one.push(SerializedBatch::new(batchsize, needs_write_length));
-        batches_two.push(SerializedBatch::new(batchsize, needs_write_length));
+        batches.push(SerializedBatch::new(link.clone(), guard.batchsize));
+        messages.push(Vec::with_capacity(*QUEUE_SIZE_TOT));
     }
-
-    let links_serialize: ChannelLinks = guard.clone();
-    let links_transmit: Vec<Link> = guard.links.clone();
 
     // Drop the mutex guard
     drop(guard);
-
-    // Create a context for handling failed serialization or fragmentation
-    let mut context = MBFContext::new();
-
-    // Double buffer references
-    let mut serialize = &mut batches_one;
-    let mut transmit = &mut batches_two;
 
     // Keep the lock on the inner transmission structure
     let mut inner = zasynclock!(ch.tx);
@@ -326,111 +255,61 @@ async fn consume_task(ch: Arc<Channel>) {
     // Control variable
     let mut active = true; 
 
-    while active {
-        // Explicit scope for transmit mutability
-        {
-            // Serialization future
-            let f_sr = async {                             
-                // Get a Drain iterator for the queue
-                // drain() waits for the queue to be non-empty
-                // @TODO: add a timeout to the drain() future to trigger the 
-                //        transmission of KEEP_ALIVE messages
-                let mut drain = ch.queue.drain().await;
-                
-                // Try to always fill the batch
-                loop {
-                    // Map the messages on the links. This operation drains messages from the Drain iterator
-                    let res = map_batch_fragment(&links_serialize, &mut inner, &mut drain, &mut serialize, &mut context).await;
-                    
-                    // The drop() on Drain object needs to be manually called since an async
-                    // destructor is not yet supported in Rust. More information available at:
-                    // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
-                    drain.drop().await;
-                    
-                    match res {
-                        MBFResult::Continue => {
-                            // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
-                            task::yield_now().await;
-                            
-                            // Try to drain messages from the queue
-                            // try_drain does not wait for the queue to be non-empty
-                            drain = ch.queue.try_drain().await;
-                            // Check if we can drain from the Drain iterator
-                            let (min, _) = drain.size_hint();
-                            if min == 0 {
-                                // The drop() on Drain object needs to be manually called since an async
-                                // destructor is not yet supported in Rust. More information available at:
-                                // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
-                                drain.drop().await;
-                                break
-                            }
-                        },
-                        MBFResult::Done => break,
-                        MBFResult::Stop => {
-                            // We received a stop signal, finish this iteration and exit
-                            active = false;
-                            break
-                        }
-                    }
-                }
-
-                // Update the length (16 bits)
-                for b in serialize.iter_mut() {
-                    b.write_length();
-                }
-            };
-
-            // Transmission future
-            let futs: FuturesUnordered<_> = FuturesUnordered::new();
+    // let mut even = false;
+    while active {                       
+        // Get a Drain iterator for the queue
+        // drain() waits for the queue to be non-empty
+        // @TODO: add a timeout to the drain() future to trigger the 
+        //        transmission of KEEP_ALIVE messages
+        let mut drain = ch.queue.drain().await;
+        
+        // Try to always fill the batch
+        while active {
+            // Map the messages on the links. This operation drains messages from the Drain iterator
+            // active = map_batch_fragment(&links, &mut inner, &mut drain, &mut batches, &mut context).await;
+            map_messages_on_links(&mut drain, &batches, &mut messages);
+            
+            // The drop() on Drain object needs to be manually called since an async
+            // destructor is not yet supported in Rust. More information available at:
+            // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47 
+            drain.drop().await;
+            
             // Concurrently send on all the selected links
-            for (i, link) in links_transmit.iter().enumerate() {                
-                if !transmit[i].is_empty() {
-                    let buffer = transmit[i].get_buffer();        
-                    // print!("{} ", buffer.len());           
-
-                    // Push the future to the future list
-                    futs.push(link.send(buffer));
+            for (i, mut batch) in batches.iter_mut().enumerate() {
+                // active = batch_fragment_transmit(link, &mut inner, &mut context[i]);
+                // Check if the batch is ready to send      
+                let res = batch_fragment_transmit(&mut inner, &mut messages[i], &mut batch).await;
+                if res.is_err() {
+                    // There was an error while transmitting. Exit.
+                    active = false;
+                    break
                 }
             }
-            let f_tx = futs.into_future();
-            
-            // Join serialization and transmission futures
-            let _ = f_sr.join(f_tx).await;
-            // @TODO: Handle res
+
+            // Try to drain messages from the queue
+            // try_drain does not wait for the queue to be non-empty
+            drain = ch.queue.try_drain().await;
+            // Check if we can drain from the Drain iterator
+            let (min, _) = drain.size_hint();
+            if min == 0 {
+                // The drop() on Drain object needs to be manually called since an async
+                // destructor is not yet supported in Rust. More information available at:
+                // https://internals.rust-lang.org/t/asynchronous-destructors/11127/47
+                drain.drop().await;
+                break
+            }
+
         }
 
-        // Clean transmit batches for the next round of serialization
-        for b in transmit.iter_mut() {
-            b.clear();
+        // Send any leftover on the batches
+        for batch in batches.iter_mut() {
+            // Check if the batch is ready to send      
+            let _ = batch.transmit().await;        
         }
-
-        // Swap the serialize and transmit pointers for the next iteration
-        std::mem::swap(&mut serialize, &mut transmit);
 
         // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
         task::yield_now().await;
     }
-
-    // Send any leftover on the transmission batch
-    // Transmission future
-    let futs: FuturesUnordered<_> = FuturesUnordered::new();
-    // Concurrently send on all the selected links
-    // let (mut serialize, mut transmit) = if even {
-    //     (&mut batches_one, &mut batches_two)
-    // } else {
-    //     (&mut batches_two, &mut batches_one)
-    // };
-    for (i, link) in links_transmit.iter().enumerate() {                
-        if !transmit[i].is_empty() {
-            let buffer = transmit[i].get_buffer();
-            // Push the future to the future list
-            futs.push(async move {
-                let res = link.send(buffer).await;
-                res
-            });                    
-        }
-    }
-    let _ = futs.into_future().await;
 
     // Synchronize with the stop()
     ch.barrier.wait().await;
@@ -553,7 +432,7 @@ impl SeqNumRx {
 
 // Store the mutable data that need to be used for transmission
 struct ChannelInnerRx {    
-    lease: ZInt,
+    _lease: ZInt,
     sn: SeqNumRx,
     callback: Option<Arc<dyn MsgHandler + Send + Sync>>
 }
@@ -566,7 +445,7 @@ impl ChannelInnerRx {
     ) -> ChannelInnerRx {
         // @TODO: Randomly initialize the SN generator
         ChannelInnerRx {
-            lease,
+            _lease: lease,
             sn: SeqNumRx::new(sn_resolution, initial_sn),
             callback: None
         }
@@ -592,7 +471,7 @@ pub(super) struct Channel {
     // The callback has been set or not
     has_callback: AtomicBool,
     // The message queue
-    queue: CreditQueue<MessageInner>,
+    queue: CreditQueue<MessageTx>,
     // The links associated to the channel
     links: RwLock<ChannelLinks>,
     // The mutable data struct for transmission
@@ -609,7 +488,7 @@ impl Channel {
     pub(super) fn new(
         manager: Arc<SessionManagerInner>,
         pid: PeerId, 
-        whatami: WhatAmI,
+        _whatami: WhatAmI,
         lease: ZInt,
         sn_resolution: ZInt, 
         initial_sn_tx: ZInt,
@@ -617,23 +496,23 @@ impl Channel {
         batchsize: usize        
     ) -> Channel {
         // The buffer to send the Control messages. High priority
-        let ctrl = CreditBuffer::<MessageInner>::new(
+        let ctrl = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_CTRL,
             *QUEUE_CRED_CTRL,
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the retransmission of messages. Medium priority
-        let retx = CreditBuffer::<MessageInner>::new(
+        let retx = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_RETX,
             *QUEUE_CRED_RETX,
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // The buffer to send the Data messages. Low priority
-        let data = CreditBuffer::<MessageInner>::new(
+        let data = CreditBuffer::<MessageTx>::new(
             *QUEUE_SIZE_DATA,
             *QUEUE_CRED_DATA,
             // @TODO: Once the reliability queue is implemented, update the spending policy
-            CreditBuffer::<MessageInner>::spending_policy(|_msg| 0isize),
+            CreditBuffer::<MessageTx>::spending_policy(|_msg| 0isize),
         );
         // Build the vector of buffer for the transmission queue.
         // A lower index in the vector means higher priority in the queue.
@@ -694,8 +573,14 @@ impl Channel {
             let attachment = None;  // No attachment here
             let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
-            let close = MessageInner::Session(message);
-            let stop = MessageInner::Stop;
+            let close = MessageTx {
+                inner: MessageInner::Session(message),
+                link: None
+            };
+            let stop = MessageTx {
+                inner: MessageInner::Stop,
+                link: None
+            };
             // Atomically push the close and stop messages to the queue
             self.queue.push_batch(vec![close, stop], *QUEUE_PRIO_DATA).await;
 
@@ -713,16 +598,22 @@ impl Channel {
     /*        SCHEDULE AND SEND TX       */
     /*************************************/
     // Schedule the message to be sent asynchronsly
-    pub(super) async fn schedule(&self, message: ZenohMessage, _link: Option<Link>) {
-        let message = MessageInner::Zenoh(message);
+    pub(super) async fn schedule(&self, message: ZenohMessage, link: Option<Link>) {
+        let message = MessageTx {
+            inner: MessageInner::Zenoh(message),
+            link
+        };
         // Wait for the queue to have space for the message
         self.queue.push(message, *QUEUE_PRIO_DATA).await;
     }
 
     // Schedule a batch of messages to be sent asynchronsly
-    pub(super) async fn schedule_batch(&self, mut messages: Vec<ZenohMessage>, _link: Option<Link>) {
+    pub(super) async fn schedule_batch(&self, mut messages: Vec<ZenohMessage>, link: Option<Link>) {
         let messages = messages.drain(..).map(|x| {
-            MessageInner::Zenoh(x)
+            MessageTx {
+                inner: MessageInner::Zenoh(x),
+                link: link.clone(),
+            }
         }).collect();
         // Wait for the queue to have space for the message
         self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;
@@ -785,7 +676,10 @@ impl Channel {
 
     pub(super) async fn stop(&self) -> ZResult<()> {        
         if self.active.swap(false, Ordering::Relaxed) {
-            let msg = MessageInner::Stop;
+            let msg = MessageTx {
+                inner: MessageInner::Stop,
+                link: None
+            };
             self.queue.push(msg, *QUEUE_PRIO_CTRL).await;
             self.barrier.wait().await;
         }
@@ -817,11 +711,9 @@ impl Channel {
                 unimplemented!("!!! Fragmentation not implemented");
             },
             FramePayload::Messages { mut messages } => {
-                // Pass all the messages concurrently to the callback
-                let futs: FuturesUnordered<_> = messages.drain(..).map(|msg|
-                    callback.handle_message(msg)
-                ).collect();
-                let _ = futs.into_future().await;                
+                for msg in messages.drain(..) {
+                    let _ = callback.handle_message(msg).await;
+                }
             }
         }
         
@@ -847,11 +739,9 @@ impl Channel {
                 unimplemented!("!!! Fragmentation not implemented");
             },
             FramePayload::Messages { mut messages } => {
-                // Pass all the messages concurrently to the callback
-                let futs: FuturesUnordered<_> = messages.drain(..).map(|msg|
-                    callback.handle_message(msg)
-                ).collect();
-                let _ = futs.into_future().await;                
+                for msg in messages.drain(..) {
+                    let _ = callback.handle_message(msg).await;
+                }              
             }
         }
         

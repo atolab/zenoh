@@ -108,31 +108,7 @@ impl LinkTrait for Tcp {
         Ok(())
     }
     
-    async fn send(&self, buffer: &[u8]) -> ZResult<()> {
-        // #[cfg(write_vectored)]
-        // {
-        //     let mut ioslices = &mut buffer.as_ioslices()[..];
-        //     while ! ioslices.is_empty() {
-        //         match (&self.socket).write_vectored(ioslices).await {
-        //             Ok(size) => {
-        //                 ioslices = IoSlice::advance(ioslices, size);
-        //             },
-        //             err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
-        //         }
-        //     }
-        // }
-        
-        // #[cfg(not(write_vectored))]
-        // {
-        //     let mut sendbuff = Vec::with_capacity(buffer.readable());
-        //     for s in buffer.get_slices() {
-        //         std::io::Write::write_all(&mut sendbuff, s.as_slice())
-        //             .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
-        //     }
-        //     (&self.socket).write_all(&sendbuff).await
-        //         .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
-        // }
-        
+    async fn send(&self, buffer: &[u8]) -> ZResult<()> {        
         // println!("Sending: {}", buffer.len());
         (&self.socket).write_all(buffer).await
             .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
@@ -375,6 +351,7 @@ async fn read_task(link: Arc<Tcp>) {
                     // Create a slice
                     let mut slice = vec![0u8; to_read];
 
+                    // print!("{} ", to_read);
                     match (&link.socket).read_exact(&mut slice).await {
                         Ok(_) => {
                             // println!("<<< Rx Buffer: {:?}", slice);
@@ -389,7 +366,7 @@ async fn read_task(link: Arc<Tcp>) {
                                 match rbuf.read_session_message() {
                                     Ok(msg) => {
                                         messages.push(msg);
-                                        rbuf.clean_read_slices();
+                                        // rbuf.clean_read_slices();
                                     },
                                     Err(_) => {
                                         if rbuf.set_pos(pos).is_err() {
