@@ -24,7 +24,7 @@ const DEFAULT_MTU: usize = 65_535;
 
 configurable!{
     // Size of buffer used to read from socket
-    static ref READ_BUFFER_SIZE: usize = 64 * 1_024;
+    // static ref READ_BUFFER_SIZE: usize = 64 * 1_024;
     // Size of buffer used to read from socket
     static ref MESSAGES_TO_READ: usize = 64;
 }
@@ -56,7 +56,7 @@ pub struct Tcp {
     // The destination Zenoh locator of this link (locator used on the local host)
     dst_locator: Locator,
     // The buffer size to use in the read operation
-    buff_size: usize,
+    // buff_size: usize,
     // The reference to the associated transport
     transport: Mutex<Transport>,
     // The reference to the associated link manager
@@ -82,7 +82,7 @@ impl Tcp {
             dst_addr,
             src_locator: Locator::Tcp(src_addr),
             dst_locator: Locator::Tcp(dst_addr),
-            buff_size: *READ_BUFFER_SIZE,
+            // buff_size: *READ_BUFFER_SIZE,
             transport: Mutex::new(transport),
             manager,
             ch_send: sender,
