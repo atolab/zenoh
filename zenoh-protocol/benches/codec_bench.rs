@@ -4,9 +4,9 @@ extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use zenoh_protocol::core::{ZResult, ResKey};
+use zenoh_protocol::core::{ZInt, ZResult, ResKey};
 use zenoh_protocol::io::{RBuf, WBuf};
-use zenoh_protocol::proto::{FramePayload, SessionMessage, ZenohMessage};
+use zenoh_protocol::proto::{Attachment, Channel, FramePayload, SessionMessage, ZenohMessage, channel};
 
 fn _bench_zint_write((v, buf): (u64, &mut WBuf)) {
     buf.write_zint(v);
@@ -52,6 +52,14 @@ fn bench_make_data(payload: RBuf) {
 
 fn bench_write_data(buf: &mut WBuf, data: &ZenohMessage) {
     buf.write_zenoh_message(data);
+}
+
+fn bench_make_frame_header(ch: Channel, is_fragment: Option<bool>) {
+    let _ = SessionMessage::make_frame_header(ch, is_fragment);
+}
+
+fn bench_write_frame_header(buf: &mut WBuf, ch: Channel, sn: ZInt, is_fragment: Option<bool>, attachment: Option<Attachment>) {
+    buf.write_frame_header(ch, sn, is_fragment, attachment);
 }
 
 fn bench_make_frame_data(payload: FramePayload) {
@@ -130,10 +138,21 @@ fn criterion_benchmark(c: &mut Criterion) {
     }));
 
     // Frame benchmark
+    let ch = channel::RELIABLE;
+    let is_fragment = Some(true);
+    c.bench_function("bench_make_frame_header", |b| b.iter(|| {       
+        let _ = bench_make_frame_header(ch, is_fragment);
+        buf.clear();
+    }));
+
+    c.bench_function("bench_write_frame_header", |b| b.iter(|| {       
+        let _ = bench_write_frame_header(&mut buf, ch, 42, is_fragment, None);
+        buf.clear();
+    }));
+
     c.bench_function("bench_make_frame_data", |b| b.iter(|| {
         let frame_data_payload = FramePayload::Messages { messages: vec![data.clone(); 1] };
         let _ = bench_make_frame_data(frame_data_payload.clone());
-        buf.clear();
     }));
 
     let frame_data_payload = FramePayload::Messages { messages: vec![data; 1] };
@@ -146,7 +165,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("bench_make_frame_frag", |b| b.iter(|| {
         let frame_frag_payload = FramePayload::Fragment { buffer: payload.clone(), is_final: false };
         let _ = bench_make_frame_frag(frame_frag_payload);
-        buf.clear();
     }));
 
     let frame_frag_payload = FramePayload::Fragment { buffer: payload.clone(), is_final: false };

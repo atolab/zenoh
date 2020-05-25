@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, WhatAmI, whatami, Mux};
+use zenoh_protocol::proto::{Primitives, Mux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler, DummyHandler};
 
 struct LightSessionHandler {

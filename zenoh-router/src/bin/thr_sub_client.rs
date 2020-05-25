@@ -8,7 +8,7 @@ use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::whatami;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
-use zenoh_router::routing::tables::TablesHdl;
+use zenoh_router::routing::broker::Broker;
 
 const N: usize = 100_000;
 
@@ -94,7 +94,7 @@ fn main() {
 
         let my_primitives = Arc::new(ThrouputPrimitives::new());
     
-        let tables = Arc::new(TablesHdl::new());
+        let broker = Arc::new(Broker::new());
 
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
@@ -103,7 +103,7 @@ fn main() {
             version: 0,
             whatami: whatami::CLIENT,
             id: PeerId{id: pid},
-            handler: tables.clone()
+            handler: broker.clone()
         };
         let manager = SessionManager::new(config, None);
 
@@ -115,7 +115,7 @@ fn main() {
             }
         }
     
-        let primitives = tables.new_primitives(my_primitives).await;
+        let primitives = broker.new_primitives(my_primitives).await;
 
         primitives.resource(1, &"/tp".to_string().into()).await;
         let rid = ResKey::RId(1);

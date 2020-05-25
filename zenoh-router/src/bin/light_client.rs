@@ -94,8 +94,8 @@ fn main() {
         };
         let manager = SessionManager::new(config, None);
 
+        let attachment = None;
         if let Some(locator) = args.next() {
-            let attachment = None;
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);

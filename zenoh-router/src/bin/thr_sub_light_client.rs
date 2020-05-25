@@ -5,7 +5,7 @@ use rand::RngCore;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, WhatAmI, whatami, Mux, DeMux};
+use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply, Mux, DeMux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler};
 
 const N: usize = 100_000;
