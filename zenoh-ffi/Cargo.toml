@@ -20,7 +20,7 @@ cbindgen = "0.14.2"
 libc = "0.2.69"
 
 [dependencies.async-std]
-version = "1.5.0"
+version = "~1.5.0"
 features = ["unstable"]
 
 [lib]
