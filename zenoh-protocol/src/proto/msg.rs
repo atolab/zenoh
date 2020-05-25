@@ -19,7 +19,7 @@ pub mod whatami {
 
     pub type Type = ZInt;
 
-    pub const BROKER        : Type = 1 << 0; // 0x01
+    pub const BROKER        : Type = 1;      // 0x01
     pub const ROUTER        : Type = 1 << 1; // 0x02
     pub const PEER          : Type = 1 << 2; // 0x04
     pub const CLIENT        : Type = 1 << 3; // 0x08
@@ -100,8 +100,8 @@ impl ReplyContext {
 }
 
 
-// Message IDs
-mod msg {
+// Inner Message IDs
+mod imsg {
     pub(super) mod id {
         // Session Messages
         pub(crate) const SCOUT         : u8 = 0x01;
@@ -123,9 +123,8 @@ mod msg {
         pub(crate) const UNIT          : u8 = 0x0f;
 
         // Message decorators
-        pub(crate) const REPLY_CONTEXT : u8 = 0x1d;
-        pub(crate) const ZATTACHMENT   : u8 = 0x1e;
-        pub(crate) const SATTACHMENT   : u8 = 0x1f; 
+        pub(crate) const REPLY_CONTEXT : u8 = 0x1e;
+        pub(crate) const ATTACHMENT    : u8 = 0x1f; 
     }
 }
 
@@ -134,23 +133,23 @@ mod msg {
 /*         ZENOH MESSAGES            */
 /*************************************/
 pub mod zmsg {
-    use super::msg;
+    use super::imsg;
     use super::channel;
 
-    // Zenoh message IDs
+    // Zenoh message IDs -- Re-export of some of the Inner Message IDs
     pub mod id {
-        use super::msg;
+        use super::imsg;
 
         // Messages
-        pub const DECLARE       : u8 = msg::id::DECLARE;
-        pub const DATA  	    : u8 = msg::id::DATA;
-        pub const QUERY         : u8 = msg::id::QUERY;
-        pub const PULL          : u8 = msg::id::PULL;
-        pub const UNIT          : u8 = msg::id::UNIT;
+        pub const DECLARE       : u8 = imsg::id::DECLARE;
+        pub const DATA  	    : u8 = imsg::id::DATA;
+        pub const QUERY         : u8 = imsg::id::QUERY;
+        pub const PULL          : u8 = imsg::id::PULL;
+        pub const UNIT          : u8 = imsg::id::UNIT;
 
         // Message decorators
-        pub const REPLY_CONTEXT : u8 = msg::id::REPLY_CONTEXT;
-        pub const ATTACHMENT    : u8 = msg::id::ZATTACHMENT; 
+        pub const REPLY_CONTEXT : u8 = imsg::id::REPLY_CONTEXT;
+        pub const ATTACHMENT    : u8 = imsg::id::ATTACHMENT; 
     }
 
     // Default channel for each Zenoh Message
@@ -182,7 +181,7 @@ pub mod zmsg {
 
     // Flags used for DataInfo
     pub mod info_flag {
-        pub const SRCID : u8 = 1 << 0; // 0x01
+        pub const SRCID : u8 = 1;      // 0x01
         pub const SRCSN : u8 = 1 << 1; // 0x02
         pub const BKRID : u8 = 1 << 2; // 0x04
         pub const BKRSN : u8 = 1 << 3; // 0x08
@@ -486,26 +485,26 @@ impl ZenohMessage {
 /*        SESSION MESSAGES           */
 /*************************************/
 pub mod smsg {
-    use super::msg;
+    use super::imsg;
 
-    // Session message IDs
+    // Session message IDs -- Re-export of some of the Inner Message IDs
     pub mod id {
-        use super::msg;
+        use super::imsg;
         
         // Messages
-        pub const SCOUT         : u8 = msg::id::SCOUT;
-        pub const HELLO         : u8 = msg::id::HELLO;
-        pub const OPEN          : u8 = msg::id::OPEN;
-        pub const ACCEPT        : u8 = msg::id::ACCEPT;
-        pub const CLOSE         : u8 = msg::id::CLOSE;
-        pub const SYNC          : u8 = msg::id::SYNC;
-        pub const ACK_NACK      : u8 = msg::id::ACK_NACK;
-        pub const KEEP_ALIVE    : u8 = msg::id::KEEP_ALIVE;
-        pub const PING_PONG     : u8 = msg::id::PING_PONG;
-        pub const FRAME         : u8 = msg::id::FRAME; 
+        pub const SCOUT         : u8 = imsg::id::SCOUT;
+        pub const HELLO         : u8 = imsg::id::HELLO;
+        pub const OPEN          : u8 = imsg::id::OPEN;
+        pub const ACCEPT        : u8 = imsg::id::ACCEPT;
+        pub const CLOSE         : u8 = imsg::id::CLOSE;
+        pub const SYNC          : u8 = imsg::id::SYNC;
+        pub const ACK_NACK      : u8 = imsg::id::ACK_NACK;
+        pub const KEEP_ALIVE    : u8 = imsg::id::KEEP_ALIVE;
+        pub const PING_PONG     : u8 = imsg::id::PING_PONG;
+        pub const FRAME         : u8 = imsg::id::FRAME; 
 
         // Message decorators
-        pub const ATTACHMENT    : u8 = msg::id::SATTACHMENT;
+        pub const ATTACHMENT    : u8 = imsg::id::ATTACHMENT;
     }
 
     // Session message flags
@@ -877,6 +876,7 @@ impl SessionMessage {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn make_open(
         version: u8, 
         whatami: WhatAmI, 
@@ -897,6 +897,7 @@ impl SessionMessage {
         }
     }
     
+    #[allow(clippy::too_many_arguments)]
     pub fn make_accept(
         whatami: WhatAmI, 
         opid: PeerId, 

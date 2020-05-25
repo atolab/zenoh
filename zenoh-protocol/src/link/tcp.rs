@@ -344,7 +344,6 @@ async fn read_task(link: Arc<Tcp>) {
             match (&link.socket).read_exact(&mut buffer).await {
                 Ok(_) => {
                     // Update the total amount of bytes that we are expected to read
-                    // println!("<<< Length: {:?}", buffer);
                     let length: [u8; 2] = buffer[0..2].try_into().unwrap();
                     // Update the total amount of bytes that we are expected to read
                     let to_read = u16::from_le_bytes(length) as usize;

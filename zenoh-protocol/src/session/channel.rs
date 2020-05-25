@@ -107,7 +107,7 @@ impl SerializedBatch {
 
 fn map_messages_on_links(    
     drain: &mut CreditQueueDrain<'_, MessageTx>,
-    batches: &Vec<SerializedBatch>,
+    batches: &[SerializedBatch],
     messages: &mut Vec<Vec<MessageInner>>
 ) {
     // Drain all the messages from the queue and map them on the links
@@ -496,6 +496,7 @@ pub(super) struct Channel {
 }
 
 impl Channel {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         manager: Arc<SessionManagerInner>,
         pid: PeerId, 
@@ -679,7 +680,7 @@ impl Channel {
         // If not already active, start the transmission loop
         if !self.active.swap(true, Ordering::Relaxed) {
             // Spawn the transmission loop
-            task::spawn(consume_task(ch.clone()));
+            task::spawn(consume_task(ch));
         }
 
         Ok(())

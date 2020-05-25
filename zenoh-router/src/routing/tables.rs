@@ -122,7 +122,7 @@ impl Tables {
             let mut t = tables.write().await;
             let sid = t.sex_counter;
             t.sex_counter += 1;
-            let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
+            let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone())).clone();
             
             // @TODO temporarily propagate to everybody (clients)
             // if whatami != WhatAmI::Client {

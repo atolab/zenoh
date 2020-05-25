@@ -331,7 +331,7 @@ impl InitialSession {
                     //       waits for any eventual transport to associate to. This is transport is
                     //       returned only by the process_open() -- this function.
                     let callback = self.manager.config.handler.new_session(
-                        whatami.clone(), 
+                        whatami, 
                         Arc::new(session.clone())
                     ).await;
                     // Set the callback on the transport
@@ -352,6 +352,7 @@ impl InitialSession {
         }   
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_accept(
         &self,
         link: &Link,

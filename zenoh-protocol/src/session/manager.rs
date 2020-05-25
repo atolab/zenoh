@@ -140,7 +140,7 @@ impl SessionManager {
 
         let inner_config = SessionManagerInnerConfig {
             version: config.version,
-            whatami: config.whatami.clone(),
+            whatami: config.whatami,
             pid: config.id.clone(),            
             lease,
             sn_resolution,
@@ -361,6 +361,7 @@ impl SessionManagerInner {
         zasyncread!(self.initial).as_ref().unwrap().clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn get_or_new_session(
         &self,
         a_self: &Arc<Self>,
@@ -407,6 +408,7 @@ impl SessionManagerInner {
             .map(|x| Session::new(Arc::downgrade(&x))).collect()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn new_session(
         &self,
         a_self: &Arc<Self>,
@@ -428,7 +430,7 @@ impl SessionManagerInner {
         let a_ch = Arc::new(Channel::new(  
             a_self.clone(),          
             peer.clone(),
-            whatami.clone(),            
+            *whatami,            
             lease,
             sn_resolution,
             initial_sn_tx,
