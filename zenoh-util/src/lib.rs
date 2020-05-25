@@ -45,6 +45,32 @@ macro_rules! zasyncwrite {
     );
 }
 
+// This macro performs an async send on Channel<T>
+// For performance reasons, it first performs a try_send() and,
+// if it fails, it falls back on send().await
+#[macro_export]
+macro_rules! zasyncsend {
+    ($ch:expr, $var:expr) => (
+        if $ch.try_send($var).is_err() { 
+            $ch.send($var).await;
+        }
+    );
+}
+
+// This macro performs an async recv on Channel<T>
+// For performance reasons, it first performs a try_recv() and,
+// if it fails, it falls back on recv().await
+#[macro_export]
+macro_rules! zasyncrecv {
+    ($ch:expr) => (
+        if let Ok(v) = $ch.try_recv() { 
+            Ok(v)
+        } else {
+            $ch.recv().await
+        }
+    );
+}
+
 // This macro allows to define some compile time configurable static constants
 #[macro_export]
 macro_rules! configurable {

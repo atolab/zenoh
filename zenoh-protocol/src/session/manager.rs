@@ -189,13 +189,13 @@ impl SessionManager {
                 // Future timeout result
                 Ok((_, channel_res)) => match channel_res {
                     // Channel result
-                    Some(res) => match res {
+                    Ok(res) => match res {
                         Ok(session) => return Ok(session),
                         Err(e) => return Err(zerror!(ZErrorKind::Other {
                             descr: format!("Open session error: {}", e)
                         }))
                     },
-                    None => return Err(zerror!(ZErrorKind::Other {
+                    Err(_) => return Err(zerror!(ZErrorKind::Other {
                         descr: "Open session failed unexpectedly!".to_string()
                     }))
                 },

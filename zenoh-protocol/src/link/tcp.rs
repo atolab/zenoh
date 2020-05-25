@@ -1,6 +1,6 @@
 use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, Weak};
+use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, RecvError, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -62,8 +62,8 @@ pub struct Tcp {
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
-    ch_send: Sender<bool>,
-    ch_recv: Receiver<bool>,
+    ch_send: Sender<()>,
+    ch_recv: Receiver<()>,
     // Weak reference to self
     w_self: RwLock<Option<Weak<Self>>>
 }
@@ -74,7 +74,7 @@ impl Tcp {
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
         // The channel for stopping the read task
-        let (sender, receiver) = channel::<bool>(1);
+        let (sender, receiver) = channel::<()>(1);
         // Build the Tcp
         Tcp {
             socket,
@@ -134,7 +134,7 @@ impl LinkTrait for Tcp {
     }
 
     async fn stop(&self) -> ZResult<()> {
-        self.ch_send.send(false).await;
+        self.ch_send.send(()).await;
         Ok(())
     }
 
@@ -164,7 +164,7 @@ impl LinkTrait for Tcp {
 }
 
 async fn read_task(link: Arc<Tcp>) {
-    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {   
+    async fn read_loop(link: &Arc<Tcp>) -> Result<(), RecvError> {   
         // The link object to be passed to the transport
         let link_obj: Link = link.clone();
         // Acquire the lock on the transport
@@ -386,7 +386,7 @@ async fn read_task(link: Arc<Tcp>) {
                                         // Delete the link from the manager
                                         let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                                         // Exit
-                                        return Some(false)
+                                        return Ok(())
                                     }
                                 }
                             }
@@ -398,7 +398,7 @@ async fn read_task(link: Arc<Tcp>) {
                             let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                             // Notify the transport
                             guard.link_err(&link_obj).await;
-                            return Some(false)
+                            return Ok(())
                         }
                     }
                 },
@@ -409,7 +409,7 @@ async fn read_task(link: Arc<Tcp>) {
                     let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
                     // Notify the transport
                     guard.link_err(&link_obj).await;
-                    return Some(false)
+                    return Ok(())
                 }
             }
         }
@@ -491,14 +491,14 @@ impl ManagerTrait for ManagerTcp {
 
 struct ListenerTcpInner {
     socket: Arc<TcpListener>,
-    sender: Sender<bool>,
-    receiver: Receiver<bool>
+    sender: Sender<()>,
+    receiver: Receiver<()>
 }
 
 impl ListenerTcpInner {
     fn new(socket: Arc<TcpListener>) -> ListenerTcpInner {
         // Create the channel necessary to break the accept loop
-        let (sender, receiver) = channel::<bool>(1);
+        let (sender, receiver) = channel::<()>(1);
         // Update the list of active listeners on the manager
         ListenerTcpInner {
             socket,
@@ -595,7 +595,7 @@ impl ManagerTcpInner {
         // Stop the listener
         match zasyncwrite!(self.listener).remove(&addr) {
             Some(listener) => {
-                listener.sender.send(false).await;
+                listener.sender.send(()).await;
                 Ok(())
             },
             None => Err(zerror!(ZErrorKind::Other{
@@ -611,12 +611,12 @@ impl ManagerTcpInner {
 
 async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInner>) {
     // The accept future
-    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Option<bool> {
+    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Result<(), RecvError> {
         loop {
             // Wait for incoming connections
             let stream = match listener.socket.accept().await {
                 Ok((stream, _)) => stream,
-                Err(_) => return Some(true)
+                Err(_) => return Ok(())
             };
 
             // Retrieve the initial temporary session 
