@@ -1,6 +1,5 @@
 use async_std::prelude::*;
 use async_std::sync::{channel, Arc, RwLock, Weak};
-use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
@@ -235,17 +234,6 @@ impl SessionManager {
 
     pub async fn get_locators(&self) -> Vec<Locator> {
         self.0.get_locators().await
-    }
-}
-
-impl Drop for SessionManager {
-    fn drop(&mut self) {
-        task::block_on(async {
-            let mut sessions = self.get_sessions().await;
-            for s in sessions.drain(..) {
-                let _ = s.close().await;
-            }
-        });
     }
 }
 
