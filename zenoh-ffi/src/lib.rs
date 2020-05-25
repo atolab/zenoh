@@ -3,10 +3,9 @@ use std::ffi::CStr;
 use std::slice;
 use async_std::task;
 use zenoh::net;
-
 use zenoh_protocol::core::{ResKey, ResourceId}; // { rname, PeerId, ResourceId, , ZError, ZErrorKind };
 
-pub struct ZNSession(zenoh::net::Session);
+pub struct ZNSession(zenoh::net::Session, );
 
 pub struct ZProperties(zenoh::net::Properties);
 
@@ -28,12 +27,22 @@ pub unsafe extern "C" fn zn_properties_add(rps: *mut ZProperties, id: c_ulong, v
   rps
 }
 
+/// Add a property
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_properties_free(rps: *mut ZProperties ) {
   let ps = Box::from_raw(rps);  
   drop(ps);
 }
 
+/// Add a property
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_open(locator: *const c_char, _ps: *const ZProperties) -> *mut ZNSession {
   let l = 
@@ -45,6 +54,11 @@ pub unsafe extern "C" fn zn_open(locator: *const c_char, _ps: *const ZProperties
   Box::into_raw(Box::new(ZNSession(s)))
 }
 
+/// Add a property
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_close(session: *mut ZNSession) {  
   let s = Box::from_raw(session);
@@ -52,6 +66,11 @@ pub unsafe extern "C" fn zn_close(session: *mut ZNSession) {
   let _ = Box::into_raw(s);
 }
 
+/// Add a property
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_declare_resource(session: *mut ZNSession, r_name: *const c_char) -> c_ulong {
   if r_name.is_null()  { return 0 };
@@ -62,6 +81,11 @@ pub unsafe extern "C" fn zn_declare_resource(session: *mut ZNSession, r_name: *c
   r
 }
 
+/// Add a property
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_declare_resource_ws(session: *mut ZNSession, rid: c_ulong, suffix: *const c_char) -> c_ulong {
   if suffix.is_null()  { return 0 };
@@ -72,8 +96,12 @@ pub unsafe extern "C" fn zn_declare_resource_ws(session: *mut ZNSession, rid: c_
   r
 }
 
-// pub async fn write(&self, resource: &ResKey, payload: RBuf) -> ZResult<()> {
 
+/// Writes a named resource. 
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
 #[no_mangle]
 pub unsafe extern "C" fn zn_write(session: *mut ZNSession, r_name: *const c_char, payload: *const c_char, len: c_uint) -> c_int {
   if r_name.is_null()  { return -1 };
@@ -89,3 +117,22 @@ pub unsafe extern "C" fn zn_write(session: *mut ZNSession, r_name: *const c_char
   r
   
 }
+
+/// Writes a named resource. 
+/// 
+/// # Safety
+/// The main reason for this function to be unsafe is that it does casting of a pointer into a box.
+/// 
+#[no_mangle]
+pub unsafe extern "C" fn zn_write_wrid(session: *mut ZNSession, r_id: c_ulong, payload: *const c_char, len: c_uint) -> c_int {
+  let s = Box::from_raw(session);  
+  let r = ResKey::RId(r_id);  
+  let r = match task::block_on(s.0.write(&r, slice::from_raw_parts(payload as *const u8, len as usize).into())) {
+    Ok(()) => 0,
+    _ => 1
+  };
+  let _ = Box::into_raw(s);
+  r
+
+}
+
