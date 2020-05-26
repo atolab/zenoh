@@ -782,7 +782,7 @@ impl Channel {
 #[async_trait]
 impl TransportTrait for Channel {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        // println!("Received: {:?}", message.body);
+        print!("+");
         match message.body {
             SessionBody::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");

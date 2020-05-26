@@ -1,3 +1,4 @@
+use async_std::future;
 use async_std::task;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
@@ -68,6 +69,7 @@ impl Primitives for ThrouputPrimitives {
     async fn forget_queryable(&self, _reskey: &ResKey) {}
 
     async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
+        print!("~");
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
             stats.start = SystemTime::now();
@@ -132,8 +134,6 @@ fn main() {
         };
         primitives.subscriber(&rid, &sub_info).await;
 
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(10000));
-        }
+        future::pending::<()>().await;
     });
 }

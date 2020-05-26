@@ -2,13 +2,12 @@
 extern crate criterion;
 
 use criterion::{Criterion};
+use async_std::sync::Arc;
 
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::ZenohMessage;
 
-
-use std::sync::Arc;
 
 fn consume_message(msg: ZenohMessage) {
   drop(msg);

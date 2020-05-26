@@ -1,10 +1,13 @@
-use std::sync::Arc;
+use async_std::sync::Arc;
 use std::collections::HashMap;
+
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::proto::{QueryTarget, QueryConsolidation, Reply, whatami};
+
 use crate::routing::broker::Tables;
 use crate::routing::face::Face;
 use crate::routing::resource::{Resource, Context};
+
 
 pub(crate) struct Query {
     src_face: Arc<Face>,

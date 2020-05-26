@@ -13,7 +13,7 @@ edition = "2018"
 [dependencies]
 zenoh = { version = "0.5.0", path = "../zenoh" }
 zenoh-protocol = { version = "0.5.0", path = "../zenoh-protocol" }
-async-trait = "0.1.30"
+async-trait = "0.1.31"
 spin = "0.5.2"
 rand = "0.7.3"
 cbindgen = "0.14.2"

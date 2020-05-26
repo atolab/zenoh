@@ -1,11 +1,12 @@
+use async_std::prelude::*;
+use async_std::task;
+use async_std::sync::Arc;
+use std::time::Instant;
+
 use zenoh_util::collections::{
     CreditBuffer,
     CreditQueue
 };
-use futures::*;
-use async_std::task;
-use async_std::sync::Arc;
-use std::time::Instant;
 
 const SIZE: usize = 1_024;
 const CREDIT: isize = 100;
@@ -76,7 +77,7 @@ fn main() {
         });
 
 
-        join!(p1, p2, p3, p4, c1);
+        p1.join(p2).join(p3).join(p4).join(c1).await;
         println!("Test run in: {}", now.elapsed().as_millis());
-  });
+    });
 }

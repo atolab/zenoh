@@ -108,7 +108,7 @@ fn main() {
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, true, &None, RBuf::from(vec![1])).await;
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            task::sleep(std::time::Duration::from_millis(1000)).await;
         }
     });
 }

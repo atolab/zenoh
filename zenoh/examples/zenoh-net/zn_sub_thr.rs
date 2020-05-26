@@ -48,7 +48,7 @@ fn main() {
             }
         ).await.unwrap();
 
-        std::thread::sleep(Duration::from_secs(60));
+        task::sleep(Duration::from_secs(60)).await;
 
         session.undeclare_subscriber(sub).await.unwrap();
         session.close().await.unwrap();

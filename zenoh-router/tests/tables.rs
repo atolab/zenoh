@@ -1,5 +1,5 @@
-use async_std::task;
 use async_std::sync::Arc;
+use async_std::task;
 use async_trait::async_trait;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;

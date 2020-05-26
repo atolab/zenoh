@@ -341,6 +341,7 @@ async fn read_task(link: Arc<Tcp>) {
             //         }
             //     },
             let mut buffer = vec![0u8; 2];
+            print!(" : ");
             match (&link.socket).read_exact(&mut buffer).await {
                 Ok(_) => {
                     // Update the total amount of bytes that we are expected to read
@@ -619,6 +620,7 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
                 Err(_) => return Ok(())
             };
 
+            println!("NEW CONNECTION");
             // Retrieve the initial temporary session 
             let initial = a_self.inner.get_initial_transport().await;
             // Create the new link object
@@ -627,12 +629,6 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
 
             // Store a reference to the link into the manger
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
-
-            // // Store a reference to the link into the session
-            // let link_obj: Link = link.clone();
-            // if initial.add_link(link_obj).await.is_err() {
-            //     continue
-            // }
 
             // Spawn the receive loop for the new link
             let _ = link.start().await;

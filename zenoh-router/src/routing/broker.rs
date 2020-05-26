@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use async_std::sync::RwLock;
-use std::sync::{Arc, Weak};
+use async_std::sync::{Arc, Weak};
 use std::collections::{HashMap};
+
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
+
 use crate::routing::face::{Face, FaceHdl};
 
 pub use crate::routing::resource::*;

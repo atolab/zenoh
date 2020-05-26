@@ -1,8 +1,9 @@
-use zenoh_util::collections::FifoQueue;
-use futures::*;
+use async_std::prelude::*;
+use async_std::sync::Arc;
 use async_std::task;
-use std::sync::Arc;
 use std::time::Instant;
+
+use zenoh_util::collections::FifoQueue;
 
 
 #[test]
@@ -26,7 +27,7 @@ fn stress_test_fifo_queue() {
         
       });
 
-      join!(f2, f1);
+      f1.join(f2).await;
       println!("Test run in: {}", now.elapsed().as_millis());
   });
 }

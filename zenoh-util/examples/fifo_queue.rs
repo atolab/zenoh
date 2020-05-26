@@ -1,8 +1,9 @@
-use zenoh_util::collections::FifoQueue;
-use futures::*;
+use async_std::prelude::*;
 use async_std::task;
-use std::sync::Arc;
+use async_std::sync::Arc;
 use std::time::Instant;
+
+use zenoh_util::collections::FifoQueue;
 
 fn main() {    
     task::block_on(async {        
@@ -52,7 +53,7 @@ fn main() {
         });
 
 
-        join!(p1, p2, p3, p4, c1, c2);
+        p1.join(p2).join(p3).join(p4).join(c1).join(c2).await;
         println!("Test run in: {}", now.elapsed().as_millis());
   });
 }

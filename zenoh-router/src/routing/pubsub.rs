@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use async_std::sync::Arc;
 use std::collections::HashMap;
+
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{SubInfo, whatami};
+
 use crate::routing::face::Face;
 use crate::routing::broker::Tables;
 use crate::routing::resource::{Resource, Context};
+
 
 pub type DataRoute = HashMap<usize, (Arc<Face>, u64, String)>;
 
@@ -124,7 +127,6 @@ pub async fn route_data_to_map(tables: &Tables, face: &Arc<Face>, rid: u64, suff
         None => {
             println!("Route data with unknown rid {}!", rid); None
         }
-
     }
 }
 

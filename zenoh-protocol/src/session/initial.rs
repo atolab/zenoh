@@ -17,18 +17,19 @@ use zenoh_util::zasyncwrite;
 const DEFAULT_WBUF_CAPACITY: usize = 64;
 
 // Macro to send a message on a link
-macro_rules! zsend {
+macro_rules! zlinksend {
     ($msg:expr, $link:expr) => ({
-        // Serialize the message
+        // Create the buffer for serializing the message
         let mut wbuf = WBuf::new(DEFAULT_WBUF_CAPACITY, false);
         if $link.is_streamed() {
-            // Reserve 16 bits to write the lenght
+            // Reserve 16 bits to write the length
             wbuf.write_bytes(&[0u8, 0u8]); 
         }
+        // Serialize the message
         wbuf.write_session_message(&$msg);
         if $link.is_streamed() {
-            let length: u16 = wbuf.len() as u16 - 2;
             // Write the length on the first 16 bits
+            let length: u16 = wbuf.len() as u16 - 2;            
             let bits = wbuf.get_first_slice_mut(..2);
             bits.copy_from_slice(&length.to_le_bytes());
         }
@@ -124,7 +125,7 @@ impl InitialSession {
         zasyncwrite!(self.pending).insert(key, pending);
 
         // Send the message on the link
-        zsend!(message, link)?;
+        zlinksend!(message, link)?;
 
         Ok(())
     }
@@ -156,7 +157,7 @@ impl InitialSession {
             let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
         
             // Send the message on the link
-            let _ = zsend!(message, link);
+            let _ = zlinksend!(message, link);
 
             // Close the link
             return Action::Close
@@ -184,7 +185,7 @@ impl InitialSession {
                             let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                              // Send the message on the link
-                             let _ = zsend!(message, link);
+                             let _ = zlinksend!(message, link);
 
                             // Close the link
                             return Action::Close
@@ -203,7 +204,7 @@ impl InitialSession {
                         let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                          // Send the message on the link
-                         let _ = zsend!(message, link);
+                         let _ = zlinksend!(message, link);
 
                         // Close the link
                         return Action::Close
@@ -221,7 +222,7 @@ impl InitialSession {
                         let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                          // Send the message on the link
-                         let _ = zsend!(message, link);
+                         let _ = zlinksend!(message, link);
 
                         // Close the link
                         return Action::Close
@@ -241,7 +242,7 @@ impl InitialSession {
                         let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                          // Send the message on the link
-                         let _ = zsend!(message, link);
+                         let _ = zlinksend!(message, link);
 
                         // Close the link
                         return Action::Close
@@ -321,14 +322,14 @@ impl InitialSession {
         let message = SessionMessage::make_accept(whatami, opid, apid, initial_sn, sn_resolution, lease, locators, attachment);
         
         // Send the message on the link
-        let res = zsend!(message, link);
+        let res = zlinksend!(message, link);
         if res.is_ok() {
             if let Ok(has_callback) = session.has_callback() {
                 if !has_callback {
                     // Notify the session handler that there is a new session and get back a callback
                     // NOTE: the read loop of the link the open message was sent on remains blocked
                     //       until the new_session() returns. The read_loop in the various links
-                    //       waits for any eventual transport to associate to. This is transport is
+                    //       waits for any eventual transport to associate to. This transport is
                     //       returned only by the process_open() -- this function.
                     let callback = self.manager.config.handler.new_session(
                         whatami, 
@@ -382,7 +383,7 @@ impl InitialSession {
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                 // Send the message on the link
-                let _ = zsend!(message, link);
+                let _ = zlinksend!(message, link);
 
                 // Notify
                 let err = Err(zerror!(ZErrorKind::InvalidMessage { descr: s.to_string() }));
@@ -406,7 +407,7 @@ impl InitialSession {
                     let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                     // Send the message on the link
-                    let _ = zsend!(message, link);
+                    let _ = zlinksend!(message, link);
 
                     // Notify
                     let err = Err(zerror!(ZErrorKind::InvalidMessage { descr: s.to_string() }));
@@ -433,7 +434,7 @@ impl InitialSession {
                     let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                     // Send the message on the link
-                    let _ = zsend!(message, link);
+                    let _ = zlinksend!(message, link);
 
                     // Notify
                     let err = Err(zerror!(ZErrorKind::InvalidMessage { descr: s.to_string() }));
@@ -459,7 +460,7 @@ impl InitialSession {
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                 // Send the message on the link
-                let _ = zsend!(message, link);
+                let _ = zlinksend!(message, link);
 
                 // Notify
                 let err = Err(zerror!(ZErrorKind::InvalidMessage { descr: s.to_string() }));
@@ -491,7 +492,7 @@ impl InitialSession {
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                 // Send the message on the link
-                let _ = zsend!(message, link);
+                let _ = zlinksend!(message, link);
 
                 // Notify
                 pending.notify.send(Err(e)).await;
@@ -582,7 +583,7 @@ impl TransportTrait for InitialSession {
                 let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
                 // Send the message on the link
-                let _ = zsend!(message, link);
+                let _ = zlinksend!(message, link);
 
                 // Notify
                 if let Some(pending) = zasyncwrite!(self.pending).remove(link) {

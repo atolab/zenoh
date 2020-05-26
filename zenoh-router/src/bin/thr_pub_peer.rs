@@ -77,6 +77,7 @@ fn main() {
         
         let payload = RBuf::from(vec![0u8; pl_size]);
         loop {
+            print!(".");
             primitives.data(&rid, true, &None, payload.clone()).await;
         }
     });

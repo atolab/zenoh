@@ -1,10 +1,11 @@
+use async_std::sync::Arc;
+use async_std::task;
+use async_trait::async_trait;
+use rand::prelude::*;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
-use async_std::sync::Arc;
-use async_trait::async_trait;
 use spin::RwLock;
-use rand::prelude::*;
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
@@ -83,7 +84,7 @@ impl Session {
         inner2.write().primitives = Some(prim);
 
         // Workaround for the declare_and_shoot problem
-        async_std::task::sleep(std::time::Duration::from_millis(200)).await;
+        task::sleep(std::time::Duration::from_millis(200)).await;
 
         session
     }
