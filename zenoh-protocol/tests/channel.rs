@@ -141,7 +141,7 @@ impl MsgHandler for SCClient {
 }
 
 
-async fn transport_base_inner() {
+async fn channel_base_inner() {
     // Define the locator
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
 
@@ -344,6 +344,6 @@ async fn transport_base_inner() {
 }
 
 #[test]
-fn transport_base() {
-    task::block_on(transport_base_inner());
+fn channel_base() {
+    task::block_on(channel_base_inner());
 }

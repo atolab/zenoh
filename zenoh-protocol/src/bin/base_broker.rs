@@ -30,7 +30,6 @@ impl SessionHandler for MySH {
         _whatami: WhatAmI, 
         session: Arc<dyn MsgHandler + Send + Sync>
     ) -> Arc<dyn MsgHandler + Send + Sync> {
-        println!("New session opened!");
         let index = self.table.lock().await.insert(session);
         Arc::new(MyMH::new(self.table.clone(), index))
     }
