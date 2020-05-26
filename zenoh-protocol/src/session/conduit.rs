@@ -108,7 +108,7 @@ async fn map_messages_on_links(
                     if let Some(notify) = &msg.notify {
                         // Notify now the result 
                         let res = Err(zerror!(ZErrorKind::InvalidLink {
-                            descr: format!("Can not schedule message on unexsiting link ({})!", link)
+                            descr: format!("Can not send message on unexsiting link ({})!", link)
                         }));
                         notify.send(res).await;
                     }

@@ -1,0 +1,19 @@
+use async_std::sync::Arc;
+
+use crate::link::{LinkManager, LocatorProtocol};
+use crate::link::tcp::ManagerTcp;
+use crate::session::SessionManagerInner;
+
+
+pub struct LinkManagerBuilder;
+
+impl LinkManagerBuilder {
+
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(manager: Arc<SessionManagerInner>, protocol: &LocatorProtocol) -> LinkManager {
+        match protocol {
+            LocatorProtocol::Tcp => Arc::new(ManagerTcp::new(manager)),
+            // LocatorProtocol::Udp => write!(f, "{}", STR_UDP)?,
+        }
+    }
+}

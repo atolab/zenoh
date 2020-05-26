@@ -9,7 +9,7 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
-use crate::link::{Link, LinkManager, Locator, LocatorProtocol};
+use crate::link::{Link, LinkManager, LinkManagerBuilder, Locator, LocatorProtocol};
 use crate::proto::{Message, WhatAmI, close_reason};
 use crate::session::defaults::{
     QUEUE_PRIO_CTRL, QUEUE_PRIO_DATA, SESSION_BATCH_SIZE, SESSION_LEASE, 
@@ -212,18 +212,25 @@ impl SessionManager {
         // Create the timeout duration
         let to = Duration::from_millis(self.0.config.timeout);
 
+        // Automatically create a new link manager for the protocol if it does not exist
+        let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
+        // Create a new link associated by calling the Link Manager
+        let link = manager.new_link(&locator, initial.transport.clone()).await?;
+        // Create a channel for knowing when a session is open
+        let (sender, receiver) = channel::<ZResult<Weak<SessionInner>>>(1);
+        
         // Try a maximum number of times to open a session
         for _ in 0..self.0.config.retries {
-            // Automatically create a new link manager for the protocol if it does not exist
-            let manager = self.0.get_or_new_link_manager(&self.0, &locator.get_proto()).await;
-            // Create a channel for knowing when a session is open
-            let (sender, receiver) = channel::<ZResult<Weak<SessionInner>>>(1);
+            // Create a clone of the link
+            let l = link.clone();
+            // Create a clone of the sender
+            let sen = sender.clone();
 
             // Create the open future
-            let open_fut = initial.open(manager, locator, sender).timeout(to);
+            let open_fut = initial.open(l, sen).timeout(to);
             let channel_fut = receiver.recv().timeout(to);
 
-            // Check the future resul
+            // Check the future result
             match open_fut.try_join(channel_fut).await {
                 // Future timeout result
                 Ok((_, channel_res)) => match channel_res {
@@ -303,7 +310,7 @@ struct SessionManagerInnerConfig {
 pub struct SessionManagerInner {
     config: SessionManagerInnerConfig,
     initial: RwLock<Option<Arc<SessionInner>>>,
-    protocols: RwLock<HashMap<LocatorProtocol, Arc<LinkManager>>>,
+    protocols: RwLock<HashMap<LocatorProtocol, LinkManager>>,
     sessions: RwLock<HashMap<PeerId, Arc<SessionInner>>>,
 }
 
@@ -331,7 +338,7 @@ impl SessionManagerInner {
         &self,
         a_self: &Arc<Self>,
         protocol: &LocatorProtocol,
-    ) -> Arc<LinkManager> {
+    ) -> LinkManager {
         loop {
             match self.get_link_manager(protocol).await {
                 Ok(manager) => return manager,
@@ -347,7 +354,7 @@ impl SessionManagerInner {
         &self,
         a_self: &Arc<Self>,
         protocol: &LocatorProtocol,
-    ) -> ZResult<Arc<LinkManager>> {
+    ) -> ZResult<LinkManager> {
         let mut w_guard = zasyncwrite!(self.protocols);
         if w_guard.contains_key(protocol) {
             return Err(zerror!(ZErrorKind::Other {
@@ -355,12 +362,12 @@ impl SessionManagerInner {
             }));
         }
 
-        let lm = Arc::new(LinkManager::new(a_self.clone(), protocol));
+        let lm = LinkManagerBuilder::new(a_self.clone(), protocol);
         w_guard.insert(protocol.clone(), lm.clone());
         Ok(lm)
     }
 
-    async fn get_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<Arc<LinkManager>> {
+    async fn get_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<LinkManager> {
         match zasyncread!(self.protocols).get(protocol) {
             Some(manager) => Ok(manager.clone()),
             None => Err(zerror!(ZErrorKind::Other {
@@ -609,10 +616,7 @@ impl SessionInner {
     /*************************************/
     /*            OPEN/CLOSE             */
     /*************************************/
-    async fn open(&self, manager: Arc<LinkManager>, locator: &Locator, sender: Sender<ZResult<Weak<SessionInner>>>) -> ZResult<()> {
-        // Create a new link associated by calling the Link Manager
-        let link = manager.new_link(locator, self.transport.clone()).await?;
-
+    async fn open(&self, link: Link, sender: Sender<ZResult<Weak<SessionInner>>>) -> ZResult<()> {
         // Add the link to the transport
         self.transport.add_link(link.clone()).await?;
 
@@ -647,13 +651,6 @@ impl SessionInner {
     }
 
     async fn close(&self) -> ZResult<()> {
-        // Close the active transport
-        self.close_inner().await?;
-        // Remove the session from the manager
-        self.manager.del_session(&self.peer).await
-    }
-
-    async fn close_inner(&self) -> ZResult<()> {
         // Send a close message
         let peer_id = Some(self.manager.config.id.clone());
         let reason_id = close_reason::GENERIC;              
@@ -663,6 +660,8 @@ impl SessionInner {
 
         // Get the transport links
         let links = self.transport.get_links().await;
+        // Send close message on DATA queue so we ensure that all the pending DATA messages
+        // are actually sent on the channel
         let futs: FuturesUnordered<_> = links.iter().map(|l| 
             self.transport.send(message.clone(), *QUEUE_PRIO_DATA, Some(l.clone()))
         ).collect();
@@ -670,6 +669,9 @@ impl SessionInner {
 
         // Close the transport
         let _ = self.transport.close().await;
+
+        // Remove the session from the manager
+        let _ = self.manager.del_session(&self.peer).await;
 
         Ok(())
     }
@@ -771,7 +773,7 @@ impl SessionInner {
             let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
             // Send the close message for this link
-            let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+            let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
             // Close the link
             return Action::Close
@@ -795,7 +797,7 @@ impl SessionInner {
                     let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                     // Send the close message for this link
-                    let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                    let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
                     // Close the link
                     return Action::Close
@@ -823,7 +825,7 @@ impl SessionInner {
                 let message = Message::make_close(peer_id, reason_id, conduit_id, properties);
 
                 // Send the close message for this link
-                let _ = self.transport.send(message, *QUEUE_PRIO_DATA, Some(link.clone())).await;
+                let _ = self.transport.send(message, *QUEUE_PRIO_CTRL, Some(link.clone())).await;
 
                 // Close the link
                 return Action::Close

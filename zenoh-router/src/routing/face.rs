@@ -5,10 +5,8 @@ use std::collections::HashMap;
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
-use crate::routing::resource::Resource;
-use crate::routing::tables::Tables;
+use crate::routing::broker::*;
 use crate::routing::ownedprimitives::OwnedPrimitives;
-use crate::routing::query::Query;
 
 pub struct Face {
     pub(super) id: usize,
@@ -69,21 +67,25 @@ pub struct FaceHdl {
 impl Primitives for FaceHdl {
     async fn resource(&self, rid: u64, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_resource(&self.tables, &Arc::downgrade(&self.face), rid, prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        declare_resource(&mut tables, &mut self.face.clone(), rid, prefixid, suffix).await;
     }
 
     async fn forget_resource(&self, rid: u64) {
-        Tables::undeclare_resource(&self.tables, &Arc::downgrade(&self.face), rid).await;
+        let mut tables = self.tables.write().await;
+        undeclare_resource(&mut tables, &mut self.face.clone(), rid).await;
     }
     
     async fn subscriber(&self, reskey: &ResKey, sub_info: &SubInfo) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, sub_info).await;
+        let mut tables = self.tables.write().await;
+        declare_subscription(&mut tables, &mut self.face.clone(), prefixid, suffix, sub_info).await;
     }
 
     async fn forget_subscriber(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_subscription(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        undeclare_subscription(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
     
     async fn publisher(&self, _reskey: &ResKey) {}
@@ -92,26 +94,31 @@ impl Primitives for FaceHdl {
     
     async fn queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::declare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        declare_queryable(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
 
     async fn forget_queryable(&self, reskey: &ResKey) {
         let (prefixid, suffix) = reskey.into();
-        Tables::undeclare_queryable(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix).await;
+        let mut tables = self.tables.write().await;
+        undeclare_queryable(&mut tables, &mut self.face.clone(), prefixid, suffix).await;
     }
 
     async fn data(&self, reskey: &ResKey, reliable: bool, info: &Option<RBuf>, payload: RBuf) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_data(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, reliable, info, payload).await;
+        let tables = self.tables.read().await;
+        route_data(&tables, &self.face, prefixid, suffix, reliable, info, payload).await;
     }
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, consolidation: QueryConsolidation) {
         let (prefixid, suffix) = reskey.into();
-        Tables::route_query(&self.tables, &Arc::downgrade(&self.face), prefixid, suffix, predicate, qid, target, consolidation).await;
+        let mut tables = self.tables.write().await;
+        route_query(&mut tables, &self.face, prefixid, suffix, predicate, qid, target, consolidation).await;
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
-        Tables::route_reply(&self.tables, &Arc::downgrade(&self.face), qid, reply).await;
+        let mut tables = self.tables.write().await;
+        route_reply(&mut tables, &mut self.face.clone(), qid, reply).await;
     }
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}

@@ -5,14 +5,14 @@ use zenoh_protocol::core::PeerId;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
-use zenoh_router::routing::tables::TablesHdl;
+use zenoh_router::routing::broker::Broker;
 
 fn main() {
     task::block_on(async{
         let mut args = std::env::args();
         args.next(); // skip exe name
     
-        let tables = Arc::new(TablesHdl::new());
+        let broker = Arc::new(Broker::new());
 
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
@@ -35,7 +35,7 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Broker,
             id: PeerId{id: pid},
-            handler: tables.clone()
+            handler: broker.clone()
         };
         let opt_config = SessionManagerOptionalConfig {
             lease: None,

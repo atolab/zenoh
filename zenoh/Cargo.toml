@@ -12,11 +12,13 @@ edition = "2018"
 [dependencies]
 zenoh-protocol = { version = "0.5.0", path = "../zenoh-protocol" }
 zenoh-router = { version = "0.5.0", path = "../zenoh-router" }
-async-std = { version = "1.5.0", features = ["unstable"] }
-async-trait = "0.1.29"
+async-trait = "0.1.30"
 spin = "0.5.2"
 rand = "0.7.3"
 
+[dependencies.async-std]
+version = "~1.5.0"
+features = ["unstable"]
 
 [[example]]
 name = "zn_scout"

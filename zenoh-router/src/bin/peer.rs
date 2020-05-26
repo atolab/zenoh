@@ -7,7 +7,7 @@ use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::WhatAmI;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
-use zenoh_router::routing::tables::TablesHdl;
+use zenoh_router::routing::broker::Broker;
 
 pub struct PrintPrimitives {
 }
@@ -68,7 +68,7 @@ fn main() {
 
         let my_primitives = Arc::new(PrintPrimitives {});
     
-        let tables = Arc::new(TablesHdl::new());
+        let broker = Arc::new(Broker::new());
 
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
@@ -77,7 +77,7 @@ fn main() {
             version: 0,
             whatami: WhatAmI::Peer,
             id: PeerId{id: pid},
-            handler: tables.clone()
+            handler: broker.clone()
         };
         let manager = SessionManager::new(config, None);
         let port = match args.next() { Some(port) => {port} None => {"7447".to_string()}};
@@ -94,7 +94,7 @@ fn main() {
             }
         }
     
-        let primitives = tables.new_primitives(my_primitives).await;
+        let primitives = broker.new_primitives(my_primitives).await;
 
         let sub_info = SubInfo {
             reliability: Reliability::Reliable,

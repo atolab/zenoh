@@ -78,8 +78,8 @@ async fn run(locator: Locator) {
     let client02_id = PeerId{id: vec![2u8]};
 
     // The timeout when opening a session
-    // Set it to 100 ms for testing purposes
-    let timeout = 10;
+    // Set it to 1000 ms for testing purposes
+    let timeout = 1_000;
     let retries = 1;
 
     // Create the transport session manager for the first client
@@ -122,7 +122,7 @@ async fn run(locator: Locator) {
     /* [1] */
     // Add the locator on the router
     let res = router_manager.add_locator(&locator).await; 
-    assert_eq!(res.is_ok(), true);
+    assert!(res.is_ok());
     assert_eq!(router_manager.get_locators().await.len(), 1);
 
     // Open a first session from the client to the router 

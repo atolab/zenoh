@@ -6,13 +6,16 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = { version = "1.5.0", features = ["unstable"] }
-async-trait = "0.1.29"
+async-trait = "0.1.30"
 rand = "0.7.3"
 zenoh-protocol =  { version = "0.5.0", path = "../zenoh-protocol" }
 
+[dependencies.async-std]
+version = "~1.5.0"
+features = ["unstable"]
+
 [dev-dependencies]
-criterion = "0.3.1"
+criterion = "0.3.2"
 
 [[bench]]
 name = "tables_bench"

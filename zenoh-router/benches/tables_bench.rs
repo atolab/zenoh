@@ -6,18 +6,20 @@ use async_std::sync::Arc;
 use criterion::{Criterion, BenchmarkId};
 use zenoh_protocol::proto::{Mux, SubInfo, Reliability, SubMode, WhatAmI};
 use zenoh_protocol::session::DummyHandler;
-use zenoh_router::routing::tables::Tables;
+use zenoh_router::routing::broker::Tables;
+use zenoh_router::routing::resource::*;
+use zenoh_router::routing::pubsub::*;
 
 fn tables_bench(c: &mut Criterion) {
   task::block_on(async{
     let tables = Tables::new();
     let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
 
-    let sex0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
-    Tables::declare_resource(&tables, &sex0, 1, 0, "/bench/tables").await;
-    Tables::declare_resource(&tables, &sex0, 2, 0, "/bench/tables/*").await;
+    let face0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+    declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1, 0, "/bench/tables").await;
+    declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2, 0, "/bench/tables/*").await;
 
-    let sex1 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+    let face1 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
 
     let mut tables_bench = c.benchmark_group("tables_bench");
     let sub_info = SubInfo {
@@ -28,20 +30,23 @@ fn tables_bench(c: &mut Criterion) {
 
     for p in [8, 32, 256, 1024, 8192].iter() {
       for i in 1..(*p) {
-        Tables::declare_resource(&tables, &sex1, i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
-        Tables::declare_subscription(&tables, &sex1, i, "", &sub_info).await;
+        declare_resource(&mut *tables.write().await, &mut face1.upgrade().unwrap(), i, 0, &["/bench/tables/AA", &i.to_string()].concat()).await;
+        declare_subscription(&mut *tables.write().await, &mut face1.upgrade().unwrap(), i, "", &sub_info).await;
       }
 
+      let tables = tables.read().await;
+      let face0 = face0.upgrade().unwrap();
+      
       tables_bench.bench_function(BenchmarkId::new("direct_route", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 2, "")
+        route_data_to_map(&tables, &face0, 2, "")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("known_resource", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/*")
+        route_data_to_map(&tables, &face0, 0, "/bench/tables/*")
       }));
       
       tables_bench.bench_function(BenchmarkId::new("matches_lookup", p), |b| b.iter(|| {
-        Tables::route_data_to_map(&tables, &sex0, 0, "/bench/tables/A*")
+        route_data_to_map(&tables, &face0, 0, "/bench/tables/A*")
       }));
     }
     tables_bench.finish();

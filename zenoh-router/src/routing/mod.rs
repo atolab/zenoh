@@ -1,5 +1,6 @@
-pub mod tables;
+pub mod broker;
 pub mod resource;
 pub mod face;
 pub mod ownedprimitives;
-pub mod query;
+pub mod pubsub;
+pub mod queries;
