@@ -509,7 +509,7 @@ impl Session {
         Ok(channel.get_links().await)
     }
 
-    pub async fn schedule(&self, message: ZenohMessage, link: Option<Link>) -> ZResult<()> {
+    pub async fn schedule(&self, message: ZenohMessage, link: Option<Link>) -> ZResult<()> {        
         let channel = zchannel!(self.0);
         channel.schedule(message, link).await;
         Ok(())

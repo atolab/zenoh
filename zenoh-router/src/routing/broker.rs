@@ -127,7 +127,7 @@ impl Tables {
             let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
             
             // @TODO temporarily propagate to everybody (clients)
-            // if whatami != WhatAmI::Client {
+            // if whatami != whatami::CLIENT {
             if true {
                 let mut local_id = 0;
                 for (id, face) in t.faces.iter() {

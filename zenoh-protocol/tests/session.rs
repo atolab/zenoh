@@ -81,7 +81,7 @@ async fn run(locator: Locator) {
 
     // The timeout when opening a session
     // Set it to 1000 ms for testing purposes
-    let timeout = 10;
+    let timeout = 1_000;
     let retries = 1;
 
     // Create the transport session manager for the first client

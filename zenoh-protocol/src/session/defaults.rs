@@ -4,7 +4,8 @@ configurable! {
     // Default session lease in seconds
     pub(crate) static ref SESSION_LEASE: ZInt = 30;
 
-    // The default sequence number resolution takes 4 bytes on the wire: 28 useful bits
+    // The default sequence number resolution takes 4 bytes on the wire.
+    // Given the VLE encoding of ZInt, 4 bytes result in 28 useful bits.
     // 2^28 = 268_435_456 => Max Seq Num = 268_435_455
     pub(crate) static ref SESSION_SEQ_NUM_RESOLUTION: ZInt = 268_435_456;
 

@@ -1,6 +1,9 @@
 use async_std::task;
 use async_std::sync::Arc;
+
 use rand::RngCore;
+use std::time::Duration;
+
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::link::Locator;
@@ -74,10 +77,11 @@ fn main() {
         let rid = ResKey::RId(1);
         primitives.publisher(&rid).await;
 
-        
+        // Wait for the declare to arrive
+        task::sleep(Duration::from_millis(1_000)).await;
+
         let payload = RBuf::from(vec![0u8; pl_size]);
         loop {
-            print!(".");
             primitives.data(&rid, true, &None, payload.clone()).await;
         }
     });

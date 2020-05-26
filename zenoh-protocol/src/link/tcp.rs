@@ -108,8 +108,7 @@ impl LinkTrait for Tcp {
         Ok(())
     }
     
-    async fn send(&self, buffer: &[u8]) -> ZResult<()> {        
-        // println!("Sending: {}", buffer.len());
+    async fn send(&self, buffer: &[u8]) -> ZResult<()> {                
         (&self.socket).write_all(buffer).await
             .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
 
@@ -341,7 +340,6 @@ async fn read_task(link: Arc<Tcp>) {
             //         }
             //     },
             let mut buffer = vec![0u8; 2];
-            print!(" : ");
             match (&link.socket).read_exact(&mut buffer).await {
                 Ok(_) => {
                     // Update the total amount of bytes that we are expected to read
@@ -620,7 +618,6 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
                 Err(_) => return Ok(())
             };
 
-            println!("NEW CONNECTION");
             // Retrieve the initial temporary session 
             let initial = a_self.inner.get_initial_transport().await;
             // Create the new link object

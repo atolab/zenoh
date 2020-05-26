@@ -97,7 +97,7 @@ impl SerializedBatch {
 
         if length > 0 {
             let res = self.link.send(self.buffer.get_first_slice(..)).await;
-            self.clear();
+            self.clear();            
             return res
         }
 
@@ -109,9 +109,9 @@ fn map_messages_on_links(
     drain: &mut CreditQueueDrain<'_, MessageTx>,
     batches: &[SerializedBatch],
     messages: &mut Vec<Vec<MessageInner>>
-) {
+) {    
     // Drain all the messages from the queue and map them on the links
-    for msg in drain {
+    for msg in drain {      
         // Find the right index for the message
         let index = if let Some(link) = &msg.link {
             // Check if the target link exists, otherwise fallback on the main link            
@@ -309,7 +309,6 @@ async fn consume_task(ch: Arc<Channel>) {
                 drain.drop().await;
                 break
             }
-
         }
 
         // Send any leftover on the batches
@@ -628,7 +627,7 @@ impl Channel {
             }
         }).collect();
         // Wait for the queue to have space for the message
-        self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;
+        self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;        
     }
 
     /*************************************/
@@ -782,7 +781,6 @@ impl Channel {
 #[async_trait]
 impl TransportTrait for Channel {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
-        print!("+");
         match message.body {
             SessionBody::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");

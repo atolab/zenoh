@@ -4,7 +4,8 @@ use async_std::sync::{
 };
 use async_std::task;
 use async_trait::async_trait;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use zenoh_protocol::core::{
     AtomicZInt,
@@ -44,6 +45,18 @@ impl SHRouter {
             resolution
         }
     }
+
+    async fn get_count(&self) -> usize {
+        self.session.lock().await.iter().fold(0, |acc, x|
+            acc + x.count.load(Ordering::Relaxed)
+        )
+    }
+
+    async fn reset_count(&self) {
+        for h in self.session.lock().await.iter() {
+            h.count.store(0, Ordering::Relaxed);
+        }
+    }
 }
 
 #[async_trait]
@@ -57,7 +70,7 @@ impl SessionHandler for SHRouter {
 
 // Session Callback for the router
 pub struct SCRouter {
-    count: AtomicZInt,
+    count: AtomicUsize,
     last_reliable: Mutex<SeqNum>,
     last_unreliable: Mutex<SeqNum>
 }
@@ -65,7 +78,7 @@ pub struct SCRouter {
 impl SCRouter {
     pub fn new(resolution: ZInt) -> Self {
         Self {
-            count: AtomicZInt::new(0),
+            count: AtomicUsize::new(0),
             last_reliable: Mutex::new(SeqNum::make(resolution-1, resolution).unwrap()),
             last_unreliable: Mutex::new(SeqNum::make(resolution-1, resolution).unwrap())
         }
@@ -133,21 +146,26 @@ async fn transport_base_inner() {
     let locator: Locator = "tcp/127.0.0.1:8888".parse().unwrap();
 
     // Default SN resolution
-    let resolution = 16_384;
+    let resolution: ZInt = 16_384;
 
     // Define client and router IDs
     let client_id = PeerId{id: vec![0u8]};
     let router_id = PeerId{id: vec![1u8]};
 
     // Reliable messages to send
-    let messages_count: ZInt = 10_000;
+    let messages_count: usize = 10_000;
+
+    // The timeout before counting the received messages
+    // Set it to 1000 ms for testing purposes
+    let timeout = 1_000;
 
     // Create the router session manager
+    let router_handler = Arc::new(SHRouter::new(resolution));
     let config = SessionManagerConfig {
         version: 0,
         whatami: whatami::ROUTER,
         id: router_id,
-        handler: Arc::new(SHRouter::new(resolution))
+        handler: router_handler.clone()
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
@@ -189,33 +207,138 @@ async fn transport_base_inner() {
     assert_eq!(res.is_ok(), true);
     let session = res.unwrap();
 
-    // Send reliable messages
+    /* [1] */
+    // Send reliable messages by using schedule()
     let reliable = true;
-    let key = ResKey::RName("test".to_string());
+    let key = ResKey::RName("/test".to_string());
     let info = None;
     let payload = RBuf::from(vec![0u8; 1]);
     let reply_context = None;
     let attachment = None;
     let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
 
-    // Send the messages, no dropping or reordering in place
+    // Schedule the messages
     for _ in 0..messages_count { 
         session.schedule(message.clone(), None).await.unwrap();
     }
 
-    // Send unreliable messages
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await; 
+    assert_eq!(messages_count, count);
+
+    // Reset the counters
+    router_handler.reset_count().await;
+
+    /* [2] */
+    // Send unreliable messages by using schedule()
     let reliable = false; 
-    let key = ResKey::RName("test".to_string());
+    let key = ResKey::RName("/test".to_string());
     let info = None;
     let payload = RBuf::from(vec![0u8; 1]);
     let reply_context = None;
     let attachment = None;
     let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
 
-    // Send again the messages, this time they will randomly dropped
+    // Schedule the messages
     for _ in 0..messages_count { 
         session.schedule(message.clone(), None).await.unwrap();
     }
+
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await;
+    assert_eq!(messages_count, count);
+
+    // Reset the counters
+    router_handler.reset_count().await;
+
+    /* [3] */
+    // Send reliable messages by using schedule_batch()
+    let reliable = true;
+    let key = ResKey::RName("/test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
+
+    // Create the batch and schedule it
+    let v = vec![message.clone(); messages_count as usize];
+    session.schedule_batch(v, None).await.unwrap();
+
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await;    
+    assert_eq!(messages_count, count);
+
+    // Reset the counters
+    router_handler.reset_count().await;
+
+    /* [4] */
+    // Send unreliable messages by using schedule()
+    let reliable = false; 
+    let key = ResKey::RName("/test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
+
+    // Create the batch and schedule it
+    let v = vec![message.clone(); messages_count as usize];
+    session.schedule_batch(v, None).await.unwrap();
+
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await;
+    assert_eq!(messages_count, count);
+
+    // Reset the counters
+    router_handler.reset_count().await;
+
+    /* [5] */
+    // Send reliable messages by using handle_message()
+    let reliable = true;
+    let key = ResKey::RName("/test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
+
+    // Schedule the messages
+    for _ in 0..messages_count { 
+        session.handle_message(message.clone()).await.unwrap();
+    }
+
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await;
+    assert_eq!(messages_count, count);
+
+    // Reset the counters
+    router_handler.reset_count().await;
+
+    /* [6] */
+    // Send unreliable messages by using handle_message()
+    let reliable = false; 
+    let key = ResKey::RName("/test".to_string());
+    let info = None;
+    let payload = RBuf::from(vec![0u8; 1]);
+    let reply_context = None;
+    let attachment = None;
+    let message = ZenohMessage::make_data(reliable, key, info, payload, reply_context, attachment);
+
+    // Schedule the messages
+    for _ in 0..messages_count { 
+        session.handle_message(message.clone()).await.unwrap();
+    }
+
+    // Wait for the messages to arrive to the other side
+    task::sleep(Duration::from_millis(timeout)).await;
+    let count = router_handler.get_count().await;
+    assert_eq!(messages_count, count);
 
     let _ = session.close().await;
 }
