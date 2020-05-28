@@ -210,9 +210,6 @@ async fn read_task(link: Arc<Tcp>) {
         // Keep track of the number of bytes still to read for incomplete message batches
         let mut left_to_read: usize = 0;
 
-        // Keep track of how many times we have read 0 bytes
-        let mut zero_readings: usize = 0;
-
         // Macro to handle a link error
         macro_rules! zlinkerror {
             () => {                
@@ -268,31 +265,9 @@ async fn read_task(link: Arc<Tcp>) {
             // Async read from the TCP socket
             match (&link.socket).read(&mut buffer[w_pos..]).await {
                 Ok(mut n) => {
-                    if n == 0 {
-                        // According to: 
-                        //   https://docs.rs/async-std/1.6.0/async_std/io/trait.Read.html#method.read
-                        //
-                        // If n is 0, then it can indicate one of two scenarios:
-                        // - This reader has reached its "end of file" and will likely no longer be 
-                        //   able to produce bytes. Note that this does not mean that the reader will
-                        //   always no longer be able to produce bytes.
-                        // - The buffer specified was 0 bytes in length.
-                        
-                        // We keep track of the number of consecutive zero readings. If a threshold is
-                        // reached, we consider it as a link error.
-                        if zero_readings == *ZERO_READINGS_THRESHOLD {
-                            zlinkerror!();
-                        }
-
-                        // Update the zero readings counter
-                        zero_readings += 1;
-                        
-                        // Keep reading from the socket
-                        continue
+                    if n == 0 {                        
+                        zlinkerror!();
                     }
-
-                    // Reset the zero readings counter
-                    zero_readings = 0;
 
                     // If we had a w_pos different from 0, it means we add an incomplete length reading
                     // in the previous iteration: we only read 1 byte instead of 2.
@@ -332,7 +307,7 @@ async fn read_task(link: Arc<Tcp>) {
                         left_to_read = 0;  
 
                         // Check if we have completely read the batch
-                        if buffer[r_l_pos..n].len() == 0 {  
+                        if buffer[r_l_pos..n].is_empty() {  
                             // Reset the RBuf
                             rbuf.clear();                         
                             // Keep reading from the socket
@@ -406,7 +381,7 @@ async fn read_task(link: Arc<Tcp>) {
                         left_to_read = 0;
 
                         // Check if we are done with the current reading buffer
-                        if buffer[r_e_pos..n].len() == 0 {
+                        if buffer[r_e_pos..n].is_empty() {
                             // Keep reading from the socket
                             break
                         }

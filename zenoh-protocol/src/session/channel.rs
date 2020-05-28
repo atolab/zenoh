@@ -587,7 +587,7 @@ impl Channel {
 
     pub(super) async fn close(&self) -> ZResult<()> {
         // Mark the channel as inactive
-        if self.active.swap(false, Ordering::Relaxed) {            
+        if self.active.swap(false, Ordering::SeqCst) {            
             // Atomically push the messages on the queue
             let mut messages: Vec<MessageTx> = Vec::new();
 
@@ -626,7 +626,7 @@ impl Channel {
             }
 
             // Delete the session on the manager
-            self.manager.del_session(&self.pid).await?;
+            let _ = self.manager.del_session(&self.pid).await;
         }
         
         Ok(())
@@ -851,8 +851,6 @@ impl TransportTrait for Channel {
     }
 
     async fn link_err(&self, link: &Link) {
-        println!("!!! Link error ({}) => ({})", link.get_src(), link.get_dst());
-        
         let _ = self.del_link(link).await;
 
         if self.get_links().await.is_empty() {
