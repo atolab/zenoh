@@ -92,16 +92,15 @@ impl RBuf {
     }
 
     #[inline]
+    pub fn clear(&mut self) {
+        self.slices.clear();
+        self.pos.0 = 0;
+    }
+    
+    #[inline]
     fn current_slice(&self) -> &ArcSlice {
         &self.slices[self.pos.0]
-    }
-
-    pub fn clean_read_slices(&mut self) {
-        if self.pos.0 > 0 {
-            self.slices.drain(0..self.pos.0);
-            self.pos.0 = 0;
-        }
-    }
+    }    
 
     #[inline]
     pub fn can_read(&self) -> bool {

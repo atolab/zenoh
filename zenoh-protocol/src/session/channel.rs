@@ -89,7 +89,7 @@ impl SerializedBatch {
         let mut length: u16 = self.buffer.len() as u16;
         if self.link.is_streamed() {
             // Remove from the total the 16 bits used for the length
-            length -= 2;
+            length -= 2;            
             // Write the length on the first 16 bits
             let bits = self.buffer.get_first_slice_mut(..2);
             bits.copy_from_slice(&length.to_le_bytes());
@@ -118,6 +118,7 @@ fn map_messages_on_links(
             if let Some(index) = batches.iter().position(|x| &x.link == link) {
                 index
             } else {
+                println!("!!! Message dropped because indicated link does not exist");
                 // Drop the message            
                 continue
             } 
@@ -224,6 +225,7 @@ async fn batch_fragment_transmit(
             if has_failed {
                 // @TODO: implement the fragmentation here
                 // Drop the message for the time being
+                println!("!!! Message dropped because fragmentation is not yet implemented");
                 batch.clear();
                 break
             }

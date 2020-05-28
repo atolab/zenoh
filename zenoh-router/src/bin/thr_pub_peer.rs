@@ -77,6 +77,7 @@ fn main() {
         let rid = ResKey::RId(1);
         primitives.publisher(&rid).await;
 
+        // @TODO: Fix writer starvation in the RwLock and remove this sleep
         // Wait for the declare to arrive
         task::sleep(Duration::from_millis(1_000)).await;
 

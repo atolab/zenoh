@@ -31,9 +31,9 @@ impl SessionHandler for MySH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <messages to push on the queue at the same time> <locator to connect to>
+    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <locator to connect to>
 Example: 
-    cargo run --release --bin {} 8000 16384 16 tcp/127.0.0.1:7447",
+    cargo run --release --bin {} 8000 16384 tcp/127.0.0.1:7447",
         bin, bin
     );
 }
@@ -65,18 +65,6 @@ fn main() {
         return print_usage(bin);
     };
     let batchsize: usize = if let Ok(v) = value.parse() {
-        v
-    } else {
-        return print_usage(bin);
-    };
-    
-    // Get next arg
-    let value = if let Some(value) = args.next() {
-        value
-    } else {
-        return print_usage(bin);
-    };
-    let msg_batch: usize = if let Ok(v) = value.parse() {
         v
     } else {
         return print_usage(bin);
@@ -135,8 +123,7 @@ fn main() {
         );
 
         loop {
-            let v = vec![message.clone(); msg_batch];
-            let res = session.schedule_batch(v, None).await;
+            let res = session.handle_message(message.clone()).await;
             if res.is_err() {
                 break
             }

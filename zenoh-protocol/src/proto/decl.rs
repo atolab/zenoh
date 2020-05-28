@@ -3,15 +3,15 @@ use crate::core::{ZInt, ResKey};
 
 pub mod id {
     // Declarations
-    pub const RESOURCE            : u8 =  0x01;
-    pub const PUBLISHER           : u8 =  0x02;
-    pub const SUBSCRIBER          : u8 =  0x03;
-    pub const QUERYABLE           : u8 =  0x04;
+    pub const RESOURCE            : u8 = 0x01;
+    pub const PUBLISHER           : u8 = 0x02;
+    pub const SUBSCRIBER          : u8 = 0x03;
+    pub const QUERYABLE           : u8 = 0x04;
 
-    pub const FORGET_RESOURCE     : u8 =  0x11;
-    pub const FORGET_PUBLISHER    : u8 =  0x12;
-    pub const FORGET_SUBSCRIBER   : u8 =  0x13;
-    pub const FORGET_QUERYABLE    : u8 =  0x14;
+    pub const FORGET_RESOURCE     : u8 = 0x11;
+    pub const FORGET_PUBLISHER    : u8 = 0x12;
+    pub const FORGET_SUBSCRIBER   : u8 = 0x13;
+    pub const FORGET_QUERYABLE    : u8 = 0x14;
 
     // SubModes
     pub const MODE_PUSH           : u8 = 0x00;
