@@ -1,6 +1,7 @@
-use std::env;
-use std::time::{Duration, Instant};
+use async_std::future;
 use async_std::task;
+use std::env;
+use std::time::Instant;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
 
@@ -32,7 +33,7 @@ fn main() {
             mode: SubMode::Push,
             period: None
         };
-        let sub = session.declare_subscriber(&reskey, &sub_info,
+        let _ = session.declare_subscriber(&reskey, &sub_info,
             move |_res_name: &str, _payload: RBuf, _data_info: DataInfo| {
                 if count == 0 {
                     start = Instant::now();
@@ -46,9 +47,11 @@ fn main() {
             }
         ).await.unwrap();
 
-        task::sleep(Duration::from_secs(60)).await;
+        // Stop forever
+        future::pending::<()>().await;
 
-        session.undeclare_subscriber(sub).await.unwrap();
-        session.close().await.unwrap();
-    })
+        // @TODO: Uncomment these once the writer starvation has been solved on the RwLock      
+        // session.undeclare_subscriber(sub).await.unwrap();
+        // session.close().await.unwrap();
+    });
 }

@@ -266,7 +266,6 @@ async fn read_task(link: Arc<Tcp>) {
             match (&link.socket).read(&mut buffer[w_pos..]).await {
                 Ok(mut n) => {
                     if n == 0 {  
-                        println!("!!! Unrecoverable error in TCP read loop: 0 bytes read");                      
                         zlinkerror!();
                     }
 
@@ -391,8 +390,7 @@ async fn read_task(link: Arc<Tcp>) {
                         r_l_pos = r_e_pos;
                     }
                 },
-                Err(e) => {
-                    println!("!!! Unrecoverable error in TCP read loop: {}", e);
+                Err(_) => {
                     zlinkerror!();
                 }
             }
