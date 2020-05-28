@@ -242,12 +242,18 @@ async fn batch_fragment_transmit(
 }
 
 // Consume function
-async fn consume_task(ch: Arc<Channel>) {
+async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
     // @TODO: Implement the reliability queue
     // @TODO: Implement the fragmentation
 
     // Acquire the lock on the links
-    let guard = zasyncread!(ch.links); 
+    let guard = zasyncread!(ch.links);
+    // Check if we have links to send on
+    if guard.links.is_empty() {        
+        return Err(zerror!(ZErrorKind::Other{
+            descr: "Unable to start the consume task, no links available".to_string()
+        }))
+    }
 
     // Use double buffering to allow parallel serialization and transmission    
     let mut batches: Vec<SerializedBatch> = Vec::with_capacity(guard.links.len());
@@ -325,6 +331,8 @@ async fn consume_task(ch: Arc<Channel>) {
 
     // Synchronize with the stop()
     ch.barrier.wait().await;
+
+    Ok(())
 }
 
 /*************************************/
@@ -579,26 +587,43 @@ impl Channel {
 
     pub(super) async fn close(&self) -> ZResult<()> {
         // Mark the channel as inactive
-        if self.active.swap(false, Ordering::Relaxed) {
+        if self.active.swap(false, Ordering::Relaxed) {            
+            // Atomically push the messages on the queue
+            let mut messages: Vec<MessageTx> = Vec::new();
+
+            // Close message to be sent on all the links
             let peer_id = Some(self.manager.config.pid.clone());
             let reason_id = smsg::close_reason::GENERIC;              
             let link_only = false;  // This is should always be false for user-triggered close              
             let attachment = None;  // No attachment here
-            let message = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
+            let msg = SessionMessage::make_close(peer_id, reason_id, link_only, attachment);
 
-            let close = MessageTx {
-                inner: MessageInner::Session(message),
-                link: None
-            };
+            for l in zasyncread!(self.links).links.iter() {
+                let close = MessageTx {
+                    inner: MessageInner::Session(msg.clone()),
+                    link: Some(l.clone())
+                };
+                messages.push(close);
+            }
+
+            // Stop message to exit the consume task
             let stop = MessageTx {
                 inner: MessageInner::Stop,
                 link: None
             };
+            messages.push(stop);
+
             // Atomically push the close and stop messages to the queue
-            self.queue.push_batch(vec![close, stop], *QUEUE_PRIO_DATA).await;
+            self.queue.push_batch(messages, *QUEUE_PRIO_DATA).await;
 
             // Wait for the consume_task to stop
             self.barrier.wait().await;
+
+            // Close all the links
+            for l in self.get_links().await.iter() {
+                let _ = self.del_link(l).await;
+                let _ = l.close().await;
+            }
 
             // Delete the session on the manager
             self.manager.del_session(&self.pid).await?;
@@ -646,13 +671,7 @@ impl Channel {
         self.stop().await?;
         let mut guard = zasyncwrite!(self.links);
         guard.del_link(link).await?;
-        // Start the channel only if there are links left
-        if !guard.links.is_empty() {
-            self.start().await?;
-        } else {
-            // @TODO: Remove the else statement once the lease is implemented
-            self.manager.del_session(&self.pid).await?;
-        }
+        self.start().await?;
         Ok(())    
     }
 
@@ -679,16 +698,19 @@ impl Channel {
         };
 
         // If not already active, start the transmission loop
-        if !self.active.swap(true, Ordering::Relaxed) {
+        if !self.active.swap(true, Ordering::SeqCst) {
             // Spawn the transmission loop
-            task::spawn(consume_task(ch));
+            task::spawn(async move {
+                let _ = consume_task(ch.clone()).await;
+                ch.active.store(false, Ordering::SeqCst);
+            });
         }
 
         Ok(())
     }
 
     pub(super) async fn stop(&self) -> ZResult<()> {        
-        if self.active.swap(false, Ordering::Relaxed) {
+        if self.active.swap(false, Ordering::SeqCst) {
             let msg = MessageTx {
                 inner: MessageInner::Stop,
                 link: None
@@ -771,8 +793,15 @@ impl Channel {
         }
         // Delete the link
         let _ = self.del_link(link).await;
+        // Close the link
+        let _ = link.close().await;
         // Close all the session if this close message is not for the link only
         if !link_only {
+            // Close all the remaining links
+            for l in self.get_links().await.iter() {
+                let _ = self.del_link(l).await;
+                let _ = l.close().await;
+            }
             let _ = self.manager.del_session(&self.pid).await;
         }
         
@@ -822,6 +851,13 @@ impl TransportTrait for Channel {
     }
 
     async fn link_err(&self, link: &Link) {
+        println!("!!! Link error ({}) => ({})", link.get_src(), link.get_dst());
+        
         let _ = self.del_link(link).await;
+
+        if self.get_links().await.is_empty() {
+            // @TODO: Remove this statement once the session lease is implemented
+            let _ = self.manager.del_session(&self.pid).await;
+        }
     }
 }

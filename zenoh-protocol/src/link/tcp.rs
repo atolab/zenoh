@@ -22,11 +22,13 @@ use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 // Default MTU (TCP PDU)
 const DEFAULT_MTU: usize = 65_536;
 
-configurable!{
+configurable! {
     // Size of buffer used to read from socket
     static ref READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
     // Size of the vector used to deserialize the messages
     static ref READ_MESSAGES_VEC_SIZE: usize = 32;
+    // Number of zero readings before considering a link error
+    static ref ZERO_READINGS_THRESHOLD: usize = 8;
 }
 
 
@@ -205,10 +207,27 @@ async fn read_task(link: Arc<Tcp>) {
         // The write position in the buffer
         let mut w_pos: usize = 0;        
 
-        // Keep track of incomplete message batches
+        // Keep track of the number of bytes still to read for incomplete message batches
         let mut left_to_read: usize = 0;
 
-        // Add a slice to the RBuf
+        // Keep track of how many times we have read 0 bytes
+        let mut zero_readings: usize = 0;
+
+        // Macro to handle a link error
+        macro_rules! zlinkerror {
+            () => {                
+                // Close the underlying TCP socket
+                let _ = link.socket.shutdown(Shutdown::Both);
+                // Delete the link from the manager
+                let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                // Notify the transport
+                guard.link_err(&link_obj).await;
+                // Exit
+                return Ok(())
+            };
+        }
+
+        // Macro to add a slice to the RBuf
         macro_rules! zaddslice {
             ($start:expr, $end:expr) => {
                 let tot = $end - $start;
@@ -218,7 +237,7 @@ async fn read_task(link: Arc<Tcp>) {
             };
         }
 
-        // Read loop        
+        // Macro for deserializing the messages
         macro_rules! zdeserialize {
             () => {
                 // Deserialize all the messages from the current RBuf
@@ -250,12 +269,33 @@ async fn read_task(link: Arc<Tcp>) {
             match (&link.socket).read(&mut buffer[w_pos..]).await {
                 Ok(mut n) => {
                     if n == 0 {
-                        // We have read 0 bytes
+                        // According to: 
+                        //   https://docs.rs/async-std/1.6.0/async_std/io/trait.Read.html#method.read
+                        //
+                        // If n is 0, then it can indicate one of two scenarios:
+                        // - This reader has reached its "end of file" and will likely no longer be 
+                        //   able to produce bytes. Note that this does not mean that the reader will
+                        //   always no longer be able to produce bytes.
+                        // - The buffer specified was 0 bytes in length.
+                        
+                        // We keep track of the number of consecutive zero readings. If a threshold is
+                        // reached, we consider it as a link error.
+                        if zero_readings == *ZERO_READINGS_THRESHOLD {
+                            zlinkerror!();
+                        }
+
+                        // Update the zero readings counter
+                        zero_readings += 1;
+                        
                         // Keep reading from the socket
                         continue
                     }
 
-                    // If we had a w_pos not equal to 0, it means we add an incomplete length writing
+                    // Reset the zero readings counter
+                    zero_readings = 0;
+
+                    // If we had a w_pos different from 0, it means we add an incomplete length reading
+                    // in the previous iteration: we only read 1 byte instead of 2.
                     if w_pos != 0 {
                         // Update the number of already read bytes by adding the bytes we have already 
                         // read in the previous iteration. "n" now is the index pointing to the last 
@@ -270,6 +310,7 @@ async fn read_task(link: Arc<Tcp>) {
 
                     // Check if we had an incomplete message batch
                     if left_to_read > 0 {
+                        // Check if still we haven't read enough bytes
                         if n < left_to_read {
                             // Update the number of bytes still to read;
                             left_to_read -= n;
@@ -290,7 +331,7 @@ async fn read_task(link: Arc<Tcp>) {
                         // Reset the remaining bytes to read
                         left_to_read = 0;  
 
-                        // Check if we have a completely read the batch
+                        // Check if we have completely read the batch
                         if buffer[r_l_pos..n].len() == 0 {  
                             // Reset the RBuf
                             rbuf.clear();                         
@@ -301,7 +342,7 @@ async fn read_task(link: Arc<Tcp>) {
 
                     // Loop over all the buffer which may contain multiple message batches
                     loop {
-                        // Compute the number of bytes we have read
+                        // Compute the total number of bytes we have read
                         let read = buffer[r_l_pos..n].len();
                         // Check if we have read the 2 bytes necessary to decode the message length                
                         if read < 2 {    
@@ -321,9 +362,7 @@ async fn read_task(link: Arc<Tcp>) {
                         let to_read = u16::from_le_bytes(length) as usize;
 
                         // Check if we have really something to read
-                        if to_read == 0 {
-                            // Reset the RBuf
-                            rbuf.clear();
+                        if to_read == 0 {                            
                             // Keep reading from the socket
                             break
                         }
@@ -332,10 +371,8 @@ async fn read_task(link: Arc<Tcp>) {
                         let read = buffer[r_s_pos..n].len();
 
                         if read == 0 {
-                            // The buffer might be empty in case of having 
-                            // read only the two bytes of the length and no 
-                            // additional bytes are left in the reading buffer,
-                            // in this case "r_s_pos" is equal to "n"
+                            // The buffer might be empty in case of having read only the two bytes 
+                            // of the length and no additional bytes are left in the reading buffer
                             left_to_read = to_read;
                             // Keep reading from the socket
                             break 
@@ -379,14 +416,7 @@ async fn read_task(link: Arc<Tcp>) {
                     }
                 },
                 Err(_) => {
-                    // Close the underlying TCP socket
-                    let _ = link.socket.shutdown(Shutdown::Both);
-                    // Delete the link from the manager
-                    let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
-                    // Notify the transport
-                    guard.link_err(&link_obj).await;
-                    // Exit
-                    return Ok(())
+                    zlinkerror!();
                 }
             }
         }
@@ -504,7 +534,7 @@ impl ManagerTcpInner {
         // Create the TCP connection
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                     descr: format!("{}", e)
                 }))
             };
