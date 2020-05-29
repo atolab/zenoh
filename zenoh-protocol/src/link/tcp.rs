@@ -1,9 +1,10 @@
 use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, Weak};
+use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, RecvError, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::net::Shutdown;
 
 #[cfg(write_vectored)]
@@ -12,20 +13,20 @@ use std::io::IoSlice;
 use crate::{zerror, to_zerror};
 use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::{ArcSlice, RBuf};
-use crate::proto::Message;
+use crate::proto::SessionMessage;
 use crate::session::{SessionManagerInner, Action, Transport};
-use crate::link::{Link, LinkTrait, Locator, ManagerTrait};
+use super::{Link, LinkTrait, Locator, ManagerTrait};
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
 
-// Default MTU
-const DEFAULT_MTU: usize = 65_535;
+// Default MTU (TCP PDU)
+const DEFAULT_MTU: usize = 65_536;
 
-configurable!{
+configurable! {
     // Size of buffer used to read from socket
-    static ref READ_BUFFER_SIZE: usize = 128 * 1_024;
-    // Size of buffer used to read from socket
-    static ref MESSAGES_TO_READ: usize = 1_024;
+    static ref TCP_READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
+    // Size of the vector used to deserialize the messages
+    static ref TCP_READ_MESSAGES_VEC_SIZE: usize = 32;
 }
 
 
@@ -54,26 +55,24 @@ pub struct Tcp {
     src_locator: Locator,
     // The destination Zenoh locator of this link (locator used on the local host)
     dst_locator: Locator,
-    // The buffer size to use in a read operation
-    buff_size: usize,
     // The reference to the associated transport
-    transport: Mutex<Arc<Transport>>,
+    transport: Mutex<Transport>,
     // The reference to the associated link manager
     manager: Arc<ManagerTcpInner>,
     // Channel for stopping the read task
-    ch_send: Sender<bool>,
-    ch_recv: Receiver<bool>,
+    ch_send: Sender<()>,
+    ch_recv: Receiver<()>,
     // Weak reference to self
-    w_self: RwLock<Option<Weak<Tcp>>>
+    w_self: RwLock<Option<Weak<Self>>>
 }
 
 impl Tcp {
-    fn new(socket: TcpStream, transport: Arc<Transport>, manager: Arc<ManagerTcpInner>) -> Tcp {
+    fn new(socket: TcpStream, transport: Transport, manager: Arc<ManagerTcpInner>) -> Tcp {
         // Retrieve the source and destination socket addresses
         let src_addr = socket.local_addr().unwrap();
         let dst_addr = socket.peer_addr().unwrap();
         // The channel for stopping the read task
-        let (sender, receiver) = channel::<bool>(1);
+        let (sender, receiver) = channel::<()>(1);
         // Build the Tcp
         Tcp {
             socket,
@@ -81,7 +80,6 @@ impl Tcp {
             dst_addr,
             src_locator: Locator::Tcp(src_addr),
             dst_locator: Locator::Tcp(dst_addr),
-            buff_size: *READ_BUFFER_SIZE,
             transport: Mutex::new(transport),
             manager,
             ch_send: sender,
@@ -107,30 +105,9 @@ impl LinkTrait for Tcp {
         Ok(())
     }
     
-    async fn send(&self, buffer: RBuf) -> ZResult<()> {
-        #[cfg(write_vectored)]
-        {
-            let mut ioslices = &mut buffer.as_ioslices()[..];
-            while ! ioslices.is_empty() {
-                match (&self.socket).write_vectored(ioslices).await {
-                    Ok(size) => {
-                        ioslices = IoSlice::advance(ioslices, size);
-                    },
-                    err => {err.map_err(to_zerror!(IOError, "on write_vectored".to_string()))?;}
-                }
-            }
-        }
-        
-        #[cfg(not(write_vectored))]
-        {
-            let mut sendbuff = Vec::with_capacity(buffer.readable());
-            for s in buffer.get_slices() {
-                std::io::Write::write_all(&mut sendbuff, s.as_slice())
-                    .map_err(to_zerror!(IOError, "on buff.write_all".to_string()))?;
-            }
-            (&self.socket).write_all(&sendbuff).await
-                .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
-        }
+    async fn send(&self, buffer: &[u8]) -> ZResult<()> {                
+        (&self.socket).write_all(buffer).await
+            .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
 
         Ok(())
     }
@@ -140,7 +117,7 @@ impl LinkTrait for Tcp {
             if let Some(link) = link.upgrade() {
                 link
             } else {
-                return Err(zerror!(ZErrorKind::Other{
+                return Err(zerror!(ZErrorKind::Other {
                     descr: "The Link does not longer exist".to_string()
                 }))
             }
@@ -153,7 +130,7 @@ impl LinkTrait for Tcp {
     }
 
     async fn stop(&self) -> ZResult<()> {
-        self.ch_send.send(false).await;
+        self.ch_send.send(()).await;
         Ok(())
     }
 
@@ -176,73 +153,247 @@ impl LinkTrait for Tcp {
     fn is_reliable(&self) -> bool {
         true
     }
+
+    fn is_streamed(&self) -> bool {
+        true
+    }
 }
 
 async fn read_task(link: Arc<Tcp>) {
-    async fn read_loop(link: &Arc<Tcp>) -> Option<bool> {
-        let mut buff = RBuf::new();
-        let mut messages: Vec<Message> = Vec::with_capacity(*MESSAGES_TO_READ);
+    async fn read_loop(link: &Arc<Tcp>) -> Result<(), RecvError> {
+        // The link object to be passed to the transport
         let link_obj: Link = link.clone();
-
+        // Acquire the lock on the transport
         let mut guard = zasynclock!(link.transport);
-        loop {
+
+        // // The RBuf to read a message batch onto
+        let mut rbuf = RBuf::new();
+
+        // The buffer allocated to read from a single syscall
+        let mut buffer = vec![0u8; *TCP_READ_BUFFER_SIZE];
+
+        // The vector for storing the deserialized messages
+        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*TCP_READ_MESSAGES_VEC_SIZE);
+
+        // An example of the received buffer and the correspoding indexes is: 
+        //
+        //  0 1 2 3 4 5 6 7  ..  n 0 1 2 3 4 5 6 7      k 0 1 2 3 4 5 6 7      x
+        // +-+-+-+-+-+-+-+-+ .. +-+-+-+-+-+-+-+-+-+ .. +-+-+-+-+-+-+-+-+-+ .. +-+
+        // | L | First batch      | L | Second batch     | L | Incomplete batch |
+        // +-+-+-+-+-+-+-+-+ .. +-+-+-+-+-+-+-+-+-+ .. +-+-+-+-+-+-+-+-+-+ .. +-+
+        //
+        // - Decoding Iteration 0:
+        //      r_l_pos = 0; r_s_pos = 2; r_e_pos = n;
+        // 
+        // - Decoding Iteration 1:
+        //      r_l_pos = n; r_s_pos = n+2; r_e_pos = n+k;
+        //
+        // - Decoding Iteration 2:
+        //      r_l_pos = n+k; r_s_pos = n+k+2; r_e_pos = n+k+x;
+        //  
+        // In this example, Iteration 2 will fail since the batch is incomplete and
+        // fewer bytes than the ones indicated in the length are read. The incomplete
+        // batch is hence stored in a RBuf in order to read more bytes from the socket 
+        // and deserialize a complete batch. In case it is not possible to read at once 
+        // the 2 bytes indicating the message batch length (i.e., only the first byte is
+        // available), the first byte is copied at the beginning of the buffer and more
+        // bytes are read in the next iteration.
+
+        // The read position of the length bytes in the buffer
+        let mut r_l_pos: usize;
+        // The start read position of the message bytes in the buffer
+        let mut r_s_pos: usize;
+        // The end read position of the messages bytes in the buffer
+        let mut r_e_pos: usize;
+        // The write position in the buffer
+        let mut w_pos: usize = 0;        
+
+        // Keep track of the number of bytes still to read for incomplete message batches
+        let mut left_to_read: usize = 0;
+
+        // Macro to handle a link error
+        macro_rules! zlinkerror {
+            () => {                
+                // Close the underlying TCP socket
+                let _ = link.socket.shutdown(Shutdown::Both);
+                // Delete the link from the manager
+                let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                // Notify the transport
+                guard.link_err(&link_obj).await;
+                // Exit
+                return Ok(())
+            };
+        }
+
+        // Macro to add a slice to the RBuf
+        macro_rules! zaddslice {
+            ($start:expr, $end:expr) => {
+                let tot = $end - $start;
+                let mut slice = Vec::with_capacity(tot);
+                slice.extend_from_slice(&buffer[$start..$end]);
+                rbuf.add_slice(ArcSlice::new(Arc::new(slice), 0, tot));
+            };
+        }
+
+        // Macro for deserializing the messages
+        macro_rules! zdeserialize {
+            () => {
+                // Deserialize all the messages from the current RBuf
+                while let Ok(msg) = rbuf.read_session_message() {
+                    messages.push(msg);                     
+                }
+
+                for msg in messages.drain(..) {
+                    let action = guard.receive_message(&link_obj, msg).await;
+                    // Enforce the action as instructed by the upper logic
+                    match action {
+                        Action::Read => {},
+                        Action::ChangeTransport(transport) => *guard = transport,
+                        Action::Close => {
+                            // Close the underlying TCP socket
+                            let _ = link.socket.shutdown(Shutdown::Both);
+                            // Delete the link from the manager
+                            let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
+                            // Exit
+                            return Ok(())
+                        }
+                    }  
+                }
+            };
+        }
+                
+        loop {            
             // Async read from the TCP socket
-            let mut rbuf = vec![0u8; link.buff_size];
-            match (&link.socket).read(&mut rbuf).await {
-                Ok(n) => { 
-                    // Reading zero bytes means error
-                    if n == 0 {
-                        // Close the underlying TCP socket
-                        let _ = link.socket.shutdown(Shutdown::Both);
-                        // Delete the link from the manager
-                        let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
-                        // Notify the transport
-                        guard.link_err(&link_obj).await;
-                        return Some(false)
+            match (&link.socket).read(&mut buffer[w_pos..]).await {
+                Ok(mut n) => {
+                    if n == 0 {  
+                        // Reading 0 bytes means error
+                        zlinkerror!();
                     }
-                    buff.add_slice(ArcSlice::new(Arc::new(rbuf), 0, n));
+
+                    // If we had a w_pos different from 0, it means we add an incomplete length reading
+                    // in the previous iteration: we only read 1 byte instead of 2.
+                    if w_pos != 0 {
+                        // Update the number of already read bytes by adding the bytes we have already 
+                        // read in the previous iteration. "n" now is the index pointing to the last 
+                        // valid position in the buffer.
+                        n += w_pos;
+                        // Reset the write index
+                        w_pos = 0;
+                    }
+
+                    // Reset the read length index
+                    r_l_pos = 0;                    
+
+                    // Check if we had an incomplete message batch
+                    if left_to_read > 0 {
+                        // Check if still we haven't read enough bytes
+                        if n < left_to_read {
+                            // Update the number of bytes still to read;
+                            left_to_read -= n;
+                            // Copy the relevant buffer slice in the RBuf
+                            zaddslice!(0, n);
+                            // Keep reading from the socket
+                            continue
+                        }
+                        
+                        // We are ready to decode a complete message batch
+                        // Copy the relevant buffer slice in the RBuf
+                        zaddslice!(0, left_to_read);
+                        // Read the batch
+                        zdeserialize!();
+                        
+                        // Update the read length index
+                        r_l_pos = left_to_read;
+                        // Reset the remaining bytes to read
+                        left_to_read = 0;  
+
+                        // Check if we have completely read the batch
+                        if buffer[r_l_pos..n].is_empty() {  
+                            // Reset the RBuf
+                            rbuf.clear();                         
+                            // Keep reading from the socket
+                            continue
+                        }                                                       
+                    }
+
+                    // Loop over all the buffer which may contain multiple message batches
+                    loop {
+                        // Compute the total number of bytes we have read
+                        let read = buffer[r_l_pos..n].len();
+                        // Check if we have read the 2 bytes necessary to decode the message length                
+                        if read < 2 {    
+                            // Copy the bytes at the beginning of the buffer
+                            buffer.copy_within(r_l_pos..n, 0); 
+                            // Update the write index                  
+                            w_pos = read;
+                            // Keep reading from the socket
+                            break
+                        }
+                        
+                        // We have read at least two bytes in the buffer, update the read start index
+                        r_s_pos = r_l_pos + 2;
+                        // Read the lenght as litlle endian from the buffer (array of 2 bytes)
+                        let length: [u8; 2] = buffer[r_l_pos..r_s_pos].try_into().unwrap();
+                        // Decode the total amount of bytes that we are expected to read
+                        let to_read = u16::from_le_bytes(length) as usize;
+
+                        // Check if we have really something to read
+                        if to_read == 0 {                            
+                            // Keep reading from the socket
+                            break
+                        }
+                        
+                        // Compute the number of useful bytes we have actually read
+                        let read = buffer[r_s_pos..n].len();
+
+                        if read == 0 {
+                            // The buffer might be empty in case of having read only the two bytes 
+                            // of the length and no additional bytes are left in the reading buffer
+                            left_to_read = to_read;
+                            // Keep reading from the socket
+                            break 
+                        } else if read < to_read {
+                            // We haven't read enough bytes for a complete batch, so
+                            // we need to store the bytes read so far and keep reading
+
+                            // Update the number of bytes we still have to read to 
+                            // obtain a complete message batch for decoding
+                            left_to_read = to_read - read;
+
+                            // Copy the buffer in the RBuf if not empty                            
+                            zaddslice!(r_s_pos, n);
+
+                            // Keep reading from the socket
+                            break                            
+                        }
+
+                        // We have at least one complete message batch we can deserialize
+                        // Compute the read end index of the message batch in the buffer
+                        r_e_pos = r_s_pos + to_read;
+
+                        // Copy the relevant buffer slice in the RBuf
+                        zaddslice!(r_s_pos, r_e_pos);
+                        // Deserialize the batch
+                        zdeserialize!();
+
+                        // Reset the current RBuf
+                        rbuf.clear();
+                        // Reset the remaining bytes to read
+                        left_to_read = 0;
+
+                        // Check if we are done with the current reading buffer
+                        if buffer[r_e_pos..n].is_empty() {
+                            // Keep reading from the socket
+                            break
+                        }
+
+                        // Update the read length index to read the next message batch
+                        r_l_pos = r_e_pos;
+                    }
                 },
                 Err(_) => {
-                    // Close the underlying TCP socket
-                    let _ = link.socket.shutdown(Shutdown::Both);
-                    // Delete the link from the manager
-                    let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
-                    // Notify the transport
-                    guard.link_err(&link_obj).await;
-                    return Some(false)
-                }
-            }
-
-            // Read and serialize all the messages from the buffer
-            loop {
-                let pos = buff.get_pos();
-                match buff.read_message() {
-                    Ok(message) => {
-                        messages.push(message);
-                        buff.clean_read_slices();
-                    },
-                    Err(_) => {
-                        if buff.set_pos(pos).is_err() {
-                            panic!("Unrecoverable error in TCP read loop!")
-                        }
-                        break
-                    }
-                }
-            }
-
-            // Propagate the messages to the upper logic
-            for msg in messages.drain(..) {
-                let action = guard.receive_message(&link_obj, msg).await;
-                match action {
-                    Action::Read => continue,
-                    Action::ChangeTransport(transport) => *guard = transport,
-                    Action::Close => {
-                        // Close the underlying TCP socket
-                        let _ = link.socket.shutdown(Shutdown::Both);
-                        // Delete the link from the manager
-                        let _ = link.manager.del_link(&link.src_addr, &link.dst_addr).await;
-                        return Some(false)
-                    }
+                    zlinkerror!();
                 }
             }
         }
@@ -269,7 +420,7 @@ impl Drop for Tcp {
 pub struct ManagerTcp(Arc<ManagerTcpInner>);
 
 impl ManagerTcp {
-    pub fn new(manager: Arc<SessionManagerInner>) -> Self {  
+    pub(crate) fn new(manager: Arc<SessionManagerInner>) -> Self {  
         Self(Arc::new(ManagerTcpInner::new(manager)))
     }
 }
@@ -278,7 +429,7 @@ impl ManagerTcp {
 impl ManagerTrait for ManagerTcp {
     // @TODO: remove the allow #[allow(clippy::infallible_destructuring_match)] when adding more transport links
     #[allow(clippy::infallible_destructuring_match)]
-    async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link> {
+    async fn new_link(&self, dst: &Locator, transport: &Transport) -> ZResult<Link> {
         let dst = get_tcp_addr!(dst);
         let link: Link = self.0.new_link(&self.0, dst, transport).await?;
         Ok(link)
@@ -324,14 +475,14 @@ impl ManagerTrait for ManagerTcp {
 
 struct ListenerTcpInner {
     socket: Arc<TcpListener>,
-    sender: Sender<bool>,
-    receiver: Receiver<bool>
+    sender: Sender<()>,
+    receiver: Receiver<()>
 }
 
 impl ListenerTcpInner {
     fn new(socket: Arc<TcpListener>) -> ListenerTcpInner {
         // Create the channel necessary to break the accept loop
-        let (sender, receiver) = channel::<bool>(1);
+        let (sender, receiver) = channel::<()>(1);
         // Update the list of active listeners on the manager
         ListenerTcpInner {
             socket,
@@ -356,11 +507,11 @@ impl ManagerTcpInner {
         }
     }
 
-    async fn new_link(&self, a_self: &Arc<Self>, dst: &SocketAddr, transport: Arc<Transport>) -> ZResult<Arc<Tcp>> {
+    async fn new_link(&self, a_self: &Arc<Self>, dst: &SocketAddr, transport: &Transport) -> ZResult<Arc<Tcp>> {
         // Create the TCP connection
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                     descr: format!("{}", e)
                 }))
             };
@@ -383,7 +534,7 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                     descr: format!("No active TCP link ({} => {})", src, dst)
                 }))
         }
@@ -393,7 +544,7 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("No active TCP link ({} => {})", src, dst)
             }))
         }
@@ -403,7 +554,7 @@ impl ManagerTcpInner {
         // Bind the TCP socket
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                 descr: format!("{}", e)
             }))
         };
@@ -428,10 +579,10 @@ impl ManagerTcpInner {
         // Stop the listener
         match zasyncwrite!(self.listener).remove(&addr) {
             Some(listener) => {
-                listener.sender.send(false).await;
+                listener.sender.send(()).await;
                 Ok(())
             },
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("No TCP listener on address: {}", addr)
             }))
         }
@@ -444,28 +595,22 @@ impl ManagerTcpInner {
 
 async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInner>) {
     // The accept future
-    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Option<bool> {
+    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Result<(), RecvError> {
         loop {
             // Wait for incoming connections
             let stream = match listener.socket.accept().await {
                 Ok((stream, _)) => stream,
-                Err(_) => return Some(true)
+                Err(_) => return Ok(())
             };
 
             // Retrieve the initial temporary session 
-            let initial = a_self.inner.get_initial_session().await;
+            let initial = a_self.inner.get_initial_transport().await;
             // Create the new link object
-            let link = Arc::new(Tcp::new(stream, initial.transport.clone(), a_self.clone()));
+            let link = Arc::new(Tcp::new(stream, initial, a_self.clone()));
             link.initizalize(Arc::downgrade(&link));
 
             // Store a reference to the link into the manger
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
-
-            // Store a reference to the link into the session
-            let link_obj: Link = link.clone();
-            if initial.add_link(link_obj).await.is_err() {
-                continue
-            }
 
             // Spawn the receive loop for the new link
             let _ = link.start().await;

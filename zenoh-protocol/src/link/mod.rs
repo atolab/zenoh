@@ -12,7 +12,6 @@ use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
-use crate::io::RBuf;
 use crate::session::Transport;
 
 use std::cmp::PartialEq;
@@ -43,7 +42,9 @@ pub trait LinkTrait {
 
     fn is_reliable(&self) -> bool;
 
-    async fn send(&self, buffer: RBuf) -> ZResult<()>;
+    fn is_streamed(&self) -> bool;
+
+    async fn send(&self, buffer: &[u8]) -> ZResult<()>;
 
     async fn start(&self) -> ZResult<()>;
 
@@ -79,7 +80,7 @@ pub type LinkManager = Arc<dyn ManagerTrait + Send + Sync>;
 
 #[async_trait]
 pub trait ManagerTrait {
-    async fn new_link(&self, dst: &Locator, transport: Arc<Transport>) -> ZResult<Link>;
+    async fn new_link(&self, dst: &Locator, transport: &Transport) -> ZResult<Link>;
 
     async fn del_link(&self, src: &Locator, dst: &Locator) -> ZResult<Link>;
 

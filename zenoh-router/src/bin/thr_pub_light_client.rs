@@ -1,10 +1,13 @@
 use async_std::task;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
+
 use rand::RngCore;
+use std::time::Duration;
+
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, WhatAmI, Mux};
+use zenoh_protocol::proto::{Primitives, Mux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionHandler, MsgHandler, DummyHandler};
 
 struct LightSessionHandler {
@@ -38,14 +41,15 @@ fn main() {
         let session_handler = Arc::new(LightSessionHandler::new());
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Client,
+            whatami: whatami::CLIENT,
             id: PeerId{id: pid.clone()},
             handler: session_handler.clone()
         };
         let manager = SessionManager::new(config, None);
 
+        let attachment = None;
         if let Some(locator) = args.next() {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }
@@ -57,6 +61,9 @@ fn main() {
         let rid = ResKey::RId(1);
         primitives.publisher(&rid).await;
 
+        // @TODO: Fix writer starvation in the RwLock and remove this sleep
+        // Wait for the declare to arrive
+        task::sleep(Duration::from_millis(1_000)).await;
         
         let payload = RBuf::from(vec![0u8; pl_size]);
         loop {

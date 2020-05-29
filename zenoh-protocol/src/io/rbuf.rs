@@ -92,16 +92,15 @@ impl RBuf {
     }
 
     #[inline]
+    pub fn clear(&mut self) {
+        self.slices.clear();
+        self.pos.0 = 0;
+    }
+    
+    #[inline]
     fn current_slice(&self) -> &ArcSlice {
         &self.slices[self.pos.0]
-    }
-
-    pub fn clean_read_slices(&mut self) {
-        if self.pos.0 > 0 {
-            self.slices.drain(0..self.pos.0);
-            self.pos.0 = 0;
-        }
-    }
+    }    
 
     #[inline]
     pub fn can_read(&self) -> bool {
@@ -187,7 +186,7 @@ impl fmt::Debug for RBuf {
         } else {
             write!(f, " slices:")?;
             for s in &self.slices {
-                write!(f,"\n  {:02x?},", s.as_slice())?;
+                write!(f," {:02x?},", s.as_slice())?;
             }
             write!(f, " }}")
         }
@@ -210,6 +209,25 @@ impl From<Vec<u8>> for RBuf {
 impl From<&[u8]> for RBuf {
     fn from(slice: &[u8]) -> RBuf {
         RBuf::from(slice.to_vec())
+    }
+}
+
+impl From<Vec<ArcSlice>> for RBuf {
+    fn from(slices: Vec<ArcSlice>) -> RBuf {
+        RBuf{ slices, pos:(0,0) } 
+    }
+}
+
+impl<'a> From<Vec<IoSlice<'a>>> for RBuf {
+    fn from(slices: Vec<IoSlice>) -> RBuf {
+        let v: Vec<ArcSlice> = slices.iter().map(ArcSlice::from).collect();
+        RBuf::from(v)
+    }
+}
+
+impl From<&super::WBuf> for RBuf {
+    fn from(wbuf: &super::WBuf) -> RBuf {
+        RBuf::from(wbuf.as_arcslices())
     }
 }
 

@@ -1,11 +1,14 @@
+use async_std::future;
 use async_std::task;
 use async_std::sync::{Arc, Mutex};
 use async_trait::async_trait;
+
 use rand::RngCore;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::Instant;
+
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::WhatAmI;
+use zenoh_protocol::proto::whatami;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 use zenoh_router::routing::broker::Broker;
@@ -14,19 +17,14 @@ const N: usize = 100_000;
 
 struct Stats {
     count: usize,
-    start: SystemTime,
-    stop: SystemTime,
+    start: Instant
 }
 
 impl Stats {
-
     pub fn print(&self) {
-        let t0 = self.start.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs()  as f64 
-            + self.start.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1_000_000_000.0;
-        let t1 = self.stop.duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs()  as f64 
-            + self.stop.duration_since(UNIX_EPOCH).expect("Time went backwards").subsec_nanos() as f64 / 1_000_000_000.0;
-        let thpt = N as f64 / (t1 - t0);
-        println!("{} msgs/sec", thpt);
+        let elapsed = self.start.elapsed().as_secs_f64();
+        let thpt = N as f64 / elapsed;
+        println!("{} msg/s", thpt);
     }
 }
 
@@ -39,8 +37,7 @@ impl ThrouputPrimitives {
         ThrouputPrimitives {
             stats: Mutex::new(Stats {
                 count: 0,
-                start: UNIX_EPOCH,
-                stop: UNIX_EPOCH,
+                start: Instant::now()
             })
         }
     }
@@ -70,12 +67,11 @@ impl Primitives for ThrouputPrimitives {
     async fn data(&self, _reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, _payload: RBuf) {
         let mut stats = self.stats.lock().await;
         if stats.count == 0 {
-            stats.start = SystemTime::now();
+            stats.start = Instant::now();
             stats.count += 1;
         } else if stats.count < N {
             stats.count += 1;
         } else {
-            stats.stop = SystemTime::now();
             stats.print();
             stats.count = 0;
         }  
@@ -101,7 +97,7 @@ fn main() {
     
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Peer,
+            whatami: whatami::PEER,
             id: PeerId{id: pid},
             handler: broker.clone()
         };
@@ -113,8 +109,9 @@ fn main() {
             std::process::exit(-1);
         }
 
+        let attachment = None;
         for locator in args {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }
@@ -131,8 +128,6 @@ fn main() {
         };
         primitives.subscriber(&rid, &sub_info).await;
 
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(10000));
-        }
+        future::pending::<()>().await;
     });
 }

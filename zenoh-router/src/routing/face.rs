@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use async_std::sync::RwLock;
-use std::sync::Arc;
+use async_std::sync::{Arc, RwLock};
 use std::collections::HashMap;
+
 use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{Primitives, SubInfo, QueryTarget, QueryConsolidation, Reply, WhatAmI};
+
 use crate::routing::broker::*;
 use crate::routing::ownedprimitives::OwnedPrimitives;
+
 
 pub struct Face {
     pub(super) id: usize,

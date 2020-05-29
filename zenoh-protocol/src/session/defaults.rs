@@ -1,11 +1,12 @@
 use crate::core::ZInt;
 
 configurable! {
-    // Default session lease in milliseconds
-    pub(crate) static ref SESSION_LEASE: u64 = 30_000;
+    // Default session lease in seconds
+    pub(crate) static ref SESSION_LEASE: ZInt = 30;
 
-    // The default sequence number resolution takes 4 bytes on the wire: 28 useful bits
-    // 2^28 = 268_435_456 => Max Seq Num = 268_435_456
+    // The default sequence number resolution takes 4 bytes on the wire.
+    // Given the VLE encoding of ZInt, 4 bytes result in 28 useful bits.
+    // 2^28 = 268_435_456 => Max Seq Num = 268_435_455
     pub(crate) static ref SESSION_SEQ_NUM_RESOLUTION: ZInt = 268_435_456;
 
     // The default batch size in bytes for the transport
@@ -22,7 +23,7 @@ configurable! {
     pub(crate) static ref QUEUE_SIZE_CTRL: usize = 16;
     pub(crate) static ref QUEUE_CRED_CTRL: isize = 1;
 
-    pub(crate) static ref _QUEUE_PRIO_RETX: usize = 1;
+    pub(crate) static ref QUEUE_PRIO_RETX: usize = 1;
     pub(crate) static ref QUEUE_SIZE_RETX: usize = 64;
     pub(crate) static ref QUEUE_CRED_RETX: isize = 1;
 

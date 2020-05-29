@@ -118,7 +118,7 @@ impl<T> CreditQueue<T> {
                 return;
             }
             self.not_full.wait(q).await;  
-        }            
+        }
     }
 
     pub async fn push_batch(&self, mut v: Vec<T>, priority: usize) {

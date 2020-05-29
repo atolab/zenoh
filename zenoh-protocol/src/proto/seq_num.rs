@@ -4,10 +4,6 @@ use crate::core::{
     ZErrorKind,
     ZResult
 };
-use std::cmp::{
-    Ord,
-    Ordering
-};
 
 use crate::zerror;
 
@@ -96,65 +92,6 @@ impl SeqNum {
         } else {
             self.value - value > self.semi_int 
         } 
-    }
-}
-
-/// Checks to see if two sequence number are in a precedence relationship, 
-/// while taking into account roll backs. 
-/// 
-/// Three cases are considered:
-/// 
-/// ## Case 1: sna < snb
-/// 
-/// In this case *sna* precedes *snb* iff (snb - sna) < semi_int where 
-/// semi_int is defined as half the sequence number resolution. 
-/// In other terms, sna precedes snb iff there are less than half 
-/// the length for the interval that separates them. 
-/// 
-/// /// ## Case 2: sna == snb
-/// 
-/// In this case *sna* is equal to *snb*. 
-/// 
-/// ## Case 3: sna > snb
-/// 
-/// In this case *sna* precedes *snb* iff (sna - snb) > semi_int. 
-/// 
-/// # Arguments
-/// 
-/// * `sna` -  The sequence number which should be checked for precedence relation. 
-/// 
-/// * `snb` -  The sequence number which should be taken as reference to check the 
-///            precedence of `sna`
-impl Ord for SeqNum {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.value.cmp(&other.value) {
-            Ordering::Less => if other.value - self.value <= self.semi_int {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            },
-            Ordering::Equal => Ordering::Equal,
-            Ordering::Greater => if self.value - other.value > self.semi_int {
-                Ordering::Less
-            } else {
-                Ordering::Greater
-            }
-
-        }
-    }
-}
-
-impl PartialOrd for SeqNum {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for SeqNum {}
-
-impl PartialEq for SeqNum {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
     }
 }
 

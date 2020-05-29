@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use zenoh_protocol::core::{PeerId, ZResult};
-use zenoh_protocol::proto::{Message, WhatAmI};
+use zenoh_protocol::proto::{ZenohMessage, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
 
@@ -26,7 +26,7 @@ impl MySH {
 #[async_trait]
 impl SessionHandler for MySH {
     async fn new_session(&self, 
-        _whatami: WhatAmI, 
+        _whatami: whatami::Type, 
         _session: Arc<dyn MsgHandler + Send + Sync>
     ) -> Arc<dyn MsgHandler + Send + Sync> {
         if !self.active.swap(true, Ordering::Acquire) {
@@ -56,12 +56,14 @@ impl MyMH {
 
 #[async_trait]
 impl MsgHandler for MyMH {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         self.counter.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
-    async fn close(&self) {}
+    async fn close(&self) {
+        std::process::exit(-1);
+    }
 }
 
 fn print_usage(bin: String) {
@@ -82,7 +84,7 @@ fn main() {
 
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Peer,
+        whatami: whatami::PEER,
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new(count))
     };
@@ -104,9 +106,11 @@ fn main() {
         return print_usage(bin);
     };
 
+    let attachment = None;
+    
     // Connect to publisher
     task::block_on(async {
-        if manager.open_session(&connect_to).await.is_ok() {
+        if manager.open_session(&connect_to, &attachment).await.is_ok() {
             println!("Opened session on {}", connect_to);
         } else {
             println!("Failed to open session on {}", connect_to);

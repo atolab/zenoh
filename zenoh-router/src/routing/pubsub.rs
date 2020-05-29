@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use async_std::sync::Arc;
 use std::collections::HashMap;
+
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{WhatAmI, SubInfo};
+use zenoh_protocol::proto::{SubInfo, whatami};
+
 use crate::routing::face::Face;
 use crate::routing::broker::Tables;
 use crate::routing::resource::{Resource, Context};
@@ -35,7 +37,7 @@ pub async fn declare_subscription(tables: &mut Tables, face: &mut Arc<Face>, pre
             }
 
             for (id, someface) in &mut tables.faces {
-                if face.id != *id && (face.whatami != WhatAmI::Peer || someface.whatami != WhatAmI::Peer) {
+                if face.id != *id && (face.whatami != whatami::PEER || someface.whatami != whatami::PEER) {
                     let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
                     match nonwild_prefix {
                         Some(mut nonwild_prefix) => {
@@ -124,7 +126,6 @@ pub async fn route_data_to_map(tables: &Tables, face: &Arc<Face>, rid: u64, suff
         None => {
             println!("Route data with unknown rid {}!", rid); None
         }
-
     }
 }
 
@@ -133,7 +134,7 @@ pub async fn route_data(tables: &Tables, face: &Arc<Face>, rid: u64, suffix: &st
         for (_id, (outface, rid, suffix)) in outfaces {
             if ! Arc::ptr_eq(face, &outface) {
                 let primitives = {
-                    if face.whatami != WhatAmI::Peer || outface.whatami != WhatAmI::Peer {
+                    if face.whatami != whatami::PEER || outface.whatami != whatami::PEER {
                         Some(outface.primitives.clone())
                     } else {
                         None

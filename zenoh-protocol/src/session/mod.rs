@@ -1,24 +1,43 @@
-mod conduit;
+mod channel;
 mod defaults;
+mod initial;
 mod manager;
-mod transport;
 
-pub(crate) use conduit::*;
 pub use manager::*;
-pub(crate) use transport::*;
+
+use channel::*;
+use initial::*;
 
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::core::ZResult;
-use crate::proto::{Message, WhatAmI};
+use crate::link::Link;
+use crate::proto::{SessionMessage, WhatAmI, ZenohMessage};
+
+/*********************************************************/
+/*           Trait for implementing a transport          */
+/*********************************************************/
+pub type Transport = Arc<dyn TransportTrait + Send + Sync>;
+
+#[async_trait]
+pub trait TransportTrait {
+    async fn receive_message(&self, link: &Link, msg: SessionMessage) -> Action;
+    async fn link_err(&self, link: &Link);
+}
+
+pub enum Action {
+    ChangeTransport(Transport),
+    Close,
+    Read
+}
 
 /*********************************************************/
 /* Session Callback to be implemented by the Upper Layer */
 /*********************************************************/
 #[async_trait]
 pub trait MsgHandler {
-    async fn handle_message(&self, msg: Message) -> ZResult<()>;
+    async fn handle_message(&self, msg: ZenohMessage) -> ZResult<()>;
     async fn close(&self);
 }
 
@@ -43,7 +62,7 @@ impl DummyHandler {
 
 #[async_trait]
 impl MsgHandler for DummyHandler {
-    async fn handle_message(&self, _message: Message) -> ZResult<()> {
+    async fn handle_message(&self, _message: ZenohMessage) -> ZResult<()> {
         Ok(())
     }
     async fn close(&self) {}

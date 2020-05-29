@@ -39,12 +39,12 @@ impl Condition {
     /// managed as a FIFO queue.
     #[inline]
     pub async fn notify<T>(&self, guard: MutexGuard<'_, T>) {
-            if self.has_waiting_list() {
-                self.waiters.fetch_sub(1, Ordering::AcqRel);
-                drop(guard);
-                self.wait_tx.send(true).await;
-            }
+        if self.has_waiting_list() {
+            self.waiters.fetch_sub(1, Ordering::AcqRel);
+            drop(guard);
+            self.wait_tx.send(true).await;
         }
+    }
 
     pub async fn notify_all<T>(&self, guard: MutexGuard<'_, T>) {
         let w = self.waiters.swap(0, Ordering::AcqRel);

@@ -1,10 +1,13 @@
-use std::sync::Arc;
+use async_std::sync::Arc;
 use std::collections::HashMap;
+
 use zenoh_protocol::core::{ZInt, ResKey};
-use zenoh_protocol::proto::{WhatAmI, QueryTarget, QueryConsolidation, Reply};
+use zenoh_protocol::proto::{QueryTarget, QueryConsolidation, Reply, whatami};
+
 use crate::routing::broker::Tables;
 use crate::routing::face::Face;
 use crate::routing::resource::{Resource, Context};
+
 
 pub(crate) struct Query {
     src_face: Arc<Face>,
@@ -44,7 +47,7 @@ pub(crate) async fn declare_queryable(tables: &mut Tables, face: &mut Arc<Face>,
             }
 
             for (id, someface) in &mut tables.faces {
-                if face.id != *id && (face.whatami != WhatAmI::Peer || someface.whatami != WhatAmI::Peer) {
+                if face.id != *id && (face.whatami != whatami::PEER || someface.whatami != whatami::PEER) {
                     let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(&res);
                     match nonwild_prefix {
                         Some(mut nonwild_prefix) => {
@@ -144,7 +147,7 @@ pub(crate) async fn route_query(tables: &mut Tables, face: &Arc<Face>, rid: u64,
     if let Some(outfaces) = route_query_to_map(tables, face, qid, rid, suffix).await {
         for (_id, (outface, rid, suffix, qid)) in outfaces {
             let primitives = {
-                if face.whatami != WhatAmI::Peer || outface.whatami != WhatAmI::Peer {
+                if face.whatami != whatami::PEER || outface.whatami != whatami::PEER {
                     Some(outface.primitives.clone())
                 } else {
                     None

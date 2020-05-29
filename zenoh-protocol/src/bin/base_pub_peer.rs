@@ -5,7 +5,7 @@ use rand::RngCore;
 
 use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Message, MessageKind, WhatAmI};
+use zenoh_protocol::proto::{ZenohMessage, WhatAmI, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 
@@ -31,9 +31,9 @@ impl SessionHandler for MySH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <messages to push on the queue at the same time> <locator to connect to>
+    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <locator to connect to>
 Example: 
-    cargo run --release --bin {} 8000 16384 16 tcp/127.0.0.1:7447",
+    cargo run --release --bin {} 8000 16384 tcp/127.0.0.1:7447",
         bin, bin
     );
 }
@@ -69,18 +69,6 @@ fn main() {
     } else {
         return print_usage(bin);
     };
-    
-    // Get next arg
-    let value = if let Some(value) = args.next() {
-        value
-    } else {
-        return print_usage(bin);
-    };
-    let msg_batch: usize = if let Ok(v) = value.parse() {
-        v
-    } else {
-        return print_usage(bin);
-    };
 
     // Get next arg
     let value = if let Some(value) = args.next() {
@@ -96,13 +84,13 @@ fn main() {
 
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Peer,
+        whatami: whatami::PEER,
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize: Some(batchsize),
         timeout: None,
         retries: None,
@@ -111,9 +99,11 @@ fn main() {
     };
     let manager = SessionManager::new(config, Some(opt_config));
 
+    let attachment = None; 
+
     // Connect to publisher
     task::block_on(async {
-        let session = if let Ok(s) = manager.open_session(&connect_to).await {
+        let session = if let Ok(s) = manager.open_session(&connect_to, &attachment).await {
             println!("Opened session on {}", connect_to);
             s
         } else {
@@ -122,23 +112,18 @@ fn main() {
         };
 
         // Send reliable messages
-        let kind = MessageKind::FullMessage;
         let reliable = true;
-        let sn = 0;
         let key = ResKey::RName("test".to_string());
         let info = None;
         let payload = RBuf::from(vec![0u8; payload]);
         let reply_context = None;
-        let cid = None;
-        let properties = None;
 
-        let message = Message::make_data(
-            kind, reliable, sn, key, info, payload, reply_context, cid, properties
+        let message = ZenohMessage::make_data(
+            reliable, key, info, payload, reply_context, attachment
         );
 
         loop {
-            let v = vec![message.clone(); msg_batch];
-            let res = session.schedule_batch(v, None, None).await;
+            let res = session.handle_message(message.clone()).await;
             if res.is_err() {
                 break
             }

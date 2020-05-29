@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use async_std::sync::RwLock;
-use std::sync::{Arc, Weak};
+use async_std::sync::{Arc, Weak};
 use std::collections::{HashMap};
+
 use zenoh_protocol::core::{ResKey, ZInt};
-use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI};
+use zenoh_protocol::proto::{Primitives, SubInfo, SubMode, Reliability, Mux, DeMux, WhatAmI, whatami};
 use zenoh_protocol::session::{SessionHandler, MsgHandler};
+
 use crate::routing::face::{Face, FaceHdl};
 
 pub use crate::routing::resource::*;
@@ -16,7 +18,7 @@ pub use crate::routing::queries::*;
 ///   use async_std::sync::Arc;
 ///   use zenoh_protocol::core::PeerId;
 ///   use zenoh_protocol::io::RBuf;
-///   use zenoh_protocol::proto::WhatAmI::Peer;
+///   use zenoh_protocol::proto::whatami::PEER;
 ///   use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 ///   use zenoh_router::routing::broker::Broker;
 /// 
@@ -32,7 +34,7 @@ pub use crate::routing::queries::*;
 ///     // Instanciate SessionManager and plug it to the broker
 ///     let config = SessionManagerConfig {
 ///         version: 0,
-///         whatami: Peer,
+///         whatami: PEER,
 ///         id: PeerId{id: vec![1, 2]},
 ///         handler: broker.clone()
 ///     };
@@ -63,7 +65,7 @@ impl Broker {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, WhatAmI::Client, primitives).await.upgrade().unwrap(),
+            face: Tables::declare_session(&self.tables, whatami::CLIENT, primitives).await.upgrade().unwrap(),
         })
     }
 }
@@ -122,10 +124,10 @@ impl Tables {
             let mut t = tables.write().await;
             let sid = t.face_counter;
             t.face_counter += 1;
-            let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami.clone(), primitives.clone())).clone();
+            let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone())).clone();
             
             // @TODO temporarily propagate to everybody (clients)
-            // if whatami != WhatAmI::Client {
+            // if whatami != whatami::CLIENT {
             if true {
                 let mut local_id = 0;
                 for (id, face) in t.faces.iter() {

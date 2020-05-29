@@ -1,11 +1,11 @@
-use async_std::task;
 use async_std::sync::Arc;
+use async_std::task;
 use async_trait::async_trait;
 use std::convert::TryInto;
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::{ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, WhatAmI, QueryConsolidation, QueryTarget, Reply};
+use zenoh_protocol::proto::{Primitives, Mux, Reliability, SubMode, SubInfo, QueryConsolidation, QueryTarget, Reply, whatami};
 use zenoh_protocol::session::DummyHandler;
 use zenoh_router::routing::broker::*;
 
@@ -14,7 +14,7 @@ fn base_test() {
     task::block_on(async{
         let tables = Tables::new();
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let face = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let face = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), 1, 0, "/one/two/three").await;
         declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), 2, 0, "/one/deux/trois").await;
         
@@ -47,7 +47,7 @@ fn match_test() {
 
         let tables = Tables::new();
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let face = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let face = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         for (i, rname) in rnames.iter().enumerate() {
             declare_resource(&mut *tables.write().await, &mut face.upgrade().unwrap(), i.try_into().unwrap(), 0, rname).await;
         }
@@ -72,7 +72,7 @@ fn clean_test() {
         let tables = Tables::new();
 
         let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
-        let face0 = Tables::declare_session(&tables, WhatAmI::Client, primitives.clone()).await;
+        let face0 = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
         assert!(face0.upgrade().is_some());
 
         // --------------
@@ -277,7 +277,7 @@ fn client_test() {
         };
         
         let primitives0 = Arc::new(ClientPrimitives::new());
-        let face0 = Tables::declare_session(&tables, WhatAmI::Client, primitives0.clone()).await;
+        let face0 = Tables::declare_session(&tables, whatami::CLIENT, primitives0.clone()).await;
         declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 11, 0, "/test/client").await;
         primitives0.resource(11, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 11, "/**", &sub_info).await;
@@ -285,7 +285,7 @@ fn client_test() {
         primitives0.resource(12, &ResKey::RIdWithSuffix(11, "/z1_pub1".to_string())).await;
 
         let primitives1 = Arc::new(ClientPrimitives::new());
-        let face1 = Tables::declare_session(&tables, WhatAmI::Client, primitives1.clone()).await;
+        let face1 = Tables::declare_session(&tables, whatami::CLIENT, primitives1.clone()).await;
         declare_resource(&mut *tables.write().await, &mut face1.upgrade().unwrap(), 21, 0, "/test/client").await;
         primitives1.resource(21, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face1.upgrade().unwrap(), 21, "/**", &sub_info).await;
@@ -293,7 +293,7 @@ fn client_test() {
         primitives1.resource(22, &ResKey::RIdWithSuffix(21, "/z2_pub1".to_string())).await;
 
         let primitives2 = Arc::new(ClientPrimitives::new());
-        let face2 = Tables::declare_session(&tables, WhatAmI::Client, primitives2.clone()).await;
+        let face2 = Tables::declare_session(&tables, whatami::CLIENT, primitives2.clone()).await;
         declare_resource(&mut *tables.write().await, &mut face2.upgrade().unwrap(), 31, 0, "/test/client").await;
         primitives2.resource(31, &ResKey::RName("/test/client".to_string())).await;
         declare_subscription(&mut *tables.write().await, &mut face2.upgrade().unwrap(), 31, "/**", &sub_info).await;

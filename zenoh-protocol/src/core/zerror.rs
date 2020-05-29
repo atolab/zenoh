@@ -5,14 +5,14 @@ use super::ResourceId;
 pub enum ZErrorKind {
     BufferOverflow { missing: usize },
     BufferUnderflow { missing: usize },
-    InvalidMessage { descr: String },
-    InvalidLocator { descr: String },
     InvalidLink { descr: String },
-    UnkownResourceId { rid: ResourceId },
-    IOError { descr: String },
+    InvalidLocator { descr: String },
+    InvalidMessage { descr: String },
     InvalidResolution { descr: String},
     InvalidSession { descr: String },
-    Other { descr: String }
+    IOError { descr: String },
+    Other { descr: String },
+    UnkownResourceId { rid: ResourceId }
 }
 
 impl fmt::Display for ZErrorKind {
@@ -23,22 +23,22 @@ impl fmt::Display for ZErrorKind {
             ZErrorKind::BufferUnderflow { missing } =>
                 write!(f, "Failed to read from empty buffer ({} bytes missing)", 
                   (if *missing == 0 {"some".to_string()} else { missing.to_string() })),
-            ZErrorKind::InvalidMessage { descr } =>
-                write!(f, "Invalid message ({})", descr),
             ZErrorKind::InvalidLocator { descr } =>
                 write!(f, "Invalid locator ({})", descr),
             ZErrorKind::InvalidLink { descr } =>
                 write!(f, "Invalid link ({})", descr),
-            ZErrorKind::UnkownResourceId { rid } =>
-                write!(f, "Unkown ResourceId ({})", rid),
-            ZErrorKind::IOError { descr } =>
-                write!(f, "IO error ({})", descr),
+            ZErrorKind::InvalidMessage { descr } =>
+                write!(f, "Invalid message ({})", descr),
             ZErrorKind::InvalidResolution { descr} =>
                 write!(f, "Invalid Resolution ({})", descr),
             ZErrorKind::InvalidSession { descr } =>
                 write!(f, "Invalid Session ({})", descr),
+            ZErrorKind::IOError { descr } =>
+                write!(f, "IO error ({})", descr),
             ZErrorKind::Other { descr } =>
                 write!(f, "zenoh error: \"{}\"", descr),
+            ZErrorKind::UnkownResourceId { rid } =>
+                write!(f, "Unkown ResourceId ({})", rid),
         }
     }
 }

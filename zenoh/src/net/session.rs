@@ -1,14 +1,15 @@
+use async_std::sync::Arc;
+use async_std::task;
+use async_trait::async_trait;
+use rand::prelude::*;
 use std::fmt;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
-use async_std::sync::Arc;
-use async_trait::async_trait;
 use spin::RwLock;
-use rand::prelude::*;
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
-    proto::{ DataInfo, Primitives, QueryTarget, Target, QueryConsolidation, Reply, ReplySource, WhatAmI },
+    proto::{ DataInfo, Primitives, QueryTarget, Target, QueryConsolidation, Reply, ReplySource, whatami },
     session::{SessionManager, SessionManagerConfig},
     zerror
 };
@@ -45,7 +46,7 @@ impl Session {
 
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Client,
+            whatami: whatami::CLIENT,
             id: peerid.clone(),
             handler: broker.clone()
         };
@@ -61,7 +62,8 @@ impl Session {
         if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap()).await {
             // if failed, try to connect to peer on locator
             println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
-            match session_manager.open_session(&locator.parse().unwrap()).await {
+            let attachment = None;
+            match session_manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 Ok(s) => tx_session = Some(Arc::new(s)),
                 Err(err) => {
                     println!("Unable to connect to {}! {:?}", locator, err);
@@ -82,7 +84,7 @@ impl Session {
         inner2.write().primitives = Some(prim);
 
         // Workaround for the declare_and_shoot problem
-        async_std::task::sleep(std::time::Duration::from_millis(200)).await;
+        task::sleep(std::time::Duration::from_millis(200)).await;
 
         session
     }

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use rand::RngCore;
 use zenoh_protocol::core::{PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
-use zenoh_protocol::proto::WhatAmI;
+use zenoh_protocol::proto::whatami;
 use zenoh_protocol::proto::{Primitives, SubInfo, Reliability, SubMode, QueryConsolidation, QueryTarget, Reply};
 use zenoh_protocol::session::{SessionManager, SessionManagerConfig};
 use zenoh_router::routing::broker::Broker;
@@ -75,14 +75,15 @@ fn main() {
     
         let config = SessionManagerConfig {
             version: 0,
-            whatami: WhatAmI::Client,
+            whatami: whatami::CLIENT,
             id: PeerId{id: pid.clone()},
             handler: broker.clone()
         };
         let manager = SessionManager::new(config, None);
 
+        let attachment = None;
         for locator in args {
-            if let Err(_err) =  manager.open_session(&locator.parse().unwrap()).await {
+            if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }
@@ -101,7 +102,7 @@ fn main() {
         loop {
             println!("[SEND] DATA ({:?})", &res);
             primitives.data(&res, true, &None, RBuf::from(vec![1])).await;
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            task::sleep(std::time::Duration::from_millis(1000)).await;
         }
     });
 }

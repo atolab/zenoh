@@ -85,7 +85,7 @@ impl Link for LinkUdp {
         // TODO: need to stop the receive loop
         match self.manager.del_link(&self.get_src(), &self.get_dst(), reason).await {
             Ok(_) => return Ok(()),
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                 msg: format!("{}", e)
             }))
         }
@@ -99,12 +99,12 @@ impl Link for LinkUdp {
                 // Need to ensure that send_to is atomic and writes the whole buffer
                 match (&self.socket).send_to(buff.readable_slice(), &self.peer_addr).await {
                     Ok(_) => return Ok(()),
-                    Err(e) => return Err(zerror!(ZErrorKind::Other{
+                    Err(e) => return Err(zerror!(ZErrorKind::Other {
                         msg: format!("{}", e)
                     })) 
                 }
             },
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                 msg: format!("{}", e)
             })) 
         }
@@ -176,7 +176,7 @@ impl LinkManager for ManagerUdp {
         // Create the UDP socket bind
         let socket = match UdpSocket::bind("0.0.0.0:0").await {
             Ok(socket) => Arc::new(socket),
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                 msg: format!("{}", e)
             }))
         };
@@ -205,7 +205,7 @@ impl LinkManager for ManagerUdp {
         };
         match self.link.write().await.remove(&(*src, *dst)) {
             Some(link) => return Ok(link),
-            None => return Err(zerror!(ZErrorKind::Other{
+            None => return Err(zerror!(ZErrorKind::Other {
                 msg: format!("No active UDP link with: ({} => {})", src, dst)
             }))
         }
@@ -244,7 +244,7 @@ async fn receive_loop(manager: Arc<ManagerUdp>, addr: SocketAddr, limit: Option<
     // Bind on the socket
     let socket = match UdpSocket::bind(addr).await {
         Ok(socket) => Arc::new(socket),
-        Err(e) => return Err(zerror!(ZErrorKind::Other{
+        Err(e) => return Err(zerror!(ZErrorKind::Other {
             msg: format!("{}", e)
         }))
     }; 

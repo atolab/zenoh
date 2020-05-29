@@ -6,7 +6,7 @@ use rand::RngCore;
 use slab::Slab;
 
 use zenoh_protocol::core::{PeerId, ZResult};
-use zenoh_protocol::proto::{Message, WhatAmI};
+use zenoh_protocol::proto::{ZenohMessage, WhatAmI, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 
@@ -30,7 +30,6 @@ impl SessionHandler for MySH {
         _whatami: WhatAmI, 
         session: Arc<dyn MsgHandler + Send + Sync>
     ) -> Arc<dyn MsgHandler + Send + Sync> {
-        println!("New session opened!");
         let index = self.table.lock().await.insert(session);
         Arc::new(MyMH::new(self.table.clone(), index))
     }
@@ -50,7 +49,7 @@ impl MyMH {
 
 #[async_trait]
 impl MsgHandler for MyMH {
-    async fn handle_message(&self, message: Message) -> ZResult<()> {
+    async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
         for (i, e) in self.table.lock().await.iter() {
             if i != self.index {
                 let _ = e.handle_message(message.clone()).await;
@@ -109,13 +108,13 @@ fn main() {
     // Create the session manager
     let config = SessionManagerConfig {
         version: 0,
-        whatami: WhatAmI::Peer,
+        whatami: whatami::PEER,
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new())
     };
     let opt_config = SessionManagerOptionalConfig {
         lease: None,
-        resolution: None,
+        sn_resolution: None,
         batchsize,
         timeout: None,
         retries: None,
