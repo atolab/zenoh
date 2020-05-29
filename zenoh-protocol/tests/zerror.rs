@@ -28,8 +28,8 @@ fn error_simple() {
 
 #[test]
 fn error_with_source() {
-    let err1 = zerror!( ZErrorKind::Other{ descr:"ERR1".to_string() });
-    let err2 = zerror!( ZErrorKind::Other{ descr:"ERR2".to_string() }, err1);
+    let err1 = zerror!( ZErrorKind::Other { descr:"ERR1".to_string() });
+    let err2 = zerror!( ZErrorKind::Other { descr:"ERR2".to_string() }, err1);
     let s = format!("{}", err2);
     println!("{}", err2);
     println!("{:?}", err2);
@@ -41,7 +41,7 @@ fn error_with_source() {
     assert_eq!(true, s.contains("ERR2"));
 
     let ioerr = std::io::Error::new(std::io::ErrorKind::Other, "IOERR");
-    let err2 = zerror!( ZErrorKind::Other{ descr:"ERR2".to_string() }, ioerr);
+    let err2 = zerror!( ZErrorKind::Other { descr:"ERR2".to_string() }, ioerr);
     let s = format!("{}", err2);
     println!("{}", err2);
     println!("{:?}", err2);

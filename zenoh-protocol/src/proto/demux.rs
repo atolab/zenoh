@@ -76,7 +76,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                                 let reply = Reply::ReplyData {source: rep.source.clone(), replier_id: replier_id.clone(), reskey: key.clone(), info: info.clone(), payload: payload.clone()};
                                 trace!("REPLY_DATA qid({:?}) reply({:?})", rep.qid, &reply);
                                 self.primitives.reply(rep.qid, &reply).await}
-                            None => return Err(zerror!(ZErrorKind::Other{descr: "ReplyData with no replier_id".to_string()}))
+                            None => return Err(zerror!(ZErrorKind::Other {descr: "ReplyData with no replier_id".to_string()}))
                         }
                     }
                 }

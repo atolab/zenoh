@@ -24,11 +24,9 @@ const DEFAULT_MTU: usize = 65_536;
 
 configurable! {
     // Size of buffer used to read from socket
-    static ref READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
+    static ref TCP_READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
     // Size of the vector used to deserialize the messages
-    static ref READ_MESSAGES_VEC_SIZE: usize = 32;
-    // Number of zero readings before considering a link error
-    static ref ZERO_READINGS_THRESHOLD: usize = 8;
+    static ref TCP_READ_MESSAGES_VEC_SIZE: usize = 32;
 }
 
 
@@ -119,7 +117,7 @@ impl LinkTrait for Tcp {
             if let Some(link) = link.upgrade() {
                 link
             } else {
-                return Err(zerror!(ZErrorKind::Other{
+                return Err(zerror!(ZErrorKind::Other {
                     descr: "The Link does not longer exist".to_string()
                 }))
             }
@@ -172,10 +170,10 @@ async fn read_task(link: Arc<Tcp>) {
         let mut rbuf = RBuf::new();
 
         // The buffer allocated to read from a single syscall
-        let mut buffer = vec![0u8; *READ_BUFFER_SIZE];
+        let mut buffer = vec![0u8; *TCP_READ_BUFFER_SIZE];
 
         // The vector for storing the deserialized messages
-        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*READ_MESSAGES_VEC_SIZE);
+        let mut messages: Vec<SessionMessage> = Vec::with_capacity(*TCP_READ_MESSAGES_VEC_SIZE);
 
         // An example of the received buffer and the correspoding indexes is: 
         //
@@ -195,8 +193,11 @@ async fn read_task(link: Arc<Tcp>) {
         //  
         // In this example, Iteration 2 will fail since the batch is incomplete and
         // fewer bytes than the ones indicated in the length are read. The incomplete
-        // batch is hence copied at the beginning of the buffer in order to read
-        // more bytes from the socket and deserialize a complete batch.
+        // batch is hence stored in a RBuf in order to read more bytes from the socket 
+        // and deserialize a complete batch. In case it is not possible to read at once 
+        // the 2 bytes indicating the message batch length (i.e., only the first byte is
+        // available), the first byte is copied at the beginning of the buffer and more
+        // bytes are read in the next iteration.
 
         // The read position of the length bytes in the buffer
         let mut r_l_pos: usize;
@@ -266,6 +267,7 @@ async fn read_task(link: Arc<Tcp>) {
             match (&link.socket).read(&mut buffer[w_pos..]).await {
                 Ok(mut n) => {
                     if n == 0 {  
+                        // Reading 0 bytes means error
                         zlinkerror!();
                     }
 
@@ -532,7 +534,7 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                     descr: format!("No active TCP link ({} => {})", src, dst)
                 }))
         }
@@ -542,7 +544,7 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("No active TCP link ({} => {})", src, dst)
             }))
         }
@@ -552,7 +554,7 @@ impl ManagerTcpInner {
         // Bind the TCP socket
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
-            Err(e) => return Err(zerror!(ZErrorKind::Other{
+            Err(e) => return Err(zerror!(ZErrorKind::Other {
                 descr: format!("{}", e)
             }))
         };
@@ -580,7 +582,7 @@ impl ManagerTcpInner {
                 listener.sender.send(()).await;
                 Ok(())
             },
-            None => Err(zerror!(ZErrorKind::Other{
+            None => Err(zerror!(ZErrorKind::Other {
                 descr: format!("No TCP listener on address: {}", addr)
             }))
         }

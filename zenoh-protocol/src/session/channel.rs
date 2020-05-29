@@ -223,8 +223,8 @@ async fn batch_fragment_transmit(
 
             // This is the second time that the serialization fails, we should fragment
             if has_failed {
-                // @TODO: implement the fragmentation here
-                // Drop the message for the time being
+                // @TODO: Implement fragmentation here
+                //        Drop the message for the time being
                 println!("!!! Message dropped because fragmentation is not yet implemented");
                 batch.clear();
                 break
@@ -233,7 +233,7 @@ async fn batch_fragment_transmit(
             // Send the batch
             let _ = batch.transmit().await;
 
-            // Mark that the serialization attempt has failed
+            // Mark the serialization attempt as failed
             has_failed = true;
         }
     }
@@ -243,14 +243,14 @@ async fn batch_fragment_transmit(
 
 // Consume function
 async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
-    // @TODO: Implement the reliability queue
-    // @TODO: Implement the fragmentation
+    // @TODO: Implement reliability
+    // @TODO: Implement fragmentation
 
     // Acquire the lock on the links
     let guard = zasyncread!(ch.links);
     // Check if we have links to send on
     if guard.links.is_empty() {        
-        return Err(zerror!(ZErrorKind::Other{
+        return Err(zerror!(ZErrorKind::Other {
             descr: "Unable to start the consume task, no links available".to_string()
         }))
     }
@@ -278,7 +278,7 @@ async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
     while active {                       
         // Get a Drain iterator for the queue
         // drain() waits for the queue to be non-empty
-        // @TODO: add a timeout to the drain() future to trigger the 
+        // @TODO: Add a timeout to the drain() future to trigger the 
         //        transmission of KEEP_ALIVE messages
         let mut drain = ch.queue.drain().await;
         
@@ -463,7 +463,6 @@ impl ChannelInnerRx {
         sn_resolution: ZInt,
         initial_sn: ZInt
     ) -> ChannelInnerRx {
-        // @TODO: Randomly initialize the SN generator
         ChannelInnerRx {
             _lease: lease,
             sn: SeqNumRx::new(sn_resolution, initial_sn),
@@ -689,7 +688,7 @@ impl Channel {
             if let Some(ch) = ch.upgrade() {
                 ch
             } else {
-                return Err(zerror!(ZErrorKind::Other{
+                return Err(zerror!(ZErrorKind::Other {
                     descr: "The channel does not longer exist".to_string()
                 }))
             }
@@ -727,7 +726,7 @@ impl Channel {
     /*   MESSAGE RECEIVED FROM THE LINK  */
     /*************************************/
     async fn process_reliable_frame(&self, sn: ZInt, payload: FramePayload) -> Action {
-        // @TODO: implement the reordering and wait for missing messages
+        // @TODO: Implement the reordering and reliability. Wait for missing messages.
         let mut guard = zasynclock!(self.rx);        
         if !(guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok()) {
             println!("!!! Reliable frame with invalid SN dropped");

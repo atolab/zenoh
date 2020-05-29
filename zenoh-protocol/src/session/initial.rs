@@ -145,7 +145,7 @@ impl InitialSession {
         sn_resolution: Option<ZInt>,        
         _locators: Option<Vec<Locator>>,
     ) -> Action {
-        // @TODO: Manage locators
+        // @TODO: Handle the locators
 
         // Check if the version is supported
         if version > self.manager.config.version {
@@ -365,7 +365,7 @@ impl InitialSession {
         lease: Option<ZInt>,
         _locators: Option<Vec<Locator>>
     ) -> Action {
-        // @TODO: handle the locators
+        // @TODO: Handle the locators
 
         // Check if we had previously triggered the opening of a new connection
         let res = zasyncwrite!(self.pending).remove(link);
