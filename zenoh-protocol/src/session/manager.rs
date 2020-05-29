@@ -212,7 +212,6 @@ impl SessionManager {
 
     pub async fn get_sessions(&self) -> Vec<Session> {
         self.0.get_sessions().await
-            // .drain(..).map(Session::new).collect()
     }
 
     /*************************************/

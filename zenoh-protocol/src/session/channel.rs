@@ -626,6 +626,11 @@ impl Channel {
 
             // Delete the session on the manager
             let _ = self.manager.del_session(&self.pid).await;
+
+            // Notify the callback
+            if let Some(callback) = &zasynclock!(self.rx).callback {
+                callback.close().await;
+            }
         }
         
         Ok(())
@@ -789,19 +794,27 @@ impl Channel {
                 println!("!!! Received a Close message from a wrong peer ({:?}) with reason ({}). Ignoring.", pid, reason);
                 return Action::Read
             }
-        }
-        // Delete the link
-        let _ = self.del_link(link).await;
-        // Close the link
-        let _ = link.close().await;
+        }        
         // Close all the session if this close message is not for the link only
-        if !link_only {
+        if link_only {
+            // Delete the link
+            let _ = self.del_link(link).await;
+            // Close the link
+            let _ = link.close().await;
+        } else {  
+            // Notify the callback
+            if let Some(callback) = &zasynclock!(self.rx).callback {
+                callback.close().await;
+            }
+
+            // Delete the session from the manager
+            let _ = self.manager.del_session(&self.pid).await; 
+
             // Close all the remaining links
             for l in self.get_links().await.iter() {
                 let _ = self.del_link(l).await;
                 let _ = l.close().await;
-            }
-            let _ = self.manager.del_session(&self.pid).await;
+            }                       
         }
         
         Action::Close
@@ -853,6 +866,11 @@ impl TransportTrait for Channel {
         let _ = self.del_link(link).await;
 
         if self.get_links().await.is_empty() {
+            // Notify the callback
+            if let Some(callback) = &zasynclock!(self.rx).callback {
+                callback.close().await;
+            }
+
             // @TODO: Remove this statement once the session lease is implemented
             let _ = self.manager.del_session(&self.pid).await;
         }

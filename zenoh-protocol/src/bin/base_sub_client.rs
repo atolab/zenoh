@@ -61,7 +61,9 @@ impl MsgHandler for MyMH {
         Ok(())
     }
 
-    async fn close(&self) {}
+    async fn close(&self) {
+        std::process::exit(-1);
+    }
 }
 
 fn print_usage(bin: String) {

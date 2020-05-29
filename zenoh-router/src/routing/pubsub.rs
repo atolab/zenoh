@@ -9,7 +9,6 @@ use crate::routing::face::Face;
 use crate::routing::broker::Tables;
 use crate::routing::resource::{Resource, Context};
 
-
 pub type DataRoute = HashMap<usize, (Arc<Face>, u64, String)>;
 
 pub async fn declare_subscription(tables: &mut Tables, face: &mut Arc<Face>, prefixid: u64, suffix: &str, sub_info: &SubInfo) {

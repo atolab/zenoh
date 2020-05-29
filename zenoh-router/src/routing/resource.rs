@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use zenoh_protocol::core::rname::intersect;
 use zenoh_protocol::core::ResKey;
 use zenoh_protocol::proto::SubInfo;
-
 use crate::routing::broker::Tables;
 use crate::routing::face::Face;
 
