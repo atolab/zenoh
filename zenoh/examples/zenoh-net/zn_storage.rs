@@ -6,9 +6,12 @@ use async_std::sync::Arc;
 use spin::RwLock;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
-use zenoh_protocol::proto::ReplySource;
+use zenoh_protocol::proto::queryable::STORAGE;
 
 fn main() {
+    // for logging
+    env_logger::init();
+
     task::block_on( async {
         let mut args: Vec<String> = env::args().collect();
 
@@ -55,7 +58,7 @@ fn main() {
         let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).await.unwrap();
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), ReplySource::Storage, query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&RName(uri), STORAGE, query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];

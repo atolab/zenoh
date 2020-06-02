@@ -1,4 +1,5 @@
 use zenoh_protocol::core;
+use log::debug;
 
 mod types;
 pub use types::*;
@@ -18,13 +19,13 @@ pub fn rname_intersect(s1: &str, s2: &str) -> bool {
 
 pub async fn scout(_iface: &str, _tries: usize, _period: usize) -> Vec<String> {
     // @TODO: implement
-    apitrace!(">>>> scout({:?}, {:?}, {:?})", _iface, _tries, _period);
+    debug!("scout({}, {}, {})", _iface, _tries, _period);
     vec![]
 }
 
 pub async fn open(locator: &str, ps: Option<Properties>) -> ZResult<Session> {
     // @TODO: implement
-    apitrace!(">>>> open({:?}, {:?})", locator, ps);
+    debug!("open(\"{}\", {:?})", locator, ps);
     Ok(Session::new(locator, ps).await)
 }
 

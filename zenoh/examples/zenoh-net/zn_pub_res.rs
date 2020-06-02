@@ -3,6 +3,9 @@ use async_std::task;
 use zenoh::net::*;
 
 fn main() {
+    // for logging
+    env_logger::init();
+
     task::block_on( async {
         let mut args: Vec<String> = env::args().collect();
 

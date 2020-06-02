@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use crate::core::{ZInt, PeerId, ResKey};
 use crate::io::RBuf;
-use crate::proto::{SubInfo, QueryTarget, QueryConsolidation, ReplySource};
+use crate::proto::{SubInfo, QueryTarget, QueryConsolidation};
 
 #[derive(Debug, Clone)]
 pub enum Reply {
-    ReplyData {source: ReplySource, replier_id: PeerId, reskey: ResKey, info: Option<RBuf>, payload: RBuf, },
-    SourceFinal {source: ReplySource, replier_id: PeerId, },
+    ReplyData {source_kind: ZInt, replier_id: PeerId, reskey: ResKey, info: Option<RBuf>, payload: RBuf, },
+    SourceFinal {source_kind: ZInt, replier_id: PeerId, },
     ReplyFinal,
 } 
 

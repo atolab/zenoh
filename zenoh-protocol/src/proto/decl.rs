@@ -40,6 +40,13 @@ pub struct SubInfo {
     pub period: Option<Period>,
 }
 
+pub mod queryable{
+    pub const ALL_KINDS      : crate::core::ZInt = 0x01;
+    pub const STORAGE        : crate::core::ZInt = 0x02;
+    pub const EVAL           : crate::core::ZInt = 0x04;
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Declaration {
     ///  7 6 5 4 3 2 1 0

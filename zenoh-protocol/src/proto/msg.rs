@@ -74,6 +74,8 @@ impl Attachment {
 /// +-+-+-+---------+
 /// ~      qid      ~
 /// +---------------+
+/// ~  source_kind  ~
+/// +---------------+
 /// ~   replier_id  ~ if F==0
 /// +---------------+
 ///
@@ -83,17 +85,17 @@ impl Attachment {
 pub struct ReplyContext { 
     pub(super) is_final: bool, 
     pub(super) qid: ZInt, 
-    pub(super) source: ReplySource, 
+    pub(super) source_kind: ZInt, 
     pub(super) replier_id: Option<PeerId> 
 }
 
 impl ReplyContext {
     // Note: id replier_id=None flag F is set, meaning it's a REPLY_FINAL
-    pub fn make(qid: ZInt, source: ReplySource, replier_id: Option<PeerId>) -> ReplyContext {
+    pub fn make(qid: ZInt, source_kind: ZInt, replier_id: Option<PeerId>) -> ReplyContext {
         ReplyContext {
             is_final: replier_id.is_none(),
             qid,
-            source,
+            source_kind,
             replier_id
         }
     }
@@ -165,9 +167,6 @@ pub mod zmsg {
 
     // Zenoh message flags
     pub mod flag {
-        // TO UPDATE THE REPLY AND REMOVE
-        pub const E: u8 = 1 << 6; // 0x40 FromEval     if E==1 then the ReplyContext is from Eval
-
         pub const F: u8 = 1 << 5; // 0x20 Final        if F==1 then this is the final message (e.g., ReplyContext, Pull)
         pub const I: u8 = 1 << 6; // 0x40 Info         if I==1 then Info is present
         pub const K: u8 = 1 << 7; // 0x80 ResourceKey  if K==1 then only numerical ID
@@ -234,12 +233,6 @@ impl DataInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ReplySource {
-    Eval,
-    Storage
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum QueryConsolidation {
     None,
     LastBroker,
@@ -264,11 +257,19 @@ impl Default for Target {
     fn default() -> Self { Target::BestMatching }
 }
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QueryTarget {
-    pub storage: Target,
-    pub eval: Target,
-    // @TODO: finalise
+    pub kind : ZInt,
+    pub target : Target,
+}
+
+impl Default for QueryTarget {
+    fn default() -> Self { 
+        QueryTarget {
+            kind : super::decl::queryable::ALL_KINDS, 
+            target : Target::default(), 
+        }
+     }
 }
 
 // Zenoh messages at zenoh level

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::core::{ZInt, ResKey};
 use crate::io::RBuf;
 use crate::proto::{channel, ZenohMessage, SubInfo, Declaration, Primitives,  
-    QueryTarget, QueryConsolidation, ReplyContext, Reply, ReplySource};
+    QueryTarget, QueryConsolidation, ReplyContext, Reply};
 use crate::session::MsgHandler;
 
 pub struct Mux<T: MsgHandler + Send + Sync + ?Sized> {
@@ -78,18 +78,18 @@ impl<T: MsgHandler + Send + Sync + ?Sized> Primitives for Mux<T> {
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
         match reply {
-            Reply::ReplyData { source, replier_id, reskey, info, payload } => {
+            Reply::ReplyData { source_kind, replier_id, reskey, info, payload } => {
                 self.handler.handle_message(ZenohMessage::make_data(
                     channel::RELIABLE, reskey.clone(), info.clone(), payload.clone(), 
-                    Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None)).await;
+                    Some(ReplyContext::make(qid, *source_kind, Some(replier_id.clone()))), None)).await;
             }
-            Reply::SourceFinal { source, replier_id } => {
+            Reply::SourceFinal { source_kind, replier_id } => {
                 self.handler.handle_message(ZenohMessage::make_unit(
-                    channel::RELIABLE, Some(ReplyContext::make(qid, source.clone(), Some(replier_id.clone()))), None)).await;
+                    channel::RELIABLE, Some(ReplyContext::make(qid, *source_kind, Some(replier_id.clone()))), None)).await;
             }
             Reply::ReplyFinal {} => {
                 self.handler.handle_message(ZenohMessage::make_unit(
-                    channel::RELIABLE, Some(ReplyContext::make(qid, ReplySource::Storage, None)), None)).await;
+                    channel::RELIABLE, Some(ReplyContext::make(qid, 0, None)), None)).await;
             }
         }
     }
