@@ -86,15 +86,60 @@ async fn run(addr: SocketAddr, bs: usize, length: bool) -> Result<(), Box<dyn st
     Ok(())
 }
 
-fn main() {    
+fn print_usage(bin: String) {
+    println!(
+"Usage:
+    cargo run --release --bin {} <locator to listen on> <buffer size> <has length>
+Example: 
+    cargo run --release --bin {} tcp/127.0.0.1:7447 8192 true",
+        bin, bin
+    );
+}
+
+fn main() {
+    // Enable logging
+    env_logger::init();
+
     let mut args = std::env::args();
     // Get exe name
-    let _ = args.next().unwrap();
+    let bin = args.next().unwrap()
+                .split(std::path::MAIN_SEPARATOR).last().unwrap().to_string();
     
     // Get next arg
-    let addr: SocketAddr = args.next().unwrap().parse().unwrap();
-    let bs: usize = args.next().unwrap().parse().unwrap();
-    let length: bool = args.next().unwrap().parse().unwrap();
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let addr: SocketAddr = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
+    
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let bs: usize = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
+
+    // Get next arg
+    let value = if let Some(value) = args.next() {
+        value
+    } else {
+        return print_usage(bin);
+    };
+    let length: bool = if let Ok(v) = value.parse() {
+        v
+    } else {
+        return print_usage(bin);
+    };
 
     let _ = task::block_on(run(addr, bs, length));
 }

@@ -77,6 +77,10 @@ Example:
 }
 
 fn main() {
+    // Enable logging
+    env_logger::init();
+
+    // Initialize the Peer Id
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 
@@ -116,6 +120,7 @@ fn main() {
             println!("Failed to open session on {}", connect_to);
             return;
         };
+        
         // Stop forever
         future::pending::<()>().await;
     });

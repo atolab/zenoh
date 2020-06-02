@@ -75,6 +75,10 @@ Example:
 }
 
 fn main() {
+    // Enable logging
+    env_logger::init();
+
+    // Initialize the Peer Id
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 

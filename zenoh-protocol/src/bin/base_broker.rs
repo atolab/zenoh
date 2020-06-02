@@ -8,7 +8,7 @@ use slab::Slab;
 use zenoh_protocol::core::{PeerId, ZResult};
 use zenoh_protocol::proto::{ZenohMessage, WhatAmI, whatami};
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
+use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
 
 
 type Table = Arc<Mutex<Slab<Arc<dyn MsgHandler + Send + Sync>>>>;
@@ -66,32 +66,25 @@ impl MsgHandler for MyMH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <batch size in bytes> <locator to listen on>
+    cargo run --release --bin {} <locator to listen on>
 Example: 
-    cargo run --release --bin {} 8192 tcp/127.0.0.1:7447",
+    cargo run --release --bin {} tcp/127.0.0.1:7447",
         bin, bin
     );
 }
 
 fn main() {
+    // Enable logging
+    env_logger::init();
+
+    // Initialize the Peer Id
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 
     let mut args = std::env::args();
     // Get exe name
-    let bin = args.next().unwrap();
-    
-    // Get next arg
-    let value = if let Some(value) = args.next() {
-        value
-    } else {
-        return print_usage(bin);
-    };
-    let batchsize: Option<usize> = if let Ok(v) = value.parse() {
-        Some(v)
-    } else {
-        None
-    };
+    let bin = args.next().unwrap()
+                .split(std::path::MAIN_SEPARATOR).last().unwrap().to_string();
 
     // Get next arg
     let value = if let Some(value) = args.next() {
@@ -112,16 +105,7 @@ fn main() {
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new())
     };
-    let opt_config = SessionManagerOptionalConfig {
-        lease: None,
-        sn_resolution: None,
-        batchsize,
-        timeout: None,
-        retries: None,
-        max_sessions: None,
-        max_links: None 
-    };
-    let manager = SessionManager::new(config, Some(opt_config));
+    let manager = SessionManager::new(config, None);
 
     // Connect to publisher
     task::block_on(async {

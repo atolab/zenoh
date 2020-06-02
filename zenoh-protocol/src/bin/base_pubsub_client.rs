@@ -67,19 +67,15 @@ impl MsgHandler for MyMH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <payload size in bytes> <locator to listen on> <locator to connect to>
+    cargo run --release --bin {} <payload size in bytes> <locator to connect to>
 Example: 
-    cargo run --release --bin {} 8100 tcp/127.0.0.1:7447 tcp/127.0.0.1:7448",
+    cargo run --release --bin {} 8100 tcp/127.0.0.1:7447",
         bin, bin
     );
 }
 
 fn main() {
-    // Enable logging
-    env_logger::init();
-
-    // Initialize the Peer Id
-    let mut pid = vec![0, 0, 0, 0];
+    let mut pid: Vec<u8> = vec![0, 0, 0, 0, 0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 
     let count = Arc::new(AtomicUsize::new(0));
@@ -96,18 +92,6 @@ fn main() {
         return print_usage(bin);
     };
     let payload: usize = if let Ok(v) = value.parse() {
-        v
-    } else {
-        return print_usage(bin);
-    };
-
-    // Get next arg
-    let value = if let Some(value) = args.next() {
-        value
-    } else {
-        return print_usage(bin);
-    };
-    let listen_on: Locator = if let Ok(v) = value.parse() {
         v
     } else {
         return print_usage(bin);
@@ -137,20 +121,17 @@ fn main() {
 
     // Connect to publisher
     task::block_on(async {
-        if manager.add_locator(&listen_on).await.is_ok() {
-            println!("Listening on {}", listen_on);
-        } else {
-            println!("Failed to listen on {}", listen_on);
-            return;
-        };
-
         let session = loop {
-            if let Ok(s) = manager.open_session(&connect_to, &attachment).await {
-                println!("Opened session with {}", connect_to);
-                break s;
-            } else {
-                task::sleep(Duration::from_secs(1)).await;
-            }
+            let res = manager.open_session(&connect_to, &attachment).await;
+            match res {
+                Ok(s) => {
+                    println!("Opened session with {}", connect_to);
+                    break s;
+                },
+                Err(_) => {
+                    println!("Failed to open session with {}. Retry.", connect_to);
+                }
+            }            
         };
 
         // Send reliable messages
@@ -159,7 +140,6 @@ fn main() {
         let info = None;
         let payload = RBuf::from(vec![0u8; payload]);
         let reply_context = None;
-
 
         let message = ZenohMessage::make_data(
             reliable, key, info, payload, reply_context, attachment

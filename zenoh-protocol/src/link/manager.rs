@@ -10,8 +10,7 @@ pub struct LinkManagerBuilder;
 impl LinkManagerBuilder {
     pub(crate) fn make(manager: Arc<SessionManagerInner>, protocol: &LocatorProtocol) -> LinkManager {
         match protocol {
-            LocatorProtocol::Tcp => Arc::new(ManagerTcp::new(manager)),
-            // LocatorProtocol::Udp => write!(f, "{}", STR_UDP)?,
+            LocatorProtocol::Tcp => Arc::new(ManagerTcp::new(manager))
         }
     }
 }

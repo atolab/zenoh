@@ -74,6 +74,11 @@ test = false
 bench = false
 
 [[bin]]
+name = "base_pubsub_client"
+test = false
+bench = false
+
+[[bin]]
 name = "base_broker"
 test = false
 bench = false

@@ -118,10 +118,10 @@ fn map_messages_on_links(
             if let Some(index) = batches.iter().position(|x| &x.link == link) {
                 index
             } else {
-                println!("!!! Message dropped because indicated link does not exist");
-                // Drop the message            
+                log::debug!("Message dropped because indicated link ({}) does not exist: {:?}", link, msg.inner);
+                // Silently drop the message            
                 continue
-            } 
+            }
         } else {
             DEFAULT_LINK_INDEX
         };
@@ -225,7 +225,7 @@ async fn batch_fragment_transmit(
             if has_failed {
                 // @TODO: Implement fragmentation here
                 //        Drop the message for the time being
-                println!("!!! Message dropped because fragmentation is not yet implemented");
+                log::debug!("Message dropped because fragmentation is not yet implemented: {:?}", msg);
                 batch.clear();
                 break
             }
@@ -249,9 +249,11 @@ async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
     // Acquire the lock on the links
     let guard = zasyncread!(ch.links);
     // Check if we have links to send on
-    if guard.links.is_empty() {        
+    if guard.links.is_empty() {
+        let e = "Unable to start the consume task, no links available".to_string();
+        log::debug!("{}", e);
         return Err(zerror!(ZErrorKind::Other {
-            descr: "Unable to start the consume task, no links available".to_string()
+            descr: e
         }))
     }
 
@@ -393,8 +395,10 @@ impl ChannelLinks {
     pub(super) async fn add_link(&mut self, link: Link) -> ZResult<()> {
         // Check if this link is not already present
         if self.links.contains(&link) {
+            let e = format!("Can not add the link to the channel because it is already associated: {}.", link);
+            log::debug!("{}", e);
             return Err(zerror!(ZErrorKind::InvalidLink {
-                descr: "Trying to add a link that already exists!".to_string()
+                descr: e
             }));
         }
 
@@ -410,6 +414,8 @@ impl ChannelLinks {
 
         // Return error if the link was not found
         if index.is_none() {
+            let e = format!("Can not delete the link from the channel because it does not exist: {}.", link);
+            log::debug!("{}", e);
             return Err(zerror!(ZErrorKind::InvalidLink {
                 descr: format!("{}", link)
             }));
@@ -675,7 +681,9 @@ impl Channel {
         self.stop().await?;
         let mut guard = zasyncwrite!(self.links);
         guard.del_link(link).await?;
-        self.start().await?;
+        if !guard.links.is_empty() {
+            self.start().await?;
+        }
         Ok(())    
     }
 
@@ -693,12 +701,18 @@ impl Channel {
             if let Some(ch) = ch.upgrade() {
                 ch
             } else {
+                let e = format!("The channel does not longer exist: {:?}", self.pid);
+                log::debug!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
-                    descr: "The channel does not longer exist".to_string()
+                    descr: e
                 }))
             }
         } else {
-            panic!("Channel is uninitialized");
+            let e = format!("The channel is unitialized: {:?}", self.pid);
+            log::debug!("{}", e);
+            return Err(zerror!(ZErrorKind::Other {
+                descr: e
+            }))
         };
 
         // If not already active, start the transmission loop
@@ -734,20 +748,20 @@ impl Channel {
         // @TODO: Implement the reordering and reliability. Wait for missing messages.
         let mut guard = zasynclock!(self.rx);        
         if !(guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok()) {
-            println!("!!! Reliable frame with invalid SN dropped");
+            log::debug!("Reliable frame with invalid SN dropped: {:?}", payload);
             return Action::Read
         }
 
         let callback = if let Some(callback) = &guard.callback {
             callback
         } else {
-            println!("!!! Frame dropped because callback is unitialized");
+            log::debug!("Reliable frame dropped because callback is unitialized: {:?}", payload);
             return Action::Read
         };
 
         match payload {
             FramePayload::Fragment { .. } => {
-                unimplemented!("!!! Fragmentation not implemented");
+                unimplemented!("Fragmentation not implemented");
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
@@ -762,20 +776,20 @@ impl Channel {
     async fn process_best_effort_frame(&self, sn: ZInt, payload: FramePayload) -> Action {
         let mut guard = zasynclock!(self.rx);        
         if !(guard.sn.best_effort.precedes(sn) && guard.sn.best_effort.set(sn).is_ok()) {
-            println!("!!! Best effort frame with invalid SN dropped");
+            log::debug!("Best-effort frame with invalid SN dropped: {:?}", payload);
             return Action::Read
         }
 
         let callback = if let Some(callback) = &guard.callback {
             callback
         } else {
-            println!("!!! Frame dropped because callback is unitialized");
+            log::debug!("Best-effort frame dropped because callback is unitialized: {:?}", payload);
             return Action::Read
         };
 
         match payload {
             FramePayload::Fragment { .. } => {
-                unimplemented!("!!! Fragmentation not implemented");
+                unimplemented!("Fragmentation not implemented");
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
@@ -791,7 +805,7 @@ impl Channel {
         // Check if the PID is correct when provided
         if let Some(pid) = pid {
             if pid != self.pid {
-                println!("!!! Received a Close message from a wrong peer ({:?}) with reason ({}). Ignoring.", pid, reason);
+                log::debug!("Received a Close message from a wrong peer ({:?}) with reason: {}. Ignoring.", pid, reason);
                 return Action::Read
             }
         }        

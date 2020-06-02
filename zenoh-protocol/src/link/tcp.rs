@@ -5,12 +5,10 @@ use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::fmt;
 use std::net::Shutdown;
 
-#[cfg(write_vectored)]
-use std::io::IoSlice;
-
-use crate::{zerror, to_zerror};
+use crate::zerror;
 use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::{ArcSlice, RBuf};
 use crate::proto::SessionMessage;
@@ -35,9 +33,13 @@ macro_rules! get_tcp_addr {
     ($locator:expr) => (match $locator {
         Locator::Tcp(addr) => addr,
         // @TODO: uncomment the following when more links are added
-        // _ => return Err(zerror!(ZErrorKind::InvalidLocator {
-        //     descr: format!("Not a TCP locator: {}", $locator)
-        // }))
+        // _ => {
+        //    let e = format!("Not a TCP locator: {}", $locator);
+        //    log::debug!("{}", e);    
+        //    return Err(zerror!(ZErrorKind::InvalidLocator {
+        //        descr: e
+        //    }))
+        // }
     });
 }
 
@@ -106,8 +108,13 @@ impl LinkTrait for Tcp {
     }
     
     async fn send(&self, buffer: &[u8]) -> ZResult<()> {                
-        (&self.socket).write_all(buffer).await
-            .map_err(to_zerror!(IOError, "on socket.write_all".to_string()))?;
+        let res = (&self.socket).write_all(buffer).await;
+        if let Err(e) = res {
+            log::debug!("Transmission error on link: {}, {}", self, e);
+            return Err(zerror!(ZErrorKind::IOError {
+                descr: format!("{:?}", e)
+            }))
+        }            
 
         Ok(())
     }
@@ -117,13 +124,20 @@ impl LinkTrait for Tcp {
             if let Some(link) = link.upgrade() {
                 link
             } else {
+                let e = format!("The Link does not longer exist: {}", self);
+                log::debug!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
-                    descr: "The Link does not longer exist".to_string()
+                    descr: e
                 }))
             }
         } else {
-            panic!("Link is uninitialized");
+            let e = format!("The Link is unitialized: {}", self);
+            log::debug!("{}", e);
+            return Err(zerror!(ZErrorKind::Other {
+                descr: e
+            }))
         };
+        // Spawn the read task
         task::spawn(read_task(link));
 
         Ok(())
@@ -213,7 +227,7 @@ async fn read_task(link: Arc<Tcp>) {
 
         // Macro to handle a link error
         macro_rules! zlinkerror {
-            () => {                
+            () => {
                 // Close the underlying TCP socket
                 let _ = link.socket.shutdown(Shutdown::Both);
                 // Delete the link from the manager
@@ -248,8 +262,12 @@ async fn read_task(link: Arc<Tcp>) {
                     // Enforce the action as instructed by the upper logic
                     match action {
                         Action::Read => {},
-                        Action::ChangeTransport(transport) => *guard = transport,
+                        Action::ChangeTransport(transport) => {
+                            log::debug!("Change transport on link: {}", link);
+                            *guard = transport
+                        },
                         Action::Close => {
+                            log::debug!("Closing link: {}", link);
                             // Close the underlying TCP socket
                             let _ = link.socket.shutdown(Shutdown::Both);
                             // Delete the link from the manager
@@ -268,6 +286,7 @@ async fn read_task(link: Arc<Tcp>) {
                 Ok(mut n) => {
                     if n == 0 {  
                         // Reading 0 bytes means error
+                        log::debug!("Zero bytes reading on link: {}", link);
                         zlinkerror!();
                     }
 
@@ -392,7 +411,8 @@ async fn read_task(link: Arc<Tcp>) {
                         r_l_pos = r_e_pos;
                     }
                 },
-                Err(_) => {
+                Err(e) => {
+                    log::debug!("Reading error on link: {}, {}", link, e);
                     zlinkerror!();
                 }
             }
@@ -405,7 +425,6 @@ async fn read_task(link: Arc<Tcp>) {
     let _ = read_loop.race(stop).await;
 }
 
-
 impl Drop for Tcp {
     fn drop(&mut self) {
         // Close the underlying TCP socket
@@ -413,6 +432,12 @@ impl Drop for Tcp {
     }
 }
 
+impl fmt::Display for Tcp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} => {}", self.get_src(), self.get_dst())?;
+        Ok(())
+    }
+}
 
 /*************************************/
 /*          LISTENER                 */
@@ -511,10 +536,13 @@ impl ManagerTcpInner {
         // Create the TCP connection
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
-            Err(e) => return Err(zerror!(ZErrorKind::Other {
+            Err(e) => {
+                log::debug!("{}", e);
+                return Err(zerror!(ZErrorKind::Other {
                     descr: format!("{}", e)
                 }))
-            };
+            }
+        };
         
         // Create a new link object
         let link = Arc::new(Tcp::new(stream, transport.clone(), a_self.clone()));
@@ -534,9 +562,13 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
-            None => Err(zerror!(ZErrorKind::Other {
-                    descr: format!("No active TCP link ({} => {})", src, dst)
+            None => {
+                let e = format!("No active TCP link: {} => {}", src, dst);
+                log::debug!("{}", e);
+                Err(zerror!(ZErrorKind::Other {
+                    descr: e
                 }))
+            }
         }
     }
 
@@ -544,9 +576,13 @@ impl ManagerTcpInner {
         // Remove the link from the manager list
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
-            None => Err(zerror!(ZErrorKind::Other {
-                descr: format!("No active TCP link ({} => {})", src, dst)
-            }))
+            None => {
+                let e = format!("No active TCP link: {} => {}", src, dst);
+                log::debug!("{}", e);
+                Err(zerror!(ZErrorKind::Other {
+                    descr: e
+                }))
+            }
         }
     }
 
@@ -554,9 +590,12 @@ impl ManagerTcpInner {
         // Bind the TCP socket
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
-            Err(e) => return Err(zerror!(ZErrorKind::Other {
-                descr: format!("{}", e)
-            }))
+            Err(e) => {
+                log::debug!("{}", e);
+                return Err(zerror!(ZErrorKind::Other {
+                    descr: format!("{}", e)
+                }))
+            }
         };
 
         // Update the list of active listeners on the manager
@@ -582,9 +621,13 @@ impl ManagerTcpInner {
                 listener.sender.send(()).await;
                 Ok(())
             },
-            None => Err(zerror!(ZErrorKind::Other {
-                descr: format!("No TCP listener on address: {}", addr)
-            }))
+            None => {
+                let e = format!("No TCP listener on address: {}", addr);
+                log::debug!("{}", e);
+                Err(zerror!(ZErrorKind::Other {
+                    descr: e
+                }))
+            }
         }
     }
   
@@ -600,7 +643,10 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             // Wait for incoming connections
             let stream = match listener.socket.accept().await {
                 Ok((stream, _)) => stream,
-                Err(_) => return Ok(())
+                Err(e) => {
+                    log::debug!("{}", e);
+                    return Ok(())
+                }
             };
 
             // Retrieve the initial temporary session 

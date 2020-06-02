@@ -7,7 +7,7 @@ use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{ZenohMessage, WhatAmI, whatami};
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
+use zenoh_protocol::session::{DummyHandler, MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
 
 
 struct MySH {}
@@ -31,20 +31,25 @@ impl SessionHandler for MySH {
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <payload size in bytes> <batch size in bytes> <locator to connect to>
+    cargo run --release --bin {} <payload size in bytes> <locator to connect to>
 Example: 
-    cargo run --release --bin {} 8000 16384 tcp/127.0.0.1:7447",
+    cargo run --release --bin {} 8100 tcp/127.0.0.1:7447",
         bin, bin
     );
 }
 
 fn main() {
+    // Enable logging
+    env_logger::init();
+
+    // Initialize the Peer Id
     let mut pid = vec![0, 0, 0, 0];
     rand::thread_rng().fill_bytes(&mut pid);
 
     let mut args = std::env::args();
     // Get exe name
-    let bin = args.next().unwrap();
+    let bin = args.next().unwrap()
+                .split(std::path::MAIN_SEPARATOR).last().unwrap().to_string();
 
     // Get next arg
     let value = if let Some(value) = args.next() {
@@ -53,18 +58,6 @@ fn main() {
         return print_usage(bin);
     };
     let payload: usize = if let Ok(v) = value.parse() {
-        v
-    } else {
-        return print_usage(bin);
-    };
-
-    // Get next arg
-    let value = if let Some(value) = args.next() {
-        value
-    } else {
-        return print_usage(bin);
-    };
-    let batchsize: usize = if let Ok(v) = value.parse() {
         v
     } else {
         return print_usage(bin);
@@ -88,16 +81,7 @@ fn main() {
         id: PeerId{id: pid},
         handler: Arc::new(MySH::new())
     };
-    let opt_config = SessionManagerOptionalConfig {
-        lease: None,
-        sn_resolution: None,
-        batchsize: Some(batchsize),
-        timeout: None,
-        retries: None,
-        max_sessions: None,
-        max_links: None 
-    };
-    let manager = SessionManager::new(config, Some(opt_config));
+    let manager = SessionManager::new(config, None);
 
     let attachment = None;
 

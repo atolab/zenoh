@@ -22,10 +22,6 @@ use std::hash::{Hash, Hasher};
 /*************************************/
 /*              LINK                 */
 /*************************************/
-// pub enum Link {
-//     Tcp(Arc<LinkTcp>),
-// }
-
 pub type Link = Arc<dyn LinkTrait + Send + Sync>;
 
 #[async_trait]
