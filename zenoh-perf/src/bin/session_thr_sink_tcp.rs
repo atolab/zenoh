@@ -89,9 +89,9 @@ async fn run(addr: SocketAddr, bs: usize, length: bool) -> Result<(), Box<dyn st
 fn print_usage(bin: String) {
     println!(
 "Usage:
-    cargo run --release --bin {} <locator to listen on> <buffer size> <has length>
+    cargo run --release --bin {} <TCP address to listen on> <buffer size> <has length>
 Example: 
-    cargo run --release --bin {} tcp/127.0.0.1:7447 8192 true",
+    cargo run --release --bin {} 127.0.0.1:7447 8192 true",
         bin, bin
     );
 }

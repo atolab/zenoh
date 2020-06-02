@@ -40,33 +40,3 @@ bench = false
 name = "peer"
 test = false
 bench = false
-
-[[bin]]
-name = "thr_sub_client"
-test = false
-bench = false
-
-[[bin]]
-name = "thr_pub_client"
-test = false
-bench = false
-
-[[bin]]
-name = "thr_sub_light_client"
-test = false
-bench = false
-
-[[bin]]
-name = "thr_pub_light_client"
-test = false
-bench = false
-
-[[bin]]
-name = "thr_sub_peer"
-test = false
-bench = false
-
-[[bin]]
-name = "thr_pub_peer"
-test = false
-bench = false

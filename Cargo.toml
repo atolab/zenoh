@@ -2,10 +2,14 @@
 
 members = [
   "zenoh",
-  "zenoh-router",
+  "zenoh-ffi",
   "zenoh-protocol",
-  "zenoh-util",
-  "zenoh-ffi"
+  "zenoh-router",
+  "zenoh-util"
+]
+
+exclude = [
+  "zenoh-perf"
 ]
 
 [profile.release]

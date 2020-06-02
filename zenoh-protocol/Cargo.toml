@@ -14,8 +14,6 @@ async-trait = "0.1.31"
 env_logger = "0.7.1"
 log = "0.4.8"
 rand = "0.7.3"
-slab = "0.4.2"
-time = "0.2.16"
 uuid = { version = "0.8.1", features = ["v4"] }
 zenoh-util =  { version = "0.1.0", path = "../zenoh-util" }
 lazy_static = "1.4.0"
@@ -42,44 +40,3 @@ harness = false
 [[bench]]
 name = "data_creation"
 harness = false
-
-[[bin]]
-name = "base_sink_tcp"
-test = false
-bench = false
-
-[[bin]]
-name = "base_sub_peer"
-test = false
-bench = false
-
-[[bin]]
-name = "base_pub_peer"
-test = false
-bench = false
-
-[[bin]]
-name = "base_pubsub_peer"
-test = false
-bench = false
-
-[[bin]]
-name = "base_sub_client"
-test = false
-bench = false
-
-[[bin]]
-name = "base_pub_client"
-test = false
-bench = false
-
-[[bin]]
-name = "base_pubsub_client"
-test = false
-bench = false
-
-[[bin]]
-name = "base_broker"
-test = false
-bench = false
-

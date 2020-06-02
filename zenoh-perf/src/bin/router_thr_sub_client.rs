@@ -84,34 +84,59 @@ impl Primitives for ThrouputPrimitives {
     async fn close(&self) {}
 }
 
+
+fn print_usage(bin: String) {
+    println!(
+"Usage:
+    cargo run --release --bin {} [<locator to connect to>]
+Example: 
+    cargo run --release --bin {} tcp/127.0.0.1:7447",
+        bin, bin
+    );
+}
+
 fn main() {
-    task::block_on(async{
-        let mut args = std::env::args();
-        args.next(); // skip exe name
+    // Enable logging
+    env_logger::init();
 
-        let my_primitives = Arc::new(ThrouputPrimitives::new());
+    // Initialize the Peer Id
+    let mut pid = vec![0, 0, 0, 0];
+    rand::thread_rng().fill_bytes(&mut pid);
+
+    let mut args = std::env::args();
+    // Get exe name
+    let bin = args.next().unwrap()
+                .split(std::path::MAIN_SEPARATOR).last().unwrap().to_string();
     
-        let broker = Arc::new(Broker::new());
 
-        let mut pid = vec![0, 0, 0, 0];
-        rand::thread_rng().fill_bytes(&mut pid);
-    
-        let config = SessionManagerConfig {
-            version: 0,
-            whatami: whatami::CLIENT,
-            id: PeerId{id: pid},
-            handler: broker.clone()
-        };
-        let manager = SessionManager::new(config, None);
+    let my_primitives = Arc::new(ThrouputPrimitives::new());
+    let broker = Arc::new(Broker::new());
 
+    let config = SessionManagerConfig {
+        version: 0,
+        whatami: whatami::CLIENT,
+        id: PeerId{id: pid},
+        handler: broker.clone()
+    };
+    let manager = SessionManager::new(config, None);
+
+
+    task::block_on(async {
+        let mut has_locator = false;
         let attachment = None;
         for locator in args {
+            has_locator = true;
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 println!("Unable to connect to {}!", locator);
-                std::process::exit(-1);
+                return
             }
         }
     
+        if !has_locator {
+            print_usage(bin);
+            return
+        }
+        
         let primitives = broker.new_primitives(my_primitives).await;
 
         primitives.resource(1, &"/tp".to_string().into()).await;
@@ -123,6 +148,7 @@ fn main() {
         };
         primitives.subscriber(&rid, &sub_info).await;
 
+        // Wait forever
         future::pending::<()>().await;
     });
 }

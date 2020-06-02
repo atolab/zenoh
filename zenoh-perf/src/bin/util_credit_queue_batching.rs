@@ -76,7 +76,6 @@ fn main() {
             }
         });
 
-
         p1.join(p2).join(p3).join(p4).join(c1).await;
         println!("Test run in: {}", now.elapsed().as_millis());
     });
