@@ -252,12 +252,9 @@ impl WBuf {
 
     fn write_deco_reply(&mut self, reply_context: &ReplyContext) -> bool {
         let fflag = if reply_context.is_final { zmsg::flag::F } else { 0 };
-        let eflag = match &reply_context.source {
-            ReplySource::Eval => zmsg::flag::E,
-            ReplySource::Storage => 0
-        };
-        check!(self.write(zmsg::id::REPLY_CONTEXT | fflag | eflag));
+        check!(self.write(zmsg::id::REPLY_CONTEXT | fflag));
         check!(self.write_zint(reply_context.qid));
+        check!(self.write_zint(reply_context.source_kind));
         if let Some(pid) = &reply_context.replier_id {
             check!(self.write_bytes_array(&pid.id));
         }
@@ -358,8 +355,8 @@ impl WBuf {
     }
 
     fn write_query_target(&mut self, target: &QueryTarget) -> bool {
-        self.write_target(&target.storage) &&
-        self.write_target(&target.eval)
+        self.write_zint(target.kind) &&
+        self.write_target(&target.target)
     }
 
     fn write_target(&mut self, target: &Target) -> bool {

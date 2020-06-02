@@ -313,12 +313,12 @@ impl RBuf {
     // @TODO: Update the ReplyContext format
     fn read_deco_reply(&mut self, header: u8) -> ZResult<ReplyContext> {
         let is_final = zmsg::has_flag(header, zmsg::flag::F);
-        let source = if zmsg::has_flag(header, zmsg::flag::E) { ReplySource::Eval } else { ReplySource::Storage };
         let qid = self.read_zint()?;
+        let source_kind = self.read_zint()?;
         let replier_id = if is_final { None } else {
             Some(self.read_peerid()?)
         };
-        Ok(ReplyContext{ is_final, qid, source, replier_id })
+        Ok(ReplyContext{ is_final, qid, source_kind, replier_id })
     }
 
     pub fn read_datainfo(&mut self) -> ZResult<DataInfo> {
@@ -465,9 +465,9 @@ impl RBuf {
     }
 
     fn read_query_target(&mut self) -> ZResult<QueryTarget> {
-        let storage = self.read_target()?;
-        let eval = self.read_target()?;
-        Ok(QueryTarget{ storage, eval })
+        let kind = self.read_zint()?;
+        let target = self.read_target()?;
+        Ok(QueryTarget{ kind, target })
     }
 
     fn read_target(&mut self) -> ZResult<Target> {

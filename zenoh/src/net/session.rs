@@ -10,7 +10,7 @@ use log::{error, warn, info, trace};
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
-    proto::{ DataInfo, Primitives, QueryTarget, Target, QueryConsolidation, Reply, ReplySource, whatami },
+    proto::{ DataInfo, Primitives, QueryTarget, QueryConsolidation, Reply, whatami, queryable},
     session::{SessionManager, SessionManagerConfig},
     zerror
 };
@@ -193,7 +193,7 @@ impl Session {
         Ok(())
     }
 
-    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, kind: ReplySource, query_handler: QueryHandler) -> ZResult<Queryable>
+    pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, kind: ZInt, query_handler: QueryHandler) -> ZResult<Queryable>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         trace!("declare_queryable({:?}, {:?})", resource, kind);
@@ -320,8 +320,8 @@ impl Primitives for Session {
                     match inner.reskey_to_resname(&queryable.reskey) {
                         Ok(qablname) => {
                             rname::intersect(&qablname, &resname) 
-                            && ((queryable.kind == ReplySource::Storage && target.storage != Target::None) 
-                                || (queryable.kind == ReplySource::Eval && target.eval != Target::None))
+                            && ((queryable.kind == queryable::ALL_KINDS || target.kind  == queryable::ALL_KINDS) 
+                                || (queryable.kind & target.kind != 0))
                         },
                         Err(err) => {println!("{}. Internal error (queryable reskey to resname failed).", err); false}
                     }
@@ -337,7 +337,7 @@ impl Primitives for Session {
                             async move {
                                 for (reskey, payload) in replies {
                                     query_handle.primitives.reply(query_handle.qid, &Reply::ReplyData {
-                                        source: query_handle.kind.clone(), 
+                                        source_kind: query_handle.kind, 
                                         replier_id: query_handle.pid.clone(), 
                                         reskey: ResKey::RName(reskey.to_string()), 
                                         info: None,   // @TODO
@@ -345,7 +345,7 @@ impl Primitives for Session {
                                     }).await;
                                 }
                                 query_handle.primitives.reply(query_handle.qid, &Reply::SourceFinal {
-                                    source: query_handle.kind.clone(), 
+                                    source_kind: query_handle.kind, 
                                     replier_id: query_handle.pid.clone(),
                                 }).await;
 
@@ -383,7 +383,7 @@ impl Primitives for Session {
             }
         };
         match reply {
-            Reply::ReplyData {source, replier_id, reskey, info, payload} => {
+            Reply::ReplyData {source_kind, replier_id, reskey, info, payload} => {
                 let resname = match inner.reskey_to_resname(&reskey) {
                     Ok(name) => name,
                     Err(e) => {
@@ -392,7 +392,7 @@ impl Primitives for Session {
                     }
                 };
                 rhandler(&Reply::ReplyData {
-                    source: source.clone(), 
+                    source_kind: *source_kind, 
                     replier_id: replier_id.clone(), 
                     reskey: ResKey::RName(resname), 
                     info: info.clone(), 

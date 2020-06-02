@@ -3,7 +3,7 @@ use std::io::Read;
 use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
-use zenoh_protocol::proto::ReplySource;
+use zenoh_protocol::proto::queryable::EVAL;
 
 fn main() {
     // for logging
@@ -30,7 +30,7 @@ fn main() {
         };
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), ReplySource::Eval, query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&RName(uri), EVAL, query_handler).await.unwrap();
 
         let mut reader = std::io::stdin();
         let mut input = [0u8];

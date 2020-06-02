@@ -24,7 +24,6 @@ pub use zenoh_protocol::proto::{
     QueryTarget,
     QueryConsolidation,
     Reply,
-    ReplySource,
     DataInfo
 };
 pub use zenoh_protocol::proto::Primitives;
@@ -34,7 +33,7 @@ pub type Properties = HashMap<ZInt, Vec<u8>>;
 
 pub struct QueryHandle {
     pub(crate) pid: PeerId,
-    pub(crate) kind: ReplySource,
+    pub(crate) kind: ZInt,
     pub(crate) primitives: Arc<dyn Primitives + Send + Sync>,
     pub(crate) qid: ZInt,
     pub(crate) nb_qhandlers: Arc<AtomicUsize>,
@@ -104,7 +103,7 @@ impl fmt::Debug for Subscriber {
 pub struct Queryable {
     pub(crate) id: Id,
     pub(crate) reskey: ResKey,
-    pub(crate) kind: ReplySource,
+    pub(crate) kind: ZInt,
     pub(crate) qhandler: Arc<RwLock<QueryHandler>>,
 }
 
