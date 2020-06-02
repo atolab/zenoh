@@ -8,6 +8,9 @@ fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
 }
 
 fn main() {
+    // for logging
+    env_logger::init();
+
     task::block_on( async {
         let mut args: Vec<String> = env::args().collect();
 

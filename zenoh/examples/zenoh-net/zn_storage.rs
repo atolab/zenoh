@@ -9,6 +9,9 @@ use zenoh::net::ResKey::*;
 use zenoh_protocol::proto::ReplySource;
 
 fn main() {
+    // for logging
+    env_logger::init();
+
     task::block_on( async {
         let mut args: Vec<String> = env::args().collect();
 

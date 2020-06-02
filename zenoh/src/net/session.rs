@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering};
 use std::collections::HashMap;
 use spin::RwLock;
+use log::{error, warn, info, trace};
 use zenoh_protocol:: {
     core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
     io::RBuf,
@@ -15,13 +16,6 @@ use zenoh_protocol:: {
 };
 use zenoh_router::routing::broker::Broker;
 use super::*;
-
-#[macro_export]
-#[cfg(apitraces)]
-macro_rules! apitrace { ($($arg:tt)*) => (println!($($arg)*)); }
-#[cfg(not(apitraces))]
-macro_rules! apitrace { ($($arg:tt)*) => (); }
-
 
 
 // rename to avoid conflicts
@@ -61,17 +55,17 @@ impl Session {
         // try to open TCP port 7447
         if let Err(_err) = session_manager.add_locator(&"tcp/127.0.0.1:7447".parse().unwrap()).await {
             // if failed, try to connect to peer on locator
-            println!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
+            info!("Unable to open listening TCP port on 127.0.0.1:7447. Try connection to {}", locator);
             let attachment = None;
             match session_manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 Ok(s) => tx_session = Some(Arc::new(s)),
                 Err(err) => {
-                    println!("Unable to connect to {}! {:?}", locator, err);
+                    error!("Unable to connect to {}! {:?}", locator, err);
                     std::process::exit(-1);
                 }
             }
         } else {
-            println!("Listening on TCP: 127.0.0.1:7447.");
+            info!("Listening on TCP: 127.0.0.1:7447.");
         }
 
         let inner = Arc::new(RwLock::new(
@@ -91,7 +85,7 @@ impl Session {
 
     pub async fn close(&self) -> ZResult<()> {
         // @TODO: implement
-        apitrace!(">>>> close()");
+        trace!("close()");
         let inner = &mut self.inner.write();
         let primitives = inner.primitives.as_ref().unwrap();
 
@@ -107,7 +101,7 @@ impl Session {
 
     pub fn info(&self) -> Properties {
         // @TODO: implement
-        apitrace!(">>>> info()");
+        trace!("info()");
         let mut info = Properties::new();
         info.insert(ZN_INFO_PEER_KEY, b"tcp/somewhere:7887".to_vec());
         info.insert(ZN_INFO_PID_KEY, vec![1u8, 2, 3]);
@@ -116,7 +110,7 @@ impl Session {
     }
 
     pub async fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
-        apitrace!(">>>> declare_resource({:?})", resource);
+        trace!("declare_resource({:?})", resource);
         let inner = &mut self.inner.write();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
         let rname = inner.localkey_to_resname(resource)?;
@@ -129,7 +123,7 @@ impl Session {
     }
 
     pub async fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
-        apitrace!(">>>> undeclare_resource({:?})", rid);
+        trace!("undeclare_resource({:?})", rid);
         let inner = &mut self.inner.write();
 
         let primitives = inner.primitives.as_ref().unwrap();
@@ -140,7 +134,7 @@ impl Session {
     }
 
     pub async fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
-        apitrace!(">>>> declare_publisher({:?})", resource);
+        trace!("declare_publisher({:?})", resource);
         let inner = &mut self.inner.write();
 
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
@@ -154,7 +148,7 @@ impl Session {
     }
 
     pub async fn undeclare_publisher(&self, publisher: Publisher) -> ZResult<()> {
-        apitrace!(">>>> undeclare_publisher({:?})", publisher);
+        trace!("undeclare_publisher({:?})", publisher);
         let inner = &mut self.inner.write();
         inner.publishers.remove(&publisher.id);
 
@@ -170,7 +164,7 @@ impl Session {
     pub async fn declare_subscriber<DataHandler>(&self, resource: &ResKey, info: &SubInfo, data_handler: DataHandler) -> ZResult<Subscriber>
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
     {
-        apitrace!(">>>> declare_subscriber({:?})", resource);
+        trace!("declare_subscriber({:?})", resource);
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let resname = inner.localkey_to_resname(resource)?;
@@ -186,7 +180,7 @@ impl Session {
 
     pub async fn undeclare_subscriber(&self, subscriber: Subscriber) -> ZResult<()>
     {
-        apitrace!(">>>> undeclare_subscriber({:?})", subscriber);
+        trace!("undeclare_subscriber({:?})", subscriber);
         let inner = &mut self.inner.write();
         inner.subscribers.remove(&subscriber.id);
 
@@ -202,7 +196,7 @@ impl Session {
     pub async fn declare_queryable<QueryHandler>(&self, resource: &ResKey, kind: ReplySource, query_handler: QueryHandler) -> ZResult<Queryable>
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
-        apitrace!(">>>> declare_queryable({:?}, {:?})", resource, kind);
+        trace!("declare_queryable({:?}, {:?})", resource, kind);
         let inner = &mut self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
@@ -217,7 +211,7 @@ impl Session {
     }
 
     pub async fn undeclare_queryable(&self, queryable: Queryable) -> ZResult<()> {
-        apitrace!(">>>> undeclare_queryable({:?})", queryable);
+        trace!("undeclare_queryable({:?})", queryable);
         let inner = &mut self.inner.write();
         inner.queryables.remove(&queryable.id);
 
@@ -231,7 +225,7 @@ impl Session {
     }
 
     pub async fn write(&self, resource: &ResKey, payload: RBuf) -> ZResult<()> {
-        apitrace!(">>>> write({:?}, [...])", resource);
+        trace!("write({:?}, [...])", resource);
         let inner = self.inner.read();
         let primitives = inner.primitives.as_ref().unwrap();
         primitives.data(resource, true, &None, payload).await;
@@ -247,7 +241,7 @@ impl Session {
     ) -> ZResult<()>
         where RepliesHandler: FnMut(&Reply) + Send + Sync + 'static
     {
-        apitrace!(">>>> query({:?}, {:?}, {:?}, {:?})", resource, predicate, target, consolidation);
+        trace!("query({:?}, {:?}, {:?}, {:?})", resource, predicate, target, consolidation);
         let inner = &mut self.inner.write();
         let qid = inner.qid_counter.fetch_add(1, Ordering::SeqCst);
         inner.queries.insert(qid, Arc::new(RwLock::new(replies_handler)));
@@ -263,44 +257,44 @@ impl Session {
 impl Primitives for Session {
 
     async fn resource(&self, rid: ZInt, reskey: &ResKey) {
-        apitrace!("<<<< recv Resource {} {:?}", rid, reskey);
+        trace!("recv Resource {} {:?}", rid, reskey);
         let inner = &mut self.inner.write();
         match inner.reskey_to_resname(reskey) {
             Ok(name) => {inner.remote_resources.insert(rid, name);}
-            Err(_) => println!("ERROR: received res_decl with unknown key.")
+            Err(_) => error!("Received Resource for unkown reskey: {}", reskey)
         }
     }
 
     async fn forget_resource(&self, _rid: ZInt) {
-        apitrace!("<<<< recv Forget Resource {}", _rid);
+        trace!("recv Forget Resource {}", _rid);
     }
 
     async fn publisher(&self, _reskey: &ResKey) {
-        apitrace!("<<<< recv Publisher {:?}", _reskey);
+        trace!("recv Publisher {:?}", _reskey);
     }
 
     async fn forget_publisher(&self, _reskey: &ResKey) {
-        apitrace!("<<<< recv Forget Publisher {:?}", _reskey);
+        trace!("recv Forget Publisher {:?}", _reskey);
     }
 
     async fn subscriber(&self, _reskey: &ResKey, _sub_info: &SubInfo) {
-        apitrace!("<<<< recv Subscriber {:?} , {:?}", _reskey, _sub_info);
+        trace!("recv Subscriber {:?} , {:?}", _reskey, _sub_info);
     }
 
     async fn forget_subscriber(&self, _reskey: &ResKey) {
-        apitrace!("<<<< recv Forget Subscriber {:?}", _reskey);
+        trace!("recv Forget Subscriber {:?}", _reskey);
     }
 
     async fn queryable(&self, _reskey: &ResKey) {
-        apitrace!("<<<< recv Queryable {:?}", _reskey);
+        trace!("recv Queryable {:?}", _reskey);
     }
 
     async fn forget_queryable(&self, _reskey: &ResKey) {
-        apitrace!("<<<< recv Forget Queryable {:?}", _reskey);
+        trace!("recv Forget Queryable {:?}", _reskey);
     }
 
     async fn data(&self, reskey: &ResKey, _reliable: bool, _info: &Option<RBuf>, payload: RBuf) {
-        apitrace!("<<<< recv Data {:?} {:?} {:?} {:?}", reskey, _reliable, _info, payload);
+        trace!("recv Data {:?} {:?} {:?} {:?}", reskey, _reliable, _info, payload);
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) => {
@@ -313,12 +307,12 @@ impl Primitives for Session {
                     }
                 }
             },
-            Err(err) => println!("{}. Dropping received data", err)
+            Err(err) => error!("Received Data for unkown reskey: {}", err)
         }
     }
 
     async fn query(&self, reskey: &ResKey, predicate: &str, qid: ZInt, target: QueryTarget, _consolidation: QueryConsolidation) {
-        apitrace!("<<<< recv Query {:?} {:?} {:?} {:?}", reskey, predicate, target, _consolidation);
+        trace!("recv Query {:?} {:?} {:?} {:?}", reskey, predicate, target, _consolidation);
         let inner = self.inner.read();
         match inner.reskey_to_resname(reskey) {
             Ok(resname) => {
@@ -374,17 +368,17 @@ impl Primitives for Session {
 
                 }
             },
-            Err(err) => println!("{}. Dropping received query", err)
+            Err(err) => error!("Received Query for unkown reskey: {}", err)
         }
     }
 
     async fn reply(&self, qid: ZInt, reply: &Reply) {
-        apitrace!("<<<< recv Reply {:?} {:?}", qid, reply);
+        trace!("recv Reply {:?} {:?}", qid, reply);
         let inner = &mut self.inner.write();
         let rhandler = &mut * match inner.queries.get(&qid) {
             Some(arc) => arc.write(),
             None => {
-                println!("WARNING: received reply for unkown query: {}", qid);
+                warn!("Received Reply for unkown Query: {}", qid);
                 return
             }
         };
@@ -393,7 +387,7 @@ impl Primitives for Session {
                 let resname = match inner.reskey_to_resname(&reskey) {
                     Ok(name) => name,
                     Err(e) => {
-                        println!("WARNING: received reply with {}", e);
+                        error!("Received Reply for unkown reskey: {}", e);
                         return
                     }
                 };
@@ -410,11 +404,11 @@ impl Primitives for Session {
     }
 
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {
-        apitrace!("<<<< recv Pull {:?} {:?} {:?} {:?}", _is_final, _reskey, _pull_id, _max_samples);
+        trace!("recv Pull {:?} {:?} {:?} {:?}", _is_final, _reskey, _pull_id, _max_samples);
     }
 
     async fn close(&self) {
-        apitrace!("<<<< recv Close");
+        trace!("recv Close");
     }
 }
 
@@ -508,5 +502,4 @@ impl fmt::Debug for InnerSession {
             self.subscribers.len())
     }
 }
-
 
