@@ -765,6 +765,7 @@ impl Channel {
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
+                    log::trace!("sex {:?} recv {:?}", self.get_peer(), msg);
                     let _ = callback.handle_message(msg).await;
                 }
             }
@@ -793,6 +794,7 @@ impl Channel {
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
+                    log::trace!("sex {:?} recv {:?}", self.get_peer(), msg);
                     let _ = callback.handle_message(msg).await;
                 }              
             }

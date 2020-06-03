@@ -25,7 +25,7 @@ pub const NO_RESOURCE_ID: ResourceId = 0;
 /// ~  name/suffix  ~ if flag C!=1 in Message's header
 /// +---------------+
 ///
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone)]
 pub enum ResKey {
   RName(String),
   RId(ResourceId),
@@ -49,13 +49,19 @@ impl ResKey {
   }
 }
 
-impl fmt::Display for ResKey {
+impl fmt::Debug for ResKey {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
       match self {
           RName(name) => write!(f, "{}", name),
           RId(rid) => write!(f, "{}", rid),
-          RIdWithSuffix(rid, suffix) => write!(f, "{}+{}", rid, suffix),
+          RIdWithSuffix(rid, suffix) => write!(f, "{}, {}", rid, suffix),
       }
+  }
+}
+
+impl fmt::Display for ResKey {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fmt::Debug::fmt(self, f)
   }
 }
 
@@ -118,19 +124,37 @@ pub struct Property {
     pub value: Vec<u8>
 }
 
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub struct PeerId {
     pub id: Vec<u8>
 }
 
-#[derive(Debug, Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+impl fmt::Debug for PeerId {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", hex::encode_upper(&self.id))
+  }
+}
+
+impl fmt::Display for PeerId {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fmt::Debug::fmt(self, f)
+  }
+}
+
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TimeStamp {
   pub time: u64,
   pub id: Uuid
 }
 
+impl fmt::Debug for TimeStamp {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}/{}", self.time, self.id)
+  }
+}
+
 impl fmt::Display for TimeStamp {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-      write!(f, "{}/{}", self.time, self.id)
+    fmt::Debug::fmt(self, f)
   }
 }

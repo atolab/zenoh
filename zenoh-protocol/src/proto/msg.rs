@@ -336,13 +336,25 @@ pub enum ZenohBody {
     Query { key: ResKey, predicate: String, qid: ZInt, target: Option<QueryTarget>, consolidation: QueryConsolidation },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct ZenohMessage {
     pub(crate) header: u8,
     pub(crate) body: ZenohBody,
     pub(crate) channel: Channel,
     pub(crate) reply_context: Option<ReplyContext>,
     pub(crate) attachment: Option<Attachment>
+}
+
+impl std::fmt::Debug for ZenohMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?} {:?} {:?}", self.body, self.reply_context, self.attachment)
+    }
+}
+
+impl std::fmt::Display for ZenohMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
 }
 
 impl ZenohMessage {
