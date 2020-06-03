@@ -107,7 +107,7 @@ impl Tables {
         &self.root_res
     }
 
-    pub async fn print(tables: &Arc<RwLock<Tables>>) {
+    pub async fn print(tables: &Arc<RwLock<Tables>>) -> String {
         Resource::print_tree(&tables.read().await.root_res)
     }
 
@@ -206,7 +206,7 @@ impl Tables {
                 }
                 t.faces.remove(&face.id);
             }
-            None => println!("Undeclare closed session!")
+            None => log::error!("Undeclare closed session!")
         }
     }
 

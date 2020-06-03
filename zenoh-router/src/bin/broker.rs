@@ -9,6 +9,8 @@ use zenoh_protocol::session::{SessionManager, SessionManagerConfig, SessionManag
 use zenoh_router::routing::broker::Broker;
 
 fn main() {
+    env_logger::init();
+    
     task::block_on(async {
         let mut args = std::env::args();
         args.next(); // skip exe name
@@ -50,14 +52,14 @@ fn main() {
         let manager = SessionManager::new(config, Some(opt_config));
 
         if let Err(_err) = manager.add_locator(&self_locator).await {
-            println!("Unable to open listening {}!", self_locator);
+            log::error!("Unable to open listening {}!", self_locator);
             std::process::exit(-1);
         }
 
         let attachment = None;
         for locator in args {
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
-                println!("Unable to connect to {}!", locator);
+                log::error!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }
         }

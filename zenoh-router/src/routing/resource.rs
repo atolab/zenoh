@@ -112,14 +112,18 @@ impl Resource {
         }
     }
 
-    pub fn print_tree(from: &Arc<Resource>) {
-        println!("{}", from.name());
+    pub fn print_tree(from: &Arc<Resource>) -> String {
+        let mut result = from.name();
+        result.push('\n');
         for match_ in &from.matches {
-            println!("  -> {}", match_.upgrade().unwrap().name());
+            result.push_str("  -> ");
+            result.push_str(&match_.upgrade().unwrap().name());
+            result.push('\n');
         }
         for child in from.childs.values() {
-            Resource::print_tree(&child)
+            result.push_str(&Resource::print_tree(&child));
         }
+        result
     }
 
 
@@ -327,7 +331,7 @@ pub async fn declare_resource(tables: &mut Tables, face: &mut Arc<Face>, rid: u6
                     Arc::get_mut_unchecked(face).remote_mappings.insert(rid, res.clone());
                     Tables::build_matches_direct_tables(&mut res);
                 }
-                None => println!("Declare resource with unknown prefix {}!", prefixid)
+                None => log::error!("Declare resource with unknown prefix {}!", prefixid)
             }
         }
     }
@@ -337,7 +341,7 @@ pub async fn undeclare_resource(_tables: &mut Tables, face: &mut Arc<Face>, rid:
     unsafe {
         match Arc::get_mut_unchecked(face).remote_mappings.remove(&rid) {
             Some(mut res) => {Resource::clean(&mut res)}
-            None => println!("Undeclare unknown resource!")
+            None => log::error!("Undeclare unknown resource!")
         }
     }
 }

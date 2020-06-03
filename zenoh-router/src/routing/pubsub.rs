@@ -79,7 +79,7 @@ pub async fn declare_subscription(tables: &mut Tables, face: &mut Arc<Face>, pre
             Tables::build_matches_direct_tables(&mut res);
             Arc::get_mut_unchecked(face).subs.push(res);
         }
-        None => println!("Declare subscription for unknown rid {}!", prefixid)
+        None => log::error!("Declare subscription for unknown rid {}!", prefixid)
     }
 }
 
@@ -94,10 +94,10 @@ pub async fn undeclare_subscription(tables: &mut Tables, face: &mut Arc<Face>, p
                     Arc::get_mut_unchecked(face).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
                     Resource::clean(&mut res)
                 }
-                None => println!("Undeclare unknown subscription!")
+                None => log::error!("Undeclare unknown subscription!")
             }
         }
-        None => println!("Undeclare subscription with unknown prefix!")
+        None => log::error!("Undeclare subscription with unknown prefix!")
     }
 }
 
@@ -124,7 +124,7 @@ pub async fn route_data_to_map(tables: &Tables, face: &Arc<Face>, rid: u64, suff
             }
         }
         None => {
-            println!("Route data with unknown rid {}!", rid); None
+            log::error!("Route data with unknown rid {}!", rid); None
         }
     }
 }
