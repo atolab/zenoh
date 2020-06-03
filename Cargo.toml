@@ -5,7 +5,8 @@ members = [
   "zenoh-ffi",
   "zenoh-protocol",
   "zenoh-router",
-  "zenoh-util"
+  "zenoh-util",
+  "plugins/example-plugin"
 ]
 
 exclude = [

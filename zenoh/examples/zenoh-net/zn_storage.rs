@@ -6,7 +6,7 @@ use async_std::sync::Arc;
 use spin::RwLock;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
-use zenoh_protocol::proto::queryable::STORAGE;
+use zenoh::net::queryable::STORAGE;
 
 fn main() {
     // for logging

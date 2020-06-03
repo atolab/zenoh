@@ -2,6 +2,7 @@ use async_std::future;
 use async_std::sync::Arc;
 use async_std::task;
 use rand::RngCore;
+use log::{debug, trace};
 use zenoh_protocol::core::PeerId;
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::proto::whatami;
@@ -19,6 +20,7 @@ fn main() {
 
         let mut pid = vec![0, 0, 0, 0];
         rand::thread_rng().fill_bytes(&mut pid);
+        debug!("Starting broker with PID: {:02x?}", pid);
 
         let batch_size: Option<usize> = match args.next() { 
             Some(size) => Some(size.parse().unwrap()),
@@ -33,6 +35,7 @@ fn main() {
             },
             None => "tcp/127.0.0.1:7447".parse().unwrap()
         };
+        debug!("self_locator: {}", self_locator);
     
         let config = SessionManagerConfig {
             version: 0,
@@ -49,8 +52,10 @@ fn main() {
             max_sessions: None,
             max_links: None 
         };
+        trace!("SessionManager::new()");
         let manager = SessionManager::new(config, Some(opt_config));
 
+        trace!("SessionManager::add_locator({})", self_locator);
         if let Err(_err) = manager.add_locator(&self_locator).await {
             log::error!("Unable to open listening {}!", self_locator);
             std::process::exit(-1);
@@ -58,12 +63,17 @@ fn main() {
 
         let attachment = None;
         for locator in args {
+            debug!("Open session to {}", locator);
             if let Err(_err) =  manager.open_session(&locator.parse().unwrap(), &attachment).await {
                 log::error!("Unable to connect to {}!", locator);
                 std::process::exit(-1);
             }
         }
         
+        debug!("Load plugins...");
+        let mut plugins_mgr = zenoh_util::plugins::PluginsMgr::new();
+        plugins_mgr.search_and_load_plugins("zenoh-", ".plugin").await;
+
         future::pending::<()>().await;
     });
 }
