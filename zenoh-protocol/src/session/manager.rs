@@ -552,6 +552,7 @@ impl Session {
 impl MsgHandler for Session {
     #[inline]
     async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
+        log::trace!("sex {:?} send {:?}", zchannel!(self.0).get_peer(), message);
         self.schedule(message, None).await
     }
 
