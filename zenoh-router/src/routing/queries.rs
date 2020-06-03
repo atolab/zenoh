@@ -89,7 +89,7 @@ pub(crate) async fn declare_queryable(tables: &mut Tables, face: &mut Arc<Face>,
             Tables::build_matches_direct_tables(&mut res);
             Arc::get_mut_unchecked(face).qabl.push(res);
         }
-        None => println!("Declare queryable for unknown rid {}!", prefixid)
+        None => log::error!("Declare queryable for unknown rid {}!", prefixid)
     }
 }
 
@@ -104,10 +104,10 @@ pub async fn undeclare_queryable(tables: &mut Tables, face: &mut Arc<Face>, pref
                     Arc::get_mut_unchecked(face).subs.retain(|x| ! Arc::ptr_eq(&x, &res));
                     Resource::clean(&mut res)
                 }
-                None => println!("Undeclare unknown queryable!")
+                None => log::error!("Undeclare unknown queryable!")
             }
         }
-        None => println!("Undeclare queryable with unknown prefix!")
+        None => log::error!("Undeclare queryable with unknown prefix!")
     }
 }
 
@@ -137,7 +137,7 @@ async fn route_query_to_map(tables: &mut Tables, face: &Arc<Face>, qid: ZInt, ri
             };
             Some(faces)
         }
-        None => {println!("Route query with unknown rid {}!", rid); None}
+        None => {log::error!("Route query with unknown rid {}!", rid); None}
     }
 }
 
@@ -178,6 +178,6 @@ pub(crate) async fn route_reply(_tables: &mut Tables, face: &mut Arc<Face>, qid:
                 }
             }
         }
-        None => {println!("Route reply for unknown query!")}
+        None => {log::error!("Route reply for unknown query!")}
     }
 }
