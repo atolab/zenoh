@@ -358,7 +358,7 @@ impl Primitives for Session {
                     }
                     let qhandle = QueryHandle {
                         pid: inner.pid.clone(), // @TODO build/use prebuilt specific pid
-                        kind: queryable.kind.clone(),
+                        kind: queryable.kind,
                         primitives: inner.primitives.clone().unwrap(),
                         qid,
                         nb_qhandlers: nb_qhandlers.clone(),
