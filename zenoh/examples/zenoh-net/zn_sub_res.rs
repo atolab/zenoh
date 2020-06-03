@@ -1,5 +1,5 @@
 use std::env;
-use std::io::Read;
+use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
 
@@ -36,10 +36,10 @@ fn main() {
             }
         ).await.unwrap();
 
-        let mut reader = std::io::stdin();
+        let mut stdin = async_std::io::stdin();
         let mut input = [0u8];
         while input[0] != 'q' as u8 {
-            reader.read_exact(&mut input).unwrap();
+            stdin.read_exact(&mut input).await.unwrap();
         }
 
         session.undeclare_subscriber(sub).await.unwrap();
