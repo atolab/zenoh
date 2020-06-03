@@ -129,7 +129,8 @@ fn main() {
                     break s;
                 },
                 Err(_) => {
-                    println!("Failed to open session with {}. Retry.", connect_to);
+                    println!("Failed to open session with {}. Retry", connect_to);
+                    task::sleep(Duration::from_secs(1)).await;
                 }
             }            
         };

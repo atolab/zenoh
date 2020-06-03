@@ -149,6 +149,7 @@ fn main() {
                 println!("Opened session with {}", connect_to);
                 break s;
             } else {
+                println!("Failed to open session with {}. Retry", connect_to);
                 task::sleep(Duration::from_secs(1)).await;
             }
         };
