@@ -25,6 +25,12 @@ zenoh-util =  { version = "0.1.0", path = "../zenoh-util" }
 version = "~1.6.0"
 features = ["unstable"]
 
+[profile.release]
+debug=false
+lto = true
+codegen-units = 1
+opt-level = 3
+
 [[bin]]
 name = "session_thr_sink_tcp"
 test = false

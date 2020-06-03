@@ -62,6 +62,13 @@ impl Hash for dyn LinkTrait + Send + Sync {
     }
 }
 
+impl fmt::Debug for dyn LinkTrait + Send + Sync {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} => {}", self.get_src(), self.get_dst())?;
+        Ok(())
+    }
+}
+
 impl fmt::Display for dyn LinkTrait + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} => {}", self.get_src(), self.get_dst())?;

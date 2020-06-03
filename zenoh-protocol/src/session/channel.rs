@@ -1,7 +1,9 @@
-use async_std::sync::{Arc, Barrier, Mutex, RwLock, Weak};
+use async_std::prelude::*;
+use async_std::sync::{Arc, Barrier, Mutex, RecvError, RwLock, Weak, channel};
 use async_std::task;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
 use crate::io::WBuf;
@@ -33,13 +35,14 @@ use zenoh_util::collections::credit_queue::Drain as CreditQueueDrain;
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum MessageInner {
     Session(SessionMessage),
     Zenoh(ZenohMessage),
     Stop
 }
 
+#[derive(Clone, Debug)]
 struct MessageTx {
     // The inner message to transmit
     inner: MessageInner,
@@ -55,6 +58,7 @@ struct MessageTx {
 const DEFAULT_LINK_INDEX: usize = 0; 
 const TWO_BYTES: [u8; 2] = [0u8, 0u8];
 
+#[derive(Debug)]
 struct SerializedBatch {
     // The buffer to perform the batching on
     buffer: WBuf,
@@ -241,34 +245,24 @@ async fn batch_fragment_transmit(
     true
 }
 
-// Consume function
-async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
+// Task for draining the queue
+async fn drain_queue(
+    ch: Arc<Channel>,
+    mut links: Vec<Link>,
+    batch_size: usize
+) {
     // @TODO: Implement reliability
     // @TODO: Implement fragmentation
 
-    // Acquire the lock on the links
-    let guard = zasyncread!(ch.links);
-    // Check if we have links to send on
-    if guard.links.is_empty() {
-        let e = "Unable to start the consume task, no links available".to_string();
-        log::debug!("{}", e);
-        return Err(zerror!(ZErrorKind::Other {
-            descr: e
-        }))
-    }
-
-    // Use double buffering to allow parallel serialization and transmission    
-    let mut batches: Vec<SerializedBatch> = Vec::with_capacity(guard.links.len());
-    let mut messages: Vec<Vec<MessageInner>> = Vec::with_capacity(guard.links.len());
+    // Allocate batches and messages buffers
+    let mut batches: Vec<SerializedBatch> = Vec::with_capacity(links.len());
+    let mut messages: Vec<Vec<MessageInner>> = Vec::with_capacity(links.len());
 
     // Initialize the batches based on the current links parameters      
-    for link in guard.links.iter() {
-        batches.push(SerializedBatch::new(link.clone(), guard.batchsize));
+    for link in links.drain(..) {
+        batches.push(SerializedBatch::new(link, batch_size));
         messages.push(Vec::with_capacity(*QUEUE_SIZE_TOT));
     }
-
-    // Drop the mutex guard
-    drop(guard);
 
     // Keep the lock on the inner transmission structure
     let mut inner = zasynclock!(ch.tx);
@@ -276,18 +270,14 @@ async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
     // Control variable
     let mut active = true; 
 
-    // let mut even = false;
     while active {                       
         // Get a Drain iterator for the queue
         // drain() waits for the queue to be non-empty
-        // @TODO: Add a timeout to the drain() future to trigger the 
-        //        transmission of KEEP_ALIVE messages
         let mut drain = ch.queue.drain().await;
         
         // Try to always fill the batch
         while active {
             // Map the messages on the links. This operation drains messages from the Drain iterator
-            // active = map_batch_fragment(&links, &mut inner, &mut drain, &mut batches, &mut context).await;
             map_messages_on_links(&mut drain, &batches, &mut messages);
             
             // The drop() on Drain object needs to be manually called since an async
@@ -330,8 +320,83 @@ async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
         // Deschedule the task to allow other tasks to be scheduled and eventually push on the queue
         task::yield_now().await;
     }
+}
 
-    // Synchronize with the stop()
+// Task for periodically sending KEEP_ALIVE messages
+async fn keep_alive(
+    ch: Arc<Channel>,
+    links: Vec<Link>
+) -> Result<(), RecvError> {
+    // Although the sesion lease is expressed in seconds, use milliseconds granularity. 
+    // In order to consider eventual packet loss and transmission latency and jitter, set 
+    // the actual KEEP_ALIVE timeout to one third to the agreed session lease. This is 
+    // in-line with the ITU-T G.8013/Y.1731 specification on continous connectivity check.  
+    let interval: u64 = 1_000 * ch.lease / 3;
+    let timeout = Duration::from_millis(interval);
+
+    // Create the KEEP_ALIVE message
+    let pid = None;
+    let attachment = None;
+    let message = MessageInner::Session(
+        SessionMessage::make_keep_alive(pid, attachment)
+    );
+    
+    // Periodically schedule the transmission of the KEEP_ALIVE messages
+    loop {
+        task::sleep(timeout).await;            
+
+        let messages: Vec<MessageTx> = links.iter().map(|l| 
+            MessageTx {
+                inner: message.clone(),
+                link: Some(l.clone())
+            }
+        ).collect();
+
+        // Push the KEEP_ALIVE messages on the queue
+        ch.queue.push_batch(messages, *QUEUE_PRIO_CTRL).await;
+    }
+}
+
+// Consume task
+async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
+    // Acquire the lock on the links
+    let guard = zasyncread!(ch.links);
+    // Check if we have links to send on
+    if guard.links.is_empty() {
+        let e = "Unable to start the consume task, no links available".to_string();
+        log::debug!("{}", e);
+        return Err(zerror!(ZErrorKind::Other {
+            descr: e
+        }))
+    }
+
+    // Keep track of the batch size
+    let batch_size: usize = guard.batch_size;
+    // Make a copy of references to the links
+    let links: Vec<Link> = guard.links.clone();
+
+    // Drop the mutex guard
+    drop(guard);
+
+    // Create a channel to notify the other tasks when to exit
+    let (sender, receiver) = channel::<()>(1);
+    
+    // Spawn the task for periodically sending the KEEP_ALIVE messages
+    let c_li = links.clone();
+    let c_ch = ch.clone();
+    task::spawn(async move {
+        let stop = receiver.recv();
+        let keep = keep_alive(c_ch, c_li);
+        let _ = keep.race(stop).await;
+    });
+    
+    // Drain the queue until a Stop signal is received
+    drain_queue(ch.clone(), links, batch_size).await;
+
+    // Stop all the other tasks
+    sender.send(()).await;
+
+    // Barrier to synchronize with the stop()
     ch.barrier.wait().await;
 
     Ok(())
@@ -372,14 +437,14 @@ impl ChannelInnerTx {
 // Store the mutable data that need to be used for transmission
 #[derive(Clone)]
 struct ChannelLinks {
-    batchsize: usize,
+    batch_size: usize,
     links: Vec<Link>
 }
 
 impl ChannelLinks {
-    fn new(batchsize: usize) -> ChannelLinks {
+    fn new(batch_size: usize) -> ChannelLinks {
         ChannelLinks {
-            batchsize,
+            batch_size,
             links: Vec::new()
         }
     }
@@ -519,7 +584,7 @@ impl Channel {
         sn_resolution: ZInt, 
         initial_sn_tx: ZInt,
         initial_sn_rx: ZInt,
-        batchsize: usize        
+        batch_size: usize        
     ) -> Channel {
         // The buffer to send the Control messages. High priority
         let ctrl = CreditBuffer::<MessageTx>::new(
@@ -553,7 +618,7 @@ impl Channel {
             has_callback: AtomicBool::new(false),
             queue: CreditQueue::new(queue_tx, *QUEUE_CONCURRENCY),
             active: AtomicBool::new(false),
-            links: RwLock::new(ChannelLinks::new(batchsize)),
+            links: RwLock::new(ChannelLinks::new(batch_size)),
             tx: Mutex::new(ChannelInnerTx::new(sn_resolution, initial_sn_tx)),
             rx: Mutex::new(ChannelInnerRx::new(lease, sn_resolution, initial_sn_rx)),
             barrier: Arc::new(Barrier::new(2)),
@@ -839,6 +904,12 @@ impl Channel {
 impl TransportTrait for Channel {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
         match message.body {
+            SessionBody::Frame { ch, sn, payload } => {
+                match ch {
+                    true => self.process_reliable_frame(sn, payload).await,
+                    false => self.process_best_effort_frame(sn, payload).await
+                }
+            },
             SessionBody::AckNack { .. } => {
                 unimplemented!("Handling of AckNack Messages not yet implemented!");
             },
@@ -849,28 +920,25 @@ impl TransportTrait for Channel {
                 unimplemented!("Handling of Hello Messages not yet implemented!");
             },
             SessionBody::KeepAlive { .. } => {
-                unimplemented!("Handling of KeepAlive Messages not yet implemented!");
+                // @TODO: Implement the timer at the receiving side
+                Action::Read
             },            
             SessionBody::Ping { .. } => {
                 unimplemented!("Handling of Ping Messages not yet implemented!");
-            }
+            },
             SessionBody::Pong { .. } => {
                 unimplemented!("Handling of Pong Messages not yet implemented!");
-            }
+            },
             SessionBody::Scout { .. } => {
                 unimplemented!("Handling of Scout Messages not yet implemented!");
-            }
+            },
             SessionBody::Sync { .. } => {
                 unimplemented!("Handling of Sync Messages not yet implemented!");
-            }
-            SessionBody::Frame { ch, sn, payload } => {
-                match ch {
-                    true => self.process_reliable_frame(sn, payload).await,
-                    false => self.process_best_effort_frame(sn, payload).await
-                }
-            }
-            _ => {
-                // unimplemented!("Handling of Invalid Messages not yet implemented!");
+            },            
+            SessionBody::Open { .. } |
+            SessionBody::Accept { .. } => {
+                log::debug!("Unexpected Open/Accept message received in an already established session\
+                             Closing the link: {}", link);
                 Action::Close
             }
         }        

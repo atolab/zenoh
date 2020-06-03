@@ -320,10 +320,8 @@ impl SessionManagerInner {
     ) -> ZResult<LinkManager> {
         let mut w_guard = zasyncwrite!(self.protocols);
         if w_guard.contains_key(protocol) {
-            let e = format!("Can not create the link manager for protocol ({}) because it already exists.", protocol);
-            log::debug!("{}", e);
             return Err(zerror!(ZErrorKind::Other {
-                descr: e
+                descr: format!("Can not create the link manager for protocol ({}) because it already exists.", protocol)
             }));
         }
 
@@ -336,10 +334,8 @@ impl SessionManagerInner {
         match zasyncread!(self.protocols).get(protocol) {
             Some(manager) => Ok(manager.clone()),
             None => {
-                let e = format!("Can not get the link manager for protocol ({}) because it does not exist.", protocol);
-                log::debug!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: e
+                    descr: format!("Can not get the link manager for protocol ({}) because it does not exist.", protocol)
                 }))
             }
         }
@@ -349,10 +345,8 @@ impl SessionManagerInner {
         match zasyncwrite!(self.protocols).remove(protocol) {
             Some(_) => Ok(()),
             None => {
-                let e = format!("Can not delete the link manager for protocol ({}) because it does not exist.", protocol);
-                log::debug!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: e
+                    descr: format!("Can not delete the link manager for protocol ({}) because it does not exist.", protocol)
                 }))
             }
         }
@@ -405,10 +399,8 @@ impl SessionManagerInner {
         match zasyncwrite!(self.sessions).remove(peer) {
             Some(_) => Ok(()),
             None => {
-                let e = format!("Can not delete the session of peer ({:?}) because it does not exist.", peer);
-                log::debug!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: e
+                    descr: format!("Can not delete the session of peer ({:?}) because it does not exist.", peer)
                 }))
             }
         }
@@ -418,10 +410,8 @@ impl SessionManagerInner {
         match zasyncread!(self.sessions).get(peer) {
             Some(channel) => Ok(Session::new(Arc::downgrade(&channel))),
             None => {
-                let e = format!("Can not get the session of peer ({:?}) because it does not exist.", peer);
-                log::debug!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: e
+                    descr: format!("Can not get the session of peer ({:?}) because it does not exist.", peer)
                 }))
             }
         }
@@ -445,10 +435,8 @@ impl SessionManagerInner {
     ) -> ZResult<Session> {
         let mut w_guard = zasyncwrite!(self.sessions);
         if w_guard.contains_key(peer) {
-            let e = format!("Can not create a new session for peer ({:?}) because it already exists.", peer);
-            log::debug!("{}", e);
             return Err(zerror!(ZErrorKind::Other {
-                descr: e
+                descr: format!("Can not create a new session for peer ({:?}) because it already exists.", peer)
             }));
         }
 

@@ -1,12 +1,13 @@
 use async_std::net::{SocketAddr, TcpListener, TcpStream};
 use async_std::prelude::*;
-use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, RecvError, Weak};
+use async_std::sync::{Arc, channel, Mutex, Sender, RwLock, Receiver, Weak};
 use async_std::task;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt;
 use std::net::Shutdown;
+use std::time::Duration;
 
 use crate::zerror;
 use crate::core::{ZError, ZErrorKind, ZResult};
@@ -112,7 +113,7 @@ impl LinkTrait for Tcp {
         if let Err(e) = res {
             log::debug!("Transmission error on link: {}, {}", self, e);
             return Err(zerror!(ZErrorKind::IOError {
-                descr: format!("{:?}", e)
+                descr: format!("{}", e)
             }))
         }            
 
@@ -174,7 +175,7 @@ impl LinkTrait for Tcp {
 }
 
 async fn read_task(link: Arc<Tcp>) {
-    async fn read_loop(link: &Arc<Tcp>) -> Result<(), RecvError> {
+    let read_loop = async {
         // The link object to be passed to the transport
         let link_obj: Link = link.clone();
         // Acquire the lock on the transport
@@ -417,11 +418,10 @@ async fn read_task(link: Arc<Tcp>) {
                 }
             }
         }
-    }
+    };
 
     // Execute the read loop 
     let stop = link.ch_recv.recv();
-    let read_loop = read_loop(&link);
     let _ = read_loop.race(stop).await;
 }
 
@@ -638,14 +638,17 @@ impl ManagerTcpInner {
 
 async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInner>) {
     // The accept future
-    async fn accept_loop(a_self: &Arc<ManagerTcpInner>, listener: &Arc<ListenerTcpInner>) -> Result<(), RecvError> {
+    let accept_loop = async {
         loop {
             // Wait for incoming connections
             let stream = match listener.socket.accept().await {
                 Ok((stream, _)) => stream,
                 Err(e) => {
                     log::debug!("{}", e);
-                    return Ok(())
+                    // @TODO: Use to async_listen crate: https://docs.rs/async-listen/0.2.0/async_listen/
+                    //        Throttle for the time being
+                    task::sleep(Duration::from_millis(100)).await;
+                    continue
                 }
             };
 
@@ -661,9 +664,9 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             // Spawn the receive loop for the new link
             let _ = link.start().await;
         }
-    }
+    };
 
     let stop = listener.receiver.recv();
-    let accept_loop = accept_loop(&a_self, &listener);
+    // let accept_loop = accept_loop(&a_self, &listener);
     let _ = accept_loop.race(stop).await;
 }
