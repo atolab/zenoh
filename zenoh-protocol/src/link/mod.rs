@@ -62,17 +62,23 @@ impl Hash for dyn LinkTrait + Send + Sync {
     }
 }
 
-impl fmt::Debug for dyn LinkTrait + Send + Sync {
+impl fmt::Display for dyn LinkTrait + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} => {}", self.get_src(), self.get_dst())?;
         Ok(())
     }
 }
 
-impl fmt::Display for dyn LinkTrait + Send + Sync {
+impl fmt::Debug for dyn LinkTrait + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} => {}", self.get_src(), self.get_dst())?;
-        Ok(())
+        f.debug_struct("Link")
+            .field("src", &self.get_src())
+            .field("dst", &self.get_dst())
+            .field("mtu", &self.get_mtu())
+            .field("is_ordered", &self.is_ordered())
+            .field("is_reliable", &self.is_reliable())
+            .field("is_streamed", &self.is_streamed())
+            .finish()
     }
 }
 

@@ -434,10 +434,19 @@ impl Drop for Tcp {
 
 impl fmt::Display for Tcp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} => {}", self.get_src(), self.get_dst())?;
+        write!(f, "{} => {}", self.src_addr, self.dst_addr)?;
         Ok(())
     }
 }
+
+impl fmt::Debug for Tcp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tcp")
+            .field("src", &self.src_addr)
+            .field("dst", &self.dst_addr)
+            .finish()
+    }
+} 
 
 /*************************************/
 /*          LISTENER                 */

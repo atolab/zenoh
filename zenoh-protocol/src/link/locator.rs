@@ -11,6 +11,8 @@ use crate::core::{ZError, ZErrorKind};
 /*************************************/
 /*          LOCATOR                  */
 /*************************************/
+const SEPARATOR: char = '/';
+// Protocol literals
 const STR_TCP: &str = "tcp";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,7 +29,7 @@ impl fmt::Display for LocatorProtocol {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Locator {
     Tcp(SocketAddr)
 }
@@ -36,7 +38,7 @@ impl FromStr for Locator {
     type Err = ZError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut iter = s.split('/');
+        let mut iter = s.split(SEPARATOR);
         let proto = iter.next().unwrap();
         let addr = iter.next().unwrap();
         match proto {
@@ -45,7 +47,7 @@ impl FromStr for Locator {
                     Ok(addr) => addr,
                     Err(_) => {
                         let e = format!("Invalid TCP socket address: {}", addr);
-                        log::error!("{}", e);
+                        log::warn!("{}", e);
                         return Err(zerror!(ZErrorKind::InvalidLocator {
                             descr: e
                         }))
@@ -55,11 +57,19 @@ impl FromStr for Locator {
             },
             _ => {
                 let e = format!("Invalid protocol locator: {}", proto);
-                log::error!("{}", e);
+                log::warn!("{}", e);
                 Err(zerror!(ZErrorKind::InvalidLocator {
                     descr: e
                 }))
             }
+        }
+    }
+}
+
+impl Locator {
+    pub fn get_proto(&self) -> LocatorProtocol {
+        match self {
+            Locator::Tcp(..) => LocatorProtocol::Tcp,
         }
     }
 }
@@ -73,10 +83,15 @@ impl fmt::Display for Locator {
     }
 }
 
-impl Locator {
-    pub fn get_proto(&self) -> LocatorProtocol {
-        match self {
-            Locator::Tcp(..) => LocatorProtocol::Tcp,
-        }
+impl fmt::Debug for Locator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (proto, addr): (&str, String) = match self {
+            Locator::Tcp(addr) => (STR_TCP, addr.to_string()),
+        };
+
+        f.debug_struct("Locator")
+            .field("protocol", &proto)
+            .field("address", &addr)
+            .finish()
     }
 }
