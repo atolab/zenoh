@@ -1,8 +1,8 @@
 use crate::core::ZInt;
 
 configurable! {
-    // Default session lease in seconds
-    pub(crate) static ref SESSION_LEASE: ZInt = 30;
+    // Default session lease in seconds: 5 minutes
+    pub(crate) static ref SESSION_LEASE: ZInt = 300;
 
     // The default sequence number resolution takes 4 bytes on the wire.
     // Given the VLE encoding of ZInt, 4 bytes result in 28 useful bits.
