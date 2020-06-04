@@ -26,7 +26,8 @@ fn main() {
         let stored_shared = stored.clone();
 
         let data_handler = move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
-            println!(">> [Subscription listener] Received ('{}': '{}')", res_name, payload);
+            println!(">> [Subscription listener] Received ('{}': '{}')", 
+                res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
             stored.write().insert(res_name.into(), payload);
         };
 
@@ -39,7 +40,6 @@ fn main() {
                     result.push((rname.to_string(), data.clone()));
                 }
             }
-            println!(">> Returning: {:?}", result);
             (*replies_sender)(query_handle, result);
         };
 

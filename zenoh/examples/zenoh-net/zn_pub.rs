@@ -11,7 +11,7 @@ fn main() {
 
         let mut options = args.drain(1..);
         let uri     = options.next().unwrap_or("/demo/example/zenoh-rs-pub".to_string());
-        let value   = options.next().unwrap_or("Write from Rust!".to_string());
+        let value   = options.next().unwrap_or("Pub from Rust!".to_string());
         let locator = options.next().unwrap_or("".to_string());
 
         println!("Openning session...");

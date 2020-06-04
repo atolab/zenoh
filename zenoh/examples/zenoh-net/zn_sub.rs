@@ -4,7 +4,8 @@ use async_std::task;
 use zenoh::net::*;
 
 fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
-    println!("FUNCTION >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+    println!("FUNCTION >> [Subscription listener] Received ('{}': '{}')", 
+        res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
 }
 
 fn main() {
@@ -33,7 +34,8 @@ fn main() {
 
         let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
             move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
-                println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
+                println!("CLOSURE >> [Subscription listener] Received ('{}': '{}')", 
+                    res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
             }
         ).await.unwrap();
 
