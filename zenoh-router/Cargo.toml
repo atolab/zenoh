@@ -28,18 +28,3 @@ harness = false
 name = "broker"
 test = false
 bench = false
-
-[[bin]]
-name = "client"
-test = false
-bench = false
-
-[[bin]]
-name = "light_client"
-test = false
-bench = false
-
-[[bin]]
-name = "peer"
-test = false
-bench = false
