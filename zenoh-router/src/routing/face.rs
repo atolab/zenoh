@@ -126,6 +126,6 @@ impl Primitives for FaceHdl {
     async fn pull(&self, _is_final: bool, _reskey: &ResKey, _pull_id: ZInt, _max_samples: &Option<ZInt>) {}
 
     async fn close(&self) {
-        Tables::undeclare_session(&self.tables, &Arc::downgrade(&self.face)).await;
+        Tables::close_face(&self.tables, &Arc::downgrade(&self.face)).await;
     }
 }

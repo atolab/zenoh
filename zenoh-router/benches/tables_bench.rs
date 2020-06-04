@@ -15,11 +15,11 @@ fn tables_bench(c: &mut Criterion) {
     let tables = Tables::new();
     let primitives = Arc::new(Mux::new(Arc::new(DummyHandler::new())));
 
-    let face0 = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
+    let face0 = Tables::open_face(&tables, whatami::CLIENT, primitives.clone()).await;
     declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 1, 0, "/bench/tables").await;
     declare_resource(&mut *tables.write().await, &mut face0.upgrade().unwrap(), 2, 0, "/bench/tables/*").await;
 
-    let face1 = Tables::declare_session(&tables, whatami::CLIENT, primitives.clone()).await;
+    let face1 = Tables::open_face(&tables, whatami::CLIENT, primitives.clone()).await;
 
     let mut tables_bench = c.benchmark_group("tables_bench");
     let sub_info = SubInfo {

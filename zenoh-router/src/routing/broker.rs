@@ -65,7 +65,7 @@ impl Broker {
     pub async fn new_primitives(&self, primitives: Arc<dyn Primitives + Send + Sync>) -> Arc<dyn Primitives + Send + Sync> {
         Arc::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, whatami::CLIENT, primitives).await.upgrade().unwrap(),
+            face: Tables::open_face(&self.tables, whatami::CLIENT, primitives).await.upgrade().unwrap(),
         })
     }
 }
@@ -81,7 +81,7 @@ impl SessionHandler for Broker {
     async fn new_session(&self, whatami: WhatAmI, session: Arc<dyn MsgHandler + Send + Sync>) -> Arc<dyn MsgHandler + Send + Sync> {
         Arc::new(DeMux::new(FaceHdl {
             tables: self.tables.clone(), 
-            face: Tables::declare_session(&self.tables, whatami, Arc::new(Mux::new(session))).await.upgrade().unwrap(),
+            face: Tables::open_face(&self.tables, whatami, Arc::new(Mux::new(session))).await.upgrade().unwrap(),
         }))
     }
 }
@@ -119,26 +119,26 @@ impl Tables {
         }
     }
 
-    pub async fn declare_session(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
+    pub async fn open_face(tables: &Arc<RwLock<Tables>>, whatami: WhatAmI, primitives: Arc<dyn Primitives + Send + Sync>) -> Weak<Face> {
         unsafe {
             let mut t = tables.write().await;
-            let sid = t.face_counter;
-            log::debug!("New face {}", sid);
+            let fid = t.face_counter;
+            log::debug!("New face {}", fid);
             t.face_counter += 1;
-            let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone())).clone();
+            let mut newface = t.faces.entry(fid).or_insert_with(|| Face::new(fid, whatami, primitives.clone())).clone();
             
             // @TODO temporarily propagate to everybody (clients)
             // if whatami != whatami::CLIENT {
             if true {
                 let mut local_id = 0;
                 for (id, face) in t.faces.iter() {
-                    if *id != sid {
+                    if *id != fid {
                         for sub in face.subs.iter() {
                             let (nonwild_prefix, wildsuffix) = Resource::nonwild_prefix(sub);
                             match nonwild_prefix {
                                 Some(mut nonwild_prefix) => {
                                     local_id += 1;
-                                    Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
+                                    Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(fid, 
                                         Arc::new(Context {
                                             face: newface.clone(),
                                             local_rid: Some(local_id),
@@ -164,7 +164,7 @@ impl Tables {
                             match nonwild_prefix {
                                 Some(mut nonwild_prefix) => {
                                     local_id += 1;
-                                    Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(sid, 
+                                    Arc::get_mut_unchecked(&mut nonwild_prefix).contexts.insert(fid, 
                                         Arc::new(Context {
                                             face: newface.clone(),
                                             local_rid: Some(local_id),
@@ -189,7 +189,7 @@ impl Tables {
         }
     }
 
-    pub async fn undeclare_session(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>) {
+    pub async fn close_face(tables: &Arc<RwLock<Tables>>, face: &Weak<Face>) {
         let mut t = tables.write().await;
         match face.upgrade() {
             Some(mut face) => unsafe {
@@ -215,10 +215,10 @@ impl Tables {
     unsafe fn build_direct_tables(res: &mut Arc<Resource>) {
         let mut dests = HashMap::new();
         for match_ in &res.matches {
-            for (sid, context) in &match_.upgrade().unwrap().contexts {
+            for (fid, context) in &match_.upgrade().unwrap().contexts {
                 if context.subs.is_some() {
-                    let (rid, suffix) = Resource::get_best_key(res, "", *sid);
-                    dests.insert(*sid, (context.face.clone(), rid, suffix));
+                    let (rid, suffix) = Resource::get_best_key(res, "", *fid);
+                    dests.insert(*fid, (context.face.clone(), rid, suffix));
                 }
             }
         }
