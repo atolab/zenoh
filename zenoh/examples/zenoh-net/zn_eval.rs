@@ -2,7 +2,6 @@ use std::env;
 use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 use zenoh::net::queryable::EVAL;
 
 fn main() {
@@ -30,7 +29,7 @@ fn main() {
         };
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), EVAL, query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&uri.into(), EVAL, query_handler).await.unwrap();
 
         let mut stdin = async_std::io::stdin();
         let mut input = [0u8];

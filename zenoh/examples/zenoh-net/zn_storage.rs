@@ -5,7 +5,6 @@ use async_std::task;
 use async_std::sync::Arc;
 use spin::RwLock;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 use zenoh::net::queryable::STORAGE;
 
 fn main() {
@@ -55,10 +54,10 @@ fn main() {
         };
 
         println!("Declaring Subscriber on {}", uri);
-        let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).await.unwrap();
+        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
 
         println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&RName(uri), STORAGE, query_handler).await.unwrap();
+        let queryable = session.declare_queryable(&uri.into(), STORAGE, query_handler).await.unwrap();
 
         let mut stdin = async_std::io::stdin();
         let mut input = [0u8];

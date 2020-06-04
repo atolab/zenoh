@@ -2,7 +2,6 @@ use std::env;
 use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 
 fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
     println!(">> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
@@ -28,7 +27,7 @@ fn main() {
             mode: SubMode::Pull,
             period: None
         };
-        let sub = session.declare_subscriber(&RName(uri), &sub_info, &data_handler).await.unwrap();
+        let sub = session.declare_subscriber(&uri.into(), &sub_info, &data_handler).await.unwrap();
 
         println!("Press <enter> to pull data...");
         let mut stdin = async_std::io::stdin();

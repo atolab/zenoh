@@ -2,7 +2,6 @@ use std::env;
 use std::time::Duration;
 use async_std::task;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 
 
 fn main() {
@@ -29,7 +28,7 @@ fn main() {
 
         println!("Sending Query '{}'...", uri);
         let _eval = session.query(
-            &RName(uri), "",
+            &uri.into(), "",
             replies_handler,
             QueryTarget::default(),
             QueryConsolidation::default()

@@ -1,7 +1,6 @@
 use std::env;
 use async_std::task;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 
 fn main() {
     // for logging
@@ -19,7 +18,7 @@ fn main() {
         let session = open(&locator, None).await.unwrap();
 
         println!("Writing Data ('{}': '{}')...\n", uri, value);
-        session.write(&RName(uri), value.as_bytes().into()).await.unwrap();
+        session.write(&uri.into(), value.as_bytes().into()).await.unwrap();
 
         session.close().await.unwrap();
     })

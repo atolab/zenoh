@@ -2,7 +2,6 @@ use std::env;
 use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
-use zenoh::net::ResKey::*;
 
 fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
     println!("FUNCTION >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
@@ -30,9 +29,9 @@ fn main() {
             period: None
         };
 
-        let sub = session.declare_subscriber(&RName(uri.clone()), &sub_info, data_handler).await.unwrap();
+        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
 
-        let sub2 = session.declare_subscriber(&RName(uri), &sub_info,
+        let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
             move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
                 println!("CLOSURE >> [Subscription listener] Received ('{}': '{:02x?}')", res_name, payload);
             }
