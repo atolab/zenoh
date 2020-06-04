@@ -18,6 +18,7 @@ pub async fn declare_subscription(tables: &mut Tables, face: &mut Arc<Face>, pre
             Resource::match_resource(&tables.root_res, &mut res);
             {
                 let res = Arc::get_mut_unchecked(&mut res);
+                log::debug!("Register subscription {} for face {}", res.name(), face.id);
                 match res.contexts.get_mut(&face.id) {
                     Some(mut ctx) => {
                         Arc::get_mut_unchecked(&mut ctx).subs = Some(sub_info.clone());
@@ -88,6 +89,7 @@ pub async fn undeclare_subscription(tables: &mut Tables, face: &mut Arc<Face>, p
         Some(prefix) => {
             match Resource::get_resource(prefix, suffix) {
                 Some(mut res) => unsafe {
+                    log::debug!("Unregister subscription {} for face {}", res.name(), face.id);
                     if let Some(mut ctx) = Arc::get_mut_unchecked(&mut res).contexts.get_mut(&face.id) {
                         Arc::get_mut_unchecked(&mut ctx).subs = None;
                     }

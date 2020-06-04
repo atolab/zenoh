@@ -123,6 +123,7 @@ impl Tables {
         unsafe {
             let mut t = tables.write().await;
             let sid = t.face_counter;
+            log::debug!("New face {}", sid);
             t.face_counter += 1;
             let mut newface = t.faces.entry(sid).or_insert_with(|| Face::new(sid, whatami, primitives.clone())).clone();
             
@@ -192,6 +193,7 @@ impl Tables {
         let mut t = tables.write().await;
         match face.upgrade() {
             Some(mut face) => unsafe {
+                log::debug!("Close face {}", face.id);
                 let face = Arc::get_mut_unchecked(&mut face);
                 for mut mapping in face.remote_mappings.values_mut() {
                     Resource::clean(&mut mapping);
@@ -206,7 +208,7 @@ impl Tables {
                 }
                 t.faces.remove(&face.id);
             }
-            None => log::error!("Undeclare closed session!")
+            None => log::error!("Face already closed!")
         }
     }
 

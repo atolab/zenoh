@@ -96,17 +96,18 @@ impl Resource {
             let mutres = Arc::get_mut_unchecked(&mut resclone);
             if let Some(ref mut parent) = mutres.parent {
                 if Arc::strong_count(res) <= 3 && res.childs.is_empty() {
-                        for match_ in &mut mutres.matches {
-                            let mut match_ = match_.upgrade().unwrap();
-                            if ! Arc::ptr_eq(&match_, res) {
-                                Arc::get_mut_unchecked(&mut match_).matches.retain(
-                                    |x| ! Arc::ptr_eq(&x.upgrade().unwrap(), res));
-                            }
+                    log::debug!("Unregister resource {}", res.name());
+                    for match_ in &mut mutres.matches {
+                        let mut match_ = match_.upgrade().unwrap();
+                        if ! Arc::ptr_eq(&match_, res) {
+                            Arc::get_mut_unchecked(&mut match_).matches.retain(
+                                |x| ! Arc::ptr_eq(&x.upgrade().unwrap(), res));
                         }
-                        {
-                            Arc::get_mut_unchecked(parent).childs.remove(&res.suffix);
-                        }
-                        Resource::clean(parent);
+                    }
+                    {
+                        Arc::get_mut_unchecked(parent).childs.remove(&res.suffix);
+                    }
+                    Resource::clean(parent);
                 }
             }
         }
@@ -141,6 +142,9 @@ impl Resource {
                     Some(mut res) => {Resource::make_resource(&mut res, rest)}
                     None => {
                         let mut new = Arc::new(Resource::new(from, chunk));
+                        if log::log_enabled!(log::Level::Debug) && rest.is_empty() {
+                            log::debug!("Register resource {}", new.name());
+                        }
                         let res = Resource::make_resource(&mut new, rest);
                         Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
                         res
@@ -159,6 +163,9 @@ impl Resource {
                             Some(mut res) => {Resource::make_resource(&mut res, rest)}
                             None => {
                                 let mut new = Arc::new(Resource::new(from, chunk));
+                                if log::log_enabled!(log::Level::Debug) && rest.is_empty() {
+                                    log::debug!("Register resource {}", new.name());
+                                }
                                 let res = Resource::make_resource(&mut new, rest);
                                 Arc::get_mut_unchecked(from).childs.insert(String::from(chunk), new);
                                 res

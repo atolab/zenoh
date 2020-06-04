@@ -28,6 +28,7 @@ pub(crate) async fn declare_queryable(tables: &mut Tables, face: &mut Arc<Face>,
             let mut res = Resource::make_resource(&mut prefix, suffix);
             Resource::match_resource(&tables.root_res, &mut res);
             {
+                log::debug!("Register quaryable {} for face {}", res.name(), face.id);
                 match Arc::get_mut_unchecked(&mut res).contexts.get_mut(&face.id) {
                     Some(mut ctx) => {
                         Arc::get_mut_unchecked(&mut ctx).qabl = true;
@@ -98,6 +99,7 @@ pub async fn undeclare_queryable(tables: &mut Tables, face: &mut Arc<Face>, pref
         Some(prefix) => {
             match Resource::get_resource(prefix, suffix) {
                 Some(mut res) => unsafe {
+                    log::debug!("Unregister queryable {} for face {}", res.name(), face.id);
                     if let Some(mut ctx) = Arc::get_mut_unchecked(&mut res).contexts.get_mut(&face.id) {
                         Arc::get_mut_unchecked(&mut ctx).qabl = false;
                     }
@@ -115,6 +117,7 @@ async fn route_query_to_map(tables: &mut Tables, face: &Arc<Face>, qid: ZInt, ri
 /*_qid: ZInt, _target: &Option<QueryTarget>, _consolidation: &QueryConsolidation*/) -> Option<QueryRoute> {
     match tables.get_mapping(&face, &rid) {
         Some(prefix) => {
+            log::debug!("Route query {}:{} {}{}", face.id, qid, prefix.name(), suffix);
             let query = Arc::new(Query {src_face: face.clone(), src_qid: qid});
             let mut faces = HashMap::new();
             for res in Resource::get_matches_from(&[&prefix.name(), suffix].concat(), &tables.root_res) {
@@ -170,8 +173,10 @@ pub(crate) async fn route_reply(_tables: &mut Tables, face: &mut Arc<Face>, qid:
                 Reply::ReplyFinal {..} => {
                     unsafe {
                         let query = face.pending_queries.get(&qid).unwrap().clone();
+                        log::debug!("Received final reply {}:{} from face {}", query.src_face.id, qid, face.id);
                         Arc::get_mut_unchecked(face).pending_queries.remove(&qid);
                         if Arc::strong_count(&query) == 1 {
+                            log::debug!("Propagate final reply {}:{}", query.src_face.id, qid);
                             query.src_face.primitives.clone().reply(query.src_qid, Reply::ReplyFinal).await;
                         }
                     }
