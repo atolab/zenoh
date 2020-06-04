@@ -18,14 +18,17 @@ use super::{Link, LinkTrait, Locator, ManagerTrait};
 use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
 
 
-// Default MTU (TCP PDU)
+// Default MTU (TCP PDU) in bytes.
 const DEFAULT_MTU: usize = 65_536;
 
 configurable! {
-    // Size of buffer used to read from socket
+    // Size of buffer used to read from socket.
     static ref TCP_READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
-    // Size of the vector used to deserialize the messages
+    // Size of the vector used to deserialize the messages.
     static ref TCP_READ_MESSAGES_VEC_SIZE: usize = 32;
+    // Amount of time in microseconds to throttle the accept loop upon an error. 
+    // Default set to 100 ms.
+    static ref TCP_ACCEPT_THROTTLE_TIME: u64 = 100_000;
 }
 
 
@@ -99,6 +102,8 @@ impl Tcp {
 #[async_trait]
 impl LinkTrait for Tcp {
     async fn close(&self) -> ZResult<()> {
+        log::trace!("Closing TCP link: {}", self);
+
         // Stop the read loop
         self.stop().await?;
         // Close the underlying TCP socket
@@ -108,10 +113,12 @@ impl LinkTrait for Tcp {
         Ok(())
     }
     
-    async fn send(&self, buffer: &[u8]) -> ZResult<()> {                
+    async fn send(&self, buffer: &[u8]) -> ZResult<()> {
+        log::trace!("Sending {} bytes on TCP link: {}", buffer.len(), self);
+
         let res = (&self.socket).write_all(buffer).await;
         if let Err(e) = res {
-            log::debug!("Transmission error on link: {}, {}", self, e);
+            log::debug!("Transmission error on TCP link {}: {}", self, e);
             return Err(zerror!(ZErrorKind::IOError {
                 descr: format!("{}", e)
             }))
@@ -121,23 +128,25 @@ impl LinkTrait for Tcp {
     }
 
     async fn start(&self) -> ZResult<()> {
+        log::trace!("Starting read loop on TCP link: {}", self);
         let link = if let Some(link) = zasyncread!(self.w_self).as_ref() {
             if let Some(link) = link.upgrade() {
                 link
             } else {
-                let e = format!("The Link does not longer exist: {}", self);
-                log::debug!("{}", e);
+                let e = format!("TCP link does not longer exist: {}", self);
+                log::error!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
             }
         } else {
-            let e = format!("The Link is unitialized: {}", self);
-            log::debug!("{}", e);
+            let e = format!("TCP link is unitialized: {}", self);
+            log::error!("{}", e);
             return Err(zerror!(ZErrorKind::Other {
                 descr: e
             }))
         };
+
         // Spawn the read task
         task::spawn(read_task(link));
 
@@ -145,6 +154,7 @@ impl LinkTrait for Tcp {
     }
 
     async fn stop(&self) -> ZResult<()> {
+        log::trace!("Stopping read loop on TCP link: {}", self);
         self.ch_send.send(()).await;
         Ok(())
     }
@@ -264,11 +274,11 @@ async fn read_task(link: Arc<Tcp>) {
                     match action {
                         Action::Read => {},
                         Action::ChangeTransport(transport) => {
-                            log::debug!("Change transport on link: {}", link);
+                            log::debug!("Change transport on TCP link: {}", link);
                             *guard = transport
                         },
                         Action::Close => {
-                            log::debug!("Closing link: {}", link);
+                            log::debug!("Closing TCP link: {}", link);
                             // Close the underlying TCP socket
                             let _ = link.socket.shutdown(Shutdown::Both);
                             // Delete the link from the manager
@@ -280,23 +290,24 @@ async fn read_task(link: Arc<Tcp>) {
                 }
             };
         }
-                
+        
+        log::trace!("Ready to read from TCP link: {}", link);
         loop {            
             // Async read from the TCP socket
             match (&link.socket).read(&mut buffer[w_pos..]).await {
                 Ok(mut n) => {
                     if n == 0 {  
                         // Reading 0 bytes means error
-                        log::debug!("Zero bytes reading on link: {}", link);
+                        log::error!("Zero bytes reading on TCP link: {}", link);
                         zlinkerror!();
                     }
 
                     // If we had a w_pos different from 0, it means we add an incomplete length reading
-                    // in the previous iteration: we only read 1 byte instead of 2.
+                    // in the previous iteration: we have only read 1 byte instead of 2.
                     if w_pos != 0 {
-                        // Update the number of already read bytes by adding the bytes we have already 
-                        // read in the previous iteration. "n" now is the index pointing to the last 
-                        // valid position in the buffer.
+                        // Update the number of read bytes by adding the bytes we have already read in
+                        // the previous iteration. "n" now is the index pointing to the last valid
+                        // position in the buffer.
                         n += w_pos;
                         // Reset the write index
                         w_pos = 0;
@@ -413,7 +424,7 @@ async fn read_task(link: Arc<Tcp>) {
                     }
                 },
                 Err(e) => {
-                    log::debug!("Reading error on link: {}, {}", link, e);
+                    log::error!("Reading error on TCP link {}: {}", link, e);
                     zlinkerror!();
                 }
             }
@@ -546,9 +557,10 @@ impl ManagerTcpInner {
         let stream = match TcpStream::connect(dst).await {
             Ok(stream) => stream,
             Err(e) => {
-                log::debug!("{}", e);
+                let e = format!("Can not create a new TCP link bound to {}: {}", dst, e);
+                log::error!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
-                    descr: format!("{}", e)
+                    descr: e
                 }))
             }
         };
@@ -572,8 +584,8 @@ impl ManagerTcpInner {
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
             None => {
-                let e = format!("No active TCP link: {} => {}", src, dst);
-                log::debug!("{}", e);
+                let e = format!("Can not delete TCP link because has not been found: {} => {}", src, dst);
+                log::trace!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
@@ -586,8 +598,8 @@ impl ManagerTcpInner {
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
             None => {
-                let e = format!("No active TCP link: {} => {}", src, dst);
-                log::debug!("{}", e);
+                let e = format!("Can not get TCP link because has not been found: {} => {}", src, dst);
+                log::trace!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
@@ -600,9 +612,10 @@ impl ManagerTcpInner {
         let socket = match TcpListener::bind(addr).await {
             Ok(socket) => Arc::new(socket),
             Err(e) => {
-                log::debug!("{}", e);
+                let e = format!("Can not create a new TCP listener on {}: {}", addr, e);
+                log::error!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
-                    descr: format!("{}", e)
+                    descr: e
                 }))
             }
         };
@@ -631,8 +644,8 @@ impl ManagerTcpInner {
                 Ok(())
             },
             None => {
-                let e = format!("No TCP listener on address: {}", addr);
-                log::debug!("{}", e);
+                let e = format!("Can not delete the TCP listener because has not been found: {}", addr);
+                log::trace!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
@@ -648,18 +661,25 @@ impl ManagerTcpInner {
 async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInner>) {
     // The accept future
     let accept_loop = async {
+        log::trace!("Ready to accept TCP connections on: {:?}", listener.socket.local_addr());
         loop {
             // Wait for incoming connections
             let stream = match listener.socket.accept().await {
                 Ok((stream, _)) => stream,
                 Err(e) => {
-                    log::debug!("{}", e);
-                    // @TODO: Use to async_listen crate: https://docs.rs/async-listen/0.2.0/async_listen/
-                    //        Throttle for the time being
-                    task::sleep(Duration::from_millis(100)).await;
+                    log::warn!("{}. Hint: you might want to increase the system open file limit", e);
+                    // Throttle the accept loop upon an error
+                    // NOTE: This might be due to various factors. However, the most common case is that
+                    //       the process has reached the maximum number of open files in the system. On
+                    //       Linux systems this limit can be changed by using the "ulimit" command line 
+                    //       tool. In case of systemd systems, this can be changed by using the "sysctl"
+                    //       command line tool.
+                    task::sleep(Duration::from_micros(*TCP_ACCEPT_THROTTLE_TIME)).await;
                     continue
                 }
             };
+
+            log::debug!("Accepted TCP connection on {:?}: {:?}", stream.local_addr(), stream.peer_addr());
 
             // Retrieve the initial temporary session 
             let initial = a_self.inner.get_initial_transport().await;
@@ -667,7 +687,7 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
             let link = Arc::new(Tcp::new(stream, initial, a_self.clone()));
             link.initizalize(Arc::downgrade(&link));
 
-            // Store a reference to the link into the manger
+            // Store a reference to the link into the manager
             zasyncwrite!(a_self.link).insert((link.src_addr, link.dst_addr), link.clone());
 
             // Spawn the receive loop for the new link
@@ -676,6 +696,5 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
     };
 
     let stop = listener.receiver.recv();
-    // let accept_loop = accept_loop(&a_self, &listener);
     let _ = accept_loop.race(stop).await;
 }

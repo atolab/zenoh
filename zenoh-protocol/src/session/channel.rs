@@ -115,14 +115,15 @@ fn map_messages_on_links(
     messages: &mut Vec<Vec<MessageInner>>
 ) {    
     // Drain all the messages from the queue and map them on the links
-    for msg in drain {      
+    for msg in drain {   
+        log::trace!("Scheduling: {:?}", msg.inner);   
         // Find the right index for the message
         let index = if let Some(link) = &msg.link {
             // Check if the target link exists, otherwise fallback on the main link            
             if let Some(index) = batches.iter().position(|x| &x.link == link) {
                 index
             } else {
-                log::debug!("Message dropped because indicated link ({}) does not exist: {:?}", link, msg.inner);
+                log::debug!("Message dropped because link {} does not exist: {:?}", link, msg.inner);
                 // Silently drop the message            
                 continue
             }
@@ -148,6 +149,8 @@ async fn batch_fragment_transmit(
     let mut current_frame = CurrentFrame::None;
     
     for msg in messages.drain(..) {
+        log::trace!("Serializing: {:?}", msg);
+
         let mut has_failed = false;
         let mut current_sn = None;
         let mut is_first = true;
@@ -270,7 +273,8 @@ async fn drain_queue(
     // Control variable
     let mut active = true; 
 
-    while active {                       
+    while active {    
+        log::trace!("Waiting for messages in the transmission queue...");
         // Get a Drain iterator for the queue
         // drain() waits for the queue to be non-empty
         let mut drain = ch.queue.drain().await;
@@ -345,6 +349,7 @@ async fn keep_alive(
     loop {
         task::sleep(timeout).await;            
 
+        log::trace!("Schedule KEEP_ALIVE messages");
         let messages: Vec<MessageTx> = links.iter().map(|l| 
             MessageTx {
                 inner: message.clone(),
@@ -460,8 +465,8 @@ impl ChannelLinks {
     pub(super) async fn add_link(&mut self, link: Link) -> ZResult<()> {
         // Check if this link is not already present
         if self.links.contains(&link) {
-            let e = format!("Can not add the link to the channel because it is already associated: {}.", link);
-            log::debug!("{}", e);
+            let e = format!("Can not add the link to the channel because it is already associated: {}", link);
+            log::trace!("{}", e);
             return Err(zerror!(ZErrorKind::InvalidLink {
                 descr: e
             }));
@@ -479,8 +484,8 @@ impl ChannelLinks {
 
         // Return error if the link was not found
         if index.is_none() {
-            let e = format!("Can not delete the link from the channel because it does not exist: {}.", link);
-            log::debug!("{}", e);
+            let e = format!("Can not delete the link from the channel because it does not exist: {}", link);
+            log::trace!("{}", e);
             return Err(zerror!(ZErrorKind::InvalidLink {
                 descr: format!("{}", link)
             }));
@@ -766,15 +771,15 @@ impl Channel {
             if let Some(ch) = ch.upgrade() {
                 ch
             } else {
-                let e = format!("The channel does not longer exist: {:?}", self.pid);
-                log::debug!("{}", e);
+                let e = format!("The channel does not longer exist: {}", self.pid);
+                log::error!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
             }
         } else {
-            let e = format!("The channel is unitialized: {:?}", self.pid);
-            log::debug!("{}", e);
+            let e = format!("The channel is unitialized: {}", self.pid);
+            log::error!("{}", e);
             return Err(zerror!(ZErrorKind::Other {
                 descr: e
             }))
@@ -820,7 +825,7 @@ impl Channel {
         let callback = if let Some(callback) = &guard.callback {
             callback
         } else {
-            log::debug!("Reliable frame dropped because callback is unitialized: {:?}", payload);
+            log::error!("Reliable frame dropped because callback is unitialized: {:?}", payload);
             return Action::Read
         };
 
@@ -830,7 +835,7 @@ impl Channel {
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
-                    log::trace!("sex {:?} recv {:?}", self.get_peer(), msg);
+                    log::trace!("Session: {}. Message: {:?}", self.get_peer(), msg);
                     let _ = callback.handle_message(msg).await;
                 }
             }
@@ -849,7 +854,7 @@ impl Channel {
         let callback = if let Some(callback) = &guard.callback {
             callback
         } else {
-            log::debug!("Best-effort frame dropped because callback is unitialized: {:?}", payload);
+            log::error!("Best-effort frame dropped because callback is unitialized: {:?}", payload);
             return Action::Read
         };
 
@@ -859,7 +864,7 @@ impl Channel {
             },
             FramePayload::Messages { mut messages } => {
                 for msg in messages.drain(..) {
-                    log::trace!("sex {:?} recv {:?}", self.get_peer(), msg);
+                    log::trace!("Session: {}. Message: {:?}", self.get_peer(), msg);
                     let _ = callback.handle_message(msg).await;
                 }              
             }
@@ -872,7 +877,7 @@ impl Channel {
         // Check if the PID is correct when provided
         if let Some(pid) = pid {
             if pid != self.pid {
-                log::debug!("Received a Close message from a wrong peer ({:?}) with reason: {}. Ignoring.", pid, reason);
+                log::debug!("Received an invalid Close on link {} from peer {} with reason: {}. Ignoring.", link, pid, reason);
                 return Action::Read
             }
         }        
@@ -905,6 +910,7 @@ impl Channel {
 #[async_trait]
 impl TransportTrait for Channel {
     async fn receive_message(&self, link: &Link, message: SessionMessage) -> Action {
+        log::trace!("Received on link {}: {:?}", link, message);
         match message.body {
             SessionBody::Frame { ch, sn, payload } => {
                 match ch {
@@ -947,15 +953,17 @@ impl TransportTrait for Channel {
     }
 
     async fn link_err(&self, link: &Link) {
+        log::debug!("Unexpected error on link: {}", link);
+
         let _ = self.del_link(link).await;
 
+        // @TODO: Remove this statement once the session lease is implemented
         if self.get_links().await.is_empty() {
             // Notify the callback
             if let Some(callback) = &zasynclock!(self.rx).callback {
                 callback.close().await;
             }
-
-            // @TODO: Remove this statement once the session lease is implemented
+            
             let _ = self.manager.del_session(&self.pid).await;
         }
     }

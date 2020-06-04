@@ -22,8 +22,10 @@ macro_rules! zchannel {
         if let Some(inner) = $var.upgrade() { 
             inner
         } else {
+            let e = "Session has been closed".to_string();
+            log::trace!("{}", e);
             return Err(zerror!(ZErrorKind::InvalidSession{
-                descr: "Session has been closed".to_string()
+                descr: e
             }))
         }
     );
@@ -176,7 +178,7 @@ impl SessionManager {
         let link = match manager.new_link(&locator, &transport).await {
             Ok(link) => link,
             Err(e) => {
-                log::debug!("Impossible to create a link to locator {}: {}.", locator, e);
+                log::error!("Can not to create a link to locator {}: {}", locator, e);
                 return Err(e)
             }
         };
@@ -184,7 +186,8 @@ impl SessionManager {
         let (sender, receiver) = channel::<ZResult<Session>>(1);
         
         // Try a maximum number of times to open a session
-        for i in 0..self.0.config.retries {
+        let retries = self.0.config.retries;
+        for i in 0..retries {
             // Create the open future
             let open_fut = initial.open(&link, attachment, &sender).timeout(to);
             let channel_fut = receiver.recv().timeout(to);
@@ -197,23 +200,23 @@ impl SessionManager {
                     Ok(res) => match res {
                         Ok(session) => return Ok(session),
                         Err(e) => {
-                            let e = format!("Open session error: {}.", e);
-                            log::debug!("{}", e);
+                            let e = format!("Can not open a session to {}: {}", locator, e);
+                            log::error!("{}", e);
                             return Err(zerror!(ZErrorKind::Other {
                                 descr: e
                             }))
                         }
                     },
-                    Err(_) => {
-                        let e = "Open session failed unexpectedly.".to_string();
-                        log::debug!("{}", e);
+                    Err(e) => {
+                        let e = format!("Can not open a session to {}: {}", locator, e);
+                        log::error!("{}", e);
                         return Err(zerror!(ZErrorKind::Other {
                             descr: e
                         }))
                     }
                 },
-                Err(_) => {
-                    log::debug!("Opening session has timed-out. Retry: {}.", i);
+                Err(e) => {
+                    log::debug!("Can not open a session to {}: {}. Timeout: {:?}. Attempt: {}/{}", locator, e, to, i, retries);
                     continue
                 }
             }
@@ -222,8 +225,8 @@ impl SessionManager {
         // Delete the link form the link manager
         let _ = manager.del_link(&link.get_src(), &link.get_dst()).await;
 
-        let e = "Open session has reached the maximum number of retries.".to_string();
-        log::debug!("{}", e);
+        let e = format!("Can not open a session to {}: maximum number of attemps reached ({})", locator, retries);
+        log::error!("{}", e);
         Err(zerror!(ZErrorKind::Other {
             descr: e
         }))
@@ -321,7 +324,7 @@ impl SessionManagerInner {
         let mut w_guard = zasyncwrite!(self.protocols);
         if w_guard.contains_key(protocol) {
             return Err(zerror!(ZErrorKind::Other {
-                descr: format!("Can not create the link manager for protocol ({}) because it already exists.", protocol)
+                descr: format!("Can not create the link manager for protocol ({}) because it already exists", protocol)
             }));
         }
 
@@ -335,7 +338,7 @@ impl SessionManagerInner {
             Some(manager) => Ok(manager.clone()),
             None => {
                 Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not get the link manager for protocol ({}) because it does not exist.", protocol)
+                    descr: format!("Can not get the link manager for protocol ({}) because it has not been found", protocol)
                 }))
             }
         }
@@ -346,7 +349,7 @@ impl SessionManagerInner {
             Some(_) => Ok(()),
             None => {
                 Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not delete the link manager for protocol ({}) because it does not exist.", protocol)
+                    descr: format!("Can not delete the link manager for protocol ({}) because it has not been found.", protocol)
                 }))
             }
         }
@@ -399,8 +402,10 @@ impl SessionManagerInner {
         match zasyncwrite!(self.sessions).remove(peer) {
             Some(_) => Ok(()),
             None => {
+                let e = format!("Can not delete the session of peer: {}", peer);
+                log::trace!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not delete the session of peer ({:?}) because it does not exist.", peer)
+                    descr: e
                 }))
             }
         }
@@ -410,8 +415,10 @@ impl SessionManagerInner {
         match zasyncread!(self.sessions).get(peer) {
             Some(channel) => Ok(Session::new(Arc::downgrade(&channel))),
             None => {
+                let e = format!("Can not get the session of peer: {}", peer);
+                log::trace!("{}", e);
                 Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not get the session of peer ({:?}) because it does not exist.", peer)
+                    descr: e
                 }))
             }
         }
@@ -435,8 +442,10 @@ impl SessionManagerInner {
     ) -> ZResult<Session> {
         let mut w_guard = zasyncwrite!(self.sessions);
         if w_guard.contains_key(peer) {
+            let e = format!("Can not create a new session for peer: {}", peer);
+            log::trace!("{}", e);
             return Err(zerror!(ZErrorKind::Other {
-                descr: format!("Can not create a new session for peer ({:?}) because it already exists.", peer)
+                descr: e
             }));
         }
 
@@ -526,22 +535,26 @@ impl Session {
     }
 
     pub async fn close(&self) -> ZResult<()> {
+        log::trace!("{:?}. Close", self);
         let channel = zchannel!(self.0);
         channel.close().await
     }    
 
     pub async fn get_links(&self) -> ZResult<Vec<Link>> {
+        log::trace!("{:?}. Get links", self);
         let channel = zchannel!(self.0);
         Ok(channel.get_links().await)
     }
 
-    pub async fn schedule(&self, message: ZenohMessage, link: Option<Link>) -> ZResult<()> {        
+    pub async fn schedule(&self, message: ZenohMessage, link: Option<Link>) -> ZResult<()> {  
+        log::trace!("{:?}. Schedule: {:?}", self, message);      
         let channel = zchannel!(self.0);
         channel.schedule(message, link).await;
         Ok(())
     }
 
     pub async fn schedule_batch(&self, messages: Vec<ZenohMessage>, link: Option<Link>) -> ZResult<()> {
+        log::trace!("{:?}. Schedule batch: {:?}", self, messages);
         let channel = zchannel!(self.0);
         channel.schedule_batch(messages, link).await;
         Ok(())
@@ -552,7 +565,6 @@ impl Session {
 impl MsgHandler for Session {
     #[inline]
     async fn handle_message(&self, message: ZenohMessage) -> ZResult<()> {
-        log::trace!("sex {:?} send {:?}", zchannel!(self.0).get_peer(), message);
         self.schedule(message, None).await
     }
 
@@ -570,7 +582,7 @@ impl PartialEq for Session {
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(channel) = self.0.upgrade() {
-            write!(f, "Session ({:?})", channel.get_peer())
+            write!(f, "Session: {}", channel.get_peer())
         } else {
             write!(f, "Session closed")
         }

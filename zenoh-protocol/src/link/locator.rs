@@ -47,7 +47,7 @@ impl FromStr for Locator {
                     Ok(addr) => addr,
                     Err(_) => {
                         let e = format!("Invalid TCP socket address: {}", addr);
-                        log::warn!("{}", e);
+                        log::error!("{}", e);
                         return Err(zerror!(ZErrorKind::InvalidLocator {
                             descr: e
                         }))
@@ -57,7 +57,7 @@ impl FromStr for Locator {
             },
             _ => {
                 let e = format!("Invalid protocol locator: {}", proto);
-                log::warn!("{}", e);
+                log::error!("{}", e);
                 Err(zerror!(ZErrorKind::InvalidLocator {
                     descr: e
                 }))
