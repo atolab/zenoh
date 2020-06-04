@@ -298,7 +298,7 @@ async fn read_task(link: Arc<Tcp>) {
                 Ok(mut n) => {
                     if n == 0 {  
                         // Reading 0 bytes means error
-                        log::error!("Zero bytes reading on TCP link: {}", link);
+                        log::warn!("Zero bytes reading on TCP link: {}", link);
                         zlinkerror!();
                     }
 
@@ -613,7 +613,7 @@ impl ManagerTcpInner {
             Ok(socket) => Arc::new(socket),
             Err(e) => {
                 let e = format!("Can not create a new TCP listener on {}: {}", addr, e);
-                log::error!("{}", e);
+                log::warn!("{}", e);
                 return Err(zerror!(ZErrorKind::Other {
                     descr: e
                 }))
