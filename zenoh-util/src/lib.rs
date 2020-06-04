@@ -2,6 +2,7 @@
 
 pub mod sync;
 pub mod collections;
+pub mod plugins;
 
 // This macro performs an async lock on Mutex<T>
 // For performance reasons, it first performs a try_lock() and,

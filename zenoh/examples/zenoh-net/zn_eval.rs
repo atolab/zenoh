@@ -3,7 +3,7 @@ use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
-use zenoh_protocol::proto::queryable::EVAL;
+use zenoh::net::queryable::EVAL;
 
 fn main() {
     // for logging

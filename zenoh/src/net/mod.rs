@@ -11,6 +11,8 @@ pub use consts::*;
 mod session;
 pub use session::*;
 
+pub mod queryable { pub use zenoh_protocol::proto::queryable::*; }
+
 pub const LOCATOR_AUTO: &str = "auto";
 
 pub fn rname_intersect(s1: &str, s2: &str) -> bool {
