@@ -86,17 +86,17 @@ impl Session {
     pub async fn close(&self) -> ZResult<()> {
         // @TODO: implement
         trace!("close()");
-        let inner = &mut self.inner.write();
-        let primitives = inner.primitives.as_ref().unwrap();
-
-        primitives.close().await;
-
+        let inner = self.inner.read();
         if let Some(tx_session) = &self.tx_session {
             return tx_session.close().await
         }
-        Ok(())
-
         // @TODO: session_manager.del_locator()
+
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
+        primitives.close().await;
+
+        Ok(())
     }
 
     pub fn info(&self) -> Properties {
@@ -111,12 +111,13 @@ impl Session {
 
     pub async fn declare_resource(&self, resource: &ResKey) -> ZResult<ResourceId> {
         trace!("declare_resource({:?})", resource);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         let rid = inner.rid_counter.fetch_add(1, Ordering::SeqCst) as ZInt;
         let rname = inner.localkey_to_resname(resource)?;
         inner.local_resources.insert(rid, rname);
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.resource(rid, resource).await;
 
         Ok(rid)
@@ -124,24 +125,26 @@ impl Session {
 
     pub async fn undeclare_resource(&self, rid: ResourceId) -> ZResult<()> {
         trace!("undeclare_resource({:?})", rid);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
+        inner.local_resources.remove(&rid);
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.forget_resource(rid).await;
 
-        inner.local_resources.remove(&rid);
         Ok(())
     }
 
     pub async fn declare_publisher(&self, resource: &ResKey) -> ZResult<Publisher> {
         trace!("declare_publisher({:?})", resource);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
 
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let publ = Publisher{ id, reskey: resource.clone() };
         inner.publishers.insert(id, publ.clone());
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.publisher(resource).await;
 
         Ok(publ)
@@ -149,13 +152,14 @@ impl Session {
 
     pub async fn undeclare_publisher(&self, publisher: Publisher) -> ZResult<()> {
         trace!("undeclare_publisher({:?})", publisher);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         inner.publishers.remove(&publisher.id);
 
         // Note: there might be several Publishers on the same ResKey.
         // Before calling forget_publisher(reskey), check if this was the last one.
         if !inner.publishers.values().any(|p| p.reskey == publisher.reskey) {
-            let primitives = inner.primitives.as_ref().unwrap();
+            let primitives = inner.primitives.as_ref().unwrap().clone();
+            drop(inner);
             primitives.forget_publisher(&publisher.reskey).await;
         }
         Ok(())
@@ -165,14 +169,15 @@ impl Session {
         where DataHandler: FnMut(/*res_name:*/ &str, /*payload:*/ RBuf, /*data_info:*/ DataInfo) + Send + Sync + 'static
     {
         trace!("declare_subscriber({:?})", resource);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let resname = inner.localkey_to_resname(resource)?;
         let dhandler = Arc::new(RwLock::new(data_handler));
         let sub = Subscriber{ id, reskey: resource.clone(), resname, dhandler, session: self.inner.clone() };
         inner.subscribers.insert(id, sub.clone());
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.subscriber(resource, info).await;
 
         Ok(sub)
@@ -181,13 +186,14 @@ impl Session {
     pub async fn undeclare_subscriber(&self, subscriber: Subscriber) -> ZResult<()>
     {
         trace!("undeclare_subscriber({:?})", subscriber);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         inner.subscribers.remove(&subscriber.id);
 
         // Note: there might be several Subscribers on the same ResKey.
         // Before calling forget_subscriber(reskey), check if this was the last one.
         if !inner.subscribers.values().any(|s| s.reskey == subscriber.reskey) {
-            let primitives = inner.primitives.as_ref().unwrap();
+            let primitives = inner.primitives.as_ref().unwrap().clone();
+            drop(inner);
             primitives.forget_subscriber(&subscriber.reskey).await;
         }
         Ok(())
@@ -197,13 +203,14 @@ impl Session {
         where QueryHandler: FnMut(/*res_name:*/ &str, /*predicate:*/ &str, /*replies_sender:*/ &RepliesSender, /*query_handle:*/ QueryHandle) + Send + Sync + 'static
     {
         trace!("declare_queryable({:?}, {:?})", resource, kind);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         let id = inner.decl_id_counter.fetch_add(1, Ordering::SeqCst);
         let qhandler = Arc::new(RwLock::new(query_handler));
         let qable = Queryable{ id, reskey: resource.clone(), kind, qhandler };
         inner.queryables.insert(id, qable.clone());
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.queryable(resource).await;
 
         Ok(qable)
@@ -212,7 +219,7 @@ impl Session {
 
     pub async fn undeclare_queryable(&self, queryable: Queryable) -> ZResult<()> {
         trace!("undeclare_queryable({:?})", queryable);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         inner.queryables.remove(&queryable.id);
 
         // Note: there might be several Queryables on the same ResKey.
@@ -227,7 +234,8 @@ impl Session {
     pub async fn write(&self, resource: &ResKey, payload: RBuf) -> ZResult<()> {
         trace!("write({:?}, [...])", resource);
         let inner = self.inner.read();
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.data(resource, true, &None, payload).await;
         Ok(())
     }
@@ -242,11 +250,12 @@ impl Session {
         where RepliesHandler: FnMut(&Reply) + Send + Sync + 'static
     {
         trace!("query({:?}, {:?}, {:?}, {:?})", resource, predicate, target, consolidation);
-        let inner = &mut self.inner.write();
+        let mut inner = self.inner.write();
         let qid = inner.qid_counter.fetch_add(1, Ordering::SeqCst);
         inner.queries.insert(qid, Arc::new(RwLock::new(replies_handler)));
 
-        let primitives = inner.primitives.as_ref().unwrap();
+        let primitives = inner.primitives.as_ref().unwrap().clone();
+        drop(inner);
         primitives.query(resource, predicate, qid, target, consolidation).await;
 
         Ok(())
