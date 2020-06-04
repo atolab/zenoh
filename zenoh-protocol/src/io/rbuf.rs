@@ -53,22 +53,22 @@ impl RBuf {
         self.pos = (0, 0);
     }
 
-    fn move_pos_no_check(&mut self, n: usize) {
+    fn skip_bytes_no_check(&mut self, n: usize) {
         if n > 0 {
             if self.pos.1 + n < self.current_slice().len() {
                 self.pos.1 += n;
             } else {
                 let remaining = self.current_slice().len() - self.pos.1;
                 self.pos = (self.pos.0 + 1, 0);
-                self.move_pos_no_check(n - remaining)
+                self.skip_bytes_no_check(n - remaining)
             }
         }
     }
 
-    pub fn move_pos(&mut self, n: usize) -> ZResult<()> {
+    pub fn skip_bytes(&mut self, n: usize) -> ZResult<()> {
         let remaining = self.readable();
         if n <= remaining {
-            self.move_pos_no_check(n);
+            self.skip_bytes_no_check(n);
             Ok(())
         } else {
             Err(zerror!(ZErrorKind::BufferUnderflow { missing: n-remaining }))
@@ -78,7 +78,7 @@ impl RBuf {
     #[inline]
     pub fn set_pos(&mut self, index: usize) -> ZResult<()> {
         self.reset_pos();
-        self.move_pos(index)
+        self.skip_bytes(index)
     }
 
     pub fn get_pos(&self) -> usize {
@@ -123,46 +123,69 @@ impl RBuf {
     pub fn read(&mut self) -> ZResult<u8> {
         if self.can_read() {
             let b = self.current_slice()[self.pos.1];
-            self.move_pos_no_check(1);
+            self.skip_bytes_no_check(1);
             Ok(b)
         } else {
             Err(zerror!(ZErrorKind::BufferUnderflow { missing: 1 }))  
         }
     }
 
-    pub fn read_bytes(&mut self,  bs: &mut [u8]) -> ZResult<()> {
-        self.copy_into(bs)?;
-        self.move_pos_no_check(bs.len());
+    // same than read() but not moving read position (allow not mutable self)
+    pub fn get(&self) -> ZResult<u8> {
+        if self.can_read() {
+            let b = self.current_slice()[self.pos.1];
+            Ok(b)
+        } else {
+            Err(zerror!(ZErrorKind::BufferUnderflow { missing: 1 }))  
+        }
+    }
+
+    pub fn read_bytes(&mut self, bs: &mut [u8]) -> ZResult<()> {
+        self.get_bytes(bs)?;
+        self.skip_bytes_no_check(bs.len());
         Ok(())
     }
 
+    fn get_bytes_no_check(&self, slicepos: (usize, usize), bs: &mut [u8]) {
+        let len = bs.len();
+        if len > 0 {
+            let rem_in_current = self.slices[slicepos.0].len() - slicepos.1;
+            let to_read = std::cmp::min(rem_in_current, len);
+            bs[0 .. to_read].copy_from_slice(self.slices[slicepos.0].get_sub_slice(slicepos.1, slicepos.1+to_read));
+            self.get_bytes_no_check((slicepos.0 + 1, 0), &mut bs[to_read..])
+        }
+    }
+
     // same than read_bytes() but not moving read position (allow not mutable self)
-    pub fn copy_into(&self,  bs: &mut [u8]) -> ZResult<()> {
-        let mut len = bs.len();
+    pub fn get_bytes(&self, bs: &mut [u8]) -> ZResult<()> {
+        let len = bs.len();
         let remaining = self.readable();
         if len > remaining {
             return Err(zerror!(ZErrorKind::BufferUnderflow { missing: len-remaining }));
         }
-
-        let mut offset = 0;
-        let mut pos = self.pos;
-        while len > 0 {
-            let rem_in_current = self.slices[pos.0].len() - pos.1;
-            let to_read = std::cmp::min(rem_in_current, len);
-            let dest = &mut bs[offset .. offset+to_read];
-            dest.copy_from_slice(self.slices[pos.0].get_sub_slice(pos.1, pos.1+to_read));
-            pos.0 +=1;
-            pos.1 = 0;
-            len -= to_read;
-            offset += to_read;
-        }
+        self.get_bytes_no_check(self.pos, bs);
         Ok(())
+    }
+
+    pub fn read_vec(&mut self) -> Vec<u8> {
+        let readable = self.readable();
+        let mut vec = vec![0u8; readable];
+        self.get_bytes_no_check(self.pos, &mut vec);
+        self.skip_bytes_no_check(readable);
+        vec
+    }
+
+    // same than read_vec() but not moving read position (allow not mutable self)
+    pub fn get_vec(&self) -> Vec<u8> {
+        let mut vec = vec![0u8; self.readable()];
+        self.get_bytes_no_check(self.pos, &mut vec);
+        vec
     }
 
     // returns a Vec<u8> containing a copy of RBuf content (not considering read position)
     pub fn to_vec(&self) -> Vec<u8> {
         let mut vec = vec![0u8; self.len()];
-        self.copy_into(&mut vec[..]).unwrap();
+        self.get_bytes_no_check((0,0), &mut vec[..]);
         vec
     }
 }
