@@ -25,6 +25,6 @@ name = "tables_bench"
 harness = false
 
 [[bin]]
-name = "broker"
+name = "zenohd"
 test = false
 bench = false
