@@ -192,24 +192,19 @@ impl RBuf {
 
 impl fmt::Display for RBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RBuf{{ slices lengths: [")?;
-        for s in &self.slices {
-            write!(f, " {},", s.len())?;
-        }
-        write!(f, "], pos: {:?} }}", self.pos)
+        write!(f,"RBuf{{ pos: {}, content: {} }}", self.get_pos(), hex::encode_upper(self.to_vec()))
     }
 }
 
 impl fmt::Debug for RBuf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "RBuf{{ pos: {:?},",
-            self.pos)?;
+        write!(f, "RBuf{{ pos: {:?}, ", self.pos)?;
         if self.slices.is_empty() {
-            write!(f, " slices: none }}")
+            write!(f, "slices: none }}")
         } else {
-            write!(f, " slices:")?;
+            write!(f, "slices:")?;
             for s in &self.slices {
-                write!(f," {:02x?},", s.as_slice())?;
+                write!(f," {},", hex::encode_upper(s.as_slice()))?;
             }
             write!(f, " }}")
         }
