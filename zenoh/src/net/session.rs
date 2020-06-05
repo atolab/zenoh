@@ -333,7 +333,7 @@ impl Primitives for Session {
                             && ((queryable.kind == queryable::ALL_KINDS || target.kind  == queryable::ALL_KINDS) 
                                 || (queryable.kind & target.kind != 0))
                         },
-                        Err(err) => {println!("{}. Internal error (queryable reskey to resname failed).", err); false}
+                        Err(err) => {error!("{}. Internal error (queryable reskey to resname failed).", err); false}
                     }
                 });
 

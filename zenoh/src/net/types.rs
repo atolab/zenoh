@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use async_std::sync::Arc;
 use spin::RwLock;
+use log::trace;
 use super::InnerSession;
 
 pub use zenoh_protocol::io::RBuf;
@@ -80,7 +81,7 @@ pub struct Subscriber {
 impl Subscriber {
     pub async fn pull(&self) -> ZResult<()> {
         // @TODO: implement
-        println!("---- PULL on {:?}", self);
+        trace!("pull({:?})", self);
         Ok(())
     }
 }
