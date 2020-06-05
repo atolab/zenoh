@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::Duration;
 
-use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
+use crate::core::{PeerId, ZInt};
 use crate::link::{Link, LinkManager, LinkManagerBuilder, Locator, LocatorProtocol};
 use crate::proto::{Attachment, WhatAmI, ZenohMessage};
 use crate::session::defaults::{
@@ -13,8 +13,9 @@ use crate::session::defaults::{
     SESSION_OPEN_RETRIES, SESSION_SEQ_NUM_RESOLUTION
 };
 use crate::session::{Channel, InitialSession, MsgHandler, SessionHandler, Transport};
-use crate::zerror;
-use zenoh_util::{zasyncread, zasyncwrite};
+
+use zenoh_util::{zasyncread, zasyncwrite, zerror};
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 // Macro to access the session Weak pointer
 macro_rules! zchannel {
@@ -24,9 +25,9 @@ macro_rules! zchannel {
         } else {
             let e = "Session has been closed".to_string();
             log::trace!("{}", e);
-            return Err(zerror!(ZErrorKind::InvalidSession{
+            return zerror!(ZErrorKind::InvalidSession{
                 descr: e
-            }))
+            })
         }
     );
 }
@@ -178,7 +179,7 @@ impl SessionManager {
         let link = match manager.new_link(&locator, &transport).await {
             Ok(link) => link,
             Err(e) => {
-                log::error!("Can not to create a link to locator {}: {}", locator, e);
+                log::warn!("Can not to create a link to locator {}: {}", locator, e);
                 return Err(e)
             }
         };
@@ -201,18 +202,18 @@ impl SessionManager {
                         Ok(session) => return Ok(session),
                         Err(e) => {
                             let e = format!("Can not open a session to {}: {}", locator, e);
-                            log::error!("{}", e);
-                            return Err(zerror!(ZErrorKind::Other {
+                            log::warn!("{}", e);
+                            return zerror!(ZErrorKind::Other {
                                 descr: e
-                            }))
+                            })
                         }
                     },
                     Err(e) => {
                         let e = format!("Can not open a session to {}: {}", locator, e);
-                        log::error!("{}", e);
-                        return Err(zerror!(ZErrorKind::Other {
+                        log::warn!("{}", e);
+                        return zerror!(ZErrorKind::Other {
                             descr: e
-                        }))
+                        })
                     }
                 },
                 Err(e) => {
@@ -226,10 +227,10 @@ impl SessionManager {
         let _ = manager.del_link(&link.get_src(), &link.get_dst()).await;
 
         let e = format!("Can not open a session to {}: maximum number of attemps reached ({})", locator, retries);
-        log::error!("{}", e);
-        Err(zerror!(ZErrorKind::Other {
+        log::warn!("{}", e);
+        zerror!(ZErrorKind::Other {
             descr: e
-        }))
+        })
     }
 
     pub async fn get_sessions(&self) -> Vec<Session> {
@@ -323,9 +324,9 @@ impl SessionManagerInner {
     ) -> ZResult<LinkManager> {
         let mut w_guard = zasyncwrite!(self.protocols);
         if w_guard.contains_key(protocol) {
-            return Err(zerror!(ZErrorKind::Other {
+            return zerror!(ZErrorKind::Other {
                 descr: format!("Can not create the link manager for protocol ({}) because it already exists", protocol)
-            }));
+            })
         }
 
         let lm = LinkManagerBuilder::make(a_self.clone(), protocol);
@@ -336,22 +337,18 @@ impl SessionManagerInner {
     async fn get_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<LinkManager> {
         match zasyncread!(self.protocols).get(protocol) {
             Some(manager) => Ok(manager.clone()),
-            None => {
-                Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not get the link manager for protocol ({}) because it has not been found", protocol)
-                }))
-            }
+            None => zerror!(ZErrorKind::Other {
+                descr: format!("Can not get the link manager for protocol ({}) because it has not been found", protocol)
+            })
         }
     }
 
     async fn del_link_manager(&self, protocol: &LocatorProtocol) -> ZResult<()> {
         match zasyncwrite!(self.protocols).remove(protocol) {
             Some(_) => Ok(()),
-            None => {
-                Err(zerror!(ZErrorKind::Other {
-                    descr: format!("Can not delete the link manager for protocol ({}) because it has not been found.", protocol)
-                }))
-            }
+            None => zerror!(ZErrorKind::Other {
+                descr: format!("Can not delete the link manager for protocol ({}) because it has not been found.", protocol)
+            })
         }
     }
 
@@ -404,9 +401,9 @@ impl SessionManagerInner {
             None => {
                 let e = format!("Can not delete the session of peer: {}", peer);
                 log::trace!("{}", e);
-                Err(zerror!(ZErrorKind::Other {
+                zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         }
     }
@@ -417,9 +414,9 @@ impl SessionManagerInner {
             None => {
                 let e = format!("Can not get the session of peer: {}", peer);
                 log::trace!("{}", e);
-                Err(zerror!(ZErrorKind::Other {
+                zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         }
     }
@@ -444,9 +441,9 @@ impl SessionManagerInner {
         if w_guard.contains_key(peer) {
             let e = format!("Can not create a new session for peer: {}", peer);
             log::trace!("{}", e);
-            return Err(zerror!(ZErrorKind::Other {
+            return zerror!(ZErrorKind::Other {
                 descr: e
-            }));
+            })
         }
 
         // Create the channel object

@@ -1,8 +1,9 @@
 use async_trait::async_trait;
-use crate::zerror; 
-use crate::core::{ZResult, ZError, ZErrorKind};
+
 use crate::proto::{ZenohMessage, ZenohBody, Declaration, Primitives, Reply, zmsg};
 use crate::session::MsgHandler;
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 pub struct DeMux<P: Primitives + Send + Sync> {
     primitives: P,
@@ -61,7 +62,7 @@ impl<P: Primitives + Send + Sync> MsgHandler for DeMux<P> {
                             Some(replier_id) => {
                                 let reply = Reply::ReplyData {source_kind: rep.source_kind, replier_id: replier_id.clone(), reskey: key.clone(), info: info.clone(), payload: payload.clone()};
                                 self.primitives.reply(rep.qid, &reply).await}
-                            None => return Err(zerror!(ZErrorKind::Other {descr: "ReplyData with no replier_id".to_string()}))
+                            None => return zerror!(ZErrorKind::Other {descr: "ReplyData with no replier_id".to_string()})
                         }
                     }
                 }

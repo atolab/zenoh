@@ -4,9 +4,10 @@ extern crate rand;
 
 use criterion::{Criterion, black_box};
 
-use zenoh_protocol::core::{ZInt, ZResult, ResKey};
+use zenoh_protocol::core::{ZInt, ResKey};
 use zenoh_protocol::io::{RBuf, WBuf};
 use zenoh_protocol::proto::{Attachment, Channel, FramePayload, SessionMessage, ZenohMessage, channel};
+use zenoh_util::core::ZResult;
 
 fn _bench_zint_write((v, buf): (u64, &mut WBuf)) {
     buf.write_zint(v);

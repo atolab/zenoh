@@ -1,35 +1,16 @@
-use async_std::sync::{
-    Arc,
-    Mutex
-};
+use async_std::sync::{Arc, Mutex};
 use async_std::task;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use zenoh_protocol::core::{
-    AtomicZInt,
-    PeerId,
-    ResKey,
-    ZInt,
-    ZResult
-};
+use zenoh_protocol::core::{AtomicZInt, PeerId, ResKey, ZInt};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::link::Locator;
-use zenoh_protocol::proto::{
-    ZenohMessage,
-    SeqNum,
-    WhatAmI,
-    whatami
-};
-use zenoh_protocol::session::{
-    MsgHandler,
-    SessionHandler,
-    SessionManager,
-    SessionManagerConfig,
-    SessionManagerOptionalConfig
-};
+use zenoh_protocol::proto::{ZenohMessage, SeqNum, WhatAmI, whatami};
+use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig, SessionManagerOptionalConfig};
 use zenoh_util::zasynclock;
+use zenoh_util::core::ZResult;
 
 
 // Session Handler for the router

@@ -2,8 +2,9 @@ use std::fmt;
 use async_std::sync::Arc;
 use std::io::IoSlice;
 use super::ArcSlice;
-use crate::core::{ZError, ZErrorKind, ZResult};
-use crate::zerror;
+
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 
 #[derive(Clone, Default)]
@@ -71,7 +72,7 @@ impl RBuf {
             self.skip_bytes_no_check(n);
             Ok(())
         } else {
-            Err(zerror!(ZErrorKind::BufferUnderflow { missing: n-remaining }))
+            zerror!(ZErrorKind::BufferUnderflow { missing: n-remaining })
         }
     }
 
@@ -109,7 +110,7 @@ impl RBuf {
     }
 
     pub fn readable(&self) -> usize {
-        if ! self.can_read() {
+        if !self.can_read() {
             0
         } else {
             let mut result = self.current_slice().len() - self.pos.1;
@@ -126,7 +127,7 @@ impl RBuf {
             self.skip_bytes_no_check(1);
             Ok(b)
         } else {
-            Err(zerror!(ZErrorKind::BufferUnderflow { missing: 1 }))  
+            zerror!(ZErrorKind::BufferUnderflow { missing: 1 }) 
         }
     }
 
@@ -136,7 +137,7 @@ impl RBuf {
             let b = self.current_slice()[self.pos.1];
             Ok(b)
         } else {
-            Err(zerror!(ZErrorKind::BufferUnderflow { missing: 1 }))  
+            zerror!(ZErrorKind::BufferUnderflow { missing: 1 })  
         }
     }
 
@@ -161,7 +162,7 @@ impl RBuf {
         let len = bs.len();
         let remaining = self.readable();
         if len > remaining {
-            return Err(zerror!(ZErrorKind::BufferUnderflow { missing: len-remaining }));
+            return zerror!(ZErrorKind::BufferUnderflow { missing: len-remaining })
         }
         self.get_bytes_no_check(self.pos, bs);
         Ok(())

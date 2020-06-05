@@ -1,12 +1,7 @@
-use crate::core::{
-    ZInt,
-    ZError,
-    ZErrorKind,
-    ZResult
-};
+use crate::core::ZInt;
 
-use crate::zerror;
-
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 /// Sequence Number
 /// 
@@ -60,9 +55,9 @@ impl SeqNum {
             Ok(())
         }
         else {
-            Err(zerror!(ZErrorKind::InvalidResolution {
+            zerror!(ZErrorKind::InvalidResolution {
                 descr: "The sequence number value must be smaller than the resolution".to_string()
-            }))
+            })
         }
     }
 

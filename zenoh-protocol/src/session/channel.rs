@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
+use crate::core::{PeerId, ZInt};
 use crate::io::WBuf;
 use crate::link::Link;
 use crate::proto::{FramePayload, SessionBody, SessionMessage, SeqNum, SeqNumGenerator, WhatAmI, ZenohMessage, smsg};
@@ -29,10 +29,12 @@ use crate::session::defaults::{
     // Default slice size when serializing a message that needs to be fragmented
     // WRITE_MSG_SLICE_SIZE
 };
-use crate::zerror;
+
+use zenoh_util::{zasynclock, zasyncread, zasyncwrite, zerror};
 use zenoh_util::collections::{CreditBuffer, CreditQueue};
 use zenoh_util::collections::credit_queue::Drain as CreditQueueDrain;
-use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
+
 
 
 #[derive(Clone, Debug)]
@@ -232,7 +234,7 @@ async fn batch_fragment_transmit(
             if has_failed {
                 // @TODO: Implement fragmentation here
                 //        Drop the message for the time being
-                log::debug!("Message dropped because fragmentation is not yet implemented: {:?}", msg);
+                log::warn!("Message dropped because fragmentation is not yet implemented: {:?}", msg);
                 batch.clear();
                 break
             }
@@ -370,9 +372,9 @@ async fn consume_task(ch: Arc<Channel>) -> ZResult<()> {
     if guard.links.is_empty() {
         let e = "Unable to start the consume task, no links available".to_string();
         log::debug!("{}", e);
-        return Err(zerror!(ZErrorKind::Other {
+        return zerror!(ZErrorKind::Other {
             descr: e
-        }))
+        })
     }
 
     // Keep track of the batch size
@@ -467,9 +469,9 @@ impl ChannelLinks {
         if self.links.contains(&link) {
             let e = format!("Can not add the link to the channel because it is already associated: {}", link);
             log::trace!("{}", e);
-            return Err(zerror!(ZErrorKind::InvalidLink {
+            return zerror!(ZErrorKind::InvalidLink {
                 descr: e
-            }));
+            })
         }
 
         // Add the link to the channel
@@ -486,9 +488,9 @@ impl ChannelLinks {
         if index.is_none() {
             let e = format!("Can not delete the link from the channel because it does not exist: {}", link);
             log::trace!("{}", e);
-            return Err(zerror!(ZErrorKind::InvalidLink {
+            return zerror!(ZErrorKind::InvalidLink {
                 descr: format!("{}", link)
-            }));
+            })
         }
 
         // Remove the link from the channel
@@ -773,16 +775,16 @@ impl Channel {
             } else {
                 let e = format!("The channel does not longer exist: {}", self.pid);
                 log::error!("{}", e);
-                return Err(zerror!(ZErrorKind::Other {
+                return zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         } else {
             let e = format!("The channel is unitialized: {}", self.pid);
             log::error!("{}", e);
-            return Err(zerror!(ZErrorKind::Other {
+            return zerror!(ZErrorKind::Other {
                 descr: e
-            }))
+            })
         };
 
         // If not already active, start the transmission loop
@@ -818,7 +820,7 @@ impl Channel {
         // @TODO: Implement the reordering and reliability. Wait for missing messages.
         let mut guard = zasynclock!(self.rx);        
         if !(guard.sn.reliable.precedes(sn) && guard.sn.reliable.set(sn).is_ok()) {
-            log::debug!("Reliable frame with invalid SN dropped: {:?}", payload);
+            log::warn!("Reliable frame with invalid SN dropped: {}", sn);
             return Action::Read
         }
 
@@ -847,7 +849,7 @@ impl Channel {
     async fn process_best_effort_frame(&self, sn: ZInt, payload: FramePayload) -> Action {
         let mut guard = zasynclock!(self.rx);        
         if !(guard.sn.best_effort.precedes(sn) && guard.sn.best_effort.set(sn).is_ok()) {
-            log::debug!("Best-effort frame with invalid SN dropped: {:?}", payload);
+            log::warn!("Best-effort frame with invalid SN dropped: {}", sn);
             return Action::Read
         }
 
@@ -877,7 +879,7 @@ impl Channel {
         // Check if the PID is correct when provided
         if let Some(pid) = pid {
             if pid != self.pid {
-                log::debug!("Received an invalid Close on link {} from peer {} with reason: {}. Ignoring.", link, pid, reason);
+                log::warn!("Received an invalid Close on link {} from peer {} with reason: {}. Ignoring.", link, pid, reason);
                 return Action::Read
             }
         }        

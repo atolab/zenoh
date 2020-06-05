@@ -1,7 +1,9 @@
 
 use super::{ArcSlice, RBuf, WBuf};
-use crate::core::{ZError, ZErrorKind, ZInt, ZResult, ZINT_MAX_BYTES};
-use crate::zerror;
+use crate::core::{ZInt, ZINT_MAX_BYTES};
+
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 pub fn encoded_size_of(v: ZInt) -> usize {
     // Note that the sizes are already shifted by 2 bits
@@ -28,7 +30,7 @@ impl RBuf {
             v |= ((b & 0x7f) as ZInt)    << i;
             Ok(v)
         } else {
-            Err(zerror!(ZErrorKind::InvalidMessage { descr: "Invalid ZInt (out of 64-bit bound)".to_string() }))    
+            zerror!(ZErrorKind::InvalidMessage { descr: "Invalid ZInt (out of 64-bit bound)".to_string() }) 
         }
     }
 

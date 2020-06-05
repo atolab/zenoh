@@ -8,13 +8,14 @@ use std::collections::HashMap;
 use spin::RwLock;
 use log::{error, warn, info, trace};
 use zenoh_protocol:: {
-    core::{ rname, PeerId, ResourceId, ResKey, ZError, ZErrorKind },
+    core::{ rname, PeerId, ResourceId, ResKey },
     io::RBuf,
     proto::{ DataInfo, Primitives, QueryTarget, QueryConsolidation, Reply, whatami, queryable},
     session::{SessionManager, SessionManagerConfig},
-    zerror
 };
 use zenoh_router::routing::broker::Broker;
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 use super::*;
 
 
@@ -466,7 +467,7 @@ impl InnerSession {
                     None => {
                         match self.local_resources.get(&rid) {
                             Some(name) => Ok(name.clone()),
-                            None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                            None => zerror!(ZErrorKind::UnkownResourceId{rid: format!("{}", rid)})
                         }
                     }
                 }
@@ -477,7 +478,7 @@ impl InnerSession {
                     None => {
                         match self.local_resources.get(&rid) {
                             Some(name) => Ok(name.clone() + suffix),
-                            None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                            None => zerror!(ZErrorKind::UnkownResourceId{rid: format!("{}", rid)})
                         }
                     }
                 }
@@ -492,13 +493,13 @@ impl InnerSession {
             RId(rid) => {
                 match self.local_resources.get(&rid) {
                     Some(name) => Ok(name.clone()),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                    None => zerror!(ZErrorKind::UnkownResourceId{rid: format!("{}", rid)})
                 }
             },
             RIdWithSuffix(rid, suffix) => {
                 match self.local_resources.get(&rid) {
                     Some(name) => Ok(name.clone() + suffix),
-                    None => Err(zerror!(ZErrorKind::UnkownResourceId{rid: *rid}))
+                    None => zerror!(ZErrorKind::UnkownResourceId{rid: format!("{}", rid)})
                 }
             }
         }

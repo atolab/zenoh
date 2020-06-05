@@ -3,13 +3,7 @@ use std::fmt;
 use std::sync::atomic::AtomicU64;
 use uuid::Uuid;
 
-mod zerror;
-pub use zerror::*;
-
 pub mod rname;
-
-
-pub type ZResult<T> = Result<T, ZError>;
 
 pub type ZInt = u64;
 pub type AtomicZInt = AtomicU64;

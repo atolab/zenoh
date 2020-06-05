@@ -5,11 +5,12 @@ use rand::RngCore;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use zenoh_protocol::core::{PeerId, ResKey, ZResult};
+use zenoh_protocol::core::{PeerId, ResKey};
 use zenoh_protocol::io::RBuf;
 use zenoh_protocol::proto::{ZenohMessage, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+use zenoh_util::core::ZResult;
 
 // Session Handler for the peer
 struct MySH {

@@ -8,9 +8,6 @@ use super::InnerSession;
 pub use zenoh_protocol::io::RBuf;
 pub use zenoh_protocol::core::{
     ZInt,
-    ZError,
-    ZErrorKind,
-    ZResult,
     ResourceId,
     ResKey,
     PeerId,
@@ -27,6 +24,7 @@ pub use zenoh_protocol::proto::{
     DataInfo
 };
 pub use zenoh_protocol::proto::Primitives;
+pub use zenoh_util::core::{ZError, ZErrorKind, ZResult};
 
 
 pub type Properties = HashMap<ZInt, Vec<u8>>;

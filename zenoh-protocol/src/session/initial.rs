@@ -4,14 +4,15 @@ use async_trait::async_trait;
 use rand::Rng;
 use std::collections::HashMap;
 
-use crate::core::{PeerId, ZError, ZErrorKind, ZInt, ZResult};
+use crate::core::{PeerId, ZInt};
 use crate::io::WBuf;
 use crate::link::{Link, Locator};
 use crate::proto::{Attachment, SessionMessage, SessionBody, WhatAmI, smsg};
 use crate::session::defaults::SESSION_SEQ_NUM_RESOLUTION;
 use crate::session::{Action, Session, SessionManagerInner, TransportTrait};
-use crate::zerror;
-use zenoh_util::zasyncwrite;
+
+use zenoh_util::{zasyncwrite, zerror};
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 
 const DEFAULT_WBUF_CAPACITY: usize = 64;
@@ -229,7 +230,7 @@ impl InitialSession {
 
                         // Send the message on the link
                         let _ = zlinksend!(message, link);
-                        log::debug!("Rejecting Open on link ({}) because of invalid sequence number resolution on already existing session with peer: {}", link, pid);
+                        log::debug!("Rejecting Open on link {} because of invalid sequence number resolution on already existing session with peer: {}", link, pid);
 
                         // Close the link
                         return Action::Close
@@ -250,7 +251,7 @@ impl InitialSession {
 
                         // Send the message on the link
                         let _ = zlinksend!(message, link);
-                        log::debug!("Rejecting Open on link ({}) because of maximum sessions limit reached for peer: {}", link, pid);
+                        log::debug!("Rejecting Open on link {} because of maximum sessions limit reached for peer: {}", link, pid);
 
                         // Close the link
                         return Action::Close
@@ -288,14 +289,14 @@ impl InitialSession {
 
                 // Concurrency just occured: multiple Open Messages have simultanesouly arrived from different links.
                 // Restart from the beginning to check if the Open Messages have compatible parameters
-                log::trace!("Multiple Open messages have simultanesouly arrived from different links for peer {}. Rechecking validity of Open message recevied on link: {}", pid, link);
+                log::trace!("Multiple Open messages have simultanesouly arrived from different links for peer: {}. Rechecking validity of Open message recevied on link: {}", pid, link);
             }
         };
 
         // Add the link to the session
         let res = session.add_link(link.clone()).await;
         if res.is_err() {
-            log::debug!("Unable to add the link {} to the session with peer {}", link, pid);
+            log::debug!("Unable to add the link {} to the session with peer: {}", link, pid);
             return Action::Close
         }
 
@@ -352,11 +353,12 @@ impl InitialSession {
                 ).await;
                 // Set the callback on the transport
                 if let Err(e) = session.set_callback(callback).await {
-                    log::error!("{}", e);
+                    log::warn!("{}", e);
                     return Action::Close
                 }
             },
-            Err(_) => {
+            Err(e) => {
+                log::warn!("{}", e);
                 return Action::Close
             }            
         }
@@ -403,9 +405,9 @@ impl InitialSession {
                 let _ = zlinksend!(message, link);
 
                 // Notify
-                let err = Err(zerror!(ZErrorKind::InvalidMessage { 
+                let err = zerror!(ZErrorKind::InvalidMessage { 
                     descr: e
-                }));
+                });
                 pending.notify.send(err).await;
                 return Action::Close
             }
@@ -429,9 +431,9 @@ impl InitialSession {
                     let _ = zlinksend!(message, link);
 
                     // Notify
-                    let err = Err(zerror!(ZErrorKind::InvalidMessage { 
+                    let err = zerror!(ZErrorKind::InvalidMessage { 
                         descr: e
-                    }));
+                    });
                     pending.notify.send(err).await;
                     return Action::Close
                 }
@@ -458,9 +460,9 @@ impl InitialSession {
                     let _ = zlinksend!(message, link);
 
                     // Notify
-                    let err = Err(zerror!(ZErrorKind::InvalidMessage { 
+                    let err = zerror!(ZErrorKind::InvalidMessage { 
                         descr: e 
-                    }));
+                    });
                     pending.notify.send(err).await;
                     return Action::Close
                 }
@@ -486,9 +488,9 @@ impl InitialSession {
                 let _ = zlinksend!(message, link);                
 
                 // Notify
-                let err = Err(zerror!(ZErrorKind::InvalidMessage { 
+                let err = zerror!(ZErrorKind::InvalidMessage { 
                     descr: e
-                }));
+                });
                 pending.notify.send(err).await;
                 return Action::Close
             };
@@ -536,7 +538,7 @@ impl InitialSession {
                     ).await;
                     // Set the callback on the transport
                     if let Err(e) = session.set_callback(callback).await {
-                        log::error!("{}", e);
+                        log::warn!("{}", e);
                         // Notify
                         pending.notify.send(Err(e)).await;
                         return Action::Close
@@ -579,9 +581,9 @@ impl InitialSession {
             log::debug!("{}", e);
 
             // Notify
-            let err = Err(zerror!(ZErrorKind::Other { 
+            let err = zerror!(ZErrorKind::Other { 
                 descr: e 
-            }));
+            });
             pending.notify.send(err).await;
         }
 
@@ -622,9 +624,9 @@ impl TransportTrait for InitialSession {
                 // Notify
                 if let Some(pending) = zasyncwrite!(self.pending).remove(link) {     
                     // Notify
-                    let err = Err(zerror!(ZErrorKind::IOError { 
+                    let err = zerror!(ZErrorKind::IOError { 
                         descr: e
-                    }));
+                    });
                     pending.notify.send(err).await;
                 }
 
@@ -639,9 +641,9 @@ impl TransportTrait for InitialSession {
             log::debug!("{}", e);
 
             // Notify            
-            let err = Err(zerror!(ZErrorKind::IOError { 
+            let err = zerror!(ZErrorKind::IOError { 
                 descr: e 
-            }));
+            });
             pending.notify.send(err).await;
         }
     }

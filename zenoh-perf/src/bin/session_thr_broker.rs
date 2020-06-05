@@ -5,10 +5,11 @@ use async_trait::async_trait;
 use rand::RngCore;
 use slab::Slab;
 
-use zenoh_protocol::core::{PeerId, ZResult};
+use zenoh_protocol::core::PeerId;
 use zenoh_protocol::proto::{ZenohMessage, WhatAmI, whatami};
 use zenoh_protocol::link::Locator;
 use zenoh_protocol::session::{MsgHandler, SessionHandler, SessionManager, SessionManagerConfig};
+use zenoh_util::core::ZResult;
 
 
 type Table = Arc<Mutex<Slab<Arc<dyn MsgHandler + Send + Sync>>>>;

@@ -9,13 +9,12 @@ use std::fmt;
 use std::net::Shutdown;
 use std::time::Duration;
 
-use crate::zerror;
-use crate::core::{ZError, ZErrorKind, ZResult};
 use crate::io::{ArcSlice, RBuf};
 use crate::proto::SessionMessage;
 use crate::session::{SessionManagerInner, Action, Transport};
 use super::{Link, LinkTrait, Locator, ManagerTrait};
-use zenoh_util::{zasynclock, zasyncread, zasyncwrite};
+use zenoh_util::{zasynclock, zasyncread, zasyncwrite, zerror};
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 
 // Default MTU (TCP PDU) in bytes.
@@ -40,9 +39,9 @@ macro_rules! get_tcp_addr {
         // _ => {
         //    let e = format!("Not a TCP locator: {}", $locator);
         //    log::debug!("{}", e);    
-        //    return Err(zerror!(ZErrorKind::InvalidLocator {
+        //    return zerror!(ZErrorKind::InvalidLocator {
         //        descr: e
-        //    }))
+        //    })
         // }
     });
 }
@@ -119,9 +118,9 @@ impl LinkTrait for Tcp {
         let res = (&self.socket).write_all(buffer).await;
         if let Err(e) = res {
             log::debug!("Transmission error on TCP link {}: {}", self, e);
-            return Err(zerror!(ZErrorKind::IOError {
+            return zerror!(ZErrorKind::IOError {
                 descr: format!("{}", e)
-            }))
+            })
         }            
 
         Ok(())
@@ -135,16 +134,16 @@ impl LinkTrait for Tcp {
             } else {
                 let e = format!("TCP link does not longer exist: {}", self);
                 log::error!("{}", e);
-                return Err(zerror!(ZErrorKind::Other {
+                return zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         } else {
             let e = format!("TCP link is unitialized: {}", self);
             log::error!("{}", e);
-            return Err(zerror!(ZErrorKind::Other {
+            return zerror!(ZErrorKind::Other {
                 descr: e
-            }))
+            })
         };
 
         // Spawn the read task
@@ -264,8 +263,17 @@ async fn read_task(link: Arc<Tcp>) {
         macro_rules! zdeserialize {
             () => {
                 // Deserialize all the messages from the current RBuf
-                while let Ok(msg) = rbuf.read_session_message() {
-                    messages.push(msg);                     
+                loop {
+                    match rbuf.read_session_message() {
+                        Ok(msg) => messages.push(msg),
+                        Err(e) => match e.get_kind() {
+                            ZErrorKind::InvalidMessage { descr } => {
+                                log::warn!("Closing TCP link {}: {}", link, descr);
+                                zlinkerror!();
+                            },
+                            _ => break
+                        }
+                    }                 
                 }
 
                 for msg in messages.drain(..) {
@@ -424,7 +432,7 @@ async fn read_task(link: Arc<Tcp>) {
                     }
                 },
                 Err(e) => {
-                    log::error!("Reading error on TCP link {}: {}", link, e);
+                    log::warn!("Reading error on TCP link {}: {}", link, e);
                     zlinkerror!();
                 }
             }
@@ -558,10 +566,10 @@ impl ManagerTcpInner {
             Ok(stream) => stream,
             Err(e) => {
                 let e = format!("Can not create a new TCP link bound to {}: {}", dst, e);
-                log::error!("{}", e);
-                return Err(zerror!(ZErrorKind::Other {
+                log::warn!("{}", e);
+                return zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         };
         
@@ -586,9 +594,9 @@ impl ManagerTcpInner {
             None => {
                 let e = format!("Can not delete TCP link because has not been found: {} => {}", src, dst);
                 log::trace!("{}", e);
-                Err(zerror!(ZErrorKind::Other {
+                zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         }
     }
@@ -600,9 +608,9 @@ impl ManagerTcpInner {
             None => {
                 let e = format!("Can not get TCP link because has not been found: {} => {}", src, dst);
                 log::trace!("{}", e);
-                Err(zerror!(ZErrorKind::Other {
+                zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         }
     }
@@ -614,9 +622,9 @@ impl ManagerTcpInner {
             Err(e) => {
                 let e = format!("Can not create a new TCP listener on {}: {}", addr, e);
                 log::warn!("{}", e);
-                return Err(zerror!(ZErrorKind::Other {
+                return zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         };
 
@@ -646,9 +654,9 @@ impl ManagerTcpInner {
             None => {
                 let e = format!("Can not delete the TCP listener because has not been found: {}", addr);
                 log::trace!("{}", e);
-                Err(zerror!(ZErrorKind::Other {
+                zerror!(ZErrorKind::Other {
                     descr: e
-                }))
+                })
             }
         }
     }

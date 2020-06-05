@@ -11,12 +11,12 @@ mod tcp;
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
-use crate::core::ZResult;
-use crate::session::Transport;
-
 use std::cmp::PartialEq;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+use crate::session::Transport;
+use zenoh_util::core::ZResult;
 
 
 /*************************************/

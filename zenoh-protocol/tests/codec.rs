@@ -1,6 +1,8 @@
 
-use zenoh_protocol::core::{ZInt, ZResult};
+use zenoh_protocol::core::ZInt;
 use zenoh_protocol::io::{WBuf, RBuf};
+
+use zenoh_util::core::ZResult;
 
 
 fn test_zint(v: ZInt) -> ZResult<()> {

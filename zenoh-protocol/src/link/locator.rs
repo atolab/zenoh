@@ -4,8 +4,8 @@ use std::fmt;
 use std::hash::Hash;
 use std::str::FromStr;
 
-use crate::zerror;
-use crate::core::{ZError, ZErrorKind};
+use zenoh_util::zerror;
+use zenoh_util::core::{ZError, ZErrorKind};
 
 
 /*************************************/
@@ -45,22 +45,22 @@ impl FromStr for Locator {
             STR_TCP => {
                 let addr: SocketAddr = match addr.parse() {
                     Ok(addr) => addr,
-                    Err(_) => {
-                        let e = format!("Invalid TCP socket address: {}", addr);
-                        log::error!("{}", e);
-                        return Err(zerror!(ZErrorKind::InvalidLocator {
+                    Err(e) => {
+                        let e = format!("Invalid TCP locator: {}", e);
+                        log::warn!("{}", e);
+                        return zerror!(ZErrorKind::InvalidLocator {
                             descr: e
-                        }))
+                        })
                     }
                 };
                 Ok(Locator::Tcp(addr))
             },
             _ => {
                 let e = format!("Invalid protocol locator: {}", proto);
-                log::error!("{}", e);
-                Err(zerror!(ZErrorKind::InvalidLocator {
+                log::warn!("{}", e);
+                zerror!(ZErrorKind::InvalidLocator {
                     descr: e
-                }))
+                })
             }
         }
     }

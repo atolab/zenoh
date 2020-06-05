@@ -11,9 +11,10 @@ use initial::*;
 use async_std::sync::Arc;
 use async_trait::async_trait;
 
-use crate::core::ZResult;
 use crate::link::Link;
 use crate::proto::{SessionMessage, WhatAmI, ZenohMessage};
+
+use zenoh_util::core::ZResult;
 
 /*********************************************************/
 /*           Trait for implementing a transport          */

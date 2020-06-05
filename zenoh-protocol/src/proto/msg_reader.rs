@@ -1,10 +1,12 @@
 use crate::io::RBuf;
-use crate::core::{ZError, ZErrorKind, ZResult, PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
+use crate::core::{PeerId, Property, ResKey, TimeStamp, NO_RESOURCE_ID};
 use crate::link::Locator;
-use crate::zerror;
 
 use super::msg::*;
 use super::decl::{Declaration, SubInfo, SubMode, Reliability, Period};
+
+use zenoh_util::zerror;
+use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 
 
 impl RBuf {
@@ -200,9 +202,9 @@ impl RBuf {
                     break (header, body)
                 },
 
-                unknown => return Err(zerror!(ZErrorKind::InvalidMessage {
-                    descr: format!("ID unknown: {}", unknown)
-                }))
+                unknown => return zerror!(ZErrorKind::InvalidMessage {
+                    descr: format!("Session message with unknown ID: {}", unknown)
+                })
             }
         };
 
@@ -295,9 +297,9 @@ impl RBuf {
                     break (header, body, channel)
                 },
 
-                unknown => return Err(zerror!(ZErrorKind::InvalidMessage {
-                    descr: format!("ID unknown: {}", unknown)
-                }))
+                unknown => return zerror!(ZErrorKind::InvalidMessage {
+                    descr: format!("Zenoh message with unknown ID: {}", unknown)
+                })
             }
         };
 
