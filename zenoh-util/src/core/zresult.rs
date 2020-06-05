@@ -23,7 +23,7 @@ impl fmt::Display for ZErrorKind {
                 write!(f, "Failed to write in full buffer ({} bytes missing)", missing),
             ZErrorKind::BufferUnderflow { missing } =>
                 write!(f, "Failed to read from empty buffer ({} bytes missing)", 
-                  (if *missing == 0 {"some".to_string()} else { missing.to_string() })),
+                  (if *missing == 0 { "some".to_string() } else { missing.to_string() })),
             ZErrorKind::InvalidLocator { descr } =>
                 write!(f, "Invalid locator ({})", descr),
             ZErrorKind::InvalidLink { descr } =>
