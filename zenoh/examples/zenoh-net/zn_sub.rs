@@ -3,11 +3,6 @@ use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
 
-fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
-    println!("FUNCTION >> [Subscription listener] Received ('{}': '{}')", 
-        res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
-}
-
 fn main() {
     task::block_on( async {
         // initiate logging
@@ -32,11 +27,9 @@ fn main() {
             period: None
         };
 
-        let sub = session.declare_subscriber(&selector.clone().into(), &sub_info, data_handler).await.unwrap();
-
-        let sub2 = session.declare_subscriber(&selector.into(), &sub_info,
+        let sub = session.declare_subscriber(&selector.into(), &sub_info,
             move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
-                println!("CLOSURE >> [Subscription listener] Received ('{}': '{}')", 
+                println!(">> [Subscription listener] Received ('{}': '{}')", 
                     res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
             }
         ).await.unwrap();
@@ -48,7 +41,6 @@ fn main() {
         }
 
         session.undeclare_subscriber(sub).await.unwrap();
-        session.undeclare_subscriber(sub2).await.unwrap();
         session.close().await.unwrap();
     })
 }

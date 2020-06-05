@@ -3,11 +3,6 @@ use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
 
-fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
-    println!(">> [Subscription listener] Received ('{}': '{:02x?}')", 
-        res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
-}
-
 fn main() {
     task::block_on( async {
         // initiate logging
@@ -30,7 +25,13 @@ fn main() {
             mode: SubMode::Pull,
             period: None
         };
-        let sub = session.declare_subscriber(&selector.into(), &sub_info, &data_handler).await.unwrap();
+
+        let sub = session.declare_subscriber(&selector.into(), &sub_info,
+            move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
+                println!(">> [Subscription listener] Received ('{}': '{}')", 
+                    res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
+            }
+        ).await.unwrap();
 
         println!("Press <enter> to pull data...");
         let mut stdin = async_std::io::stdin();
