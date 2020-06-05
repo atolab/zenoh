@@ -27,12 +27,11 @@ fn main() {
             period: None
         };
 
-        let sub = session.declare_subscriber(&selector.into(), &sub_info,
-            move |res_name: &str, payload: Vec<u8>, _data_info: DataInfo| {
-                println!(">> [Subscription listener] Received ('{}': '{}')", 
-                    res_name, std::str::from_utf8(&payload).unwrap());
-            }
-        ).await.unwrap();
+        let data_handler = move |res_name: &str, payload: Vec<u8>, _data_info: DataInfo| {
+            println!(">> [Subscription listener] Received ('{}': '{}')", res_name, String::from_utf8_lossy(&payload));
+        };
+
+        let sub = session.declare_subscriber(&selector.into(), &sub_info, data_handler).await.unwrap();
 
         let mut stdin = async_std::io::stdin();
         let mut input = [0u8];

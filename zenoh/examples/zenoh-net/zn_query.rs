@@ -23,7 +23,7 @@ fn main() {
         let replies_handler = move |reply: &Reply| {
             match reply {
                 Reply::ReplyData {reskey, payload, ..} => {println!(">> [Reply handler] received reply data {:?} : {}", 
-                                                            reskey, std::str::from_utf8(&payload.to_vec()).unwrap())}
+                                                            reskey, String::from_utf8_lossy(&payload.to_vec()))}
                 Reply::SourceFinal {..} => {println!(">> [Reply handler] received source final.")}
                 Reply::ReplyFinal => {println!(">> [Reply handler] received reply final.")}
             }

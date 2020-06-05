@@ -28,8 +28,7 @@ fn main() {
         let stored_shared = stored.clone();
 
         let data_handler = move |res_name: &str, payload: Vec<u8>, _data_info: DataInfo| {
-            println!(">> [Subscription listener] Received ('{}': '{}')", 
-                res_name, std::str::from_utf8(&payload).unwrap());
+            println!(">> [Subscription listener] Received ('{}': '{}')", res_name, String::from_utf8_lossy(&payload));
             stored.write().insert(res_name.into(), payload);
         };
 
