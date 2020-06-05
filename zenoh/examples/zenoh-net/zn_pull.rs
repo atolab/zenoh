@@ -27,9 +27,9 @@ fn main() {
         };
 
         let sub = session.declare_subscriber(&selector.into(), &sub_info,
-            move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
+            move |res_name: &str, payload: Vec<u8>, _data_info: DataInfo| {
                 println!(">> [Subscription listener] Received ('{}': '{}')", 
-                    res_name, std::str::from_utf8(&payload.to_vec()).unwrap());
+                    res_name, std::str::from_utf8(&payload).unwrap());
             }
         ).await.unwrap();
 
