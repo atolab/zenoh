@@ -1,4 +1,4 @@
-use std::env;
+use clap::App;
 use std::collections::HashMap;
 use async_std::prelude::*;
 use async_std::task;
@@ -8,15 +8,17 @@ use zenoh::net::*;
 use zenoh::net::queryable::STORAGE;
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        let mut options = args.drain(1..);
-        let uri     = options.next().unwrap_or("/demo/example/**".to_string());
-        let locator = options.next().unwrap_or("".to_string());
+        let args = App::new("zenoh-net storage example")
+            .arg("-l, --locator=[LOCATOR]   'Sets the locator used to initiate the zenoh session'")
+            .arg("-s, --selector=[SELECTOR] 'Sets the selection of resources to store'")
+            .get_matches();
+
+        let locator  = args.value_of("locator").unwrap_or("").to_string();
+        let selector = args.value_of("selector").unwrap_or("/demo/example/**").to_string();
 
         // Create a HashMap to store the keys/values receveid in data_handler closure.
         // As this map has to be used also in query_handler closure, we need to wrap it
@@ -53,11 +55,11 @@ fn main() {
             period: None
         };
 
-        println!("Declaring Subscriber on {}", uri);
-        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
+        println!("Declaring Subscriber on {}", selector);
+        let sub = session.declare_subscriber(&selector.clone().into(), &sub_info, data_handler).await.unwrap();
 
-        println!("Declaring Queryable on {}", uri);
-        let queryable = session.declare_queryable(&uri.into(), STORAGE, query_handler).await.unwrap();
+        println!("Declaring Queryable on {}", selector);
+        let queryable = session.declare_queryable(&selector.into(), STORAGE, query_handler).await.unwrap();
 
         let mut stdin = async_std::io::stdin();
         let mut input = [0u8];

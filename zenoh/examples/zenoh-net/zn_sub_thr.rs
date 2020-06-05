@@ -1,6 +1,6 @@
+use clap::App;
 use async_std::future;
 use async_std::task;
-use std::env;
 use std::time::Instant;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
@@ -15,15 +15,16 @@ fn print_stats(start: Instant) {
 
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        args.pop(); // ignore arg[0] (exe name)
-        let locator = args.pop().unwrap_or("".to_string());
+        let args = App::new("zenoh-net throughput sub example")
+            .arg("-l, --locator=[LOCATOR] 'Sets the locator used to initiate the zenoh session'")
+            .get_matches();
 
+        let locator = args.value_of("locator").unwrap_or("").to_string();
+        
         let session = open(&locator, None).await.unwrap();
 
         let reskey = RId(session.declare_resource(&RName("/test/thr".to_string())).await.unwrap());

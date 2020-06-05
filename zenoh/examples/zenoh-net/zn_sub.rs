@@ -1,4 +1,4 @@
-use std::env;
+use clap::App;
 use async_std::prelude::*;
 use async_std::task;
 use zenoh::net::*;
@@ -9,20 +9,22 @@ fn data_handler(res_name: &str, payload: RBuf, _data_info: DataInfo) {
 }
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        let mut options = args.drain(1..);
-        let uri     = options.next().unwrap_or("/demo/example/**".to_string());
-        let locator = options.next().unwrap_or("".to_string());
+        let args = App::new("zenoh-net sub example")
+            .arg("-l, --locator=[LOCATOR]   'Sets the locator used to initiate the zenoh session'")
+            .arg("-s, --selector=[SELECTOR] 'Sets the selection of resources to subscribe'")
+            .get_matches();
+
+        let locator  = args.value_of("locator").unwrap_or("").to_string();
+        let selector = args.value_of("selector").unwrap_or("/demo/example/**").to_string();
 
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
 
-        println!("Declaring Subscriber on {}", uri);
+        println!("Declaring Subscriber on {}", selector);
 
         let sub_info = SubInfo {
             reliability: Reliability::Reliable,
@@ -30,9 +32,9 @@ fn main() {
             period: None
         };
 
-        let sub = session.declare_subscriber(&uri.clone().into(), &sub_info, data_handler).await.unwrap();
+        let sub = session.declare_subscriber(&selector.clone().into(), &sub_info, data_handler).await.unwrap();
 
-        let sub2 = session.declare_subscriber(&uri.into(), &sub_info,
+        let sub2 = session.declare_subscriber(&selector.into(), &sub_info,
             move |res_name: &str, payload: RBuf, _data_info: DataInfo| {
                 println!("CLOSURE >> [Subscription listener] Received ('{}': '{}')", 
                     res_name, std::str::from_utf8(&payload.to_vec()).unwrap());

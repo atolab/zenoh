@@ -1,25 +1,22 @@
-use std::env;
+use clap::App;
 use async_std::task;
 use zenoh::net::*;
 use zenoh::net::ResKey::*;
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        if args.len() < 2 {
-            println!("USAGE:\n\tzn_pub_thr <payload-size> [<zenoh-locator>]\n\n");
-            std::process::exit(-1);
-        }
+        let args = App::new("zenoh-net throughput pub example")
+            .arg("-l, --locator=[LOCATOR] 'Sets the locator used to initiate the zenoh session'")
+            .arg("<PAYLOAD_SIZE>          'Sets the size of the payload to publish'")
+            .get_matches();
 
-        let mut options = args.drain(1..);
-        let len     = options.next().unwrap().parse::<usize>().unwrap();
-        let locator = options.next().unwrap_or("".to_string());
+        let locator = args.value_of("locator").unwrap_or("").to_string();
+        let size    = args.value_of("size").unwrap().parse::<usize>().unwrap();
 
-        let data: RBuf = (0usize..len).map(|i| (i%10) as u8).collect::<Vec<u8>>().into();
+        let data: RBuf = (0usize..size).map(|i| (i%10) as u8).collect::<Vec<u8>>().into();
 
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();

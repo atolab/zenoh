@@ -1,16 +1,17 @@
-use std::env;
+use clap::App;
 use async_std::task;
 use zenoh::net::*;
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        let mut options = args.drain(1..);
-        let locator = options.next().unwrap_or("".to_string());
+        let args = App::new("zenoh-net info example")
+            .arg("-l, --locator=[LOCATOR] 'Sets the locator used to initiate the zenoh session'")
+            .get_matches();
+
+        let locator = args.value_of("locator").unwrap_or("").to_string();
         
         let mut ps = Properties::new();
         ps.insert(ZN_USER_KEY, "user".as_bytes().to_vec());

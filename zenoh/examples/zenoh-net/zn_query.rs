@@ -1,19 +1,21 @@
-use std::env;
+use clap::App;
 use std::time::Duration;
 use async_std::task;
 use zenoh::net::*;
 
 
 fn main() {
-    // for logging
-    env_logger::init();
-
     task::block_on( async {
-        let mut args: Vec<String> = env::args().collect();
+        // initiate logging
+        env_logger::init();
 
-        let mut options = args.drain(1..);
-        let uri     = options.next().unwrap_or("/demo/example/**".to_string());
-        let locator = options.next().unwrap_or("".to_string());
+        let args = App::new("zenoh-net query example")
+            .arg("-l, --locator=[LOCATOR]   'Sets the locator used to initiate the zenoh session'")
+            .arg("-s, --selector=[SELECTOR] 'Sets the selection of resources to query'")
+            .get_matches();
+
+        let locator  = args.value_of("locator").unwrap_or("").to_string();
+        let selector = args.value_of("selector").unwrap_or("/demo/example/**").to_string();
 
         println!("Openning session...");
         let session = open(&locator, None).await.unwrap();
@@ -27,9 +29,9 @@ fn main() {
             }
         };
 
-        println!("Sending Query '{}'...", uri);
+        println!("Sending Query '{}'...", selector);
         let _eval = session.query(
-            &uri.into(), "",
+            &selector.into(), "",
             replies_handler,
             QueryTarget::default(),
             QueryConsolidation::default()
