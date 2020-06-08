@@ -68,27 +68,27 @@ macro_rules! zasyncrecv {
 
 // This macro allows to define some compile time configurable static constants
 #[macro_export]
-macro_rules! configurable {
+macro_rules! zconfigurable {
     ($(#[$attr:meta])* static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
         lazy_static!($(#[$attr])* static ref $N : $T = match option_env!(stringify!($N)) {
             Some(value) => {value.parse().unwrap()}
             None => {$e} 
         };) ; 
-        configurable!($($t)*);
+        zconfigurable!($($t)*);
     };
     ($(#[$attr:meta])* pub static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
         lazy_static!($(#[$attr])* pub static ref $N : $T = match option_env!(stringify!($N)) {
             Some(value) => {value.parse().unwrap()}
             None => {$e} 
         };) ; 
-        configurable!($($t)*);
+        zconfigurable!($($t)*);
     };
     ($(#[$attr:meta])* pub ($($vis:tt)+) static ref $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
         lazy_static!($(#[$attr])* pub ($($vis)+) static ref $N : $T = match option_env!(stringify!($N)) {
             Some(value) => {value.parse().unwrap()}
             None => {$e} 
         };) ; 
-        configurable!($($t)*);
+        zconfigurable!($($t)*);
     };
     () => ()
 }

@@ -20,7 +20,7 @@ use zenoh_util::core::{ZResult, ZError, ZErrorKind};
 // Default MTU (TCP PDU) in bytes.
 const DEFAULT_MTU: usize = 65_536;
 
-configurable! {
+zconfigurable! {
     // Size of buffer used to read from socket.
     static ref TCP_READ_BUFFER_SIZE: usize = 2*DEFAULT_MTU;
     // Size of the vector used to deserialize the messages.
@@ -592,7 +592,7 @@ impl ManagerTcpInner {
         match zasyncwrite!(self.link).remove(&(*src, *dst)) {
             Some(link) => Ok(link),
             None => {
-                let e = format!("Can not delete TCP link because has not been found: {} => {}", src, dst);
+                let e = format!("Can not delete TCP link because it has not been found: {} => {}", src, dst);
                 log::trace!("{}", e);
                 zerror!(ZErrorKind::Other {
                     descr: e
@@ -606,7 +606,7 @@ impl ManagerTcpInner {
         match zasyncwrite!(self.link).get(&(*src, *dst)) {
             Some(link) => Ok(link.clone()),
             None => {
-                let e = format!("Can not get TCP link because has not been found: {} => {}", src, dst);
+                let e = format!("Can not get TCP link because it has not been found: {} => {}", src, dst);
                 log::trace!("{}", e);
                 zerror!(ZErrorKind::Other {
                     descr: e
@@ -652,7 +652,7 @@ impl ManagerTcpInner {
                 Ok(())
             },
             None => {
-                let e = format!("Can not delete the TCP listener because has not been found: {}", addr);
+                let e = format!("Can not delete the TCP listener because it has not been found: {}", addr);
                 log::trace!("{}", e);
                 zerror!(ZErrorKind::Other {
                     descr: e
@@ -680,8 +680,8 @@ async fn accept_task(a_self: &Arc<ManagerTcpInner>, listener: Arc<ListenerTcpInn
                     // NOTE: This might be due to various factors. However, the most common case is that
                     //       the process has reached the maximum number of open files in the system. On
                     //       Linux systems this limit can be changed by using the "ulimit" command line 
-                    //       tool. In case of systemd systems, this can be changed by using the "sysctl"
-                    //       command line tool.
+                    //       tool. In case of systemd-based systems, this can be changed by using the 
+                    //       "sysctl" command line tool.
                     task::sleep(Duration::from_micros(*TCP_ACCEPT_THROTTLE_TIME)).await;
                     continue
                 }

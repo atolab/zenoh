@@ -1,6 +1,6 @@
 use crate::core::ZInt;
 
-configurable! {
+zconfigurable! {
     // Default session lease in seconds: 5 minutes
     pub(crate) static ref SESSION_LEASE: ZInt = 300;
 

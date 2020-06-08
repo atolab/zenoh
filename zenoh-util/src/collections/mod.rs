@@ -13,3 +13,6 @@ pub use ordered_queue::*;
 pub mod priority_queue;
 pub use priority_queue::*;
 
+pub mod timer;
+pub use timer::*;
+
