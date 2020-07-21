@@ -11,8 +11,6 @@
 // Contributors:
 //   ADLINK zenoh team, <zenoh@adlink-labs.tech>
 //
-#![feature(const_if_match)]
-
 #[macro_use]
 extern crate lazy_static;
 
